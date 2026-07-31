@@ -1,0 +1,53 @@
+#!/bin/bash
+# Switch Yönetim Paneli — uygulama başlatıcısı.
+#
+# Kaynak dosyalar paketin DIŞINDA, bir üst klasörde duruyor:
+#   Switch Yönetim Paneli/
+#     ├── app.py, switch_api.py, static/
+#     └── Switch Yönetim Paneli.app/     <-- burası
+#
+# Dock'ta "Python 3.12" yerine uygulamanın adı ve simgesi görünsün diye
+# yorumlayıcıyı doğrudan çağırmıyoruz: paketin içine bir bağ (symlink)
+# koyup onu çalıştırıyoruz. macOS, çalışan programın yolu .app içinde
+# olduğu için pencereyi bu pakete ait sayıyor.
+set -e
+
+DIR="$(cd "$(dirname "$0")" && pwd)"                # …/Contents/MacOS
+KOD="$(cd "$DIR/../../.." && pwd)"                  # …/Switch Yönetim Paneli
+
+# --- python3 bul ---------------------------------------------------------
+PY=""
+for aday in \
+    /opt/homebrew/bin/python3 \
+    /usr/local/bin/python3 \
+    "$HOME/.pyenv/shims/python3" \
+    /usr/bin/python3
+do
+  [ -x "$aday" ] && PY="$aday" && break
+done
+[ -z "$PY" ] && PY="$(command -v python3 || true)"
+
+if [ -z "$PY" ]; then
+  osascript -e 'display alert "Python bulunamadı" message "Switch Yönetim Paneli için python3 gerekli."'
+  exit 1
+fi
+
+# pyenv/venv sarmalayıcısı olabilir; gerçek yorumlayıcıyı ve yollarını al
+GERCEK="$("$PY" -c 'import sys; print(sys.executable)')"
+EV="$("$PY" -c 'import sys; print(sys.base_prefix)')"
+YOL="$("$PY" -c 'import sys; print(":".join(p for p in sys.path if p))')"
+
+BAG="$DIR/python-runtime"
+ln -sf "$GERCEK" "$BAG" 2>/dev/null || true
+
+# Paket içinden çalışan yorumlayıcı açılabiliyor mu? Açılamıyorsa
+# (PYTHONHOME uyumsuzluğu vb.) sessizce normal yola düşülür.
+if [ -e "$BAG" ] && \
+   PYTHONHOME="$EV" PYTHONPATH="$YOL" "$BAG" -c 'import sys' >/dev/null 2>&1
+then
+  export PYTHONHOME="$EV"
+  export PYTHONPATH="$YOL"
+  exec "$BAG" "$KOD/app.py"
+fi
+
+exec "$PY" "$KOD/app.py"

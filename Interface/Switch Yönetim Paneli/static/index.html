@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch Yönetim Paneli</title>
+<link rel="icon" type="image/png" href="/piton-favicon.png">
+<link rel="apple-touch-icon" href="/piton-favicon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <img src="/piton-logo.svg" alt="Piton" class="logo">
+  <span class="grow"></span>
+  <button id="side-toggle" class="icon" title="Switch listesini gizle/göster"
+          aria-label="Paneli gizle/göster">
+    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
+      <rect x="2" y="4" width="16" height="12" rx="2"></rect>
+      <line x1="8" y1="4" x2="8" y2="16"></line>
+    </svg>
+  </button>
+</header>
+
+<main>
+  <section id="detail" class="hidden">
+    <div class="head">
+      <div>
+        <h2 id="d-name">—</h2>
+        <div class="sub"><span id="d-model"></span> · <span id="d-ip"></span> · v<span id="d-ver"></span></div>
+      </div>
+      <div class="actions">
+        <button id="save-cfg" class="ok"
+                title="Çalışan yapılandırmayı kalıcı hale getir">Kaydet</button>
+        <button id="reboot" class="warn">Yeniden Başlat</button>
+        <button id="factory" class="danger"
+                title="Tüm yapılandırmayı siler, switch varsayılan ayarlara döner">
+          Fabrika Ayarları</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="ports">Portlar &amp; PoE</button>
+      <button class="tab" data-tab="network">IP Ayarı</button>
+    </div>
+
+    <div id="tab-ports" class="panel">
+      <div class="toolbar">
+        <button id="refresh">Yenile</button>
+        <div class="mode" title="Anında: her değişiklik hemen switch'e gider.
+Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır.">
+          <button class="mbtn active" data-mode="anlik">Anında</button>
+          <button class="mbtn" data-mode="toplu">Toplu</button>
+        </div>
+        <svg id="ring" class="ring" viewBox="0 0 28 28" width="26" height="26"
+             title="Son güncellemeden bu yana geçen saniye">
+          <circle class="rbg" cx="14" cy="14" r="11"></circle>
+          <circle class="rfg" cx="14" cy="14" r="11"></circle>
+          <text class="rnum" x="14" y="14">–</text>
+        </svg>
+        <span id="port-info" class="muted"></span>
+      </div>
+
+      <div id="batchbar" class="batchbar hidden">
+        <span id="batch-info">Bekleyen değişiklik yok</span>
+        <span class="grow"></span>
+        <button id="batch-clear" class="ghost sm">Vazgeç</button>
+        <button id="batch-send" class="ok sm">Gönder</button>
+      </div>
+
+      <h3 class="tbl-title">PoE portları <span id="fe-cnt" class="cnt"></span></h3>
+      <table id="fe-ports">
+        <thead><tr>
+          <th>Port</th><th>Bağlantı</th><th>Hız</th>
+          <th>Güç (PoE)</th><th>Tüketim</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h3 class="tbl-title">Uplink portları <span id="ge-cnt" class="cnt"></span></h3>
+      <table id="ge-ports">
+        <thead><tr>
+          <th>Port</th><th>Bağlantı</th><th>Hız</th><th>Durum</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div id="tab-network" class="panel hidden">
+      <div class="form">
+        <label>IP Adresi<input id="n-addr"></label>
+        <label>Ağ Maskesi
+          <select id="n-prefix">
+            <option value="8">/8 — 255.0.0.0</option>
+            <option value="16">/16 — 255.255.0.0</option>
+            <option value="24">/24 — 255.255.255.0</option>
+          </select>
+        </label>
+        <label>MTU<input id="n-mtu" value="1500"></label>
+        <button id="save-net" class="warn">IP'yi Değiştir</button>
+        <p class="muted">IP değişince switch bağlantıyı bırakır; yeni adresten
+          tekrar tarayın.</p>
+      </div>
+    </div>
+  </section>
+
+  <aside id="side">
+    <div id="list" class="list"></div>
+    <div class="disc">
+      <input id="cidr" value="10.1.1.0/24" spellcheck="false"
+             title="Ağ (10.1.1.0/24) ya da tek IP (10.1.1.101)">
+      <button id="scan">Tara</button>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <span class="muted">Switch Yönetim Paneli</span>
+  <span class="grow"></span>
+  <span id="app-ver" class="muted"></span>
+</footer>
+
+<div id="overlay" class="overlay hidden">
+  <div class="box">
+    <div class="spin"></div>
+    <div class="msg">İşleniyor…</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
