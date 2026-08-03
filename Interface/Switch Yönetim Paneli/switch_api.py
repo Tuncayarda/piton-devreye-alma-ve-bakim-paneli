@@ -702,6 +702,14 @@ def main() -> int:
     """
     global SWITCH_PORT
 
+    # Windows konsolu cp1252 olabiliyor; Türkçe karakter yazmak
+    # UnicodeEncodeError veriyor. Çıktıyı UTF-8'e çeviriyoruz.
+    for akis in (sys.stdout, sys.stderr):
+        try:
+            akis.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     p = argparse.ArgumentParser(
         description="Switch Yönetim Paneli — API sunucusu (pencere açmaz)")
     p.add_argument("--host", default="127.0.0.1")

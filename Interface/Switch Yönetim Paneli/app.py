@@ -40,16 +40,45 @@ WIDTH, HEIGHT = 1180, 780
 
 
 # ─────────────────────────────────────────────────────────── konsol güvenliği
-# Windows'ta --noconsole ile paketlenen uygulamada stdout/stderr None olur;
-# print() ya da traceback yazımı AttributeError'a düşer. Program açılır
-# açılmaz güvenli bir hedefe bağlıyoruz.
+# İki ayrı sorun var, ikisi de Windows'ta:
+#   1. --noconsole ile paketlenince stdout/stderr None olur; print()
+#      AttributeError'a düşer.
+#   2. Konsol kod sayfası cp1252 olduğunda Türkçe karakter yazmak
+#      UnicodeEncodeError verir (GitHub Actions Windows runner'ında böyle).
+#      Bu, log() içinde patladığı için hata yakalayıcıları da çökertiyordu.
+# Program açılır açılmaz akışları güvenli hâle getiriyoruz.
 def _akislari_bagla() -> None:
     for ad in ("stdout", "stderr"):
-        if getattr(sys, ad, None) is None:
+        akis = getattr(sys, ad, None)
+        if akis is None:
             setattr(sys, ad, open(os.devnull, "w", encoding="utf-8"))
+            continue
+        try:
+            # UTF-8'e çevir; çeviremezsek en azından hataları yut.
+            akis.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            try:
+                akis.reconfigure(errors="replace")
+            except Exception:
+                pass          # eski/tuhaf akış — log() zaten koruma altında
 
 
 _akislari_bagla()
+
+
+def _yazdir(mesaj: str) -> None:
+    """print(), hiçbir kodlama hatasında programı düşürmemeli."""
+    try:
+        print(mesaj)
+    except UnicodeEncodeError:
+        # Son çare: hedefin kaldırabileceği karakterlere indirge
+        kodlama = getattr(sys.stdout, "encoding", None) or "ascii"
+        try:
+            print(mesaj.encode(kodlama, "replace").decode(kodlama, "replace"))
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 # ───────────────────────────────────────────────────────────────── loglama ──
@@ -99,8 +128,12 @@ def _log_devret() -> None:
 
 
 def log(mesaj: str) -> None:
-    """Hem konsola (varsa) hem log dosyasına yazar; asla patlamaz."""
-    print(mesaj)
+    """Hem konsola (varsa) hem log dosyasına yazar; asla patlamaz.
+
+    Buradan istisna sızarsa hata yakalayıcıların kendisi çöker — o yüzden
+    hem yazdırma hem dosya yazımı tamamen korunuyor.
+    """
+    _yazdir(mesaj)
     damga = time.strftime("%Y-%m-%d %H:%M:%S")
     try:
         with _LOG_KILIT:
@@ -108,7 +141,7 @@ def log(mesaj: str) -> None:
             _log_devret()
             with LOG_DOSYASI.open("a", encoding="utf-8") as f:
                 f.write(f"{damga}  {mesaj}\n")
-    except OSError:
+    except Exception:
         pass          # log yazılamıyorsa uygulama yine de çalışsın
 
 
