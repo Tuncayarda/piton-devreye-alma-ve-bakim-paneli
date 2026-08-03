@@ -240,9 +240,9 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          AD="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.AppImage"
+          TEMEL="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
           chmod +x packaging/appimage.sh
-          ./packaging/appimage.sh dist/SwitchYonetimPaneli "release/$AD" \
+          ./packaging/appimage.sh dist/SwitchYonetimPaneli "release/$TEMEL.AppImage" \
             "${{ steps.surum.outputs.surum }}"
 
       - name: AppImage doğrulaması
@@ -259,22 +259,68 @@ jobs:
           test -x squashfs-root/AppRun || { echo "AppRun yok"; exit 1; }
           ./squashfs-root/usr/bin/SwitchYonetimPaneli --self-test
 
-      - name: Çıktı var mı ve boş mu
+      - name: AppImage'i ZIP'e koy
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          TEMEL="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
+          cd release
+          # ZIP çalıştırma iznini saklar; AppImage açıldığında chmod +x
+          # gerekmez. Ayrıca artifact/release boyutu küçülür.
+          zip -9 -q "$TEMEL.zip" "$TEMEL.AppImage"
+          rm -f "$TEMEL.AppImage"
+          unzip -l "$TEMEL.zip"
+          ls -lh "$TEMEL.zip"
+
+      - name: Çıktıları doğrula
         shell: bash
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          SAYI=$(find release -type f | wc -l)
-          if [ "$SAYI" -eq 0 ]; then
-            echo "::error::release/ boş — paketleme başarısız"
-            exit 1
-          fi
-          KUCUK=$(find release -type f -size -100k)
-          if [ -n "$KUCUK" ]; then
-            echo "::error::şüpheli küçük çıktı: $KUCUK"
-            exit 1
-          fi
-          find release -type f -exec ls -lh {} \;
+          SURUM="${{ steps.surum.outputs.surum }}"
+          HEDEF="${{ matrix.hedef }}"
+
+          # Platform başına TAM olarak hangi dosyaların beklendiği.
+          # Eksik dosya sessizce geçmesin diye tek tek arıyoruz.
+          case "$HEDEF" in
+            windows-x64)
+              BEKLENEN=("SwitchYonetimPaneli-$SURUM-windows-x64.zip"
+                        "SwitchYonetimPaneli-$SURUM-windows-x64-Setup.exe") ;;
+            linux-x86_64)
+              BEKLENEN=("SwitchYonetimPaneli-$SURUM-linux-x86_64.zip") ;;
+            *)
+              BEKLENEN=("SwitchYonetimPaneli-$SURUM-$HEDEF.zip") ;;
+          esac
+
+          echo "release/ içeriği:"
+          ls -lh release/
+
+          EKSIK=0
+          for d in "${BEKLENEN[@]}"; do
+            if [ ! -f "release/$d" ]; then
+              echo "::error::beklenen çıktı yok: $d"
+              EKSIK=1
+            elif [ ! -s "release/$d" ]; then
+              echo "::error::çıktı boş: $d"
+              EKSIK=1
+            else
+              BOYUT=$(du -h "release/$d" | cut -f1)
+              echo "  OK  $d ($BOYUT)"
+            fi
+          done
+          [ "$EKSIK" -eq 0 ] || exit 1
+
+          FAZLA=$(( $(find release -type f | wc -l) - ${#BEKLENEN[@]} ))
+          [ "$FAZLA" -eq 0 ] || echo "::warning::release/ içinde $FAZLA fazladan dosya var"
+
+          # İş özetine yaz: log'a girmeden görünür olsun
+          {
+            echo "### $HEDEF"
+            for d in "${BEKLENEN[@]}"; do
+              echo "- \`$d\` — $(du -h "release/$d" | cut -f1)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Artifact yükle
         uses: actions/upload-artifact@v7
@@ -305,32 +351,45 @@ jobs:
           merge-multiple: true
 
       - name: Dosyaları doğrula
+        shell: bash
         run: |
           set -euo pipefail
+          SURUM="${GITHUB_REF_NAME#v}"
           cd indirilen
+          echo "İndirilen dosyalar:"
           ls -lh
-          # 4 taşınabilir paket + Windows kurulum paketi
-          BEKLENEN=5
-          SAYI=$(find . -maxdepth 1 -type f | wc -l)
-          if [ "$SAYI" -ne "$BEKLENEN" ]; then
-            echo "::error::$BEKLENEN dosya bekleniyordu, $SAYI bulundu"
-            find . -maxdepth 1 -type f
-            exit 1
-          fi
-          for f in *; do
-            [ -s "$f" ] || { echo "::error::boş dosya: $f"; exit 1; }
+
+          # Beklenen tam liste — biri eksikse Release YAYINLANMAZ.
+          BEKLENEN=(
+            "SwitchYonetimPaneli-$SURUM-windows-x64.zip"
+            "SwitchYonetimPaneli-$SURUM-windows-x64-Setup.exe"
+            "SwitchYonetimPaneli-$SURUM-linux-x86_64.zip"
+            "SwitchYonetimPaneli-$SURUM-macos-arm64.zip"
+            "SwitchYonetimPaneli-$SURUM-macos-x64.zip"
+          )
+          EKSIK=0
+          for d in "${BEKLENEN[@]}"; do
+            if [ ! -s "$d" ]; then
+              echo "::error::eksik ya da boş: $d"
+              EKSIK=1
+            else
+              echo "  OK  $d ($(du -h "$d" | cut -f1))"
+            fi
           done
+          [ "$EKSIK" -eq 0 ] || exit 1
 
       - name: SHA256SUMS.txt üret
+        shell: bash
         run: |
           set -euo pipefail
           cd indirilen
           # Glob'u açıkça yazıyoruz: "*" kullanılırsa dosya kendini de
           # listeleyebiliyor.
-          sha256sum *.zip *.AppImage *.exe > SHA256SUMS.txt
+          sha256sum *.zip *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Release oluştur / güncelle
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ETIKET: ${{ github.ref_name }}
@@ -338,15 +397,51 @@ jobs:
           set -euo pipefail
           NOTLAR="$GITHUB_WORKSPACE/.github/release-notes.md"
           cd indirilen
+
           if gh release view "$ETIKET" >/dev/null 2>&1; then
-            echo "Release zaten var — dosyalar üzerine yazılıyor (--clobber)."
+            echo "Release zaten var — dosyalar üzerine yazılıyor."
             gh release upload "$ETIKET" ./* --clobber
+            # Önceki bir çalıştırmadan taslak kalmış olabilir; yayına al.
+            gh release edit "$ETIKET" --draft=false --title "$ETIKET"
           else
+            echo "Yeni release oluşturuluyor: $ETIKET"
             gh release create "$ETIKET" ./* \
               --title "$ETIKET" \
               --notes-file "$NOTLAR" \
               --generate-notes
           fi
-          echo "Release içeriği:"
-          gh release view "$ETIKET" --json assets \
-            --jq '.assets[] | "  \(.name)  \(.size) bayt"'
+
+      - name: Release'i doğrula
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIKET: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # gh release create sessizce yarım kalırsa burada yakalanır.
+          BILGI="$(gh release view "$ETIKET" --json url,isDraft,assets)"
+          ADRES=$(echo "$BILGI" | jq -r .url)
+          TASLAK=$(echo "$BILGI" | jq -r .isDraft)
+          SAYI=$(echo "$BILGI" | jq '.assets | length')
+
+          echo "Release : $ADRES"
+          echo "Taslak  : $TASLAK"
+          echo "Varlık  : $SAYI"
+          echo "$BILGI" | jq -r '.assets[] | "  \(.name)  \(.size) bayt"'
+
+          if [ "$TASLAK" != "false" ]; then
+            echo "::error::Release taslak durumda kaldı"
+            exit 1
+          fi
+          if [ "$SAYI" -ne 6 ]; then
+            echo "::error::6 varlık bekleniyordu (5 paket + SHA256SUMS), $SAYI var"
+            exit 1
+          fi
+
+          {
+            echo "## Release yayınlandı"
+            echo ""
+            echo "$ADRES"
+            echo ""
+            echo "$BILGI" | jq -r '.assets[] | "- `\(.name)` — \(.size) bayt"'
+          } >> "$GITHUB_STEP_SUMMARY"

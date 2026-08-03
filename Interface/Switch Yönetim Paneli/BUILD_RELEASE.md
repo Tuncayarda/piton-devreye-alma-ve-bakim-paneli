@@ -174,7 +174,7 @@ Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
 | Matrix | Runner | Çıktı |
 |---|---|---|
 | windows-x64 | `windows-2025` | onedir ZIP + Inno Setup kurulum paketi |
-| linux-x86_64 | `ubuntu-22.04` | AppImage |
+| linux-x86_64 | `ubuntu-22.04` | AppImage → ZIP |
 | macos-arm64 | `macos-15` | `.app` → `ditto` ZIP |
 | macos-x64 | `macos-15-intel` | `.app` → `ditto` ZIP |
 
@@ -223,7 +223,7 @@ kullanılmaz, fork PR'larına yazma yetkisi verilmez, secret istenmez.
 ```
 SwitchYonetimPaneli-<sürüm>-windows-x64-Setup.exe
 SwitchYonetimPaneli-<sürüm>-windows-x64.zip
-SwitchYonetimPaneli-<sürüm>-linux-x86_64.AppImage
+SwitchYonetimPaneli-<sürüm>-linux-x86_64.zip      (içinde .AppImage)
 SwitchYonetimPaneli-<sürüm>-macos-arm64.zip
 SwitchYonetimPaneli-<sürüm>-macos-x64.zip
 SHA256SUMS.txt
@@ -275,15 +275,21 @@ bulmak için gereklidir. Reddedilirse tarama sonuç vermez
 - macOS: Gatekeeper açılışı engelleyebilir → uygulamaya sağ tık → *Aç*, ya da
   Sistem Ayarları → Gizlilik ve Güvenlik → *Yine de aç*.
 
-**Linux — AppImage.**
+**Linux — AppImage.** ZIP içinde dağıtılır (hem yer kazandırır hem
+çalıştırma iznini korur):
 
 ```bash
-chmod +x SwitchYonetimPaneli-*.AppImage
+unzip SwitchYonetimPaneli-*-linux-x86_64.zip
 ./SwitchYonetimPaneli-*.AppImage
 ```
 
-Artifact/Release indirmelerinde çalıştırma izni korunmaz; `chmod +x`
-gereklidir. Qt kütüphaneleri eksikse:
+ZIP açıldığında dosya çalıştırılabilir gelir. Yine de izin sorunu görürsen:
+
+```bash
+chmod +x SwitchYonetimPaneli-*.AppImage
+```
+
+Qt kütüphaneleri eksikse:
 
 ```bash
 sudo apt install libxcb-cursor0 libegl1 libgl1

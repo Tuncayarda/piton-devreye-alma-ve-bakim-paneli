@@ -4,7 +4,7 @@
 |---|---|---|
 | **Windows x64** | `...-windows-x64-Setup.exe` | **Önerilen.** Kurulum paketi |
 | Windows x64 | `...-windows-x64.zip` | Taşınabilir — aşağıdaki uyarıyı okuyun |
-| Linux x86_64 | `...-linux-x86_64.AppImage` | `chmod +x` sonra çalıştırın |
+| Linux x86_64 | `...-linux-x86_64.zip` | ZIP içinde AppImage — açıp çalıştırın |
 | macOS Apple Silicon | `...-macos-arm64.zip` | Açın, `.app`'i çalıştırın |
 | macOS Intel | `...-macos-x64.zip` | Açın, `.app`'i çalıştırın |
 
