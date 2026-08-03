@@ -1,7 +1,7 @@
 ﻿; Switch Yönetim Paneli — Windows kurulum paketi (Inno Setup 6.3+)
 ;
 ; Derleme (sürüm ve yollar dışarıdan verilir, tek sürüm kaynağı korunur):
-;   ISCC.exe /DMyAppVersion=1.0.1 ^
+;   ISCC.exe /DMyAppVersion=1.0.2 ^
 ;            /DSourceDir=..\..\dist\SwitchYonetimPaneli ^
 ;            /DOutputDir=..\..\release ^
 ;            SwitchYonetimPaneli.iss

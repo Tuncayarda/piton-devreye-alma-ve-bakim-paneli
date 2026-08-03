@@ -364,8 +364,18 @@ async function loadInfo() {
 // konnektör rengi bunlardan türer, o yüzden tek yerde tanımlı.
 //   açık     — PoE portunda güç veriliyor, uplinkte port etkin
 //   besliyor — PoE portu gerçekten cihaz besliyor (watt çekiyor)
+// Bir portun iki bağımsız anahtarı var ve karıştırılmamalı:
+//   adminStat -> veri iletimi (portun kendisi açık mı)
+//   poeMode   -> güç (yalnızca PoE portlarında)
+// Gücü kapatmak veriyi kesmez: kendi elektriğiyle çalışan bir cihaz
+// (bilgisayar, uplink) porttan haberleşmeye devam eder. Veri kapatılırsa
+// güç de anlamsız kalır, o yüzden ikisi birlikte kapatılır.
 function portAcik(p) {
-  return p.poe ? p.poeMode !== "0" : Boolean(p.adminStat);
+  return Boolean(p.adminStat);           // veri iletimi
+}
+
+function gucAcik(p) {
+  return Boolean(p.poe) && p.poeMode !== "0";
 }
 
 function portBesliyor(p) {
@@ -373,12 +383,14 @@ function portBesliyor(p) {
 }
 
 // Bağlantı sütunundaki kare:
-//   yeşil — besliyor · mavi — bağlı ama güç çekmiyor
-//   kırmızı — kapatılmış · gri — açık ama karşısında cihaz yok
+//   kırmızı — port kapalı (veri yok)
+//   yeşil   — bağlı ve güç çekiyor
+//   mavi    — bağlı, güç çekmiyor (PoE kapalı ya da cihaz kendi beslenir)
+//   gri     — port açık ama karşısında cihaz yok
 function nokta(p) {
+  if (!portAcik(p)) return "off";
   if (portBesliyor(p)) return "up";
   if (p.linkStat === "up") return "data";
-  if (!portAcik(p)) return "off";
   return "down";
 }
 
@@ -438,7 +450,7 @@ function renderPorts() {
     return `${p.speed}M / ${p.duplex ? "Full" : "Half"}`;
   };
 
-  // --- PoE portları: kontrol yalnızca güç menüsünden
+  // --- PoE portları: iki ayrı denetim — veri (Durum) ve güç (PoE)
   const fe = ports.filter((p) => p.poe);
   const feBody = $("#fe-ports tbody");
   feBody.innerHTML = "";
@@ -455,9 +467,16 @@ function renderPorts() {
       <td>${p.pid}</td>
       <td>${linkCell(p)}</td>
       <td>${hizCell(p)}</td>
+      <td><button class="pill ${p.adminStat ? "on" : "off"}"
+                  data-admin="${p.pid}" data-on="${p.adminStat}"
+                  title="${p.adminStat ? "Portu kapat (güç de kesilir)"
+                                       : "Portu aç"}">
+            ${p.adminStat ? "Açık" : "Kapalı"}</button>${
+        etiket(bekleyenPort.has(p.pid))}</td>
       <td><select class="poe ${p.poeMode === "0" ? "off" : "on"}"
-                  data-poe="${p.pid}">${sel}</select>${
-        etiket(bekleyenPoe.has(p.pid))}</td>
+                  data-poe="${p.pid}" ${p.adminStat ? "" : "disabled"}
+                  title="${p.adminStat ? "" : "Port kapalıyken güç verilemez"}"
+                  >${sel}</select>${etiket(bekleyenPoe.has(p.pid))}</td>
       <td>${draw}</td>`;
     feBody.appendChild(tr);
   });
@@ -528,9 +547,18 @@ async function setPoe(port, mode) {
 }
 
 async function togglePort(port, enable) {
+  const ham = hamPort(port);
+  // PoE portunda veriyi kapatmak gücü de kapatır: veri geçmeyen bir porta
+  // güç vermenin anlamı yok. (Tersi geçerli değil — güç kapalıyken port
+  // haberleşmeye devam edebilir, örneğin kendi elektriği olan bir cihaz.)
+  const gucuDeKes = !enable && Boolean(ham.poe) && ham.poeMode !== "0";
+
   if (mod === "toplu") {
-    if (Boolean(hamPort(port).adminStat) === enable) bekleyenPort.delete(port);
+    if (Boolean(ham.adminStat) === enable) bekleyenPort.delete(port);
     else bekleyenPort.set(port, enable);
+    if (gucuDeKes) bekleyenPoe.set(port, "0");
+    if (enable && bekleyenPoe.get(port) === "0"
+        && String(ham.poeMode) === "0") bekleyenPoe.delete(port);
     renderPorts();
     return;
   }
@@ -538,16 +566,32 @@ async function togglePort(port, enable) {
   if (!enable && uplinkPids().includes(port)) {
     if (!(await onay({
       baslik: "Bağlı port kapatılacak",
-      mesaj: `Port ${port} şu an bağlı. Kapatırsan switch'e ` +
-             "erişimini kaybedebilirsin.",
+      mesaj: `Port ${port} şu an bağlı. Kapatırsan bu porttaki cihazın ` +
+             "bağlantısı kesilir." +
+             (gucuDeKes ? " PoE gücü de kapatılacak." : ""),
+      onayMetni: "Portu kapat", tehlike: true }))) return;
+  } else if (gucuDeKes) {
+    if (!(await onay({
+      baslik: "Port kapatılacak",
+      mesaj: `Port ${port} kapatılacak. Veri iletimi durur, PoE gücü de ` +
+             "kesilir.",
       onayMetni: "Portu kapat", tehlike: true }))) return;
   }
+
+  // Güç de kesilecekse tek istekte gönderiyoruz: iki ayrı çağrı arada
+  // yarım bir duruma (veri kapalı, güç açık) düşürürdü.
+  const govde = gucuDeKes
+    ? { ip: current, ports: { [port]: false }, poe: { [port]: "0" } }
+    : { ip: current, port, enabled: enable };
+  const yol = gucuDeKes ? "/api/switch/batch" : "/api/switch/port";
+
   await islem(`Port ${port} ${enable ? "açılıyor" : "kapatılıyor"}…`,
-    () => api("/api/switch/port", {
+    () => api(yol, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ip: current, port, enabled: enable }),
+      body: JSON.stringify(govde),
     }),
-    `Port ${port} ${enable ? "açıldı" : "kapatıldı"}`).catch(() => {});
+    `Port ${port} ${enable ? "açıldı" : "kapatıldı"}` +
+    (gucuDeKes ? " (güç de kesildi)" : "")).catch(() => {});
 }
 
 // ------------------------------------------------- toplu gönderim ---------
@@ -744,10 +788,13 @@ const pinHalka = (n, r) => Array.from({ length: n }, (_, i) => {
 
 function durumSinifi(p) {
   if (p.bekliyor) return "pend";
-  if (!portAcik(p)) return "off";
-  if (portBesliyor(p)) return "feed";
-  if (p.linkStat === "up") return "link";
-  return "";
+  // Port kapalıysa (veri yok) kırmızı. PoE'nin kapalı olması portu
+  // kapatmaz — o durum ayrıca "gucsuz" işaretiyle gösteriliyor.
+  let sinif = !portAcik(p) ? "off"
+    : portBesliyor(p) ? "feed"
+      : p.linkStat === "up" ? "link" : "";
+  if (p.poe && portAcik(p) && !gucAcik(p)) sinif += " gucsuz";
+  return sinif.trim();
 }
 
 function portEtiketi(p) {
@@ -907,6 +954,11 @@ function portMenusu(p, e) {
     ["0", "1", "2"].forEach((mode) => {
       const el = menuSatiri(POE_AD[mode], "", {}, () => {
         const g = canli();
+        // Port kapalıyken güç verilemez; önce portu açmak gerekir.
+        if (!g.adminStat && mode !== "0") {
+          toast(`Port ${p.pid} kapalı — önce portu açın`, "err");
+          return;
+        }
         if (g.poeMode !== mode) setPoe(p.pid, mode);
       });
       satirlar.push({
@@ -917,8 +969,10 @@ function portMenusu(p, e) {
       });
       m.appendChild(el);
     });
-  } else {
-    baslik("Port durumu");
+  }
+
+  {
+    baslik("Port durumu (veri)");
     const ac = menuSatiri("Portu aç", "", {}, () => {
       if (!canli().adminStat) togglePort(p.pid, true);
     });

@@ -49,7 +49,7 @@ def kaynak_dizini() -> Path:
 STATIC_DIR = kaynak_dizini() / "static"
 
 # Uygulama sürümü — alt barda gösterilir. Tek kaynak burası.
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 # ------------------------------------------------------------------ ayar --
 PREFIX_TO_MASK = {"8": "255.0.0.0", "16": "255.255.0.0", "24": "255.255.255.0"}

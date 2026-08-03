@@ -292,6 +292,7 @@ h2 {
 .pm-legend i.p { background: var(--warn); }
 .pm-legend i.e { background: var(--faint); }
 .pm-legend i.o { background: var(--danger); }
+.pm-legend i.g { background: var(--danger-hi); border-radius: 50%; }
 
 /* Fiziksel yerleşim: 4 satır. Sol sütun servis (Alarm/USB/CON/EX-PWR),
    ardından PoE portları sütun sütun aşağıdan yukarı (1-2-3-4 | 5-6-7-8 …),
@@ -350,6 +351,11 @@ h2 {
 .m12.off   .key { fill: rgba(218, 54, 51, .6); }
 .m12.off   .pin { fill: rgba(224, 92, 89, .55); }
 
+/* Port açık ama PoE kapalı: hat çalışıyor, yalnızca güç yok.
+   Kabuk rengi bağlantı durumunu göstermeye devam eder, pinler kırmızıya
+   döner. (Eskiden bu durum "port kapalı" gibi kırmızı gösteriliyordu.) */
+.m12.gucsuz .pin { fill: rgba(224, 92, 89, .8); }
+
 /* ── tablolar ──────────────────────────────────────────────────── */
 .tbl-title {
   display: flex; align-items: baseline; gap: 9px; margin: 0 0 8px;
@@ -382,8 +388,13 @@ tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
    Böylece link düşüp "1000M Full" yazısı kaybolunca düğmeler oynamıyor. */
 #fe-ports th:nth-child(1), #ge-ports th:nth-child(1) { width: 64px; }
 #fe-ports th:nth-child(3), #ge-ports th:nth-child(3) { width: 110px; }
-#fe-ports th:nth-child(4), #ge-ports th:nth-child(4) { width: 190px; }
-#fe-ports th:nth-child(5) { width: 110px; }
+/* PoE tablosu: Durum (veri) + Güç (PoE) + Tüketim */
+#fe-ports th:nth-child(4) { width: 150px; }
+#fe-ports th:nth-child(5) { width: 175px; }
+#fe-ports th:nth-child(6) { width: 110px; }
+#ge-ports th:nth-child(4) { width: 190px; }
+/* port kapalıyken güç seçilemez */
+select.poe:disabled { opacity: .45; cursor: not-allowed; }
 
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 0; margin-right: 7px; vertical-align: 1px; }
 .dot.up { background: var(--ok); }        /* bağlı, güç çekiyor */

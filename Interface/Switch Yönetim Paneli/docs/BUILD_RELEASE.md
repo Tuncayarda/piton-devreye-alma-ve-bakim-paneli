@@ -58,6 +58,38 @@ sebebini bir pencereyle bildirir.
 
 ---
 
+## 1b. Port durumu ve güç: iki ayrı anahtar
+
+Her portta birbirinden bağımsız iki denetim var:
+
+| Anahtar | Ne yapar | Nerede |
+|---|---|---|
+| **Durum** (`adminStat`) | Veri iletimi | Tüm portlarda |
+| **Güç** (`poeMode`) | PoE beslemesi | Yalnızca PoE portlarında |
+
+Kurallar:
+
+- **Gücü kapatmak veriyi kesmez.** Kendi elektriğiyle çalışan bir cihaz
+  (bilgisayar, yönlendirici) PoE kapalıyken de porttan haberleşmeye devam
+  eder. Bu durum ön panelde kırmızı değil; konnektör bağlantı rengini korur,
+  pinleri kırmızıya döner (*Güç kapalı* göstergesi).
+- **Veriyi kapatmak gücü de kapatır.** Veri geçmeyen porta güç vermenin
+  anlamı yok; arayüz ikisini tek istekte gönderir, arada "veri kapalı ama
+  güç açık" gibi yarım bir duruma düşülmez.
+- Port kapalıyken güç seçimi devre dışıdır.
+
+Ön panel renkleri:
+
+| Renk | Anlam |
+|---|---|
+| Yeşil | Bağlı, güç çekiyor |
+| Mavi | Bağlı, güç çekmiyor (PoE kapalı ya da cihaz kendi beslenir) |
+| Gri | Port açık, karşısında cihaz yok |
+| Kırmızı | Port kapalı (veri yok) |
+| Kırmızı pinler | Port açık, PoE kapalı |
+
+---
+
 ## 2. Self-test
 
 ```bash
@@ -146,7 +178,7 @@ Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
   -OutFile packaging\windows\redist\MicrosoftEdgeWebview2Setup.exe
 
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  "/DMyAppVersion=1.0.1" `
+  "/DMyAppVersion=1.0.2" `
   "/DSourceDir=..\..\dist\SwitchYonetimPaneli" `
   "/DOutputDir=..\..\release" `
   "packaging\windows\SwitchYonetimPaneli.iss"
@@ -170,10 +202,10 @@ Kurulum paketi ne yapar:
 ```bash
 cd "Interface/Switch Yönetim Paneli"
 ./packaging/appimage.sh dist/SwitchYonetimPaneli \
-    release/SwitchYonetimPaneli-1.0.1-linux-x86_64.AppImage 1.0.1
+    release/SwitchYonetimPaneli-1.0.2-linux-x86_64.AppImage 1.0.2
 # CI ayrıca bunu ZIP'e alır (çalıştırma izni korunsun diye)
-zip -9 -j release/SwitchYonetimPaneli-1.0.1-linux-x86_64.zip \
-    release/SwitchYonetimPaneli-1.0.1-linux-x86_64.AppImage
+zip -9 -j release/SwitchYonetimPaneli-1.0.2-linux-x86_64.zip \
+    release/SwitchYonetimPaneli-1.0.2-linux-x86_64.AppImage
 ```
 
 `appimagetool` sürümü betikte sabittir (**1.9.1**). `APPIMAGETOOL_SHA256`
