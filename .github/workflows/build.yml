@@ -61,7 +61,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_SURUMU }}
           cache: pip
-          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/requirements*.txt
+          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/docs/requirements*.txt
 
       - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
         if: runner.os == 'Linux'
@@ -75,8 +75,8 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r "${{ matrix.req }}"
-          python -m pip install -r requirements-build.txt
+          python -m pip install -r "docs/${{ matrix.req }}"
+          python -m pip install -r docs/requirements-build.txt
 
       - name: Sürümü belirle
         id: surum
@@ -396,7 +396,7 @@ jobs:
         run: |
           set -euo pipefail
           SURUM="${GITHUB_REF_NAME#v}"
-          NOTLAR="$GITHUB_WORKSPACE/docs/RELEASE_NOTES.md"
+          NOTLAR="$GITHUB_WORKSPACE/Interface/Switch Yönetim Paneli/docs/RELEASE_NOTES.md"
           cd indirilen
 
           if gh release view "$ETIKET" >/dev/null 2>&1; then

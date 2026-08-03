@@ -47,7 +47,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_SURUMU }}
           cache: pip
-          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/requirements*.txt
+          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/docs/requirements*.txt
 
       - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
         if: runner.os == 'Linux'
@@ -61,7 +61,7 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r "${{ matrix.req }}"
+          python -m pip install -r "docs/${{ matrix.req }}"
 
       - name: Söz dizimi / derleme kontrolü
         working-directory: ${{ env.UYGULAMA_DIZINI }}

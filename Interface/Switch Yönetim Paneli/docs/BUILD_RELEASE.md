@@ -14,19 +14,23 @@ Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 
 ```
 .
-├── docs/                                  bütün belgeler
-│   ├── BUILD_RELEASE.md                   bu dosya
-│   └── RELEASE_NOTES.md                   Release gövdesi (CI kullanır)
+├── README.md
 ├── .github/workflows/
-│   ├── ci.yml                             kurulum + self-test
-│   └── build.yml                          paket üretimi ve Release
-└── Interface/Switch Yönetim Paneli/        uygulamanın kendisi
-    ├── app.py, switch_api.py              kaynak kod
-    ├── static/                            arayüz
-    ├── icons/                             uygulama simgeleri
-    ├── packaging/                         AppImage + Inno Setup
-    ├── requirements*.txt                  bağımlılıklar
-    └── SwitchYonetimPaneli.spec           PyInstaller
+│   ├── ci.yml                         kurulum + self-test
+│   └── build.yml                      paket üretimi ve Release
+└── Interface/Switch Yönetim Paneli/    uygulamanın tamamı
+    ├── app.py                         giriş noktası, pencere, self-test
+    ├── switch_api.py                  yerel HTTP servisi + switch API'si
+    ├── SwitchYonetimPaneli.spec       PyInstaller yapılandırması
+    ├── static/                        arayüz (html, css, js, görseller)
+    ├── icons/                         app.icns / app.ico / app.png
+    ├── packaging/
+    │   ├── appimage.sh                Linux AppImage
+    │   └── windows/                   Inno Setup betiği
+    └── docs/                          belgeler ve bağımlılık listeleri
+        ├── BUILD_RELEASE.md           bu dosya
+        ├── RELEASE_NOTES.md           Release gövdesi (CI kullanır)
+        └── requirements*.txt          platform bağımlılıkları
 ```
 
 ---
@@ -35,7 +39,7 @@ Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 
 ```bash
 cd "Interface/Switch Yönetim Paneli"
-pip install -r requirements-macos.txt      # ya da -windows / -linux
+pip install -r docs/requirements-macos.txt   # ya da -windows / -linux
 python3 app.py
 ```
 
@@ -118,8 +122,8 @@ build almayı durdurur (`SYP_PYTHON_SERBEST=1` ile aşılabilir).
 
 ```bash
 cd "Interface/Switch Yönetim Paneli"
-pip install -r requirements-<platform>.txt
-pip install -r requirements-build.txt
+pip install -r docs/requirements-<platform>.txt
+pip install -r docs/requirements-build.txt
 python -m PyInstaller --noconfirm --clean SwitchYonetimPaneli.spec
 ```
 

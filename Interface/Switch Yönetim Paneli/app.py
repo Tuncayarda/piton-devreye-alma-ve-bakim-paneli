@@ -5,7 +5,7 @@ Yerel HTTP servisini arka planda başlatır ve arayüzü pywebview penceresinde
 açar. Tarayıcı kullanılmaz: adres çubuğu, sekme, tarayıcıya düşme yoktur.
 pywebview kurulu değilse uygulama açılmaz, sebebini söyleyip çıkar.
 
-Platform gereksinimleri (requirements-*.txt):
+Platform gereksinimleri (docs/requirements-*.txt):
     Windows : pywebview + WebView2 çalışma zamanı (Edge ile birlikte gelir)
     macOS   : pywebview + pyobjc (WebKit)
     Ubuntu  : pywebview[qt] (PyQt/QtWebEngine)
@@ -376,10 +376,10 @@ def self_test() -> int:
 # ───────────────────────────────────────────────────────────────────── main ─
 PYWEBVIEW_YOK = (
     "Uygulama penceresi için pywebview gerekli ve kurulu değil.\n\n"
-    "Kurulum:\n"
-    "  Windows : pip install -r requirements-windows.txt\n"
-    "  macOS   : pip install -r requirements-macos.txt\n"
-    "  Ubuntu  : pip install -r requirements-linux.txt"
+    "Kurulum (uygulama klasöründe):\n"
+    "  Windows : pip install -r docs/requirements-windows.txt\n"
+    "  macOS   : pip install -r docs/requirements-macos.txt\n"
+    "  Ubuntu  : pip install -r docs/requirements-linux.txt"
 )
 
 
