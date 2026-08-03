@@ -395,6 +395,7 @@ jobs:
           ETIKET: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          SURUM="${GITHUB_REF_NAME#v}"
           NOTLAR="$GITHUB_WORKSPACE/.github/release-notes.md"
           cd indirilen
 
@@ -403,6 +404,18 @@ jobs:
             gh release upload "$ETIKET" ./* --clobber
             # Önceki bir çalıştırmadan taslak kalmış olabilir; yayına al.
             gh release edit "$ETIKET" --draft=false --title "$ETIKET"
+
+            # Adı değişen çıktılar geride kalıyor: --clobber yalnızca aynı
+            # isimli dosyayı değiştirir, eskisini silmez. (Örn. AppImage
+            # ZIP'e alınınca eski .AppImage varlığı asılı kalmıştı.)
+            echo "Beklenmeyen eski varlıklar temizleniyor…"
+            gh release view "$ETIKET" --json assets --jq '.assets[].name' \
+            | while read -r AD; do
+                if [ ! -e "$AD" ]; then
+                  echo "  siliniyor: $AD"
+                  gh release delete-asset "$ETIKET" "$AD" --yes
+                fi
+              done
           else
             echo "Yeni release oluşturuluyor: $ETIKET"
             gh release create "$ETIKET" ./* \
@@ -422,21 +435,27 @@ jobs:
           BILGI="$(gh release view "$ETIKET" --json url,isDraft,assets)"
           ADRES=$(echo "$BILGI" | jq -r .url)
           TASLAK=$(echo "$BILGI" | jq -r .isDraft)
-          SAYI=$(echo "$BILGI" | jq '.assets | length')
 
           echo "Release : $ADRES"
           echo "Taslak  : $TASLAK"
-          echo "Varlık  : $SAYI"
           echo "$BILGI" | jq -r '.assets[] | "  \(.name)  \(.size) bayt"'
 
           if [ "$TASLAK" != "false" ]; then
             echo "::error::Release taslak durumda kaldı"
             exit 1
           fi
-          if [ "$SAYI" -ne 6 ]; then
-            echo "::error::6 varlık bekleniyordu (5 paket + SHA256SUMS), $SAYI var"
+
+          # Yüklediğimiz dosyalarla release'deki varlıklar birebir aynı mı?
+          # Sayı saymak yerine ad ad karşılaştırıyoruz: fazlalık da eksiklik
+          # de görünür olsun.
+          ls indirilen | sort > /tmp/beklenen
+          echo "$BILGI" | jq -r '.assets[].name' | sort > /tmp/gelen
+          if ! diff -u /tmp/beklenen /tmp/gelen > /tmp/fark; then
+            echo "::error::Release varlıkları beklenenle uyuşmuyor:"
+            cat /tmp/fark
             exit 1
           fi
+          echo "Release varlıkları beklenenle birebir aynı."
 
           {
             echo "## Release yayınlandı"
