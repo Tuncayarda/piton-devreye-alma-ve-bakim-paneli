@@ -1,10 +1,10 @@
 name: Portable build
 
-# Dört platform için taşınabilir paket üretir.
+# Dört platform için taşınabilir paket + Windows kurulum paketi üretir.
 #   • workflow_dispatch  -> yalnızca Artifact
 #   • v* etiketi push'u  -> Artifact + GitHub Release
 #
-# İmzalama ve installer YOKTUR: çıktılar imzasızdır (bkz. BUILD_RELEASE.md).
+# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı — bkz. BUILD_RELEASE.md).
 
 on:
   workflow_dispatch:
@@ -171,6 +171,58 @@ jobs:
           Compress-Archive -Path dist/SwitchYonetimPaneli -DestinationPath "release/$ad" -Force
           Get-Item "release/$ad" | Select-Object Name, Length
 
+      # ── Windows kurulum paketi (Inno Setup) ─────────────────────────────
+      # ZIP'ten çıkarılan dosyalara Windows "internetten indirildi" damgası
+      # koyuyor ve .NET, Python.Runtime.dll'i 0x80131515 ile reddediyor.
+      # Installer ile kurulan dosyalarda bu damga oluşmaz.
+      - name: WebView2 bootstrapper indir
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          $hedef = "packaging/windows/redist"
+          New-Item -ItemType Directory -Force -Path $hedef | Out-Null
+          $dosya = Join-Path $hedef "MicrosoftEdgeWebview2Setup.exe"
+          # Microsoft'un kalıcı Evergreen Bootstrapper bağlantısı
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
+            -OutFile $dosya -UseBasicParsing
+          $b = (Get-Item $dosya).Length
+          if ($b -lt 100kb) { throw "bootstrapper şüpheli küçük: $b bayt" }
+          Write-Host "bootstrapper: $b bayt"
+          Write-Host "sha256: $((Get-FileHash $dosya -Algorithm SHA256).Hash)"
+
+      - name: Inno Setup hazırla
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Host "Inno Setup bulunamadı, kuruluyor…"
+            choco install innosetup -y --no-progress
+          }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe bulunamadı: $iscc" }
+          & $iscc /? | Select-Object -First 1
+          "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Paketle — Windows (kurulum paketi)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          $surum = "${{ steps.surum.outputs.surum }}"
+          & "$env:ISCC" `
+            "/DMyAppVersion=$surum" `
+            "/DSourceDir=..\..\dist\SwitchYonetimPaneli" `
+            "/DOutputDir=..\..\release" `
+            "packaging\windows\SwitchYonetimPaneli.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup başarısız ($LASTEXITCODE)" }
+
+          $setup = "release/SwitchYonetimPaneli-$surum-windows-x64-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "kurulum paketi üretilmedi: $setup" }
+          $b = (Get-Item $setup).Length
+          if ($b -lt 5mb) { throw "kurulum paketi şüpheli küçük: $b bayt" }
+          Write-Host "kurulum paketi: $setup ($([math]::Round($b/1mb,1)) MB)"
+
       - name: Paketle — macOS (.app, ditto ile ZIP)
         if: runner.os == 'macOS'
         working-directory: ${{ env.UYGULAMA_DIZINI }}
@@ -257,7 +309,8 @@ jobs:
           set -euo pipefail
           cd indirilen
           ls -lh
-          BEKLENEN=4
+          # 4 taşınabilir paket + Windows kurulum paketi
+          BEKLENEN=5
           SAYI=$(find . -maxdepth 1 -type f | wc -l)
           if [ "$SAYI" -ne "$BEKLENEN" ]; then
             echo "::error::$BEKLENEN dosya bekleniyordu, $SAYI bulundu"
@@ -274,7 +327,7 @@ jobs:
           cd indirilen
           # Glob'u açıkça yazıyoruz: "*" kullanılırsa dosya kendini de
           # listeleyebiliyor.
-          sha256sum *.zip *.AppImage > SHA256SUMS.txt
+          sha256sum *.zip *.AppImage *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Release oluştur / güncelle

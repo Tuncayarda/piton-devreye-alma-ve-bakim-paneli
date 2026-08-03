@@ -15,6 +15,9 @@ release/
 AppDir/
 squashfs-root/
 appimagetool*.AppImage
+installer-output/
+# WebView2 bootstrapper build sırasında indirilir, depoya girmez
+packaging/windows/redist/
 
 # ── uygulama çıktıları ────────────────────────────────────────────
 # Loglar kullanıcı dizinine yazılır; yine de yanlışlıkla kopyalanana karşı

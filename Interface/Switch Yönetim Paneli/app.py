@@ -277,6 +277,29 @@ def self_test() -> int:
         except Exception as exc:
             sonuclar.append(_kontrol("requests içe aktarıldı", False, str(exc)))
 
+        # Windows'ta asıl kırılgan yer pencere motorunun .NET köprüsü.
+        # Yalnızca "import webview" demek yetmiyor: paket bozuksa ya da
+        # Windows dosyaları engellediyse (Zone.Identifier) hata ancak
+        # pythonnet/WinForms yüklenirken çıkıyor.
+        if platform.system() == "Windows":
+            try:
+                import clr                                   # noqa: F401
+                sonuclar.append(_kontrol("pythonnet (clr) yüklendi", True))
+            except Exception as exc:
+                sonuclar.append(_kontrol(
+                    "pythonnet (clr) yüklendi", False,
+                    f"{type(exc).__name__}: {exc}"))
+            try:
+                import webview.platforms.winforms             # noqa: F401
+                sonuclar.append(_kontrol("WinForms pencere motoru yüklendi", True))
+            except Exception as exc:
+                sonuclar.append(_kontrol(
+                    "WinForms pencere motoru yüklendi", False,
+                    f"{type(exc).__name__}: {exc}"))
+            surum = webview2_surumu()
+            sonuclar.append(_kontrol("WebView2 Runtime kurulu",
+                                     surum is not None, surum or "bulunamadı"))
+
         try:
             sys.path.insert(0, str(Path(__file__).resolve().parent))
             import switch_api
@@ -360,22 +383,81 @@ PYWEBVIEW_YOK = (
 )
 
 
+WEBVIEW2_ANAHTAR = (r"SOFTWARE\Microsoft\EdgeUpdate\Clients"
+                    r"\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}")
+
+
+def webview2_surumu() -> str | None:
+    """Kurulu WebView2 Runtime sürümü; kurulu değilse None.
+
+    Tahmin yürütmüyoruz: Microsoft'un resmî ürün kimliğini hem makine hem
+    kullanıcı kovanında, 32-bit görünümde arıyoruz (EdgeUpdate oraya yazar).
+    """
+    if platform.system() != "Windows":
+        return None
+    try:
+        import winreg
+    except ImportError:
+        return None
+    for kovan in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(kovan, WEBVIEW2_ANAHTAR, 0,
+                                winreg.KEY_READ | winreg.KEY_WOW64_32KEY) as k:
+                surum, _ = winreg.QueryValueEx(k, "pv")
+                if surum and surum != "0.0.0.0":
+                    return str(surum)
+        except OSError:
+            continue
+    return None
+
+
+# .NET'in "derleme yüklenemedi" hatası. En sık sebebi, ZIP'ten çıkarılan
+# dosyalara Windows'un "internetten indirildi" damgası (Zone.Identifier)
+# koyup DLL yüklemesini engellemesi.
+DLL_ENGEL_IZLERI = ("0x80131515", "python.runtime",
+                    "could not load file or assembly",
+                    "dosya veya derleme yüklenemedi")
+
+
 def pencere_hatasi(iz: str) -> str:
     """Pencere açılamama hatasını kullanıcının anlayacağı dile çevirir.
 
-    En sık sebep Windows'ta WebView2 çalışma zamanının bulunmaması; ham
-    yığın izi yerine ne yapılacağını söylüyoruz.
+    Kelime eşleştirerek tahmin yürütmüyoruz — eskiden içinde "clr" ya da
+    "edge" geçen her hata "WebView2 yok" diye gösteriliyordu ve kurulu bir
+    sistemde insanı yanlış yöne sürüklüyordu. Artık:
+      • önce gerçekten engellenmiş dosya izlerine bakıyoruz,
+      • sonra WebView2'nin kurulu olup olmadığını registry'den soruyoruz,
+      • ikisi de değilse ham izi olduğu gibi veriyoruz.
+    Ham yığın izi her hâlükârda log dosyasına yazılır (bkz. hata_goster).
     """
     kucuk = iz.lower()
-    if platform.system() == "Windows" and (
-            "webview2" in kucuk or "edgechromium" in kucuk
-            or "edge" in kucuk or "clr" in kucuk or "pythonnet" in kucuk):
-        return ("Microsoft Edge WebView2 çalışma zamanı bulunamadı.\n\n"
-                "Windows 10/11'de genelde kuruludur. Değilse Microsoft'un "
-                "ücretsiz \"Evergreen WebView2 Runtime\" kurulumunu yapın:\n"
-                "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
-                "Ayrıntı log dosyasında:\n" + str(LOG_DOSYASI))
-    if platform.system() == "Linux" and ("qt" in kucuk or "gtk" in kucuk):
+    sistem = platform.system()
+
+    if sistem == "Windows":
+        if any(z in kucuk for z in DLL_ENGEL_IZLERI):
+            return ("Windows, uygulama dosyalarının bir kısmını engelliyor.\n\n"
+                    "ZIP olarak indirilen dosyalara \"internetten geldi\" "
+                    "damgası konduğu için .NET, Python.Runtime.dll dosyasını "
+                    "yükleyemiyor.\n\n"
+                    "Çözüm — uygulama klasöründe PowerShell açıp:\n"
+                    "  Get-ChildItem -Recurse -File | Unblock-File\n\n"
+                    "Kalıcı çözüm: ZIP yerine kurulum paketini (Setup.exe) "
+                    "kullanın.\n\n"
+                    "Ayrıntı log dosyasında:\n" + str(LOG_DOSYASI))
+
+        surum = webview2_surumu()
+        if surum is None:
+            return ("Microsoft Edge WebView2 çalışma zamanı bulunamadı.\n\n"
+                    "Windows 10 21H2 ve sonrasında genelde kuruludur. "
+                    "Değilse Microsoft'un ücretsiz \"Evergreen WebView2 "
+                    "Runtime\" kurulumunu yapın:\n"
+                    "https://developer.microsoft.com/microsoft-edge/webview2/"
+                    "\n\nAyrıntı log dosyasında:\n" + str(LOG_DOSYASI))
+        # WebView2 kurulu — sorun başka yerde, yanıltmayalım
+        return (f"Pencere açılamadı. (WebView2 kurulu: {surum})\n\n"
+                "Ayrıntı log dosyasında:\n" + str(LOG_DOSYASI) + "\n\n" + iz)
+
+    if sistem == "Linux" and ("qt" in kucuk or "gtk" in kucuk):
         return ("Pencere motoru yüklenemedi (Qt/GTK).\n\n"
                 "Eksik sistem kütüphaneleri olabilir:\n"
                 "  sudo apt install libxcb-cursor0 libegl1 libgl1\n\n"
@@ -472,7 +554,13 @@ def main() -> int:
         # Pencere kapanınca webview.start() döner; sunucuyu da o an kapatırız.
         webview.start()
     except Exception:
-        hata_goster("Pencere açılamadı", pencere_hatasi(traceback.format_exc()))
+        # Ham yığın izi her koşulda log'a düşsün: kullanıcıya gösterdiğimiz
+        # sadeleştirilmiş mesaj teşhis için yeterli olmayabilir.
+        ham = traceback.format_exc()
+        log("[İZ] pencere açılamadı:\n" + ham)
+        s = webview2_surumu()
+        log(f"[BİLGİ] WebView2: {s if s else 'kurulu değil / okunamadı'}")
+        hata_goster("Pencere açılamadı", pencere_hatasi(ham))
         return 1
     finally:
         log("Pencere kapandı, yerel servis durduruluyor.")

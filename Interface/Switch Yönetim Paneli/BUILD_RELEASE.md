@@ -3,9 +3,10 @@
 Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 çıkarma rehberi.
 
-> Bu belge yalnızca **portable** paketleri kapsar. Installer (Inno Setup,
-> DMG/PKG, DEB/RPM), kod imzalama ve Apple notarization **ileride** ele
-> alınacaktır; şu anki çıktılar imzasızdır.
+> Windows için **kurulum paketi** (Inno Setup) ve tüm platformlar için
+> **taşınabilir** paketler üretilir. macOS/Linux installer'ları (DMG/PKG,
+> DEB/RPM), kod imzalama ve Apple notarization **ileride** ele alınacaktır;
+> şu anki çıktılar imzasızdır.
 
 ---
 
@@ -49,6 +50,11 @@ Paketlenmiş uygulamada:
 **Ne kontrol eder**
 
 1. `pywebview`, `requests`, `switch_api` içe aktarılabiliyor mu?
+1b. **Yalnızca Windows'ta:** `pythonnet` (`import clr`) ve WinForms pencere
+   motoru (`webview.platforms.winforms`) gerçekten yükleniyor mu, WebView2
+   Runtime registry'de kayıtlı mı? Bu üçü, "import webview" başarılı olsa
+   bile pencerenin açılamayacağı durumları yakalar (engellenmiş DLL, eksik
+   runtime).
 2. `static/` klasörü doğru çözülüyor mu? (kaynakta dosyanın yanı,
    paketlenmişte `sys._MEIPASS`)
 3. `index.html`, `app.js`, `style.css`, `piton-logo.svg`, `piton-favicon.png`
@@ -104,6 +110,36 @@ python -m PyInstaller --noconfirm --clean SwitchYonetimPaneli.spec
 | Linux | `dist/SwitchYonetimPaneli/` (onedir) |
 | macOS | `dist/Switch Yönetim Paneli.app` |
 
+### Windows kurulum paketi
+
+Inno Setup 6.3+ gerekir ([indir](https://jrsoftware.org/isdl.php)).
+
+```powershell
+# WebView2 bootstrapper (bir kez yeterli)
+New-Item -ItemType Directory -Force packaging\windows\redist | Out-Null
+Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
+  -OutFile packaging\windows\redist\MicrosoftEdgeWebview2Setup.exe
+
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+  "/DMyAppVersion=1.0.1" `
+  "/DSourceDir=..\..\dist\SwitchYonetimPaneli" `
+  "/DOutputDir=..\..\release" `
+  "packaging\windows\SwitchYonetimPaneli.iss"
+```
+
+Kurulum paketi ne yapar:
+
+- `_internal` dâhil tüm klasörü `C:\Program Files\Switch Yonetim Paneli`
+  altına kurar (yalnızca exe kopyalamak **çalışmaz**)
+- WebView2 Runtime'ı registry'den kontrol eder
+  (`{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, HKLM32 ve HKCU32) — yoksa
+  Evergreen Bootstrapper'ı sessizce kurar
+- Başlat menüsü kısayolu, isteğe bağlı masaüstü kısayolu oluşturur
+- Güncellemede çalışan uygulamayı kapatır
+- Kaldırıcı üretir; **kullanıcı log ve ayarlarını silmez**
+  (`%LOCALAPPDATA%\SwitchYonetimPaneli`)
+- Yalnızca x64 Windows 10+ üzerinde kurulur
+
 ### Linux AppImage
 
 ```bash
@@ -137,7 +173,7 @@ Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
 
 | Matrix | Runner | Çıktı |
 |---|---|---|
-| windows-x64 | `windows-2025` | onedir ZIP |
+| windows-x64 | `windows-2025` | onedir ZIP + Inno Setup kurulum paketi |
 | linux-x86_64 | `ubuntu-22.04` | AppImage |
 | macos-arm64 | `macos-15` | `.app` → `ditto` ZIP |
 | macos-x64 | `macos-15-intel` | `.app` → `ditto` ZIP |
@@ -185,6 +221,7 @@ kullanılmaz, fork PR'larına yazma yetkisi verilmez, secret istenmez.
 ## 5. Üretilen dosyalar
 
 ```
+SwitchYonetimPaneli-<sürüm>-windows-x64-Setup.exe
 SwitchYonetimPaneli-<sürüm>-windows-x64.zip
 SwitchYonetimPaneli-<sürüm>-linux-x86_64.AppImage
 SwitchYonetimPaneli-<sürüm>-macos-arm64.zip
@@ -209,6 +246,18 @@ shasum -a 256 -c SHA256SUMS.txt    # macOS
 | Ubuntu 22.04+ ve dengi | x86_64 | AppImage |
 | macOS 11+ | arm64 | CI yalnız macOS 15'te doğrular |
 | macOS 11+ | x86_64 | CI yalnız macOS 15 Intel'de doğrular |
+
+**Windows — ZIP yerine Setup.exe.** ZIP'ten çıkarılan dosyalara Windows
+"internetten indirildi" damgası (`Zone.Identifier`) koyar. Bu damga yüzünden
+.NET, `_internal\pythonnet\runtime\Python.Runtime.dll` dosyasını
+`0x80131515` hatasıyla reddeder ve pencere açılmaz. ZIP kullanmak
+zorundaysanız klasörü açtıktan sonra:
+
+```powershell
+Get-ChildItem -LiteralPath 'SwitchYonetimPaneli' -Recurse -File | Unblock-File
+```
+
+Kurulum paketiyle kurulan dosyalarda bu sorun oluşmaz.
 
 **Windows — WebView2.** Pencere motoru Microsoft Edge WebView2'dir. Windows
 10 21H2 ve sonrasında işletim sistemiyle gelir. Yoksa ücretsiz
@@ -259,7 +308,8 @@ yazılmaz.
 
 - CI gerçek switch bağlantısını **test etmez**; yalnızca 127.0.0.1 üzerinde
   kendi servisini sınar. Cihaz uyumluluğu sahada doğrulanmalıdır.
-- Kod imzalama, notarization ve installer üretimi bu aşamada yoktur.
+- Kod imzalama ve notarization bu aşamada yoktur; Windows kurulum paketi
+  üretilir, macOS/Linux installer'ları yoktur.
 - `universal2` macOS paketi üretilmez; iki ayrı mimari çıktı verilir.
 - Kimlik bilgileri hiçbir dosyada tutulmaz, kullanıcıdan istenir ve yalnızca
   bellekte kalır.
