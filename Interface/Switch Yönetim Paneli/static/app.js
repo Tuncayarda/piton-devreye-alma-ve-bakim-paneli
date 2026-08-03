@@ -78,6 +78,70 @@ async function api(path, opts, tekrarHakki = true) {
   throw hata;
 }
 
+// ─────────────────────────────────────────────────── onay penceresi ──────
+// Yerel confirm()/prompt() her platformda başka türlü görünüyor (WebView2,
+// WKWebView, QtWebEngine) ve pencerenin dilini işletim sistemi belirliyor.
+// Kendi penceremizi kullanınca üç platformda da aynı görünüyor ve metinleri
+// biz yazıyoruz.
+//
+//   await onay({ baslik, mesaj })                       -> true/false
+//   await onay({ …, tehlike: true })                    -> kırmızı onay
+//   await onay({ …, girisEtiketi, beklenenDeger })      -> yazarak onay
+let onayBekleyen = null;
+
+function onay(secenek) {
+  const o = secenek || {};
+  return new Promise((tamam) => {
+    onayBekleyen = { tamam, beklenen: o.beklenenDeger || null };
+
+    $("#dialog-title").textContent = o.baslik || "Onay";
+    $("#dialog-body").textContent = o.mesaj || "";
+
+    const dugme = $("#dialog-ok");
+    dugme.textContent = o.onayMetni || "Onayla";
+    dugme.classList.toggle("danger", Boolean(o.tehlike));
+
+    const sarmal = $("#dialog-input-wrap");
+    const giris = $("#dialog-input");
+    const yazarak = Boolean(o.beklenenDeger);
+    sarmal.classList.toggle("hidden", !yazarak);
+    $("#dialog-input-label").textContent = o.girisEtiketi || "";
+    giris.value = "";
+
+    const hata = $("#dialog-err");
+    hata.textContent = "";
+    hata.classList.add("hidden");
+
+    $("#dialog").classList.remove("hidden");
+    setTimeout(() => (yazarak ? giris : dugme).focus(), 30);
+  });
+}
+
+function onayKapat(sonuc) {
+  const bekleyen = onayBekleyen;
+  onayBekleyen = null;
+  $("#dialog").classList.add("hidden");
+  $("#dialog-input").value = "";
+  if (bekleyen) bekleyen.tamam(sonuc);
+}
+
+function onayGonder(e) {
+  if (e) e.preventDefault();
+  if (!onayBekleyen) return;
+  const { beklenen } = onayBekleyen;
+  if (beklenen) {
+    // Yazarak onay: yıkıcı işlemlerde yanlışlıkla tıklamayı engeller
+    if ($("#dialog-input").value.trim() !== beklenen) {
+      const hata = $("#dialog-err");
+      hata.textContent = `Doğrulanmadı — tam olarak "${beklenen}" yazın.`;
+      hata.classList.remove("hidden");
+      $("#dialog-input").select();
+      return;
+    }
+  }
+  onayKapat(true);
+}
+
 // ------------------------------------------------ kimlik doğrulama -------
 // Kullanıcı adı/şifre hiçbir yere kaydedilmez: buradan backend'e gider,
 // orada yalnızca bellekte durur. Bu sayfa da onları saklamaz, alanlar
@@ -238,8 +302,11 @@ async function scan() {
 
 async function select(ip, el) {
   if (mod === "toplu" && bekleyenSayi() && ip !== current &&
-      !confirm(`${bekleyenSayi()} bekleyen değişiklik var. Başka switch'e ` +
-               `geçersen gönderilmeden iptal olur. Devam?`)) return;
+      !(await onay({
+        baslik: "Bekleyen değişiklikler",
+        mesaj: `${bekleyenSayi()} değişiklik gönderilmedi. ` +
+               "Başka switch'e geçersen iptal olur.",
+        onayMetni: "Yine de geç", tehlike: true }))) return;
   current = ip;
   kimlikIptal = false;
   hamPorts = [];
@@ -445,8 +512,10 @@ async function setPoe(port, mode) {
     return;
   }
 
-  if (mode === "0" && !confirm(
-      `Port ${port} gücü kesilecek. Bağlı cihaz kapanır. Devam?`)) {
+  if (mode === "0" && !(await onay({
+        baslik: "Port gücü kesilecek",
+        mesaj: `Port ${port} gücü kesilecek. Bağlı cihaz kapanır.`,
+        onayMetni: "Gücü kes", tehlike: true }))) {
     loadPorts().catch(() => {});
     return;
   }
@@ -467,8 +536,11 @@ async function togglePort(port, enable) {
   }
 
   if (!enable && uplinkPids().includes(port)) {
-    if (!confirm(`Port ${port} şu an BAĞLI (uplink olabilir). ` +
-      `Kapatırsan switch bağlantısını kaybedebilirsin. Devam?`)) return;
+    if (!(await onay({
+      baslik: "Bağlı port kapatılacak",
+      mesaj: `Port ${port} şu an bağlı. Kapatırsan switch'e ` +
+             "erişimini kaybedebilirsin.",
+      onayMetni: "Portu kapat", tehlike: true }))) return;
   }
   await islem(`Port ${port} ${enable ? "açılıyor" : "kapatılıyor"}…`,
     () => api("/api/switch/port", {
@@ -520,8 +592,10 @@ async function batchSend() {
   if (uplinkKapanan.length)
     uyari += `\n• BAĞLI port kapanacak (uplink olabilir, erişimi ` +
              `kaybedebilirsin): ${uplinkKapanan.join(", ")}`;
-  if (uyari && !confirm(`${n} değişiklik gönderilecek.${uyari}\n\nDevam?`))
-    return;
+  if (uyari && !(await onay({
+        baslik: "Toplu gönderim",
+        mesaj: `${n} değişiklik gönderilecek.\n${uyari}`,
+        onayMetni: "Gönder", tehlike: true }))) return;
 
   const govde = {
     ip: current,
@@ -539,11 +613,14 @@ async function batchSend() {
   }, `${n} değişiklik uygulandı`).catch(() => {});
 }
 
-function setMod(yeni) {
+async function setMod(yeni) {
   if (yeni === mod) return;
   if (mod === "toplu" && bekleyenSayi() &&
-      !confirm(`${bekleyenSayi()} bekleyen değişiklik var. ` +
-               `Anında moda geçersen bunlar iptal olur. Devam?`)) return;
+      !(await onay({
+        baslik: "Bekleyen değişiklikler",
+        mesaj: `${bekleyenSayi()} değişiklik gönderilmedi. ` +
+               "Anında moda geçersen iptal olur.",
+        onayMetni: "Yine de geç", tehlike: true }))) return;
   mod = yeni;
   batchClear();            // kuyruğu boşalt + yeniden çiz
   document.querySelectorAll(".mbtn").forEach(
@@ -570,8 +647,11 @@ async function saveConfig() {
 async function saveNet() {
   const addr = $("#n-addr").value.trim();
   const prefix = $("#n-prefix").value;
-  if (!confirm(`Switch IP'si ${addr}/${prefix} olacak. Bağlantı kopacak. Devam?`))
-    return;
+  if (!(await onay({
+        baslik: "Yönetim IP'si değişecek",
+        mesaj: `Switch'in adresi ${addr}/${prefix} olacak. ` +
+               "Bağlantı kopar; yeni adresten tekrar tara ve Kaydet'e bas.",
+        onayMetni: "IP'yi değiştir", tehlike: true }))) return;
   if (busy) { toast("Önceki işlem sürüyor, bekleyin", "err"); return; }
   setBusy(true, `IP ${addr} olarak ayarlanıyor…`);
   try {
@@ -587,11 +667,13 @@ async function saveNet() {
 }
 
 async function doReboot() {
-  if (!confirm("Switch yeniden başlatılsın mı? Tüm portlar geçici kesilir." +
-    (kayitBekliyor
-      ? "\n\nDİKKAT: Kaydedilmemiş değişiklikler var, yeniden başlayınca " +
-        "GERİ ALINIR. Önce Kaydet'e basın."
-      : ""))) return;
+  if (!(await onay({
+        baslik: "Switch yeniden başlatılacak",
+        mesaj: "Tüm portlar geçici olarak kesilir." +
+          (kayitBekliyor
+            ? "\nKaydedilmemiş değişiklikler geri alınır."
+            : ""),
+        onayMetni: "Yeniden başlat", tehlike: true }))) return;
   if (busy) { toast("Önceki işlem sürüyor, bekleyin", "err"); return; }
   setBusy(true, "Switch yeniden başlatılıyor…");
   try {
@@ -610,15 +692,21 @@ async function doReboot() {
 // varsayılan adresine döner. İki aşamalı onay ister; backend de gövdede
 // switch IP'sini onay olarak görmezse isteği reddeder.
 async function doFactoryReset() {
-  if (!confirm(
-    `DİKKAT — ${current} fabrika ayarlarına döndürülecek.\n\n` +
-    `IP adresi, port ve PoE ayarları dahil TÜM yapılandırma silinir. ` +
-    `Switch varsayılan adresine döner ve bu arayüzden bulunamayabilir. ` +
-    `Geri alınamaz.\n\nDevam edilsin mi?`)) return;
+  const hedef = current;
+  if (!(await onay({
+        baslik: "Fabrika ayarlarına dön",
+        mesaj: `${hedef} fabrika ayarlarına dönecek.\n` +
+               "IP dahil tüm yapılandırma silinir, switch varsayılan " +
+               "adresine döner.\nBu işlem geri alınamaz.",
+        onayMetni: "Devam", tehlike: true }))) return;
 
-  const yanit = prompt(
-    `Onaylamak için switch IP'sini yazın:\n${current}`, "");
-  if ((yanit || "").trim() !== current) {
+  // İkinci aşama: IP'yi elle yazdırmak, yanlışlıkla onaylamayı engeller
+  if (!(await onay({
+        baslik: "Sıfırlamayı doğrula",
+        mesaj: "Emin olmak için switch'in IP adresini yaz.",
+        girisEtiketi: hedef,
+        beklenenDeger: hedef,
+        onayMetni: "Fabrika ayarlarına dön", tehlike: true }))) {
     toast("Sıfırlama iptal edildi", "err");
     return;
   }
@@ -713,7 +801,14 @@ function panelHaritasi(fe, ge) {
   const harita = $("#panelmap");
   if (!harita) return;
   harita.classList.toggle("hidden", fe.length + ge.length === 0);
-  menuKapat();
+
+  // Menü açıkken kapatmıyoruz: yeni veri geldiğinde içeriği yerinde
+  // güncelleniyor. (Eskiden her yenileme menüyü elin altından kapatıyordu.)
+  if (menuAcik && menuTazeleFn) {
+    const guncel = ports.find((x) => x.pid === menuPid);
+    if (guncel) menuTazeleFn(guncel);
+    else menuKapat();          // port listeden düştüyse menünün anlamı kalmaz
+  }
 
   const grid = $("#pm-grid");
   grid.innerHTML = "";
@@ -748,8 +843,14 @@ function boyaSecim() {
 // Menü doğrudan setPoe/togglePort çağırır; onay soruları, anında/toplu
 // modu ve yenileme akışı tabloyla birebir aynı yoldan geçer.
 let menuEl = null;
+let menuAcik = false;
+let menuPid = null;        // menü hangi port için açık
+let menuTazeleFn = null;   // yeni veri gelince menüyü yerinde günceller
 
 function menuKapat() {
+  menuAcik = false;
+  menuPid = null;
+  menuTazeleFn = null;
   if (menuEl) { menuEl.remove(); menuEl = null; }
   document.removeEventListener("mousedown", menuDisari, true);
   document.removeEventListener("keydown", menuEsc, true);
@@ -782,40 +883,79 @@ function portMenusu(p, e) {
   bas.className = "pm-menu-head";
   bas.innerHTML = `<div class="t"></div><div class="s"></div>`;
   bas.querySelector(".t").textContent = "Port " + p.pid;
-  bas.querySelector(".s").textContent =
-    (p.poe ? "PoE · " : "Uplink · ") + portEtiketi(p) +
-    " · " + (p.linkStat === "up" ? "bağlı" : "boş") +
-    (p.powerW ? ` · ${p.powerW} W` : "");
   m.appendChild(bas);
+
+  const ozet = (x) =>
+    (x.poe ? "PoE · " : "Uplink · ") + portEtiketi(x) +
+    " · " + (x.linkStat === "up" ? "bağlı" : "boş") +
+    (x.powerW ? ` · ${x.powerW} W` : "");
+  bas.querySelector(".s").textContent = ozet(p);
 
   const baslik = (t) => {
     const d = document.createElement("div");
     d.className = "pm-kicker"; d.textContent = t; m.appendChild(d);
   };
 
+  // Tıklama anında güncel duruma bakılır: menü açıkken veri değişmiş
+  // olabilir, kapanışta yakalanan değere güvenmiyoruz.
+  const canli = () => ports.find((x) => x.pid === p.pid) || p;
+
+  const satirlar = [];        // { el, gecerliMi(x), mark(x), danger(x) }
+
   if (p.poe) {
     baslik("Güç (PoE)");
     ["0", "1", "2"].forEach((mode) => {
-      const gecerli = p.poeMode === mode;
-      m.appendChild(menuSatiri(POE_AD[mode], gecerli ? "geçerli" : "",
-        { mark: gecerli ? (mode === "0" ? "red" : "green") : "",
-          danger: mode === "0" && !gecerli },
-        () => { if (!gecerli) setPoe(p.pid, mode); }));
+      const el = menuSatiri(POE_AD[mode], "", {}, () => {
+        const g = canli();
+        if (g.poeMode !== mode) setPoe(p.pid, mode);
+      });
+      satirlar.push({
+        el,
+        gecerliMi: (x) => x.poeMode === mode,
+        mark: (x) => (x.poeMode === mode ? (mode === "0" ? "red" : "green") : ""),
+        danger: (x) => mode === "0" && x.poeMode !== mode,
+      });
+      m.appendChild(el);
     });
   } else {
     baslik("Port durumu");
-    m.appendChild(menuSatiri("Portu aç", p.adminStat ? "geçerli" : "",
-      { mark: p.adminStat ? "green" : "" },
-      () => { if (!p.adminStat) togglePort(p.pid, true); }));
-    m.appendChild(menuSatiri("Portu kapat", !p.adminStat ? "geçerli" : "",
-      { mark: !p.adminStat ? "red" : "", danger: p.adminStat },
-      () => { if (p.adminStat) togglePort(p.pid, false); }));
+    const ac = menuSatiri("Portu aç", "", {}, () => {
+      if (!canli().adminStat) togglePort(p.pid, true);
+    });
+    const kapat = menuSatiri("Portu kapat", "", {}, () => {
+      if (canli().adminStat) togglePort(p.pid, false);
+    });
+    satirlar.push(
+      { el: ac, gecerliMi: (x) => Boolean(x.adminStat),
+        mark: (x) => (x.adminStat ? "green" : ""), danger: () => false },
+      { el: kapat, gecerliMi: (x) => !x.adminStat,
+        mark: (x) => (x.adminStat ? "" : "red"), danger: (x) => Boolean(x.adminStat) });
+    m.appendChild(ac);
+    m.appendChild(kapat);
   }
+
+  // Menüyü yeni veriyle yerinde günceller: konumu ve açıklığı korunur,
+  // yalnızca metinler ve işaretler değişir. Yeniden oluşturmuyoruz ki
+  // fare menünün üzerindeyken titremesin.
+  const tazele = (x) => {
+    bas.querySelector(".s").textContent = ozet(x);
+    satirlar.forEach((s) => {
+      const gecerli = s.gecerliMi(x);
+      s.el.querySelector(".rt").textContent = gecerli ? "geçerli" : "";
+      s.el.querySelector(".mark").className = "mark" +
+        (s.mark(x) ? " " + s.mark(x) : "");
+      s.el.classList.toggle("danger", s.danger(x));
+    });
+  };
+  tazele(p);
 
   document.body.appendChild(m);
   m.style.left = Math.min(e.clientX, innerWidth - m.offsetWidth - 8) + "px";
   m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight - 8) + "px";
   menuEl = m;
+  menuAcik = true;
+  menuPid = p.pid;
+  menuTazeleFn = tazele;
   setTimeout(() => {
     document.addEventListener("mousedown", menuDisari, true);
     document.addEventListener("keydown", menuEsc, true);
@@ -894,8 +1034,13 @@ document.querySelectorAll(".mbtn").forEach((b) => {
 });
 $("#login-form").onsubmit = girisGonder;
 $("#login-cancel").onclick = girisIptal;
+$("#dialog-form").onsubmit = onayGonder;
+$("#dialog-cancel").onclick = () => onayKapat(false);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && girisBekleyen) girisIptal();
+  if (e.key !== "Escape") return;
+  // Üstteki pencere kapanır: onay, giriş penceresinin üstünde açılabiliyor
+  if (onayBekleyen) onayKapat(false);
+  else if (girisBekleyen) girisIptal();
 });
 $("#log-clear").onclick = () => { gecmis.length = 0; logCiz(); };
 $("#log-toggle").onclick = () =>

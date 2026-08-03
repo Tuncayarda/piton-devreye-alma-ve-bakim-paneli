@@ -10,6 +10,27 @@ Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 
 ---
 
+## 0. Depo yapısı
+
+```
+.
+├── docs/                                  bütün belgeler
+│   ├── BUILD_RELEASE.md                   bu dosya
+│   └── RELEASE_NOTES.md                   Release gövdesi (CI kullanır)
+├── .github/workflows/
+│   ├── ci.yml                             kurulum + self-test
+│   └── build.yml                          paket üretimi ve Release
+└── Interface/Switch Yönetim Paneli/        uygulamanın kendisi
+    ├── app.py, switch_api.py              kaynak kod
+    ├── static/                            arayüz
+    ├── icons/                             uygulama simgeleri
+    ├── packaging/                         AppImage + Inno Setup
+    ├── requirements*.txt                  bağımlılıklar
+    └── SwitchYonetimPaneli.spec           PyInstaller
+```
+
+---
+
 ## 1. Geliştirme çalıştırması
 
 ```bash
@@ -143,8 +164,12 @@ Kurulum paketi ne yapar:
 ### Linux AppImage
 
 ```bash
+cd "Interface/Switch Yönetim Paneli"
 ./packaging/appimage.sh dist/SwitchYonetimPaneli \
     release/SwitchYonetimPaneli-1.0.1-linux-x86_64.AppImage 1.0.1
+# CI ayrıca bunu ZIP'e alır (çalıştırma izni korunsun diye)
+zip -9 -j release/SwitchYonetimPaneli-1.0.1-linux-x86_64.zip \
+    release/SwitchYonetimPaneli-1.0.1-linux-x86_64.AppImage
 ```
 
 `appimagetool` sürümü betikte sabittir (**1.9.1**). `APPIMAGETOOL_SHA256`
@@ -156,9 +181,15 @@ ile indirme atlanır.
 
 ## 4. GitHub Actions
 
-### `ci.yml` — her değişiklikte
+### `ci.yml` — yayın öncesi kontrol
 
-Tetikleyici: pull request, `main`'e push, elle çalıştırma.
+Tetikleyici: `v*` etiketi push'u, elle çalıştırma.
+
+Maliyet nedeniyle **her commit'te çalışmaz**. Günlük geliştirmede yerelde:
+
+```bash
+python3 app.py --self-test
+```
 
 Windows / Ubuntu / macOS üzerinde: Python 3.12 kurar, platform
 requirements'ı yükler, `compileall` ile derleme kontrolü yapar, kaynak
@@ -167,7 +198,7 @@ olup olmadığına ve çalışma ağacının temizliğine bakar.
 
 CI gerçek switch'e ya da özel ağa **bağlanmaz**.
 
-### `build-portable.yml` — paket üretimi
+### `build.yml` — paket üretimi
 
 Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
 
@@ -187,7 +218,7 @@ bu sayede artar (glibc geriye dönük uyumlu değildir).
 
 ### Elle build başlatma
 
-GitHub → **Actions** → *Portable build* → **Run workflow**.
+GitHub → **Actions** → *Build* → **Run workflow**.
 Sonuç yalnızca **Artifact** olur, Release oluşmaz.
 
 ### Sürüm etiketiyle yayınlama
@@ -205,7 +236,7 @@ güncellenir (yeni Release açılmaz).
 
 | | Artifact | Release |
 |---|---|---|
-| Ne zaman | Her portable build | Yalnızca `v*` etiketinde |
+| Ne zaman | Her Build çalıştırması | Yalnızca `v*` etiketinde |
 | Süre | 14 gün | Kalıcı |
 | Erişim | Depoya erişimi olanlar | Herkes (depo public ise) |
 | Checksum | Yok | `SHA256SUMS.txt` |

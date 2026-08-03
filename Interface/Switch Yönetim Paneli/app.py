@@ -31,7 +31,7 @@ from pathlib import Path
 
 # Paketleme ve çalıştırma için asgari sürüm. 3.9'da pywebview'in Qt ve
 # WebView2 tarafları sorun çıkarıyor; dağıtım build'leri 3.12 ile alınır
-# (bkz. BUILD.md).
+# (bkz. docs/BUILD_RELEASE.md).
 ASGARI_PYTHON = (3, 10)
 
 APP_ADI = "Switch Yönetim Paneli"

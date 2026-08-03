@@ -26,7 +26,7 @@ python3 app.py --self-test
 ```
 
 Paket üretme, GitHub Actions ve sürüm yayınlama:
-**[BUILD_RELEASE.md](Interface/Switch%20Y%C3%B6netim%20Paneli/BUILD_RELEASE.md)**
+**[docs/BUILD_RELEASE.md](docs/BUILD_RELEASE.md)**
 
 Hazır paketler [Releases](../../releases) sayfasındadır. Paketler imzasızdır;
 Windows'ta WebView2 Runtime, Linux'ta AppImage için `chmod +x` gerekir —

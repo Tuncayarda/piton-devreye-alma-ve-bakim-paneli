@@ -511,9 +511,21 @@ footer .grow { flex: 1; }
 }
 .overlay.hidden { display: none; }
 
-/* ── kimlik doğrulama penceresi ─────────────────────────────────── */
-/* işlem perdesinin üstünde kalsın: şifre sorulurken perde onu örtmesin */
-#login { z-index: 60; }
+/* ── kimlik doğrulama / onay pencereleri ────────────────────────── */
+/* işlem perdesinin üstünde kalsın: soru sorulurken perde onu örtmesin */
+#login, #dialog { z-index: 60; }
+
+/* Onay metni: satır sonları korunur, uzun listeler okunaklı kalır */
+.dialog-body {
+  font-size: 13px; line-height: 1.55; color: var(--text-2);
+  white-space: pre-line; max-height: 46vh; overflow-y: auto;
+}
+/* yıkıcı işlemlerde onay düğmesi kırmızı */
+#dialog-ok.danger {
+  background: transparent; border-color: rgba(218, 54, 51, .55);
+  color: var(--danger-hi);
+}
+#dialog-ok.danger:hover { background: rgba(218, 54, 51, .16); border-color: var(--danger); }
 .loginbox {
   display: flex; flex-direction: column; gap: 13px; align-items: stretch;
   width: 380px; padding: 24px 26px; text-align: left;
@@ -530,6 +542,9 @@ footer .grow { flex: 1; }
   display: flex; flex-direction: column; gap: 5px;
   font-size: 13px; color: var(--muted);
 }
+/* ".hidden" tek başına yetmiyordu: ".loginbox label" daha özgül olduğu için
+   display:flex kazanıyor ve gizlenmesi gereken alan görünür kalıyordu. */
+.loginbox label.hidden { display: none; }
 .login-err {
   padding: 8px 10px; font-size: 12.5px; color: var(--danger-hi);
   border: 1px solid rgba(218, 54, 51, .45); background: rgba(218, 54, 51, .1);

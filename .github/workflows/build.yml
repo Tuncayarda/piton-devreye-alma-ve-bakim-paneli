@@ -1,10 +1,10 @@
-name: Portable build
+name: Build
 
 # Dört platform için taşınabilir paket + Windows kurulum paketi üretir.
 #   • workflow_dispatch  -> yalnızca Artifact
 #   • v* etiketi push'u  -> Artifact + GitHub Release
 #
-# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı — bkz. BUILD_RELEASE.md).
+# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı — bkz. docs/BUILD_RELEASE.md).
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ permissions:
   contents: read          # build job'ları için okuma yeterli
 
 concurrency:
-  group: portable-${{ github.ref }}
+  group: build-${{ github.ref }}
   cancel-in-progress: false      # yarım kalan release build'i iptal etme
 
 env:
@@ -396,14 +396,16 @@ jobs:
         run: |
           set -euo pipefail
           SURUM="${GITHUB_REF_NAME#v}"
-          NOTLAR="$GITHUB_WORKSPACE/.github/release-notes.md"
+          NOTLAR="$GITHUB_WORKSPACE/docs/RELEASE_NOTES.md"
           cd indirilen
 
           if gh release view "$ETIKET" >/dev/null 2>&1; then
             echo "Release zaten var — dosyalar üzerine yazılıyor."
             gh release upload "$ETIKET" ./* --clobber
-            # Önceki bir çalıştırmadan taslak kalmış olabilir; yayına al.
-            gh release edit "$ETIKET" --draft=false --title "$ETIKET"
+            # Notları da tazele: yalnızca dosya yüklemek, gövdeyi ilk
+            # oluşturmadaki eski metinle bırakıyordu.
+            gh release edit "$ETIKET" \
+              --draft=false --title "$ETIKET" --notes-file "$NOTLAR"
 
             # Adı değişen çıktılar geride kalıyor: --clobber yalnızca aynı
             # isimli dosyayı değiştirir, eskisini silmez. (Örn. AppImage

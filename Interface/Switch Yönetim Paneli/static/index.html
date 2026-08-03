@@ -162,6 +162,24 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
   <span id="app-ver"></span>
 </footer>
 
+<div id="dialog" class="overlay hidden">
+  <form id="dialog-form" class="box bp loginbox">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
+    <h3 id="dialog-title"></h3>
+    <div id="dialog-body" class="dialog-body"></div>
+    <label id="dialog-input-wrap" class="hidden">
+      <span id="dialog-input-label"></span>
+      <input id="dialog-input" autocomplete="off" spellcheck="false">
+    </label>
+    <div id="dialog-err" class="login-err hidden"></div>
+    <div class="login-actions">
+      <button type="button" id="dialog-cancel" class="ghost">Vazgeç</button>
+      <button type="submit" id="dialog-ok">Onayla</button>
+    </div>
+  </form>
+</div>
+
 <div id="login" class="overlay hidden">
   <form id="login-form" class="box bp loginbox">
     <i class="corner tl"></i><i class="corner tr"></i>

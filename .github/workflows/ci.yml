@@ -1,13 +1,17 @@
 name: CI
 
-# Kod her değiştiğinde üç platformda da kurulum + self-test.
+# Üç platformda kurulum + self-test.
 # Gerçek switch'e ya da yerel ağa hiç dokunmaz: self-test yalnızca
 # 127.0.0.1'de kendi servisini sınar.
+#
+# Maliyet için her commit'te ÇALIŞMAZ. Yalnızca:
+#   • v* etiketi push'unda (yayın öncesi son kontrol)
+#   • elle başlatınca (Actions → CI → Run workflow)
+# Günlük geliştirmede yerelde çalıştır:  python3 app.py --self-test
 
 on:
-  pull_request:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
