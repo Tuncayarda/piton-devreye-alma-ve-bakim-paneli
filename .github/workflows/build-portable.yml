@@ -1,0 +1,282 @@
+name: Portable build
+
+# Dört platform için taşınabilir paket üretir.
+#   • workflow_dispatch  -> yalnızca Artifact
+#   • v* etiketi push'u  -> Artifact + GitHub Release
+#
+# İmzalama ve installer YOKTUR: çıktılar imzasızdır (bkz. BUILD_RELEASE.md).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read          # build job'ları için okuma yeterli
+
+concurrency:
+  group: portable-${{ github.ref }}
+  cancel-in-progress: false      # yarım kalan release build'i iptal etme
+
+env:
+  UYGULAMA_DIZINI: Interface/Switch Yönetim Paneli
+  PYTHON_SURUMU: "3.12"
+  # appimagetool'un beklenen sha256'sı. Boşken doğrulama yapılmaz, indirilen
+  # dosyanın özeti log'a yazılır; ilk çalıştırmadan sonra buraya yapıştırıp
+  # sabitleyin.
+  APPIMAGETOOL_SHA256: ""
+
+jobs:
+  build:
+    name: ${{ matrix.ad }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ad: windows-x64
+            os: windows-2025
+            req: requirements-windows.txt
+            hedef: windows-x64
+          - ad: linux-x86_64
+            os: ubuntu-22.04
+            req: requirements-linux.txt
+            hedef: linux-x86_64
+          - ad: macos-arm64
+            os: macos-15
+            req: requirements-macos.txt
+            hedef: macos-arm64
+          - ad: macos-x64
+            os: macos-15-intel
+            req: requirements-macos.txt
+            hedef: macos-x64
+
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v6
+
+      - name: Python ${{ env.PYTHON_SURUMU }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_SURUMU }}
+          cache: pip
+          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/requirements*.txt
+
+      - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+            libxkbcommon-x11-0 libegl1 libgl1 libnss3 desktop-file-utils
+
+      - name: Bağımlılıkları kur
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "${{ matrix.req }}"
+          python -m pip install -r requirements-build.txt
+
+      - name: Sürümü belirle
+        id: surum
+        shell: bash
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          KAYNAK="$(python app.py --version)"
+          echo "Kaynaktaki sürüm: $KAYNAK"
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            ETIKET="${GITHUB_REF_NAME#v}"
+            if [[ "$ETIKET" != "$KAYNAK" ]]; then
+              echo "::error::Etiket ($GITHUB_REF_NAME) ile APP_VERSION ($KAYNAK) uyuşmuyor."
+              echo "switch_api.py içindeki APP_VERSION'ı güncelleyin ya da doğru etiketi atın."
+              exit 1
+            fi
+            SURUM="$ETIKET"
+          else
+            SURUM="$KAYNAK"
+          fi
+          echo "surum=$SURUM" >> "$GITHUB_OUTPUT"
+          echo "Kullanılacak sürüm: $SURUM"
+
+      - name: Self-test (kaynak koddan)
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: python app.py --self-test
+
+      - name: Temiz PyInstaller build
+        shell: bash
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          rm -rf build dist
+          python -m PyInstaller --noconfirm --clean SwitchYonetimPaneli.spec
+          ls -la dist
+
+      # ── paketlenmiş uygulamada self-test ────────────────────────────────
+      # Windows console=False olduğu için çıktı görünmeyebilir; doğrulama
+      # yalnızca çıkış koduna bakar.
+      - name: Self-test (paketlenmiş) — Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          $exe = "dist/SwitchYonetimPaneli/SwitchYonetimPaneli.exe"
+          if (-not (Test-Path $exe)) { throw "exe bulunamadı: $exe" }
+          & $exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "self-test başarısız ($LASTEXITCODE)" }
+          Write-Host "paketlenmiş self-test tamam"
+
+      - name: Self-test (paketlenmiş) — macOS
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          BIN="dist/Switch Yönetim Paneli.app/Contents/MacOS/SwitchYonetimPaneli"
+          test -x "$BIN" || { echo "çalıştırılabilir bulunamadı: $BIN"; exit 1; }
+          "$BIN" --self-test
+
+      - name: Self-test (paketlenmiş) — Linux
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          ./dist/SwitchYonetimPaneli/SwitchYonetimPaneli --self-test
+
+      # ── platforma göre paketleme ────────────────────────────────────────
+      - name: Paketle — Windows (onedir ZIP)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          $ad = "SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path dist/SwitchYonetimPaneli -DestinationPath "release/$ad" -Force
+          Get-Item "release/$ad" | Select-Object Name, Length
+
+      - name: Paketle — macOS (.app, ditto ile ZIP)
+        if: runner.os == 'macOS'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          AD="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          mkdir -p release
+          # ditto: macOS dosya öznitelikleri ve sembolik bağlar korunur
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/Switch Yönetim Paneli.app" "release/$AD"
+          ls -lh "release/$AD"
+
+      - name: Paketle — Linux (AppImage)
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          AD="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.AppImage"
+          chmod +x packaging/appimage.sh
+          ./packaging/appimage.sh dist/SwitchYonetimPaneli "release/$AD" \
+            "${{ steps.surum.outputs.surum }}"
+
+      - name: AppImage doğrulaması
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          IMG="$(ls release/*.AppImage)"
+          test -s "$IMG" || { echo "AppImage boş"; exit 1; }
+          echo "boyut: $(du -h "$IMG" | cut -f1)"
+          # CI'da FUSE yok — içeriği açarak sınıyoruz
+          cd "$(mktemp -d)"
+          "$OLDPWD/$IMG" --appimage-extract > /dev/null
+          test -x squashfs-root/AppRun || { echo "AppRun yok"; exit 1; }
+          ./squashfs-root/usr/bin/SwitchYonetimPaneli --self-test
+
+      - name: Çıktı var mı ve boş mu
+        shell: bash
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          set -euo pipefail
+          SAYI=$(find release -type f | wc -l)
+          if [ "$SAYI" -eq 0 ]; then
+            echo "::error::release/ boş — paketleme başarısız"
+            exit 1
+          fi
+          KUCUK=$(find release -type f -size -100k)
+          if [ -n "$KUCUK" ]; then
+            echo "::error::şüpheli küçük çıktı: $KUCUK"
+            exit 1
+          fi
+          find release -type f -exec ls -lh {} \;
+
+      - name: Artifact yükle
+        uses: actions/upload-artifact@v7
+        with:
+          name: portable-${{ matrix.hedef }}
+          path: ${{ env.UYGULAMA_DIZINI }}/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: GitHub Release
+    # Yalnızca v* etiketi push'unda ve tüm build'ler geçtiyse
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write       # yalnızca burada yazma izni
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v6
+
+      - name: Artifact'leri indir
+        uses: actions/download-artifact@v8
+        with:
+          path: indirilen
+          pattern: portable-*
+          merge-multiple: true
+
+      - name: Dosyaları doğrula
+        run: |
+          set -euo pipefail
+          cd indirilen
+          ls -lh
+          BEKLENEN=4
+          SAYI=$(find . -maxdepth 1 -type f | wc -l)
+          if [ "$SAYI" -ne "$BEKLENEN" ]; then
+            echo "::error::$BEKLENEN dosya bekleniyordu, $SAYI bulundu"
+            find . -maxdepth 1 -type f
+            exit 1
+          fi
+          for f in *; do
+            [ -s "$f" ] || { echo "::error::boş dosya: $f"; exit 1; }
+          done
+
+      - name: SHA256SUMS.txt üret
+        run: |
+          set -euo pipefail
+          cd indirilen
+          # Glob'u açıkça yazıyoruz: "*" kullanılırsa dosya kendini de
+          # listeleyebiliyor.
+          sha256sum *.zip *.AppImage > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Release oluştur / güncelle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIKET: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          NOTLAR="$GITHUB_WORKSPACE/.github/release-notes.md"
+          cd indirilen
+          if gh release view "$ETIKET" >/dev/null 2>&1; then
+            echo "Release zaten var — dosyalar üzerine yazılıyor (--clobber)."
+            gh release upload "$ETIKET" ./* --clobber
+          else
+            gh release create "$ETIKET" ./* \
+              --title "$ETIKET" \
+              --notes-file "$NOTLAR" \
+              --generate-notes
+          fi
+          echo "Release içeriği:"
+          gh release view "$ETIKET" --json assets \
+            --jq '.assets[] | "  \(.name)  \(.size) bayt"'

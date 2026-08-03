@@ -1,0 +1,10 @@
+# Ubuntu / Linux
+# Pencere motoru: Qt (QtWebEngine). GTK yerine Qt seçildi: tek pip kurulumu
+# yeterli, dağıtıma özel sistem paketi gerektirmiyor.
+#
+# Qt'nin ihtiyaç duyduğu sistem kütüphaneleri (Ubuntu 22.04 / GitHub runner):
+#   sudo apt-get install -y \
+#     libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+#     libxkbcommon-x11-0 libegl1 libgl1 libnss3 libasound2
+-r requirements.txt
+pywebview[qt]>=5.3,<6

@@ -13,9 +13,8 @@ Her switch için yazma kilidi vardır; PoE/port POST'ları her zaman güncel
 GET üzerine kurulur, sıraya sokulur, paralel çalışmaz.
 
 Çalıştırma:
-    python3 switch_api.py                 # http://127.0.0.1:8770 (tarayıcı açılır)
-    python3 switch_api.py --port 9000
-    python3 switch_api.py --discover 10.1.1.0/24   # tarama aralığı
+    python3 switch_api.py --port 9000              # yalnız API (pencere yok)
+    python3 switch_api.py --discover 10.1.1.0/24   # tek seferlik tarama
 """
 from __future__ import annotations
 
@@ -27,7 +26,6 @@ import re
 import socket
 import threading
 import time
-import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -36,6 +34,19 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 HERE = Path(__file__).resolve().parent
+
+
+def kaynak_dizini() -> Path:
+    """Arayüz dosyalarının (static/) bulunduğu klasör.
+
+    PyInstaller ile paketlendiğinde veriler geçici bir klasöre açılır ve
+    yolu sys._MEIPASS ile verilir; kaynaktan çalışırken bu dosyanın yanı.
+    """
+    temel = getattr(sys, "_MEIPASS", None)
+    return Path(temel) if temel else HERE
+
+
+STATIC_DIR = kaynak_dizini() / "static"
 
 # Uygulama sürümü — alt barda gösterilir. Tek kaynak burası.
 APP_VERSION = "1.0.1"
@@ -59,57 +70,29 @@ def lock_for(ip: str) -> threading.Lock:
         return _LOCKS.setdefault(ip, threading.Lock())
 
 
-def load_env(path: Path) -> dict:
-    """.env'i okur. Aynı anahtar iki kez yazılmışsa son satır geçerli olur —
-    bu sessizce yanlış ayarla çalışmaya yol açtığı için uyarı basar."""
-    env = {}
-    if not path.exists():
-        return env
-    for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        if k in env:
-            print(f"[!] {path.name}:{no} — '{k}' birden fazla kez tanımlı, "
-                  f"son değer geçerli: {v.strip()}")
-        env[k] = v.strip().strip('"').strip("'")
-    return env
+# Switch'lerin HTTP portu. Arayüz açılırken --switch-port ile
+# değiştirilebilir; ayar dosyası yok.
+SWITCH_PORT = 80
+
+# Tarama kutusuna gelen varsayılan ağ aralığı
+DISCOVER_CIDR = "10.1.1.0/24"
+
+# Her değişiklikten sonra configSave çağrılsın mı?
+# KAPALI: kayıt yalnızca kullanıcı "Kaydet"e basınca yapılır. Böylece
+# switch'in flash'ı her port dokunuşunda yazılmaz ve yapılan değişiklik
+# beğenilmezse yeniden başlatmak eski haline döndürür.
+AUTOSAVE = False
+
+# Ağ aralığı taramasında TCP ön yoklama süresi (tek IP'de kullanılmaz)
+TCP_PROBE_TIMEOUT = 1.2
 
 
-def find_env() -> Path:
-    """.env'i kendi klasöründe, bulamazsa üst klasörlerde arar.
-
-    Uygulama dosyaları "Switch Yönetim Paneli.app" paketinin içinde duruyor;
-    kimlik bilgileri paketin dışında (interface/.env) kalsın ki paket açmadan
-    düzenlenebilsin.
-    """
-    for klasor in (HERE, *list(HERE.parents)[:4]):
-        aday = klasor / ".env"
-        if aday.exists():
-            return aday
-    return HERE / ".env"
-
-
-ENV_PATH = find_env()
-ENV = load_env(ENV_PATH)
-SWITCH_PORT = int(ENV.get("SWITCH_HTTP_PORT", ENV.get("KYLAND_HTTP_PORT", 80)))
-
-# Kimlik bilgileri dosyada TUTULMAZ. Kullanıcı switch'i seçince arayüzden
-# girer, burada yalnızca bellekte durur ve uygulama kapanınca kaybolur.
-# .env'de şifre varsa (geliştirme kolaylığı) başlangıç değeri olarak
-# kullanılır; dağıtımda .env'de şifre bulunmamalıdır.
+# Kimlik bilgileri hiçbir dosyada tutulmaz. Kullanıcı switch'i seçince
+# arayüzden girer, burada yalnızca bellekte durur, uygulama kapanınca
+# kaybolur.
 _KIMLIK: dict[str, tuple[str, str]] = {}          # ip -> (kullanıcı, şifre)
 _KIMLIK_GUARD = threading.Lock()
 _SON_KIMLIK: tuple[str, str] | None = None        # taramada denenecek son çift
-
-_ENV_USER = ENV.get("SWITCH_USERNAME", ENV.get("KYLAND_USERNAME", ""))
-_ENV_PASS = ENV.get("SWITCH_PASSWORD", ENV.get("KYLAND_PASSWORD", ""))
-if _ENV_PASS:
-    _SON_KIMLIK = (_ENV_USER or "admin", _ENV_PASS)
-    print("[!] .env içinde switch şifresi var. Dağıtımda bu satırı silin; "
-          "şifre arayüzden sorulur.")
 
 
 def kimlik_ver(ip: str, kullanici: str, sifre: str) -> None:
@@ -137,15 +120,6 @@ def kimlik_al(ip: str) -> tuple[str, str] | None:
     """
     with _KIMLIK_GUARD:
         return _KIMLIK.get(ip) or _SON_KIMLIK
-
-
-# Her değişiklikten sonra configSave çağrılsın mı?
-# Varsayılan KAPALI: kayıt yalnızca kullanıcı "Kaydet"e basınca yapılır.
-# Böylece switch'in flash'ı her port dokunuşunda yazılmaz ve yapılan
-# değişiklik beğenilmezse yeniden başlatmak eski haline döndürür.
-AUTOSAVE = str(ENV.get("AUTOSAVE", "0")).lower() in ("1", "true", "evet")
-# Ağ aralığı taramasında TCP ön yoklama süresi (tek IP'de kullanılmaz)
-TCP_PROBE_TIMEOUT = float(ENV.get("TCP_PROBE_TIMEOUT", "1.2"))
 
 
 # ----------------------------------------------------------- switch API ----
@@ -584,7 +558,7 @@ class Handler(BaseHTTPRequestHandler):
         saklıyor; arayüzü güncelledikten sonra pencerede eski sürüm kalıyordu.
         Yerelden okunan birkaç KB için önbelleğin faydası da yok.
         """
-        path = HERE / "static" / name
+        path = STATIC_DIR / name
         if not path.exists():
             return self._send(404, {"error": "yok"})
         body = path.read_bytes()
@@ -599,17 +573,17 @@ class Handler(BaseHTTPRequestHandler):
     def _index(self):
         """index.html'i varlık adreslerine sürüm ekleyerek gönderir.
 
-        Uygulama penceresi (WKWebView / Chrome --app) eski app.js ve
-        style.css'i inatla önbellekte tutabiliyor; arayüz güncellendiği
-        halde eski hali görünüyordu. Dosya her değiştiğinde adres de
+        Uygulama penceresi (WebView2 / WKWebView / QtWebEngine) eski
+        app.js ve style.css'i inatla önbellekte tutabiliyor; arayüz
+        güncellendiği halde eski hali görünüyordu. Dosya her değiştiğinde adres de
         değiştiği için önbellek kendiliğinden devre dışı kalır.
         """
-        path = HERE / "static" / "index.html"
+        path = STATIC_DIR / "index.html"
         if not path.exists():
             return self._send(404, {"error": "yok"})
         html = path.read_text(encoding="utf-8")
         for varlik in ("app.js", "style.css"):
-            p = HERE / "static" / varlik
+            p = STATIC_DIR / varlik
             surum = int(p.stat().st_mtime) if p.exists() else 0
             html = html.replace(f'"/{varlik}"', f'"/{varlik}?v={surum}"')
         body = html.encode("utf-8")
@@ -639,7 +613,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/version":
                 return self._send(200, {"version": APP_VERSION})
             if u.path == "/api/discover":
-                cidr = q.get("cidr", [ENV.get("DISCOVER_CIDR", "10.1.1.0/24")])[0]
+                cidr = q.get("cidr", [DISCOVER_CIDR])[0]
                 if not _SCAN_LOCK.acquire(blocking=False):
                     return self._send(409, {"error": "tarama zaten sürüyor"})
                 try:
@@ -720,42 +694,49 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-def main():
-    p = argparse.ArgumentParser(description="KYLAND switch yönetim backend'i")
+def main() -> int:
+    """Yalnızca API sunucusu — pencere açmaz.
+
+    Uygulama penceresi için app.py kullanılır. Bu giriş noktası hata
+    ayıklama içindir: uçları curl ile denemek, tek seferlik tarama yapmak.
+    """
+    global SWITCH_PORT
+
+    p = argparse.ArgumentParser(
+        description="Switch Yönetim Paneli — API sunucusu (pencere açmaz)")
     p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8770)
+    p.add_argument("--port", type=int, default=8770, help="bu servisin portu")
+    p.add_argument("--switch-port", type=int, default=SWITCH_PORT,
+                   help=f"switch'lerin HTTP portu (varsayılan {SWITCH_PORT})")
     p.add_argument("--discover", default=None,
-                   help="başlangıçta bu ağı tara (ör. 10.1.1.0/24)")
-    p.add_argument("--no-browser", action="store_true",
-                   help="tarayıcıyı otomatik açma")
+                   help="sunucuyu açmadan bu ağı tara ve çık (ör. 10.1.1.0/24)")
     args = p.parse_args()
+    SWITCH_PORT = args.switch_port
 
     if args.discover:
         print(f"Ağ taranıyor: {args.discover}")
         for s in discover(args.discover)["switches"]:
-            print(f"  {s['ip']:<14} {s['model']} v{s['version']}")
+            durum = "kilitli" if s["kilit"] else f"{s['model']} v{s['version']}"
+            print(f"  {s['ip']:<16} {durum}")
+        return 0
 
-    print("Kimlik bilgisi arayüzden istenir; hiçbir yere yazılmaz.")
-
-    url = f"http://{args.host}:{args.port}"
     try:
         srv = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError as exc:
         print(f"[HATA] {args.port} portu açılamadı: {exc}")
-        print(f"       Başka bir kopya çalışıyor olabilir. "
-              f"Tarayıcıdan {url} adresini deneyin ya da --port ile "
-              f"başka bir port verin.")
         return 1
 
-    print(f"Arayüz: {url}   (durdurmak için Ctrl-C)")
-    if not args.no_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    print(f"API: http://{args.host}:{args.port}   (durdurmak için Ctrl-C)")
+    print(f"Switch'ler {SWITCH_PORT} portunda aranacak")
+    print("Kimlik bilgisi arayüzden istenir, hiçbir yere yazılmaz.")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nKapatılıyor.")
+    finally:
+        srv.shutdown()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    sys.exit(main())

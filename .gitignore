@@ -1,0 +1,44 @@
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── PyInstaller / paketleme ───────────────────────────────────────
+build/
+dist/
+release/
+*.spec.bak
+*.manifest
+AppDir/
+squashfs-root/
+appimagetool*.AppImage
+
+# ── uygulama çıktıları ────────────────────────────────────────────
+# Loglar kullanıcı dizinine yazılır; yine de yanlışlıkla kopyalanana karşı
+*.log
+*.log.[0-9]
+
+# ── hassas dosyalar ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+secrets.*
+
+# ── işletim sistemi ───────────────────────────────────────────────
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# ── düzenleyici ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp

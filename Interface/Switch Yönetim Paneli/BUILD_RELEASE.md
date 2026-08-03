@@ -1,0 +1,250 @@
+# Derleme, Test ve Yayınlama
+
+Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
+çıkarma rehberi.
+
+> Bu belge yalnızca **portable** paketleri kapsar. Installer (Inno Setup,
+> DMG/PKG, DEB/RPM), kod imzalama ve Apple notarization **ileride** ele
+> alınacaktır; şu anki çıktılar imzasızdır.
+
+---
+
+## 1. Geliştirme çalıştırması
+
+```bash
+cd "Interface/Switch Yönetim Paneli"
+pip install -r requirements-macos.txt      # ya da -windows / -linux
+python3 app.py
+```
+
+Faydalı bayraklar:
+
+| Bayrak | İşlevi |
+|---|---|
+| `--switch-port 8080` | Switch'ler 80 dışında bir porttaysa |
+| `--version` | Sürümü yazdırır (tek kaynak: `switch_api.py` → `APP_VERSION`) |
+| `--self-test` | Pencere açmadan paketi doğrular (aşağıya bakın) |
+| `SYP_HEADLESS=1` | Pencere açmadan servisi çalıştırır (sunucu/CI) |
+
+Uygulama yalnızca **pywebview** ile açılır. Tarayıcıya düşme, Chrome `--app`
+ya da `webbrowser` kullanımı yoktur; pywebview yoksa uygulama açılmaz ve
+sebebini bir pencereyle bildirir.
+
+---
+
+## 2. Self-test
+
+```bash
+python3 app.py --self-test        # kaynak koddan
+```
+
+Paketlenmiş uygulamada:
+
+| Platform | Komut |
+|---|---|
+| Windows | `SwitchYonetimPaneli.exe --self-test` |
+| Linux | `SwitchYonetimPaneli --self-test` |
+| macOS | `"Switch Yönetim Paneli.app/Contents/MacOS/SwitchYonetimPaneli" --self-test` |
+
+**Ne kontrol eder**
+
+1. `pywebview`, `requests`, `switch_api` içe aktarılabiliyor mu?
+2. `static/` klasörü doğru çözülüyor mu? (kaynakta dosyanın yanı,
+   paketlenmişte `sys._MEIPASS`)
+3. `index.html`, `app.js`, `style.css`, `piton-logo.svg`, `piton-favicon.png`
+   var mı ve boş değil mi?
+4. Yerel HTTP servisi rastgele boş bir 127.0.0.1 portunda açılıyor mu?
+5. Servis hazır hâle geliyor mu?
+6. `GET /` → 200 mü, gövde gerçekten bu uygulamanın arayüzü mü
+   (`Switch Yönetim Paneli` + `id="detail"` + sürümlenmiş varlık adresleri)?
+7. `GET /api/version` → 200 ve sürüm `APP_VERSION` ile aynı mı?
+8. `GET /app.js`, `GET /style.css` → 200 mü?
+
+**Ne yapmaz:** pencere açmaz, işletim sistemi diyaloğu göstermez, switch
+taraması yapmaz, yerel ağdaki cihazlara bağlanmaz, kimlik sormaz, internete
+çıkmaz. Sunucu `finally` içinde her koşulda kapatılır.
+
+Çıkış kodu: başarılı **0**, başarısız **1**. Windows'ta `console=False`
+olduğu için çıktı görünmeyebilir — doğrulama çıkış koduyla yapılmalıdır.
+
+---
+
+## 3. Yerel build
+
+Ön koşul: **Python 3.12**. `SwitchYonetimPaneli.spec` başka bir sürümle
+build almayı durdurur (`SYP_PYTHON_SERBEST=1` ile aşılabilir).
+
+```bash
+cd "Interface/Switch Yönetim Paneli"
+pip install -r requirements-<platform>.txt
+pip install -r requirements-build.txt
+python -m PyInstaller --noconfirm --clean SwitchYonetimPaneli.spec
+```
+
+Çıktılar:
+
+| Platform | Çıktı |
+|---|---|
+| Windows | `dist/SwitchYonetimPaneli/` (onedir) |
+| Linux | `dist/SwitchYonetimPaneli/` (onedir) |
+| macOS | `dist/Switch Yönetim Paneli.app` |
+
+### Linux AppImage
+
+```bash
+./packaging/appimage.sh dist/SwitchYonetimPaneli \
+    release/SwitchYonetimPaneli-1.0.1-linux-x86_64.AppImage 1.0.1
+```
+
+`appimagetool` sürümü betikte sabittir (**1.9.1**). `APPIMAGETOOL_SHA256`
+ortam değişkeni verilirse indirilen araç doğrulanır; verilmezse indirilenin
+özeti ekrana yazılır. Elde hazır araç varsa `APPIMAGETOOL_BIN=/yol/appimagetool`
+ile indirme atlanır.
+
+---
+
+## 4. GitHub Actions
+
+### `ci.yml` — her değişiklikte
+
+Tetikleyici: pull request, `main`'e push, elle çalıştırma.
+
+Windows / Ubuntu / macOS üzerinde: Python 3.12 kurar, platform
+requirements'ı yükler, `compileall` ile derleme kontrolü yapar, kaynak
+koddan `--self-test` çalıştırır. Ayrı bir job depoda izlenen hassas dosya
+olup olmadığına ve çalışma ağacının temizliğine bakar.
+
+CI gerçek switch'e ya da özel ağa **bağlanmaz**.
+
+### `build-portable.yml` — paket üretimi
+
+Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
+
+| Matrix | Runner | Çıktı |
+|---|---|---|
+| windows-x64 | `windows-2025` | onedir ZIP |
+| linux-x86_64 | `ubuntu-22.04` | AppImage |
+| macos-arm64 | `macos-15` | `.app` → `ditto` ZIP |
+| macos-x64 | `macos-15-intel` | `.app` → `ditto` ZIP |
+
+Her job: checkout → Python 3.12 (pip cache) → bağımlılıklar → sürüm
+belirleme → kaynak self-test → temiz PyInstaller build → **paketlenmiş**
+self-test → paketleme → çıktı boş mu kontrolü → artifact yükleme.
+
+Ubuntu 22.04 üzerinde build alınır; daha yeni dağıtımlarda çalışma ihtimali
+bu sayede artar (glibc geriye dönük uyumlu değildir).
+
+### Elle build başlatma
+
+GitHub → **Actions** → *Portable build* → **Run workflow**.
+Sonuç yalnızca **Artifact** olur, Release oluşmaz.
+
+### Sürüm etiketiyle yayınlama
+
+`v1.2.3` biçiminde etiket push'lanır. Etiketteki sürüm ile
+`switch_api.py` içindeki `APP_VERSION` **aynı olmalıdır**; değilse build
+açık bir hatayla durur. Bütün build'ler geçmeden Release oluşturulmaz.
+
+Release job'ı artifact'leri indirir, dosyaların var ve boş olmadığını
+doğrular, `SHA256SUMS.txt` üretir ve `gh` CLI ile Release'i oluşturur.
+Aynı etiket için tekrar çalıştırılırsa varlıklar `--clobber` ile
+güncellenir (yeni Release açılmaz).
+
+### Artifact ile Release farkı
+
+| | Artifact | Release |
+|---|---|---|
+| Ne zaman | Her portable build | Yalnızca `v*` etiketinde |
+| Süre | 14 gün | Kalıcı |
+| Erişim | Depoya erişimi olanlar | Herkes (depo public ise) |
+| Checksum | Yok | `SHA256SUMS.txt` |
+
+### İzinler
+
+Workflow'lar en düşük izinle çalışır: build job'larında `contents: read`,
+yalnızca Release job'ında `contents: write`. `pull_request_target`
+kullanılmaz, fork PR'larına yazma yetkisi verilmez, secret istenmez.
+
+---
+
+## 5. Üretilen dosyalar
+
+```
+SwitchYonetimPaneli-<sürüm>-windows-x64.zip
+SwitchYonetimPaneli-<sürüm>-linux-x86_64.AppImage
+SwitchYonetimPaneli-<sürüm>-macos-arm64.zip
+SwitchYonetimPaneli-<sürüm>-macos-x64.zip
+SHA256SUMS.txt
+```
+
+Doğrulama:
+
+```bash
+sha256sum -c SHA256SUMS.txt        # Linux
+shasum -a 256 -c SHA256SUMS.txt    # macOS
+```
+
+---
+
+## 6. Desteklenen sistemler ve kullanıcı notları
+
+| Platform | Mimari | Not |
+|---|---|---|
+| Windows 10 21H2+ / 11 | x64 | **WebView2 Runtime** gerekir |
+| Ubuntu 22.04+ ve dengi | x86_64 | AppImage |
+| macOS 11+ | arm64 | CI yalnız macOS 15'te doğrular |
+| macOS 11+ | x86_64 | CI yalnız macOS 15 Intel'de doğrular |
+
+**Windows — WebView2.** Pencere motoru Microsoft Edge WebView2'dir. Windows
+10 21H2 ve sonrasında işletim sistemiyle gelir. Yoksa ücretsiz
+[Evergreen WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+kurulmalıdır; eksikse uygulama bunu açılışta anlaşılır bir pencereyle söyler.
+
+**macOS — yerel ağ izni.** İlk açılışta macOS yerel ağ erişimi sorar; switch'leri
+bulmak için gereklidir. Reddedilirse tarama sonuç vermez
+(Sistem Ayarları → Gizlilik ve Güvenlik → Yerel Ağ).
+
+**İmzasız paket uyarıları.** Paketler imzalı değildir:
+
+- Windows: SmartScreen "bilinmeyen yayımcı" uyarısı verebilir →
+  *Daha fazla bilgi* → *Yine de çalıştır*.
+- macOS: Gatekeeper açılışı engelleyebilir → uygulamaya sağ tık → *Aç*, ya da
+  Sistem Ayarları → Gizlilik ve Güvenlik → *Yine de aç*.
+
+**Linux — AppImage.**
+
+```bash
+chmod +x SwitchYonetimPaneli-*.AppImage
+./SwitchYonetimPaneli-*.AppImage
+```
+
+Artifact/Release indirmelerinde çalıştırma izni korunmaz; `chmod +x`
+gereklidir. Qt kütüphaneleri eksikse:
+
+```bash
+sudo apt install libxcb-cursor0 libegl1 libgl1
+```
+
+---
+
+## 7. Log dosyaları
+
+| Platform | Konum |
+|---|---|
+| Windows | `%LOCALAPPDATA%\SwitchYonetimPaneli\logs\uygulama.log` |
+| macOS | `~/Library/Logs/SwitchYonetimPaneli/uygulama.log` |
+| Linux | `$XDG_STATE_HOME/SwitchYonetimPaneli/uygulama.log` (yoksa `~/.local/state/...`) |
+
+512 KB'ı geçince devreder, iki yedek tutulur. Uygulama klasörüne hiçbir şey
+yazılmaz.
+
+---
+
+## 8. Kapsam dışı / bilinen sınırlar
+
+- CI gerçek switch bağlantısını **test etmez**; yalnızca 127.0.0.1 üzerinde
+  kendi servisini sınar. Cihaz uyumluluğu sahada doğrulanmalıdır.
+- Kod imzalama, notarization ve installer üretimi bu aşamada yoktur.
+- `universal2` macOS paketi üretilmez; iki ayrı mimari çıktı verilir.
+- Kimlik bilgileri hiçbir dosyada tutulmaz, kullanıcıdan istenir ve yalnızca
+  bellekte kalır.

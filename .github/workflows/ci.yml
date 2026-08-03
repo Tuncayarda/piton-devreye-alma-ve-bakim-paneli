@@ -1,0 +1,104 @@
+name: CI
+
+# Kod her değiştiğinde üç platformda da kurulum + self-test.
+# Gerçek switch'e ya da yerel ağa hiç dokunmaz: self-test yalnızca
+# 127.0.0.1'de kendi servisini sınar.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read          # CI'nın yazma iznine ihtiyacı yok
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UYGULAMA_DIZINI: Interface/Switch Yönetim Paneli
+  PYTHON_SURUMU: "3.12"
+
+jobs:
+  self-test:
+    name: ${{ matrix.ad }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { ad: Windows,  os: windows-2025,   req: requirements-windows.txt }
+          - { ad: Ubuntu,   os: ubuntu-22.04,   req: requirements-linux.txt }
+          - { ad: macOS,    os: macos-15,       req: requirements-macos.txt }
+
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v6
+
+      - name: Python ${{ env.PYTHON_SURUMU }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_SURUMU }}
+          cache: pip
+          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/requirements*.txt
+
+      - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+            libxkbcommon-x11-0 libegl1 libgl1 libnss3
+
+      - name: Bağımlılıkları kur
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r "${{ matrix.req }}"
+
+      - name: Söz dizimi / derleme kontrolü
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: python -m compileall -q app.py switch_api.py
+
+      - name: Self-test (kaynak koddan)
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: python app.py --self-test
+
+      - name: Sürüm okunabiliyor mu
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: python app.py --version
+
+  repo-kontrol:
+    name: Depo kontrolleri
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v6
+
+      - name: İzlenen hassas dosya var mı
+        run: |
+          set -euo pipefail
+          # Yalnızca dosya adlarına bakar, içeriklerini yazdırmaz.
+          BULUNAN=$(git ls-files \
+            | grep -Ei '(^|/)\.env$|\.pem$|\.key$|\.p12$|\.pfx$|id_rsa' || true)
+          if [ -n "$BULUNAN" ]; then
+            echo "::warning::Depoda izlenen hassas olabilecek dosyalar var:"
+            echo "$BULUNAN" | sed 's/^/  /'
+          else
+            echo "İzlenen hassas dosya yok."
+          fi
+
+      - name: Çalışma ağacı temiz mi (üretilen dosya izleniyor mu)
+        run: |
+          set -euo pipefail
+          git status --porcelain > /tmp/durum
+          if [ -s /tmp/durum ]; then
+            echo "::error::Checkout sonrası çalışma ağacı kirli:"
+            cat /tmp/durum
+            exit 1
+          fi
+          echo "Çalışma ağacı temiz."

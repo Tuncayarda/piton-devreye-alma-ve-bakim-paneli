@@ -1,173 +1,457 @@
 #!/usr/bin/env python3
 """Switch Yönetim Paneli — masaüstü uygulaması.
 
-Arka planda yerel servisi başlatır ve arayüzü kendi penceresinde açar.
-Tarayıcı adres çubuğu, sekme, URL yazma yok.
+Yerel HTTP servisini arka planda başlatır ve arayüzü pywebview penceresinde
+açar. Tarayıcı kullanılmaz: adres çubuğu, sekme, tarayıcıya düşme yoktur.
+pywebview kurulu değilse uygulama açılmaz, sebebini söyleyip çıkar.
 
-Pencere seçimi (sırayla denenir):
-  1. pywebview  -> gerçek native pencere (macOS WKWebView)
-  2. Chrome/Edge --app modu -> çerçevesiz uygulama penceresi
-  3. varsayılan tarayıcı -> son çare
+Platform gereksinimleri (requirements-*.txt):
+    Windows : pywebview + WebView2 çalışma zamanı (Edge ile birlikte gelir)
+    macOS   : pywebview + pyobjc (WebKit)
+    Ubuntu  : pywebview[qt] (PyQt/QtWebEngine)
 
 Çalıştırma:
-    "Switch Yönetim Paneli.app" dosyasına çift tıkla
-    python3 app.py                 (geliştirme için)
+    python3 app.py
+    python3 app.py --switch-port 8080     # switch'ler farklı porttaysa
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
+import platform
 import socket
 import subprocess
 import sys
 import threading
 import time
+import traceback
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+# Paketleme ve çalıştırma için asgari sürüm. 3.9'da pywebview'in Qt ve
+# WebView2 tarafları sorun çıkarıyor; dağıtım build'leri 3.12 ile alınır
+# (bkz. BUILD.md).
+ASGARI_PYTHON = (3, 10)
 
-import switch_api  # noqa: E402
-
-TITLE = "Switch Yönetim Paneli"
+APP_ADI = "Switch Yönetim Paneli"
+KISA_AD = "SwitchYonetimPaneli"          # dosya/dizin adlarında kullanılır
 WIDTH, HEIGHT = 1180, 780
 
-# Dock simgesi paketin içinden okunur
-ICON_PNG = (HERE / "Switch Yönetim Paneli.app" / "Contents" / "Resources"
-            / "AppIcon.png")
+
+# ─────────────────────────────────────────────────────────── konsol güvenliği
+# Windows'ta --noconsole ile paketlenen uygulamada stdout/stderr None olur;
+# print() ya da traceback yazımı AttributeError'a düşer. Program açılır
+# açılmaz güvenli bir hedefe bağlıyoruz.
+def _akislari_bagla() -> None:
+    for ad in ("stdout", "stderr"):
+        if getattr(sys, ad, None) is None:
+            setattr(sys, ad, open(os.devnull, "w", encoding="utf-8"))
 
 
-def macos_kimlik() -> None:
-    """Dock ve menü çubuğunda "Python" yerine uygulama adı/simgesi görünsün.
+_akislari_bagla()
 
-    pywebview penceresi Python süreci üzerinden açıldığı için macOS
-    uygulamayı yorumlayıcının adıyla gösterebiliyor. Paket bilgisini ve
-    Dock simgesini çalışma anında düzeltiyoruz. pyobjc yoksa sessizce
-    atlanır — uygulama yine çalışır.
+
+# ───────────────────────────────────────────────────────────────── loglama ──
+def log_dizini() -> Path:
+    """Log klasörü — uygulama klasörüne asla yazmayız.
+
+    Program dosyaları salt okunur olabilir (Program Files, /Applications,
+    imzalı .app paketi); kullanıcının kendi dizini her platformda yazılabilir.
+    """
+    sistem = platform.system()
+    if sistem == "Windows":
+        temel = Path(os.environ.get("LOCALAPPDATA")
+                     or Path.home() / "AppData" / "Local")
+        return temel / KISA_AD / "logs"
+    if sistem == "Darwin":
+        return Path.home() / "Library" / "Logs" / KISA_AD
+    temel = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    return temel / KISA_AD
+
+
+LOG_DOSYASI = log_dizini() / "uygulama.log"
+LOG_SINIRI = 512 * 1024          # 512 KB'ı geçince devret
+LOG_YEDEK = 2                    # uygulama.log.1, uygulama.log.2
+_LOG_KILIT = threading.Lock()
+
+
+def _log_devret() -> None:
+    """Dosya büyüdüyse .1/.2 diye kaydırır, en eskisini siler.
+
+    Uygulama uzun süre açık kalabildiği için log sınırsız büyümemeli.
+    Kendi döngümüzü yazıyoruz: logging.RotatingFileHandler tek başına
+    fazladan yapılandırma getiriyor, burada tek satırlık ihtiyaç var.
     """
     try:
-        from Foundation import NSBundle
-        from AppKit import NSApplication, NSImage
-    except Exception:
-        return
-    try:
-        bundle = NSBundle.mainBundle()
-        bilgi = bundle.localizedInfoDictionary() or bundle.infoDictionary()
-        if bilgi is not None:
-            bilgi["CFBundleName"] = TITLE
-            bilgi["CFBundleDisplayName"] = TITLE
-        if ICON_PNG.exists():
-            img = NSImage.alloc().initWithContentsOfFile_(str(ICON_PNG))
-            if img:
-                NSApplication.sharedApplication().setApplicationIconImage_(img)
-    except Exception:
+        if not LOG_DOSYASI.exists() or LOG_DOSYASI.stat().st_size < LOG_SINIRI:
+            return
+        en_eski = LOG_DOSYASI.with_suffix(f".log.{LOG_YEDEK}")
+        if en_eski.exists():
+            en_eski.unlink()
+        for i in range(LOG_YEDEK - 1, 0, -1):
+            kaynak = LOG_DOSYASI.with_suffix(f".log.{i}")
+            if kaynak.exists():
+                kaynak.replace(LOG_DOSYASI.with_suffix(f".log.{i + 1}"))
+        LOG_DOSYASI.replace(LOG_DOSYASI.with_suffix(".log.1"))
+    except OSError:
         pass
 
 
-def free_port() -> int:
+def log(mesaj: str) -> None:
+    """Hem konsola (varsa) hem log dosyasına yazar; asla patlamaz."""
+    print(mesaj)
+    damga = time.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with _LOG_KILIT:
+            LOG_DOSYASI.parent.mkdir(parents=True, exist_ok=True)
+            _log_devret()
+            with LOG_DOSYASI.open("a", encoding="utf-8") as f:
+                f.write(f"{damga}  {mesaj}\n")
+    except OSError:
+        pass          # log yazılamıyorsa uygulama yine de çalışsın
+
+
+# --self-test gibi otomatik çalışmalarda işletim sistemi diyaloğu açılmamalı;
+# hata yalnızca log'a ve çıkış koduna yansır.
+SESSIZ = False
+
+
+def hata_goster(baslik: str, mesaj: str) -> None:
+    """Konsol olmayabileceği için hatayı pencereyle bildirir."""
+    log(f"[HATA] {baslik}: {mesaj}")
+    if SESSIZ:
+        return
+    sistem = platform.system()
+    try:
+        if sistem == "Windows":
+            ctypes.windll.user32.MessageBoxW(None, mesaj, f"{APP_ADI} — {baslik}",
+                                             0x10)
+        elif sistem == "Darwin":
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display alert "{baslik}" message "{mesaj}" as critical'],
+                check=False, capture_output=True)
+        else:
+            for arac in (["zenity", "--error", "--title", baslik, "--text", mesaj],
+                         ["kdialog", "--error", mesaj]):
+                try:
+                    subprocess.run(arac, check=False, capture_output=True)
+                    break
+                except FileNotFoundError:
+                    continue
+    except Exception:
+        pass          # bildirim gösterilemese de log dosyasında duruyor
+
+
+# ─────────────────────────────────────────────────────────────── yerel servis
+def bos_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
-def start_server(port: int) -> ThreadingHTTPServer:
-    srv = ThreadingHTTPServer(("127.0.0.1", port), switch_api.Handler)
+def sunucu_baslat(port: int, handler) -> ThreadingHTTPServer:
+    srv = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    srv.daemon_threads = True          # kapanırken açık istekler asılı kalmasın
     threading.Thread(target=srv.serve_forever, daemon=True).start()
-    # ayağa kalkmasını bekle
-    for _ in range(50):
-        try:
-            with socket.create_connection(("127.0.0.1", port), 0.2):
-                return srv
-        except OSError:
-            time.sleep(0.05)
     return srv
 
 
-def open_native(url: str) -> bool:
-    """pywebview varsa gerçek uygulama penceresi açar."""
+def sunucu_kapat(srv: ThreadingHTTPServer | None) -> None:
+    """Dinlemeyi durdurur ve soketi kapatır; iki kez çağrılabilir."""
+    if srv is None:
+        return
     try:
-        import webview
-    except ImportError:
-        return False
-    macos_kimlik()
-    webview.create_window(TITLE, url, width=WIDTH, height=HEIGHT,
-                          min_size=(900, 600))
-    webview.start()
-    return True
+        srv.shutdown()
+        srv.server_close()
+    except Exception:
+        pass
 
 
-CHROME_PATHS = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-]
+def sunucu_bekle(port: int, saniye: float = 5.0) -> bool:
+    """Servis ayağa kalkana kadar bekler; kalkmazsa False."""
+    for _ in range(int(saniye / 0.05)):
+        try:
+            with socket.create_connection(("127.0.0.1", port), 0.2):
+                return True
+        except OSError:
+            time.sleep(0.05)
+    return False
 
 
-def open_app_window(url: str) -> subprocess.Popen | None:
-    """Chrome tabanlı bir tarayıcıyı --app modunda açar.
+# ──────────────────────────────────────────────────────────────── macOS adı ──
+def macos_kimlik() -> None:
+    """Dock ve menü çubuğunda yorumlayıcının adı yerine uygulama adı çıksın.
 
-    Adres çubuğu ve sekme çubuğu olmayan, ayrı bir pencere gelir.
+    Yalnızca kaynaktan çalışırken gerekir: paketlenmiş .app'te bu bilgi
+    Info.plist'ten gelir (bkz. SwitchYonetimPaneli.spec). pyobjc yoksa
+    sessizce atlanır.
     """
-    profile = HERE / ".appwindow"
-    for path in CHROME_PATHS:
-        if Path(path).exists():
-            return subprocess.Popen(
-                [path, f"--app={url}",
-                 f"--user-data-dir={profile}",
-                 f"--window-size={WIDTH},{HEIGHT}",
-                 f"--class={TITLE}",
-                 "--no-first-run", "--no-default-browser-check"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return None
+    if platform.system() != "Darwin" or getattr(sys, "frozen", False):
+        return
+    try:
+        from Foundation import NSBundle
+    except Exception:
+        return
+    try:
+        bilgi = (NSBundle.mainBundle().localizedInfoDictionary()
+                 or NSBundle.mainBundle().infoDictionary())
+        if bilgi is not None:
+            bilgi["CFBundleName"] = APP_ADI
+            bilgi["CFBundleDisplayName"] = APP_ADI
+    except Exception:
+        pass
+
+
+# ────────────────────────────────────────────────────────────── self-test ──
+# Paketin gerçekten çalışabilir olduğunu pencere açmadan doğrular.
+# Yalnızca 127.0.0.1'e bağlanır: switch taraması yapmaz, yerel ağdaki
+# cihazlara dokunmaz, internete çıkmaz, kimlik sormaz.
+GEREKLI_VARLIKLAR = ("index.html", "app.js", "style.css",
+                     "piton-logo.svg", "piton-favicon.png")
+
+
+def _kontrol(ad: str, kosul: bool, ayrinti: str = "") -> bool:
+    isaret = "OK  " if kosul else "HATA"
+    log(f"  [{isaret}] {ad}" + (f" — {ayrinti}" if ayrinti else ""))
+    return kosul
+
+
+def self_test() -> int:
+    """Bağımlılık + kaynak dosya + yerel sunucu doğrulaması. 0 = başarılı."""
+    global SESSIZ
+    SESSIZ = True
+    log(f"{APP_ADI} — self-test  (python "
+        f"{sys.version_info.major}.{sys.version_info.minor}."
+        f"{sys.version_info.micro}, "
+        f"{'paketlenmiş' if getattr(sys, 'frozen', False) else 'kaynak'})")
+
+    sonuclar: list[bool] = []
+    srv = None
+    try:
+        # 1) Zorunlu bağımlılıklar
+        try:
+            import webview
+            sonuclar.append(_kontrol("pywebview içe aktarıldı", True,
+                                     getattr(webview, "__version__", "sürüm ?")))
+        except Exception as exc:
+            sonuclar.append(_kontrol("pywebview içe aktarıldı", False, str(exc)))
+        try:
+            import requests
+            sonuclar.append(_kontrol("requests içe aktarıldı", True,
+                                     requests.__version__))
+        except Exception as exc:
+            sonuclar.append(_kontrol("requests içe aktarıldı", False, str(exc)))
+
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import switch_api
+        except Exception as exc:
+            _kontrol("switch_api içe aktarıldı", False, str(exc))
+            return 1
+        sonuclar.append(_kontrol("switch_api içe aktarıldı", True,
+                                 f"sürüm {switch_api.APP_VERSION}"))
+
+        # 2) Arayüz dosyaları — kaynakta da paketlenmiş halde de bulunmalı
+        kok = switch_api.STATIC_DIR
+        sonuclar.append(_kontrol("static klasörü bulundu", kok.is_dir(), str(kok)))
+        for ad in GEREKLI_VARLIKLAR:
+            dosya = kok / ad
+            sonuclar.append(_kontrol(
+                f"static/{ad}", dosya.is_file() and dosya.stat().st_size > 0))
+
+        # 3) Yerel sunucu — rastgele boş portta
+        port = bos_port()
+        srv = sunucu_baslat(port, switch_api.Handler)
+        sonuclar.append(_kontrol("yerel sunucu açıldı", sunucu_bekle(port, 10.0),
+                                 f"127.0.0.1:{port}"))
+
+        # 4) HTTP yanıtları ve içerik işareti
+        import json
+        import urllib.request
+
+        def iste(yol: str):
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}{yol}", timeout=5) as r:
+                return r.status, r.read()
+
+        try:
+            kod, govde = iste("/")
+            metin = govde.decode("utf-8", "replace")
+            sonuclar.append(_kontrol("GET / → 200", kod == 200, f"{len(govde)} bayt"))
+            sonuclar.append(_kontrol(
+                "ana sayfa uygulamaya ait", APP_ADI in metin and 'id="detail"' in metin))
+            sonuclar.append(_kontrol(
+                "varlık adresleri sürümlenmiş", "/app.js?v=" in metin))
+        except Exception as exc:
+            sonuclar.append(_kontrol("GET /", False, str(exc)))
+
+        try:
+            kod, govde = iste("/api/version")
+            veri = json.loads(govde.decode("utf-8"))
+            sonuclar.append(_kontrol(
+                "GET /api/version → sürüm", kod == 200
+                and veri.get("version") == switch_api.APP_VERSION,
+                str(veri)))
+        except Exception as exc:
+            sonuclar.append(_kontrol("GET /api/version", False, str(exc)))
+
+        for varlik in ("/app.js", "/style.css"):
+            try:
+                kod, govde = iste(varlik)
+                sonuclar.append(_kontrol(f"GET {varlik} → 200",
+                                         kod == 200 and len(govde) > 0))
+            except Exception as exc:
+                sonuclar.append(_kontrol(f"GET {varlik}", False, str(exc)))
+
+    except Exception:
+        log("[HATA] self-test beklenmeyen hata:\n" + traceback.format_exc(limit=5))
+        return 1
+    finally:
+        # Başarılı da olsa hata da alsa sunucu her koşulda kapanır.
+        sunucu_kapat(srv)
+
+    basarisiz = sonuclar.count(False)
+    log(f"self-test: {len(sonuclar) - basarisiz}/{len(sonuclar)} kontrol geçti")
+    return 1 if basarisiz else 0
+
+
+# ───────────────────────────────────────────────────────────────────── main ─
+PYWEBVIEW_YOK = (
+    "Uygulama penceresi için pywebview gerekli ve kurulu değil.\n\n"
+    "Kurulum:\n"
+    "  Windows : pip install -r requirements-windows.txt\n"
+    "  macOS   : pip install -r requirements-macos.txt\n"
+    "  Ubuntu  : pip install -r requirements-linux.txt"
+)
+
+
+def pencere_hatasi(iz: str) -> str:
+    """Pencere açılamama hatasını kullanıcının anlayacağı dile çevirir.
+
+    En sık sebep Windows'ta WebView2 çalışma zamanının bulunmaması; ham
+    yığın izi yerine ne yapılacağını söylüyoruz.
+    """
+    kucuk = iz.lower()
+    if platform.system() == "Windows" and (
+            "webview2" in kucuk or "edgechromium" in kucuk
+            or "edge" in kucuk or "clr" in kucuk or "pythonnet" in kucuk):
+        return ("Microsoft Edge WebView2 çalışma zamanı bulunamadı.\n\n"
+                "Windows 10/11'de genelde kuruludur. Değilse Microsoft'un "
+                "ücretsiz \"Evergreen WebView2 Runtime\" kurulumunu yapın:\n"
+                "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
+                "Ayrıntı log dosyasında:\n" + str(LOG_DOSYASI))
+    if platform.system() == "Linux" and ("qt" in kucuk or "gtk" in kucuk):
+        return ("Pencere motoru yüklenemedi (Qt/GTK).\n\n"
+                "Eksik sistem kütüphaneleri olabilir:\n"
+                "  sudo apt install libxcb-cursor0 libegl1 libgl1\n\n"
+                "Ayrıntı log dosyasında:\n" + str(LOG_DOSYASI))
+    return iz
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=TITLE)
+    global SESSIZ
+    # Otomatik çalışmalarda (CI) hiçbir koşulda diyalog açılmasın.
+    if {"--self-test", "--version"} & set(sys.argv[1:]):
+        SESSIZ = True
+
+    if sys.version_info < ASGARI_PYTHON:
+        hata_goster(
+            "Python sürümü yetersiz",
+            f"Bu uygulama Python {ASGARI_PYTHON[0]}.{ASGARI_PYTHON[1]} ve "
+            f"üzerini gerektiriyor.\nÇalışan sürüm: "
+            f"{sys.version_info.major}.{sys.version_info.minor}."
+            f"{sys.version_info.micro}")
+        return 1
+
+    ap = argparse.ArgumentParser(description=APP_ADI)
     ap.add_argument("--switch-port", type=int, default=None,
-                    help="switch'lerin HTTP portu (varsayılan .env'den). "
-                         "Sahte switch'le denemek için: --switch-port 8080")
+                    help="switch'lerin HTTP portu (varsayılan 80)")
+    ap.add_argument("--self-test", action="store_true",
+                    help="pencere açmadan paketi doğrula (CI için); "
+                         "başarılı 0, başarısız 1 döner")
+    ap.add_argument("--version", action="store_true",
+                    help="sürümü yazdır ve çık")
     a = ap.parse_args()
+
+    if a.version:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import switch_api
+        print(switch_api.APP_VERSION)
+        return 0
+
+    if a.self_test:
+        return self_test()
+
+    try:
+        import webview
+    except ImportError:
+        hata_goster("Eksik bağımlılık", PYWEBVIEW_YOK)
+        return 1
+
+    # Backend'i pencereden sonra değil, önce içe aktarıyoruz ki bir sorun
+    # varsa pencere açılmadan anlaşılır bir hata verelim.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import switch_api
+    except Exception:
+        hata_goster("Başlatılamadı", traceback.format_exc(limit=3))
+        return 1
+
     if a.switch_port:
         switch_api.SWITCH_PORT = a.switch_port
 
-    port = free_port()
-    start_server(port)
-    url = f"http://127.0.0.1:{port}"
-    print(f"{TITLE} çalışıyor — {url}")
-    print(f"Arayüz dosyaları: {HERE / 'static'}")
-    print(f"Switch'ler {switch_api.SWITCH_PORT} portunda aranacak")
-    print("Kullanıcı adı/şifre switch seçilince sorulur, kaydedilmez.")
-
-    # 1) gerçek native pencere
-    if open_native(url):
-        print("Pencere: pywebview (native)")
-        return 0
-
-    # 2) çerçevesiz uygulama penceresi
-    proc = open_app_window(url)
-    if proc is not None:
-        print("Pencere: Chrome --app")
-        print("Uygulama penceresi açıldı. Pencereyi kapatınca sonlanır.")
-        try:
-            proc.wait()
-        except KeyboardInterrupt:
-            proc.terminate()
-        return 0
-
-    # 3) son çare
-    print("Native pencere için:  pip install pywebview")
-    import webbrowser
-    webbrowser.open(url)
-    print("Kapatmak için Ctrl-C.")
+    port = bos_port()
     try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
+        srv = sunucu_baslat(port, switch_api.Handler)
+    except OSError as exc:
+        hata_goster("Başlatılamadı", f"Yerel servis açılamadı: {exc}")
+        return 1
+    if not sunucu_bekle(port):
+        sunucu_kapat(srv)
+        hata_goster("Başlatılamadı", "Yerel servis yanıt vermedi.")
+        return 1
+
+    url = f"http://127.0.0.1:{port}"
+    log(f"{APP_ADI} {switch_api.APP_VERSION} — {url}")
+    log(f"Arayüz dosyaları: {switch_api.STATIC_DIR}")
+    log(f"Switch'ler {switch_api.SWITCH_PORT} portunda aranacak")
+    log(f"Log: {LOG_DOSYASI}")
+
+    # Penceresiz kip: paketlenmiş uygulamanın servis tarafını ekransız
+    # ortamda (CI, sunucu) sınamak için. Pencere açılmaz, Ctrl-C ile durur.
+    if os.environ.get("SYP_HEADLESS") == "1":
+        log("Penceresiz kip — durdurmak için Ctrl-C")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            sunucu_kapat(srv)
+        return 0
+
+    macos_kimlik()
+    try:
+        webview.create_window(APP_ADI, url, width=WIDTH, height=HEIGHT,
+                              min_size=(900, 600))
+        # Pencere kapanınca webview.start() döner; sunucuyu da o an kapatırız.
+        webview.start()
+    except Exception:
+        hata_goster("Pencere açılamadı", pencere_hatasi(traceback.format_exc()))
+        return 1
+    finally:
+        log("Pencere kapandı, yerel servis durduruluyor.")
+        sunucu_kapat(srv)
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        kod = main()
+    except Exception:
+        hata_goster("Beklenmeyen hata", traceback.format_exc(limit=5))
+        kod = 1
+    # Arka planda kalan iş parçacığı varsa süreci kesin olarak sonlandır.
+    sys.exit(kod)
