@@ -64,8 +64,23 @@ Paketlenmiş uygulamada:
 taraması yapmaz, yerel ağdaki cihazlara bağlanmaz, kimlik sormaz, internete
 çıkmaz. Sunucu `finally` içinde her koşulda kapatılır.
 
-Çıkış kodu: başarılı **0**, başarısız **1**. Windows'ta `console=False`
-olduğu için çıktı görünmeyebilir — doğrulama çıkış koduyla yapılmalıdır.
+Çıkış kodu: başarılı **0**, başarısız **1**.
+
+> **Windows'ta dikkat.** Uygulama `console=False` (GUI alt sistemi) ile
+> derlenir. PowerShell böyle bir exe'yi `& $exe` ile çağırınca **beklemez**
+> ve `$LASTEXITCODE` boş kalır — self-test geçse bile kontrol başarısız
+> görünür. Doğru kullanım:
+>
+> ```powershell
+> $p = Start-Process -FilePath .\SwitchYonetimPaneli.exe `
+>        -ArgumentList '--self-test' -Wait -PassThru -NoNewWindow `
+>        -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+> Get-Content out.txt
+> $p.ExitCode        # 0 ise başarılı
+> ```
+>
+> `cmd.exe` kullanıyorsanız `start /wait SwitchYonetimPaneli.exe --self-test`
+> ve ardından `echo %ERRORLEVEL%`.
 
 ---
 

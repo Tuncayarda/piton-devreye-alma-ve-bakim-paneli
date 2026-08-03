@@ -114,8 +114,11 @@ jobs:
           ls -la dist
 
       # ── paketlenmiş uygulamada self-test ────────────────────────────────
-      # Windows console=False olduğu için çıktı görünmeyebilir; doğrulama
-      # yalnızca çıkış koduna bakar.
+      # Uygulama console=False (GUI alt sistemi) ile derleniyor. Böyle bir
+      # exe'yi PowerShell'de "& $exe" ile çağırınca kabuk onu BEKLEMEZ ve
+      # $LASTEXITCODE dolmaz. Start-Process -Wait -PassThru ile hem bekliyor
+      # hem gerçek çıkış kodunu alıyoruz; çıktıyı da dosyaya yönlendirip
+      # log'a basıyoruz.
       - name: Self-test (paketlenmiş) — Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -123,9 +126,23 @@ jobs:
         run: |
           $exe = "dist/SwitchYonetimPaneli/SwitchYonetimPaneli.exe"
           if (-not (Test-Path $exe)) { throw "exe bulunamadı: $exe" }
-          & $exe --self-test
-          if ($LASTEXITCODE -ne 0) { throw "self-test başarısız ($LASTEXITCODE)" }
-          Write-Host "paketlenmiş self-test tamam"
+          $tam = (Resolve-Path $exe).Path
+          $cikti = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
+          $hata  = Join-Path $env:RUNNER_TEMP "selftest-err.txt"
+
+          $p = Start-Process -FilePath $tam -ArgumentList '--self-test' `
+                 -Wait -PassThru -NoNewWindow `
+                 -RedirectStandardOutput $cikti -RedirectStandardError $hata
+
+          if (Test-Path $cikti) { Get-Content $cikti }
+          if ((Test-Path $hata) -and (Get-Item $hata).Length -gt 0) {
+            Write-Host "--- stderr ---"
+            Get-Content $hata
+          }
+
+          if ($null -eq $p.ExitCode) { throw "çıkış kodu okunamadı" }
+          if ($p.ExitCode -ne 0) { throw "self-test başarısız ($($p.ExitCode))" }
+          Write-Host "paketlenmiş self-test tamam (çıkış kodu 0)"
 
       - name: Self-test (paketlenmiş) — macOS
         if: runner.os == 'macOS'
