@@ -5,9 +5,12 @@ Tarayıcı doğrudan switch'e gitmez; bu servis araya girer:
 
     Web arayüzü  ->  bu backend  --Basic Auth-->  KYLAND switch HTTP API
 
-Kimlik bilgisi yalnızca burada (.env) tutulur, frontend'e sızmaz. Her
-switch için yazma kilidi vardır; PoE/port POST'ları her zaman güncel GET
-üzerine kurulur, sıraya sokulur, paralel çalışmaz.
+Kullanıcı adı/şifre hiçbir dosyada saklanmaz: kullanıcı switch'i seçince
+arayüzden girer, burada yalnızca bellekte tutulur ve uygulama kapanınca
+kaybolur. Tarayıcı switch'e hiç bağlanmaz, kimlik oraya da sızmaz.
+
+Her switch için yazma kilidi vardır; PoE/port POST'ları her zaman güncel
+GET üzerine kurulur, sıraya sokulur, paralel çalışmaz.
 
 Çalıştırma:
     python3 switch_api.py                 # http://127.0.0.1:8770 (tarayıcı açılır)
@@ -91,9 +94,51 @@ def find_env() -> Path:
 
 ENV_PATH = find_env()
 ENV = load_env(ENV_PATH)
-SWITCH_USER = ENV.get("SWITCH_USERNAME", ENV.get("KYLAND_USERNAME", "admin"))
-SWITCH_PASS = ENV.get("SWITCH_PASSWORD", ENV.get("KYLAND_PASSWORD", ""))
 SWITCH_PORT = int(ENV.get("SWITCH_HTTP_PORT", ENV.get("KYLAND_HTTP_PORT", 80)))
+
+# Kimlik bilgileri dosyada TUTULMAZ. Kullanıcı switch'i seçince arayüzden
+# girer, burada yalnızca bellekte durur ve uygulama kapanınca kaybolur.
+# .env'de şifre varsa (geliştirme kolaylığı) başlangıç değeri olarak
+# kullanılır; dağıtımda .env'de şifre bulunmamalıdır.
+_KIMLIK: dict[str, tuple[str, str]] = {}          # ip -> (kullanıcı, şifre)
+_KIMLIK_GUARD = threading.Lock()
+_SON_KIMLIK: tuple[str, str] | None = None        # taramada denenecek son çift
+
+_ENV_USER = ENV.get("SWITCH_USERNAME", ENV.get("KYLAND_USERNAME", ""))
+_ENV_PASS = ENV.get("SWITCH_PASSWORD", ENV.get("KYLAND_PASSWORD", ""))
+if _ENV_PASS:
+    _SON_KIMLIK = (_ENV_USER or "admin", _ENV_PASS)
+    print("[!] .env içinde switch şifresi var. Dağıtımda bu satırı silin; "
+          "şifre arayüzden sorulur.")
+
+
+def kimlik_ver(ip: str, kullanici: str, sifre: str) -> None:
+    global _SON_KIMLIK
+    with _KIMLIK_GUARD:
+        _KIMLIK[ip] = (kullanici, sifre)
+        _SON_KIMLIK = (kullanici, sifre)
+
+
+def kimlik_sil(ip: str | None = None) -> None:
+    global _SON_KIMLIK
+    with _KIMLIK_GUARD:
+        if ip is None:
+            _KIMLIK.clear()
+            _SON_KIMLIK = None
+        else:
+            _KIMLIK.pop(ip, None)
+
+
+def kimlik_al(ip: str) -> tuple[str, str] | None:
+    """Önce o switch'in kendi kimliği, yoksa en son başarılı olan çift.
+
+    İkincisi taramada işe yarıyor: bir switch'e girdikten sonra aynı
+    kullanıcı/şifreyle diğerleri de tanınabiliyor.
+    """
+    with _KIMLIK_GUARD:
+        return _KIMLIK.get(ip) or _SON_KIMLIK
+
+
 # Her değişiklikten sonra configSave çağrılsın mı?
 # Varsayılan KAPALI: kayıt yalnızca kullanıcı "Kaydet"e basınca yapılır.
 # Böylece switch'in flash'ı her port dokunuşunda yazılmaz ve yapılan
@@ -108,32 +153,62 @@ class SwitchError(Exception):
     pass
 
 
-def _auth():
-    return HTTPBasicAuth(SWITCH_USER, SWITCH_PASS)
+class YetkiHatasi(Exception):
+    """Switch kimlik doğrulamayı reddetti ya da hiç kimlik girilmemiş."""
 
 
-def sw_get(ip: str, endpoint: str, timeout=5):
-    r = requests.get(f"http://{ip}:{SWITCH_PORT}/{endpoint}",
-                     auth=_auth(), timeout=timeout)
+def _auth(ip: str, kimlik=None):
+    k = kimlik or kimlik_al(ip)
+    return HTTPBasicAuth(*k) if k else None
+
+
+def _kontrol(r, ip: str):
+    """Yanıtı JSON'a çevirir; kimlik sorunlarını YetkiHatasi'na dönüştürür.
+
+    Cihaz kimlik istediğini her zaman 401 ile söylemiyor: bazı sürümler
+    oturum açma sayfasını 200 ile HTML olarak döndürüyor. JSON gelmeyen
+    her yanıtı da kimlik sorunu sayıyoruz — çünkü bu uçlar normalde
+    yalnızca JSON döndürür.
+    """
+    if r.status_code in (401, 403) or "WWW-Authenticate" in r.headers:
+        raise YetkiHatasi(f"{ip} kullanıcı adı/şifre istiyor")
     r.raise_for_status()
-    return r.json()
+    try:
+        return r.json()
+    except ValueError:
+        tur = r.headers.get("Content-Type", "?")
+        raise YetkiHatasi(
+            f"{ip} JSON yerine {tur} döndürdü — oturum açılması gerekiyor")
+
+
+def sw_get(ip: str, endpoint: str, timeout=5, kimlik=None):
+    r = requests.get(f"http://{ip}:{SWITCH_PORT}/{endpoint}",
+                     auth=_auth(ip, kimlik), timeout=timeout)
+    return _kontrol(r, ip)
 
 
 def sw_post(ip: str, endpoint: str, form: dict, timeout=8):
     r = requests.post(f"http://{ip}:{SWITCH_PORT}/{endpoint}",
-                      auth=_auth(), data=form,
+                      auth=_auth(ip), data=form,
                       headers={"Content-Type":
                                "application/x-www-form-urlencoded; charset=UTF-8",
                                "X-Requested-With": "XMLHttpRequest"},
                       timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    return _kontrol(r, ip)
 
 
-def is_switch(ip: str, timeout=1.5) -> dict | None:
-    """basicInfo dönerse switch'tir; özet bilgi döndürür."""
+def is_switch(ip: str, timeout=1.5, kimlik=None) -> dict | None:
+    """basicInfo dönerse switch'tir; özet bilgi döndürür.
+
+    Kimlik yoksa ya da yanlışsa cihaz 401 döner — bu da bir switch olduğunu
+    gösterir. Böyle olanları "kilitli" işaretleyip listede gösteriyoruz;
+    kullanıcı seçtiğinde kullanıcı adı/şifre soruluyor.
+    """
     try:
-        data = sw_get(ip, "stat/basicInfo", timeout=timeout)
+        data = sw_get(ip, "stat/basicInfo", timeout=timeout, kimlik=kimlik)
+    except YetkiHatasi:
+        return {"ip": ip, "name": "Switch", "model": "", "version": "",
+                "mac": "", "kilit": True}
     except Exception:
         return None
     info = data.get("basicInfo", data) if isinstance(data, dict) else {}
@@ -145,6 +220,7 @@ def is_switch(ip: str, timeout=1.5) -> dict | None:
         "model": info.get("deviceType") or info.get("model") or "",
         "version": info.get("softVer") or info.get("softwareVersion") or "",
         "mac": info.get("macAddress") or info.get("mac") or "",
+        "kilit": False,
     }
 
 
@@ -197,10 +273,22 @@ def discover(cidr: str, workers=64) -> dict:
 
 # ------------------------------------------------------- iş mantığı --------
 def get_info(ip: str) -> dict:
-    info = is_switch(ip, timeout=4) or {}
+    """Seçilen switch'in künyesi + yönetim IP'si.
+
+    is_switch() taramada kullanıldığı için kimlik sorununda "kilitli" bir
+    özet döndürüyor; burada bunu hataya çeviriyoruz. Aksi halde arayüz
+    şifre sormadan boş bir başlık gösteriyordu ("SWITCH · ip · v?").
+    """
+    info = is_switch(ip, timeout=4)
+    if info is None:
+        raise SwitchError(f"{ip} yanıt vermiyor")
+    if info.get("kilit"):
+        raise YetkiHatasi(f"{ip} kullanıcı adı/şifre istiyor")
     try:
         net = sw_get(ip, "stat/vlanIntfIp?intf=1")
         net = net.get("vlanIntfIp", net) if isinstance(net, dict) else {}
+    except YetkiHatasi:
+        raise                       # kimlik sorunu yutulmamalı
     except Exception:
         net = {}
     info["network"] = {
@@ -220,8 +308,10 @@ def get_ports(ip: str) -> list[dict]:
     try:
         live = {int(p["pid"]): p
                 for p in sw_get(ip, "stat/poeStatus").get("poeStatus", [])}
+    except YetkiHatasi:
+        raise                       # kimlik sorunu yutulmamalı
     except Exception:
-        live = {}
+        live = {}                   # bu uç yoksa tüketim boş kalır, sorun değil
 
     out = []
     for p in pm:
@@ -424,6 +514,22 @@ def set_network(ip: str, addr: str, prefix: str, mtu="1500") -> dict:
         return sonuc
 
 
+def giris(ip: str, kullanici: str, sifre: str) -> dict:
+    """Girilen kimlikle switch'e bağlanmayı dener, tutarsa belleğe alır.
+
+    Kimlik hiçbir yere yazılmaz; yalnızca çalışan süreçte durur.
+    """
+    if not kullanici:
+        raise SwitchError("kullanıcı adı gerekli")
+    bilgi = is_switch(ip, timeout=6, kimlik=(kullanici, sifre))
+    if bilgi is None:
+        raise SwitchError(f"{ip} yanıt vermiyor")
+    if bilgi.get("kilit"):
+        raise YetkiHatasi("kullanıcı adı ya da şifre hatalı")
+    kimlik_ver(ip, kullanici, sifre)
+    return bilgi
+
+
 def reboot(ip: str) -> dict:
     with lock_for(ip):
         try:
@@ -545,6 +651,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/switch/ports":
                 return self._send(200, {"ports": get_ports(q["ip"][0])})
             return self._send(404, {"error": "bilinmeyen yol"})
+        except YetkiHatasi as e:
+            self._send(401, {"error": str(e), "kimlik": True})
         except KeyError:
             self._send(400, {"error": "ip parametresi gerekli"})
         except requests.RequestException as e:
@@ -559,6 +667,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if not ip:
                 return self._send(400, {"error": "ip gerekli"})
+            if u.path == "/api/switch/login":
+                return self._send(200, giris(ip, str(body.get("user", "")),
+                                             str(body.get("pass", ""))))
+            if u.path == "/api/switch/logout":
+                kimlik_sil(ip if body.get("hepsi") is not True else None)
+                return self._send(200, {"ok": True})
             if u.path == "/api/switch/poe":
                 return self._send(200, set_poe(ip, int(body["port"]),
                                                str(body["mode"])))
@@ -591,6 +705,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(400, {"error": "onay doğrulanmadı"})
                 return self._send(200, factory_reset(ip))
             return self._send(404, {"error": "bilinmeyen yol"})
+        except YetkiHatasi as e:
+            self._send(401, {"error": str(e), "kimlik": True})
         except (KeyError, ValueError) as e:
             self._send(400, {"error": f"eksik/geçersiz alan: {e}"})
         except SwitchError as e:
@@ -619,9 +735,7 @@ def main():
         for s in discover(args.discover)["switches"]:
             print(f"  {s['ip']:<14} {s['model']} v{s['version']}")
 
-    if not SWITCH_PASS:
-        print("[!] Switch şifresi yok. Interface/.env içine SWITCH_PASSWORD "
-              "ekleyin (veya KYLAND_PASSWORD).")
+    print("Kimlik bilgisi arayüzden istenir; hiçbir yere yazılmaz.")
 
     url = f"http://{args.host}:{args.port}"
     try:

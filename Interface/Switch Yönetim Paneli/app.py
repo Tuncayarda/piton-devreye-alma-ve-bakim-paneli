@@ -132,17 +132,13 @@ def main() -> int:
     if a.switch_port:
         switch_api.SWITCH_PORT = a.switch_port
 
-    if not switch_api.SWITCH_PASS:
-        print("[!] Switch şifresi yok. Interface/.env içine SWITCH_PASSWORD "
-              "ekleyin.")
-
     port = free_port()
     start_server(port)
     url = f"http://127.0.0.1:{port}"
     print(f"{TITLE} çalışıyor — {url}")
     print(f"Arayüz dosyaları: {HERE / 'static'}")
-    print(f"Switch'ler {switch_api.SWITCH_PORT} portunda aranacak "
-          f"(kullanıcı: {switch_api.SWITCH_USER})")
+    print(f"Switch'ler {switch_api.SWITCH_PORT} portunda aranacak")
+    print("Kullanıcı adı/şifre switch seçilince sorulur, kaydedilmez.")
 
     # 1) gerçek native pencere
     if open_native(url):

@@ -39,11 +39,115 @@ function toast(msg, kind = "") {
   logEkle(msg, kind === "err");     // her bildirim geçmişe de düşer
 }
 
-async function api(path, opts) {
+// İstekte hangi switch'ten söz ediliyor? Sorgu dizesinden ya da gövdeden.
+function istekIp(path, opts) {
+  const q = path.match(/[?&]ip=([^&]+)/);
+  if (q) return decodeURIComponent(q[1]);
+  try {
+    if (opts && opts.body) return JSON.parse(opts.body).ip || null;
+  } catch (e) { /* gövde JSON değilse boş ver */ }
+  return null;
+}
+
+// Switch kimlik isterse (401) kullanıcıdan alıp isteği bir kez daha dener.
+// Bu tek nokta olduğu için hangi çağrı olursa olsun aynı davranış: port
+// okuma, PoE değiştirme, kaydetme… hepsi gerektiğinde şifre sorar.
+async function api(path, opts, tekrarHakki = true) {
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || r.statusText);
-  return data;
+  if (r.ok) return data;
+
+  const kimlikGerek = r.status === 401 || data.kimlik === true;
+  if (kimlikGerek && tekrarHakki && !path.startsWith("/api/switch/login")) {
+    const ip = istekIp(path, opts) || current;
+    if (ip && await girisSor(ip)) {
+      // Şifre girildikten sonra veriler gelene kadar ekran boş kalmasın.
+      // Perde zaten açıksa (bir işlemin ortasındayız) ona dokunmayız —
+      // kapatmak da o işleme kalır.
+      const perdeVardi = busy;
+      setBusy(true, "Kimlik doğrulandı, veriler alınıyor…");
+      try {
+        return await api(path, opts, false);
+      } finally {
+        if (!perdeVardi) setBusy(false);
+      }
+    }
+  }
+  const hata = new Error(data.error || r.statusText);
+  hata.kimlik = kimlikGerek;
+  throw hata;
+}
+
+// ------------------------------------------------ kimlik doğrulama -------
+// Kullanıcı adı/şifre hiçbir yere kaydedilmez: buradan backend'e gider,
+// orada yalnızca bellekte durur. Bu sayfa da onları saklamaz, alanlar
+// gönderildikten hemen sonra temizlenir.
+let girisBekleyen = null;         // { ip, tamam, sozu }
+let kimlikIptal = false;          // kullanıcı vazgeçtiyse arka planda ısrar etme
+
+function girisSor(ip, uyari) {
+  // Aynı switch için pencere zaten açıksa ikincisini açma; birden çok
+  // istek (örneğin otomatik yenileme) aynı cevabı beklesin.
+  if (girisBekleyen && girisBekleyen.ip === ip) return girisBekleyen.sozu;
+
+  const sozu = new Promise((tamam) => {
+    girisBekleyen = { ip, tamam, sozu: null };
+    $("#login-ip").textContent = ip;
+    $("#login-pass").value = "";
+    const hataKutu = $("#login-err");
+    hataKutu.textContent = uyari || "";
+    hataKutu.classList.toggle("hidden", !uyari);
+    $("#login").classList.remove("hidden");
+    const kul = $("#login-user");
+    setTimeout(() => (kul.value ? $("#login-pass") : kul).focus(), 30);
+  });
+  girisBekleyen.sozu = sozu;
+  return sozu;
+}
+
+function girisKapat() {
+  $("#login").classList.add("hidden");
+  $("#login-pass").value = "";      // şifre ekranda kalmasın
+  girisBekleyen = null;
+}
+
+async function girisGonder(e) {
+  if (e) e.preventDefault();
+  if (!girisBekleyen) return;
+  const { ip, tamam } = girisBekleyen;
+  const kullanici = $("#login-user").value.trim();
+  const sifre = $("#login-pass").value;
+  const dugme = $("#login-ok");
+  const dugmeYazi = dugme.textContent;
+  dugme.disabled = true;
+  dugme.innerHTML = '<span class="btn-spin"></span>Doğrulanıyor';
+  try {
+    await api("/api/switch/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip, user: kullanici, pass: sifre }),
+    });
+    kimlikIptal = false;
+    girisKapat();
+    tamam(true);
+  } catch (err) {
+    const kutu = $("#login-err");
+    kutu.textContent = err.kimlik
+      ? "Kullanıcı adı ya da şifre hatalı."
+      : "Bağlanılamadı: " + err.message;
+    kutu.classList.remove("hidden");
+    $("#login-pass").value = "";
+    $("#login-pass").focus();
+  } finally {
+    dugme.disabled = false;
+    dugme.textContent = dugmeYazi;
+  }
+}
+
+function girisIptal() {
+  const bekleyen = girisBekleyen;
+  kimlikIptal = true;      // otomatik yenileme durup dururken tekrar sormasın
+  girisKapat();
+  if (bekleyen) bekleyen.tamam(false);
 }
 
 // ------------------------------------------------ işlem perdesi ----------
@@ -108,15 +212,16 @@ async function scan() {
       $("#list").innerHTML =
         `<div class="muted">Switch bulunamadı.<br><br>` +
         `${res.queried} adres soruldu.<br>` +
-        `Adres ve şifre doğru mu? (.env)</div>`;
+        `Ağ aralığı ve port doğru mu?</div>`;
       return;
     }
     $("#list").innerHTML = "";
     switches.forEach((s) => {
       const el = document.createElement("div");
-      el.className = "sw-item";
-      el.innerHTML = `<div class="ip">${s.ip}</div>
-        <div class="mdl">${s.model || "Switch"} · v${s.version || "?"}</div>`;
+      el.className = "sw-item" + (s.kilit ? " kilit" : "");
+      el.innerHTML = `<div class="ip">${s.ip}</div>` + (s.kilit
+        ? `<div class="kilit-not">Kimlik doğrulama gerekli</div>`
+        : `<div class="mdl">${s.model || "Switch"} · v${s.version || "?"}</div>`);
       el.onclick = () => select(s.ip, el);
       $("#list").appendChild(el);
     });
@@ -136,24 +241,51 @@ async function select(ip, el) {
       !confirm(`${bekleyenSayi()} bekleyen değişiklik var. Başka switch'e ` +
                `geçersen gönderilmeden iptal olur. Devam?`)) return;
   current = ip;
+  kimlikIptal = false;
   hamPorts = [];
   bekleyenPoe.clear();
   bekleyenPort.clear();
   kayitDurumu(false);        // yeni switch, yeni kayıt durumu
   document.querySelectorAll(".sw-item").forEach((x) => x.classList.remove("active"));
   el?.classList.add("active");
+  lastOk = null; lastErr = null;
+
+  // Kimlik gerekiyorsa api() kendisi sorar. Kullanıcı vazgeçerse ya da
+  // switch'e ulaşılamazsa detayı hiç açmıyoruz.
+  try {
+    await loadInfo();
+    // Kimlik istendiyse perde zaten açıktı; port okuma da sürdüğü için
+    // kapanmasın — kullanıcı boş ekrana bakmasın.
+    setBusy(true, "Veriler alınıyor…");
+    await loadPorts();
+  } catch (e) {
+    $("#detail").classList.add("hidden");
+    current = null;
+    el?.classList.remove("active");
+    toast(e.kimlik ? "Kimlik doğrulanmadı, switch açılamadı"
+                   : "Hata: " + e.message, "err");
+    return;
+  } finally {
+    setBusy(false);
+  }
+  el?.classList.remove("kilit");
+  const not = el?.querySelector(".kilit-not");
+  if (not) not.remove();
+
   $("#detail").classList.remove("hidden");
-  lastOk = null; lastErr = null; tickRefresh();
-  await loadInfo();
-  await loadPorts();
+  tickRefresh();
 }
 
 async function loadInfo() {
   const info = await api("/api/switch/info?ip=" + current);
   $("#d-name").textContent = info.name || "Switch";
-  $("#d-model").textContent = info.model || "";
-  $("#d-ip").textContent = info.ip;
-  $("#d-ver").textContent = info.version || "?";
+  // Boş alanlar için "· ip · v?" gibi yarım satır çıkmasın: yalnızca
+  // cihazın gerçekten bildirdiklerini yan yana diziyoruz.
+  $("#d-sub").textContent = [
+    info.model,
+    info.ip || current,
+    info.version ? "v" + info.version : "",
+  ].filter(Boolean).join(" · ");
   const n = info.network || {};
   $("#n-addr").value = n.addr || info.ip;
   $("#n-prefix").value = n.netmaskLen || "8";
@@ -760,6 +892,11 @@ $("#batch-clear").onclick = batchClear;
 document.querySelectorAll(".mbtn").forEach((b) => {
   b.onclick = () => setMod(b.dataset.mode);
 });
+$("#login-form").onsubmit = girisGonder;
+$("#login-cancel").onclick = girisIptal;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && girisBekleyen) girisIptal();
+});
 $("#log-clear").onclick = () => { gecmis.length = 0; logCiz(); };
 $("#log-toggle").onclick = () =>
   document.querySelector('.tab[data-tab="log"]').click();
@@ -823,6 +960,7 @@ function startAuto() {
   clearInterval(timer);
   timer = setInterval(async () => {
     if (!current || busy || mod !== "anlik") return;
+    if (girisBekleyen || kimlikIptal) return;   // şifre sorulurken bekle
     if (document.querySelector("select.poe:focus")) return;  // menü açıkken bekle
     try { await loadPorts(); } catch (e) { /* gösterge zaten uyarıyor */ }
   }, 5000);

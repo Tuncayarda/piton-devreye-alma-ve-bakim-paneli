@@ -33,7 +33,7 @@
     <div class="head">
       <div>
         <h2 id="d-name">—</h2>
-        <div class="sub"><span id="d-model"></span> · <span id="d-ip"></span> · v<span id="d-ver"></span></div>
+        <div class="sub" id="d-sub"></div>
       </div>
       <div class="actions">
         <button id="save-cfg" class="ok"
@@ -81,11 +81,11 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
         <div class="pm-head">
           <h3>Ön Panel · M12 Konnektör Haritası</h3>
           <div class="pm-legend">
-            <span><i class="f"></i>besliyor</span>
-            <span><i class="l"></i>bağlı</span>
-            <span><i class="p"></i>bekliyor</span>
-            <span><i class="e"></i>boş</span>
-            <span><i class="o"></i>kapalı</span>
+            <span><i class="f"></i>Besliyor</span>
+            <span><i class="l"></i>Bağlı</span>
+            <span><i class="p"></i>Bekliyor</span>
+            <span><i class="e"></i>Boş</span>
+            <span><i class="o"></i>Kapalı</span>
           </div>
         </div>
         <div id="pm-grid" class="pm-grid"></div>
@@ -161,6 +161,24 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
   <span id="last-log">—</span>
   <span id="app-ver"></span>
 </footer>
+
+<div id="login" class="overlay hidden">
+  <form id="login-form" class="box bp loginbox">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
+    <h3>Kimlik Doğrulama</h3>
+    <div id="login-ip" class="login-ip"></div>
+    <label>Kullanıcı Adı
+      <input id="login-user" autocomplete="off" spellcheck="false"></label>
+    <label>Şifre
+      <input id="login-pass" type="password" autocomplete="off"></label>
+    <div id="login-err" class="login-err hidden"></div>
+    <div class="login-actions">
+      <button type="button" id="login-cancel" class="ghost">Vazgeç</button>
+      <button type="submit" id="login-ok">Bağlan</button>
+    </div>
+  </form>
+</div>
 
 <div id="overlay" class="overlay hidden">
   <div class="box bp">
