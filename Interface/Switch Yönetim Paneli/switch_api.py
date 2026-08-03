@@ -35,7 +35,7 @@ from requests.auth import HTTPBasicAuth
 HERE = Path(__file__).resolve().parent
 
 # Uygulama sürümü — alt barda gösterilir. Tek kaynak burası.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 # ------------------------------------------------------------------ ayar --
 PREFIX_TO_MASK = {"8": "255.0.0.0", "16": "255.255.0.0", "24": "255.255.255.0"}
@@ -57,13 +57,21 @@ def lock_for(ip: str) -> threading.Lock:
 
 
 def load_env(path: Path) -> dict:
+    """.env'i okur. Aynı anahtar iki kez yazılmışsa son satır geçerli olur —
+    bu sessizce yanlış ayarla çalışmaya yol açtığı için uyarı basar."""
     env = {}
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                env[k.strip()] = v.strip().strip('"').strip("'")
+    if not path.exists():
+        return env
+    for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        if k in env:
+            print(f"[!] {path.name}:{no} — '{k}' birden fazla kez tanımlı, "
+                  f"son değer geçerli: {v.strip()}")
+        env[k] = v.strip().strip('"').strip("'")
     return env
 
 
@@ -86,8 +94,11 @@ ENV = load_env(ENV_PATH)
 SWITCH_USER = ENV.get("SWITCH_USERNAME", ENV.get("KYLAND_USERNAME", "admin"))
 SWITCH_PASS = ENV.get("SWITCH_PASSWORD", ENV.get("KYLAND_PASSWORD", ""))
 SWITCH_PORT = int(ENV.get("SWITCH_HTTP_PORT", ENV.get("KYLAND_HTTP_PORT", 80)))
-# Her değişiklikten sonra configSave çağrılsın mı (kalıcılık için şart)
-AUTOSAVE = str(ENV.get("AUTOSAVE", "1")).lower() not in ("0", "false", "hayir")
+# Her değişiklikten sonra configSave çağrılsın mı?
+# Varsayılan KAPALI: kayıt yalnızca kullanıcı "Kaydet"e basınca yapılır.
+# Böylece switch'in flash'ı her port dokunuşunda yazılmaz ve yapılan
+# değişiklik beğenilmezse yeniden başlatmak eski haline döndürür.
+AUTOSAVE = str(ENV.get("AUTOSAVE", "0")).lower() in ("1", "true", "evet")
 # Ağ aralığı taramasında TCP ön yoklama süresi (tek IP'de kullanılmaz)
 TCP_PROBE_TIMEOUT = float(ENV.get("TCP_PROBE_TIMEOUT", "1.2"))
 
@@ -253,9 +264,13 @@ def config_save(ip: str) -> dict:
 
 
 def _autosave(ip: str, sonuc: dict) -> dict:
-    """Değişiklikten sonra kaydeder; kaydedilemezse sonuca not düşer."""
+    """Değişiklikten sonra kaydeder; kaydedilemezse sonuca not düşer.
+
+    Otomatik kayıt kapalıyken sonuca "saved" alanı hiç konmaz — çünkü
+    kaydedilmemiş olması hata değil, beklenen durum. Arayüz bunu
+    "kaydedilmemiş değişiklik var" göstergesiyle takip eder.
+    """
     if not AUTOSAVE:
-        sonuc["saved"] = False
         return sonuc
     try:
         config_save(ip)
@@ -457,10 +472,47 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _file(self, name, ctype):
+        """Statik dosyayı önbelleğe alınmadan gönderir.
+
+        Önbellek başlığı göndermezsek tarayıcı kendi kestirimiyle dosyayı
+        saklıyor; arayüzü güncelledikten sonra pencerede eski sürüm kalıyordu.
+        Yerelden okunan birkaç KB için önbelleğin faydası da yok.
+        """
         path = HERE / "static" / name
         if not path.exists():
             return self._send(404, {"error": "yok"})
-        self._send(200, path.read_bytes(), ctype)
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _index(self):
+        """index.html'i varlık adreslerine sürüm ekleyerek gönderir.
+
+        Uygulama penceresi (WKWebView / Chrome --app) eski app.js ve
+        style.css'i inatla önbellekte tutabiliyor; arayüz güncellendiği
+        halde eski hali görünüyordu. Dosya her değiştiğinde adres de
+        değiştiği için önbellek kendiliğinden devre dışı kalır.
+        """
+        path = HERE / "static" / "index.html"
+        if not path.exists():
+            return self._send(404, {"error": "yok"})
+        html = path.read_text(encoding="utf-8")
+        for varlik in ("app.js", "style.css"):
+            p = HERE / "static" / varlik
+            surum = int(p.stat().st_mtime) if p.exists() else 0
+            html = html.replace(f'"/{varlik}"', f'"/{varlik}?v={surum}"')
+        body = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.end_headers()
+        self.wfile.write(body)
 
     # --------------------------------------------------------- routing ----
     def do_GET(self):
@@ -468,7 +520,7 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         try:
             if u.path in ("/", "/index.html"):
-                return self._file("index.html", "text/html; charset=utf-8")
+                return self._index()
             if u.path == "/app.js":
                 return self._file("app.js", "application/javascript")
             if u.path == "/style.css":
@@ -530,13 +582,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/switch/config-save":
                 return self._send(200, config_save(ip))
             if u.path == "/api/switch/reboot":
-                # Yeniden başlatmadan önce kaydet, yoksa değişiklikler uçar
-                kayit = True
-                try:
-                    config_save(ip)
-                except Exception:
-                    kayit = False
-                return self._send(200, {**reboot(ip), "saved": kayit})
+                # Kendiliğinden kaydetmiyoruz: kayıt yalnızca kullanıcının
+                # işi. Kaydedilmemiş değişiklikler varsa arayüz uyarıyor.
+                return self._send(200, reboot(ip))
             if u.path == "/api/switch/factory-reset":
                 # Yıkıcı işlem: gövdede switch IP'si onay olarak yazılmalı.
                 if str(body.get("confirm", "")).strip() != ip:

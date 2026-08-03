@@ -15,6 +15,7 @@ Pencere seçimi (sırayla denenir):
 """
 from __future__ import annotations
 
+import argparse
 import os
 import socket
 import subprocess
@@ -123,6 +124,14 @@ def open_app_window(url: str) -> subprocess.Popen | None:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description=TITLE)
+    ap.add_argument("--switch-port", type=int, default=None,
+                    help="switch'lerin HTTP portu (varsayılan .env'den). "
+                         "Sahte switch'le denemek için: --switch-port 8080")
+    a = ap.parse_args()
+    if a.switch_port:
+        switch_api.SWITCH_PORT = a.switch_port
+
     if not switch_api.SWITCH_PASS:
         print("[!] Switch şifresi yok. Interface/.env içine SWITCH_PASSWORD "
               "ekleyin.")
@@ -131,14 +140,19 @@ def main() -> int:
     start_server(port)
     url = f"http://127.0.0.1:{port}"
     print(f"{TITLE} çalışıyor — {url}")
+    print(f"Arayüz dosyaları: {HERE / 'static'}")
+    print(f"Switch'ler {switch_api.SWITCH_PORT} portunda aranacak "
+          f"(kullanıcı: {switch_api.SWITCH_USER})")
 
     # 1) gerçek native pencere
     if open_native(url):
+        print("Pencere: pywebview (native)")
         return 0
 
     # 2) çerçevesiz uygulama penceresi
     proc = open_app_window(url)
     if proc is not None:
+        print("Pencere: Chrome --app")
         print("Uygulama penceresi açıldı. Pencereyi kapatınca sonlanır.")
         try:
             proc.wait()

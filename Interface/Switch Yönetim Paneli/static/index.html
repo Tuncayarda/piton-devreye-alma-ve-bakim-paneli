@@ -11,12 +11,19 @@
 <body>
 <header>
   <img src="/piton-logo.svg" alt="Piton" class="logo">
+  <span class="rule"></span>
+  <span class="wordmark">Switch Yönetim Paneli</span>
   <span class="grow"></span>
+  <button id="log-toggle" class="icon" title="İşlem geçmişi" aria-label="İşlem geçmişi">
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+      <path d="M4 5h12M4 10h12M4 15h8" stroke-linecap="round"></path>
+    </svg>
+  </button>
   <button id="side-toggle" class="icon" title="Switch listesini gizle/göster"
           aria-label="Paneli gizle/göster">
-    <svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true">
-      <rect x="2" y="4" width="16" height="12" rx="2"></rect>
-      <line x1="8" y1="4" x2="8" y2="16"></line>
+    <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+      <rect x="2.5" y="4" width="15" height="12"></rect>
+      <line x1="12.5" y1="4" x2="12.5" y2="16"></line>
     </svg>
   </button>
 </header>
@@ -41,11 +48,11 @@
     <div class="tabs">
       <button class="tab active" data-tab="ports">Portlar &amp; PoE</button>
       <button class="tab" data-tab="network">IP Ayarı</button>
+      <button class="tab" data-tab="log">İşlem Geçmişi</button>
     </div>
 
     <div id="tab-ports" class="panel">
       <div class="toolbar">
-        <button id="refresh">Yenile</button>
         <div class="mode" title="Anında: her değişiklik hemen switch'e gider.
 Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır.">
           <button class="mbtn active" data-mode="anlik">Anında</button>
@@ -67,6 +74,23 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
         <button id="batch-send" class="ok sm">Gönder</button>
       </div>
 
+      <!-- Ön panel haritası: app.js port verisinden çizer -->
+      <div id="panelmap" class="bp panelmap">
+        <i class="corner tl"></i><i class="corner tr"></i>
+        <i class="corner bl"></i><i class="corner br"></i>
+        <div class="pm-head">
+          <h3>Ön Panel · M12 Konnektör Haritası</h3>
+          <div class="pm-legend">
+            <span><i class="f"></i>besliyor</span>
+            <span><i class="l"></i>bağlı</span>
+            <span><i class="p"></i>bekliyor</span>
+            <span><i class="e"></i>boş</span>
+            <span><i class="o"></i>kapalı</span>
+          </div>
+        </div>
+        <div id="pm-grid" class="pm-grid"></div>
+      </div>
+
       <h3 class="tbl-title">PoE portları <span id="fe-cnt" class="cnt"></span></h3>
       <table id="fe-ports">
         <thead><tr>
@@ -86,7 +110,10 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
     </div>
 
     <div id="tab-network" class="panel hidden">
-      <div class="form">
+      <div class="form bp">
+        <i class="corner tl"></i><i class="corner tr"></i>
+        <i class="corner bl"></i><i class="corner br"></i>
+        <h3>Yönetim Arayüzü IP Ayarı</h3>
         <label>IP Adresi<input id="n-addr"></label>
         <label>Ağ Maskesi
           <select id="n-prefix">
@@ -101,9 +128,24 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
           tekrar tarayın.</p>
       </div>
     </div>
+
+    <div id="tab-log" class="panel hidden">
+      <div class="bp logpanel">
+        <i class="corner tl"></i><i class="corner tr"></i>
+        <i class="corner bl"></i><i class="corner br"></i>
+        <div class="lp-head">
+          <h3>İşlem Geçmişi</h3>
+          <span class="grow"></span>
+          <span id="lp-count" class="lp-count">0 kayıt · oturum</span>
+          <button id="log-clear" class="ghost sm">Temizle</button>
+        </div>
+        <div id="lp-body" class="lp-body"></div>
+      </div>
+    </div>
   </section>
 
   <aside id="side">
+    <div class="list-kicker">Bulunan switchler</div>
     <div id="list" class="list"></div>
     <div class="disc">
       <input id="cidr" value="10.1.1.0/24" spellcheck="false"
@@ -114,13 +156,16 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
 </main>
 
 <footer>
-  <span class="muted">Switch Yönetim Paneli</span>
-  <span class="grow"></span>
-  <span id="app-ver" class="muted"></span>
+  <span class="brand">Piton Technology</span>
+  <span class="rule"></span>
+  <span id="last-log">—</span>
+  <span id="app-ver"></span>
 </footer>
 
 <div id="overlay" class="overlay hidden">
-  <div class="box">
+  <div class="box bp">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
     <div class="spin"></div>
     <div class="msg">İşleniyor…</div>
   </div>

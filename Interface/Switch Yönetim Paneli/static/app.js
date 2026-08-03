@@ -16,12 +16,27 @@ let mod = "anlik";
 const bekleyenPoe = new Map();    // pid -> "0"|"1"|"2"
 const bekleyenPort = new Map();   // pid -> true/false
 
+// Switch'e uygulanmış ama flash'a yazılmamış değişiklik var mı?
+// Kayıt artık kendiliğinden yapılmıyor; yalnızca "Kaydet" yazıyor.
+// Yeniden başlatma bu değişiklikleri götürür, o yüzden takip ediyoruz.
+let kayitBekliyor = false;
+
+function kayitDurumu(varMi) {
+  kayitBekliyor = varMi;
+  const b = $("#save-cfg");
+  b.classList.toggle("dirty", varMi);
+  b.title = varMi
+    ? "Kaydedilmemiş değişiklik var — switch yeniden başlarsa geri alınır"
+    : "Çalışan yapılandırmayı kalıcı hale getir";
+}
+
 function toast(msg, kind = "") {
   const t = $("#toast");
   t.textContent = msg;
   t.className = "show " + kind;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => (t.className = ""), kind === "err" ? 6000 : 4000);
+  logEkle(msg, kind === "err");     // her bildirim geçmişe de düşer
 }
 
 async function api(path, opts) {
@@ -49,13 +64,9 @@ async function islem(bekletMsg, istek, basariMsg) {
     const res = await istek();
     setBusy(true, "Durum doğrulanıyor…");
     await loadPorts();
-    if (res && res.saved === false) {
-      toast((basariMsg || "Uygulandı") +
-            " — ancak switch'e KAYDEDİLEMEDİ, yeniden başlatmada geri alınır",
-            "err");
-    } else {
-      toast(basariMsg || "İşlem tamamlandı", "ok");
-    }
+    // Uygulandı ama flash'a yazılmadı; kalıcı olması için Kaydet gerekli
+    kayitDurumu(true);
+    toast(basariMsg || "İşlem tamamlandı", "ok");
     return res;
   } catch (e) {
     toast("Hata: " + e.message, "err");
@@ -128,6 +139,7 @@ async function select(ip, el) {
   hamPorts = [];
   bekleyenPoe.clear();
   bekleyenPort.clear();
+  kayitDurumu(false);        // yeni switch, yeni kayıt durumu
   document.querySelectorAll(".sw-item").forEach((x) => x.classList.remove("active"));
   el?.classList.add("active");
   $("#detail").classList.remove("hidden");
@@ -149,6 +161,28 @@ async function loadInfo() {
 }
 
 // --------------------------------------------------------- portlar --------
+// Portun iki temel niteliği. Hem tablodaki nokta rengi hem ön paneldeki
+// konnektör rengi bunlardan türer, o yüzden tek yerde tanımlı.
+//   açık     — PoE portunda güç veriliyor, uplinkte port etkin
+//   besliyor — PoE portu gerçekten cihaz besliyor (watt çekiyor)
+function portAcik(p) {
+  return p.poe ? p.poeMode !== "0" : Boolean(p.adminStat);
+}
+
+function portBesliyor(p) {
+  return Boolean(p.poe && p.linkStat === "up" && p.powerW);
+}
+
+// Bağlantı sütunundaki kare:
+//   yeşil — besliyor · mavi — bağlı ama güç çekmiyor
+//   kırmızı — kapatılmış · gri — açık ama karşısında cihaz yok
+function nokta(p) {
+  if (portBesliyor(p)) return "up";
+  if (p.linkStat === "up") return "data";
+  if (!portAcik(p)) return "off";
+  return "down";
+}
+
 function uplinkPids() {
   // link'i up olan portları uplink adayı say (kapatma uyarısı için)
   return ports.filter((p) => p.linkStat === "up").map((p) => p.pid);
@@ -194,8 +228,16 @@ function renderPorts() {
     `<span class="tag-bekliyor${acik ? "" : " gizli"}">bekliyor</span>`;
 
   const linkCell = (p) =>
-    `<span class="dot ${p.linkStat === "up" ? "up" : "down"}"></span>` +
-    (p.linktext || (p.linkStat === "up" ? "up" : "—"));
+    `<span class="dot ${nokta(p)}"></span>` +
+    (p.linkStat === "up" ? "up" : '<span class="muted">—</span>');
+
+  // Hız ayrı sütunda: "100M / Full". Cihaz linktext veriyorsa onu
+  // kullanırız (gerçek anlaşılan hız), yoksa ayarlardan kurarız.
+  const hizCell = (p) => {
+    if (p.linkStat !== "up") return '<span class="muted">—</span>';
+    if (p.linktext) return p.linktext.trim().replace(/\s+/, " / ");
+    return `${p.speed}M / ${p.duplex ? "Full" : "Half"}`;
+  };
 
   // --- PoE portları: kontrol yalnızca güç menüsünden
   const fe = ports.filter((p) => p.poe);
@@ -213,7 +255,7 @@ function renderPorts() {
     tr.innerHTML = `
       <td>${p.pid}</td>
       <td>${linkCell(p)}</td>
-      <td>${p.speed || ""}</td>
+      <td>${hizCell(p)}</td>
       <td><select class="poe ${p.poeMode === "0" ? "off" : "on"}"
                   data-poe="${p.pid}">${sel}</select>${
         etiket(bekleyenPoe.has(p.pid))}</td>
@@ -233,7 +275,7 @@ function renderPorts() {
     tr.innerHTML = `
       <td>${p.pid}</td>
       <td>${linkCell(p)}</td>
-      <td>${p.speed || ""}</td>
+      <td>${hizCell(p)}</td>
       <td><button class="pill ${p.adminStat ? "on" : "off"}"
                   data-admin="${p.pid}" data-on="${p.adminStat}"
                   title="${p.adminStat ? "Portu kapat" : "Portu aç"}">
@@ -248,6 +290,8 @@ function renderPorts() {
   document.querySelectorAll("[data-admin]").forEach((b) => {
     b.onclick = () => togglePort(+b.dataset.admin, b.dataset.on !== "true");
   });
+  panelHaritasi(fe, ge);      // ön panel de aynı veriden çizilir
+  boyaSecim();
   batchBar();
   tickRefresh();
 }
@@ -383,6 +427,7 @@ async function saveConfig() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ip: current }),
     });
+    kayitDurumu(false);
     toast("Yapılandırma kaydedildi", "ok");
   } catch (e) {
     toast("Kayıt başarısız: " + e.message, "err");
@@ -398,34 +443,32 @@ async function saveNet() {
   if (busy) { toast("Önceki işlem sürüyor, bekleyin", "err"); return; }
   setBusy(true, `IP ${addr} olarak ayarlanıyor…`);
   try {
-    const res = await api("/api/switch/network", {
+    await api("/api/switch/network", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ip: current, addr, prefix, mtu: $("#n-mtu").value }),
     });
-    if (res.saved === false) {
-      toast(`IP ${addr} olarak ayarlandı ama kaydedilemedi — ` +
-            `yeni adresten bağlanıp Kaydet'e basın`, "err");
-    } else {
-      toast(`IP değiştirildi → ${addr}. Yeni adresten tekrar tarayın.`, "ok");
-    }
+    toast(`IP değiştirildi → ${addr}. Yeni adresten tarayıp Kaydet'e basın, ` +
+          `yoksa yeniden başlatmada eski adrese döner.`, "ok");
   } catch (e) {
     toast("Hata: " + e.message, "err");
   } finally { setBusy(false); }
 }
 
 async function doReboot() {
-  if (!confirm("Switch yeniden başlatılsın mı? Tüm portlar geçici kesilir.\n" +
-    "Kaydedilmemiş değişiklikler varsa önce kaydedilecek.")) return;
+  if (!confirm("Switch yeniden başlatılsın mı? Tüm portlar geçici kesilir." +
+    (kayitBekliyor
+      ? "\n\nDİKKAT: Kaydedilmemiş değişiklikler var, yeniden başlayınca " +
+        "GERİ ALINIR. Önce Kaydet'e basın."
+      : ""))) return;
   if (busy) { toast("Önceki işlem sürüyor, bekleyin", "err"); return; }
   setBusy(true, "Switch yeniden başlatılıyor…");
   try {
-    const res = await api("/api/switch/reboot", {
+    await api("/api/switch/reboot", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ip: current }),
     });
-    toast(res.saved === false
-      ? "Yeniden başlatılıyor — ancak kayıt yapılamadı"
-      : "Kaydedildi, switch yeniden başlatılıyor…", res.saved === false ? "err" : "ok");
+    kayitDurumu(false);        // yeniden başladıktan sonra kayıtlı hali gelir
+    toast("Switch yeniden başlatılıyor…", "ok");
   } catch (e) {
     toast("Hata: " + e.message, "err");
   } finally { setBusy(false); }
@@ -464,10 +507,250 @@ async function doFactoryReset() {
   } finally { setBusy(false); }
 }
 
+// ═══════════════════════════════════════════ ön panel M12 haritası ════════
+// Cihazın ön yüzündeki konnektör dizilimi. Tablodan bağımsız değil —
+// ikisi de renderPorts()'taki aynı `ports` dizisinden çizilir, o yüzden
+// asla birbirinden ayrı düşmezler.
+//
+// Yerleşim: 4 satır. PoE portları sütun sütun, aşağıdan yukarı numaralı
+// (1-2-3-4 | 5-6-7-8 …). Sağdaki uplink sütunu yukarıdan aşağı (28…25).
+const SERVIS = ["Alarm", "USB", "CON", "EX-PWR"];
+let seciliPort = null;
+
+const pinHalka = (n, r) => Array.from({ length: n }, (_, i) => {
+  const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+  return [20 + r * Math.cos(a), 20 + r * Math.sin(a)];
+});
+
+function durumSinifi(p) {
+  if (p.bekliyor) return "pend";
+  if (!portAcik(p)) return "off";
+  if (portBesliyor(p)) return "feed";
+  if (p.linkStat === "up") return "link";
+  return "";
+}
+
+function portEtiketi(p) {
+  return p.poe ? (POE_AD[p.poeMode] || "") : (p.adminStat ? "Açık" : "Kapalı");
+}
+
+function konnektor(p) {
+  const pinler = p.poe ? pinHalka(4, 6.6) : pinHalka(8, 7.2);
+  const r = p.poe ? 2.5 : 1.9;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "m12 " + durumSinifi(p);
+  b.dataset.pid = p.pid;
+  b.title = `Port ${p.pid} · ${portEtiketi(p)} · ` +
+            `${p.linkStat === "up" ? "bağlı" : "boş"}` +
+            (p.powerW ? ` · ${p.powerW} W` : "");
+  b.innerHTML =
+    `<svg viewBox="0 0 40 40" aria-hidden="true">` +
+    `<circle class="shell" cx="20" cy="20" r="18.4"></circle>` +
+    `<circle class="inner" cx="20" cy="20" r="12.2"></circle>` +
+    (p.poe ? "" : `<path class="cross" d="M13 13 L27 27 M27 13 L13 27"></path>`) +
+    `<rect class="key" x="18.6" y="1.6" width="2.8" height="4.2"></rect>` +
+    pinler.map(([x, y]) =>
+      `<circle class="pin" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}"></circle>`)
+      .join("") +
+    `</svg><span>${p.pid}</span>`;
+  b.onclick = () => {
+    seciliPort = seciliPort === p.pid ? null : p.pid;
+    boyaSecim();
+  };
+  b.oncontextmenu = (e) => { e.preventDefault(); portMenusu(p, e); };
+  return b;
+}
+
+function servisHucresi(ad) {
+  const d = document.createElement("div");
+  d.className = "pm-svc";
+  d.innerHTML = `<svg viewBox="0 0 40 40" aria-hidden="true">` +
+    `<circle cx="20" cy="20" r="16.5" stroke-width="1.2" stroke-dasharray="3 3"></circle>` +
+    `<circle cx="20" cy="20" r="8" stroke-width="1"></circle></svg><span>${ad}</span>`;
+  return d;
+}
+
+function bosHucre(sinif) {
+  const d = document.createElement("div");
+  if (sinif) d.className = sinif;
+  return d;
+}
+
+function panelHaritasi(fe, ge) {
+  const harita = $("#panelmap");
+  if (!harita) return;
+  harita.classList.toggle("hidden", fe.length + ge.length === 0);
+  menuKapat();
+
+  const grid = $("#pm-grid");
+  grid.innerHTML = "";
+  const sutun = Math.max(1, Math.ceil(fe.length / 4));
+  grid.style.gridTemplateColumns =
+    `66px repeat(${sutun}, minmax(0, 1fr)) 14px minmax(0, 1fr)`;
+
+  const idIle = {};
+  fe.concat(ge).forEach((p) => { idIle[p.pid] = p; });
+
+  for (let satir = 4; satir >= 1; satir--) {
+    grid.appendChild(servisHucresi(SERVIS[4 - satir]));
+    for (let c = 0; c < sutun; c++) {
+      const p = idIle[satir + c * 4];
+      grid.appendChild(p ? konnektor(p) : bosHucre());
+    }
+    grid.appendChild(bosHucre("pm-div"));
+    const u = ge[satir - 1];
+    grid.appendChild(u ? konnektor(u) : bosHucre());
+  }
+}
+
+function boyaSecim() {
+  document.querySelectorAll(".m12").forEach((el) =>
+    el.classList.toggle("sel", +el.dataset.pid === seciliPort));
+  document.querySelectorAll("#fe-ports tbody tr, #ge-ports tbody tr")
+    .forEach((tr) => tr.classList.toggle(
+      "sel", +tr.children[0].textContent.trim() === seciliPort));
+}
+
+// ------------------------------------------------ sağ tık işlem menüsü ----
+// Menü doğrudan setPoe/togglePort çağırır; onay soruları, anında/toplu
+// modu ve yenileme akışı tabloyla birebir aynı yoldan geçer.
+let menuEl = null;
+
+function menuKapat() {
+  if (menuEl) { menuEl.remove(); menuEl = null; }
+  document.removeEventListener("mousedown", menuDisari, true);
+  document.removeEventListener("keydown", menuEsc, true);
+}
+function menuDisari(e) { if (menuEl && !menuEl.contains(e.target)) menuKapat(); }
+function menuEsc(e) { if (e.key === "Escape") menuKapat(); }
+
+function menuSatiri(etiket, sag, secenek, fn) {
+  const o = secenek || {};
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "pm-item" + (o.danger ? " danger" : "") + (o.dim ? " dim" : "");
+  b.innerHTML = `<i class="mark${o.mark ? " " + o.mark : ""}"></i>` +
+                `<span class="lbl"></span><span class="rt"></span>`;
+  b.querySelector(".lbl").textContent = etiket;
+  b.querySelector(".rt").textContent = sag || "";
+  b.onclick = () => { menuKapat(); fn(); };
+  return b;
+}
+
+function portMenusu(p, e) {
+  menuKapat();
+  seciliPort = p.pid;
+  boyaSecim();
+
+  const m = document.createElement("div");
+  m.className = "pm-menu";
+
+  const bas = document.createElement("div");
+  bas.className = "pm-menu-head";
+  bas.innerHTML = `<div class="t"></div><div class="s"></div>`;
+  bas.querySelector(".t").textContent = "Port " + p.pid;
+  bas.querySelector(".s").textContent =
+    (p.poe ? "PoE · " : "Uplink · ") + portEtiketi(p) +
+    " · " + (p.linkStat === "up" ? "bağlı" : "boş") +
+    (p.powerW ? ` · ${p.powerW} W` : "");
+  m.appendChild(bas);
+
+  const baslik = (t) => {
+    const d = document.createElement("div");
+    d.className = "pm-kicker"; d.textContent = t; m.appendChild(d);
+  };
+
+  if (p.poe) {
+    baslik("Güç (PoE)");
+    ["0", "1", "2"].forEach((mode) => {
+      const gecerli = p.poeMode === mode;
+      m.appendChild(menuSatiri(POE_AD[mode], gecerli ? "geçerli" : "",
+        { mark: gecerli ? (mode === "0" ? "red" : "green") : "",
+          danger: mode === "0" && !gecerli },
+        () => { if (!gecerli) setPoe(p.pid, mode); }));
+    });
+  } else {
+    baslik("Port durumu");
+    m.appendChild(menuSatiri("Portu aç", p.adminStat ? "geçerli" : "",
+      { mark: p.adminStat ? "green" : "" },
+      () => { if (!p.adminStat) togglePort(p.pid, true); }));
+    m.appendChild(menuSatiri("Portu kapat", !p.adminStat ? "geçerli" : "",
+      { mark: !p.adminStat ? "red" : "", danger: p.adminStat },
+      () => { if (p.adminStat) togglePort(p.pid, false); }));
+  }
+
+  document.body.appendChild(m);
+  m.style.left = Math.min(e.clientX, innerWidth - m.offsetWidth - 8) + "px";
+  m.style.top = Math.min(e.clientY, innerHeight - m.offsetHeight - 8) + "px";
+  menuEl = m;
+  setTimeout(() => {
+    document.addEventListener("mousedown", menuDisari, true);
+    document.addEventListener("keydown", menuEsc, true);
+  }, 0);
+}
+
+// ═══════════════════════════════════════════════ işlem geçmişi ════════════
+// Oturum boyunca tutulur, diske yazılmaz. Kaynağı toast(): kullanıcıya
+// gösterilen her bildirim buraya da düşer.
+const gecmis = [];
+const TUR = [
+  [/fabrika|sıfırla/i, "hata"],
+  [/hata|başarısız|kaydedilemedi|iptal/i, "hata"],
+  [/ip .*(değiştir|ayarla)/i, "ag"],
+  [/gü[çc]|poe/i, "poe"],          // "güç" çekimlenince "gücü" oluyor
+  [/port \d+ (açıldı|kapatıldı|açılıyor|kapatılıyor)/i, "port"],
+  [/kaydedildi|yapılandırma/i, "kayit"],
+  [/tara|bulundu/i, "tara"],
+];
+
+function turBul(msg, hatali) {
+  if (hatali) return "hata";
+  for (const [re, t] of TUR) if (re.test(msg)) return t;
+  return "bilgi";
+}
+
+function saatMetni() {
+  const d = new Date();
+  return [d.getHours(), d.getMinutes(), d.getSeconds()]
+    .map((x) => String(x).padStart(2, "0")).join(":");
+}
+
+function logEkle(msg, hatali) {
+  if (!msg) return;
+  gecmis.push({ t: saatMetni(), tur: turBul(msg, hatali), msg,
+                ip: current || "—" });
+  logCiz();
+  $("#last-log").textContent = `${gecmis[gecmis.length - 1].t}  ${msg}`;
+}
+
+function logCiz() {
+  const govde = $("#lp-body");
+  if (!govde) return;
+  $("#lp-count").textContent = `${gecmis.length} kayıt · oturum`;
+  if (!gecmis.length) {
+    govde.innerHTML = `<div class="logempty">Bu oturumda henüz işlem yok.</div>`;
+    return;
+  }
+  govde.innerHTML = "";
+  gecmis.slice().reverse().forEach((l) => {
+    const r = document.createElement("div");
+    r.className = "logrow";
+    r.innerHTML = `<span class="t"></span><span class="k"></span>` +
+                  `<span class="m"></span><span class="ip"></span>`;
+    r.querySelector(".t").textContent = l.t;
+    const k = r.querySelector(".k");
+    k.className = "k " + l.tur;
+    k.textContent = l.tur;
+    r.querySelector(".m").textContent = l.msg;   // metin olarak, HTML değil
+    r.querySelector(".ip").textContent = l.ip;
+    govde.appendChild(r);
+  });
+}
+
 // --------------------------------------------------------- bağlama --------
 $("#scan").onclick = scan;
 $("#cidr").addEventListener("keydown", (e) => e.key === "Enter" && scan());
-$("#refresh").onclick = () => loadPorts().catch(() => {});
 $("#save-net").onclick = saveNet;
 $("#reboot").onclick = doReboot;
 $("#save-cfg").onclick = saveConfig;
@@ -477,6 +760,10 @@ $("#batch-clear").onclick = batchClear;
 document.querySelectorAll(".mbtn").forEach((b) => {
   b.onclick = () => setMod(b.dataset.mode);
 });
+$("#log-clear").onclick = () => { gecmis.length = 0; logCiz(); };
+$("#log-toggle").onclick = () =>
+  document.querySelector('.tab[data-tab="log"]').click();
+logCiz();
 
 // alt bardaki sürüm bilgisi (backend'den, tek kaynak)
 api("/api/version")
@@ -542,11 +829,13 @@ function startAuto() {
 }
 startAuto();
 
+// Sekmeler: her ".tab" kendi "#tab-<ad>" panelini açar. Sekme eklemek için
+// HTML'e bir düğme + bir panel koymak yeterli, buraya dokunmaya gerek yok.
 document.querySelectorAll(".tab").forEach((t) => {
   t.onclick = () => {
-    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-    t.classList.add("active");
-    $("#tab-ports").classList.toggle("hidden", t.dataset.tab !== "ports");
-    $("#tab-network").classList.toggle("hidden", t.dataset.tab !== "network");
+    document.querySelectorAll(".tab").forEach(
+      (x) => x.classList.toggle("active", x === t));
+    document.querySelectorAll("#detail .panel").forEach(
+      (p) => p.classList.toggle("hidden", p.id !== "tab-" + t.dataset.tab));
   };
 });
