@@ -30,13 +30,15 @@ function kayitDurumu(varMi) {
     : "Çalışan yapılandırmayı kalıcı hale getir";
 }
 
-function toast(msg, kind = "") {
+// Bildirim geçmişe de düşer. `gecmise` yalnızca toplu gönderimde kapatılır:
+// orada geçmişe özet değil, değişikliklerin tek tek kendisi yazılır.
+function toast(msg, kind = "", gecmise = true) {
   const t = $("#toast");
   t.textContent = msg;
   t.className = "show " + kind;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => (t.className = ""), kind === "err" ? 6000 : 4000);
-  logEkle(msg, kind === "err");     // her bildirim geçmişe de düşer
+  if (gecmise) logEkle(msg, kind === "err");
 }
 
 // İstekte hangi switch'ten söz ediliyor? Sorgu dizesinden ya da gövdeden.
@@ -225,6 +227,11 @@ function setBusy(on, msg) {
 // Her değiştirme işlemi buradan geçer: perde açılır, istek atılır,
 // switch'ten güncel durum tekrar okunur, sonra perde kalkar.
 // Perde açıkken başka istek gönderilemez (otomatik yenileme dahil).
+//
+// `basariMsg` dizi verilirse (toplu gönderim) her satır işlem geçmişine
+// ayrı ayrı yazılır; ekranda yalnızca kısa bir özet gösterilir. Tek bir
+// "3 değişiklik uygulandı" satırı, neyin değiştiğini geçmişten okumayı
+// imkânsız kılıyordu.
 async function islem(bekletMsg, istek, basariMsg) {
   if (busy) { toast("Önceki işlem sürüyor, bekleyin", "err"); return; }
   setBusy(true, bekletMsg);
@@ -234,7 +241,12 @@ async function islem(bekletMsg, istek, basariMsg) {
     await loadPorts();
     // Uygulandı ama flash'a yazılmadı; kalıcı olması için Kaydet gerekli
     kayitDurumu(true);
-    toast(basariMsg || "İşlem tamamlandı", "ok");
+    if (Array.isArray(basariMsg)) {
+      basariMsg.forEach((satir) => logEkle(satir));
+      toast(`${basariMsg.length} değişiklik uygulandı`, "ok", false);
+    } else {
+      toast(basariMsg || "İşlem tamamlandı", "ok");
+    }
     return res;
   } catch (e) {
     toast("Hata: " + e.message, "err");
@@ -247,30 +259,61 @@ async function islem(bekletMsg, istek, basariMsg) {
 // --------------------------------------------------------- keşif ----------
 // Bir /24 taraması yüzlerce istek demek. Üst üste basılınca istekler
 // yığılıp switch'in küçük web sunucusunu boğuyor ve arayüz donmuş gibi
-// görünüyordu. Artık tarama sürerken buton kilitli: içinde dönen bir
-// gösterge var, bitince eski haline dönüyor.
+// görünüyordu. Artık aynı düğme tarama sürerken "İptal"e dönüşüyor:
+// yanlış aralık yazıldığında dakikalarca beklemek gerekmiyor.
 let scanning = false;
+let scanAbort = null;          // süren taramanın yerel iptal denetleyicisi
+let scanIptalEdildi = false;   // iptali kullanıcı mı istedi, zaman aşımı mı
 const SCAN_TIMEOUT = 120000;   // hiçbir koşulda kilitli kalmasın
 
 function setScanning(on) {
   scanning = on;
   const b = $("#scan");
-  b.disabled = on;
+  b.disabled = false;          // tarama sürerken iptal için basılabilir olmalı
   b.classList.toggle("loading", on);
-  b.innerHTML = on ? '<span class="btn-spin"></span>Taranıyor' : "Tara";
+  b.classList.toggle("cancel", on);
+  b.innerHTML = on ? '<span class="btn-spin"></span>İptal' : "Tara";
+  b.title = on ? "Taramayı durdur" : "Ağı tara";
+}
+
+// Yalnızca fetch'i kesmek yetmiyor: sunucu tarafındaki tarama switch'lere
+// istek atmaya devam eder ve kilidi bırakmaz, hemen ardından basılan
+// "Tara" da "tarama zaten sürüyor" hatasına düşerdi. O yüzden önce
+// sunucuya haber verip taramanın gerçekten durmasını bekliyoruz.
+async function scanIptal() {
+  if (!scanning || scanIptalEdildi) return;
+  scanIptalEdildi = true;
+  // Kesilecek denetleyiciyi şimdi yakalıyoruz: bekleme sırasında bu tarama
+  // kendiliğinden bitip kullanıcı yenisini başlatmış olabilir, o zaman
+  // aşağıdaki abort() yanlış taramayı keserdi.
+  const kesilecek = scanAbort;
+  const b = $("#scan");
+  b.disabled = true;
+  b.innerHTML = '<span class="btn-spin"></span>Duruyor';
+  try {
+    await fetch("/api/discover/cancel");
+  } catch (e) { /* sunucu yanıt vermese de yerel isteği keseceğiz */ }
+  if (kesilecek) kesilecek.abort();
 }
 
 async function scan() {
   if (scanning) return;
   const cidr = $("#cidr").value.trim();
+  scanIptalEdildi = false;
   setScanning(true);
   $("#list").innerHTML = "";      // durum yalnızca butonda görünür
 
-  const iptal = new AbortController();
-  const zaman = setTimeout(() => iptal.abort(), SCAN_TIMEOUT);
+  scanAbort = new AbortController();
+  const zaman = setTimeout(() => scanAbort.abort(), SCAN_TIMEOUT);
   try {
     const res = await api("/api/discover?cidr=" + encodeURIComponent(cidr),
-                          { signal: iptal.signal });
+                          { signal: scanAbort.signal });
+    // Sunucu taramayı yarıda bıraktıysa sonuç eksiktir; "bulunamadı"
+    // demek yanıltıcı olur.
+    if (res.iptal || scanIptalEdildi) {
+      $("#list").innerHTML = `<div class="muted">Tarama iptal edildi.</div>`;
+      return;
+    }
     const switches = res.switches || [];
     if (!switches.length) {
       $("#list").innerHTML =
@@ -285,17 +328,21 @@ async function scan() {
       el.className = "sw-item" + (s.kilit ? " kilit" : "");
       el.innerHTML = `<div class="ip">${s.ip}</div>` + (s.kilit
         ? `<div class="kilit-not">Kimlik doğrulama gerekli</div>`
-        : `<div class="mdl">${s.model || "Switch"} · v${s.version || "?"}</div>`);
+        : `<div class="mdl">${s.model || "Switch"} / v${s.version || "?"}</div>`);
       el.onclick = () => select(s.ip, el);
       $("#list").appendChild(el);
     });
   } catch (e) {
-    const msg = e.name === "AbortError"
-      ? "Tarama çok uzun sürdü, iptal edildi. Tek IP ile deneyin."
-      : "Hata: " + e.message;
+    let msg;
+    if (scanIptalEdildi) msg = "Tarama iptal edildi.";
+    else if (e.name === "AbortError")
+      msg = "Tarama çok uzun sürdü, iptal edildi. Tek IP ile deneyin.";
+    else msg = "Hata: " + e.message;
     $("#list").innerHTML = `<div class="muted">${msg}</div>`;
   } finally {
     clearTimeout(zaman);
+    scanAbort = null;
+    scanIptalEdildi = false;
     setScanning(false);
   }
 }
@@ -345,14 +392,16 @@ async function select(ip, el) {
 
 async function loadInfo() {
   const info = await api("/api/switch/info?ip=" + current);
-  $("#d-name").textContent = info.name || "Switch";
-  // Boş alanlar için "· ip · v?" gibi yarım satır çıkmasın: yalnızca
+  // Başlık büyük harfe çevriliyor; yedek metni de öyle yazıyoruz, yoksa
+  // Türkçe büyütme kuralı "Switch" → "SWİTCH" yapıyor.
+  $("#d-name").textContent = info.name || "SWITCH";
+  // Boş alanlar için "/ ip / v?" gibi yarım satır çıkmasın: yalnızca
   // cihazın gerçekten bildirdiklerini yan yana diziyoruz.
   $("#d-sub").textContent = [
     info.model,
     info.ip || current,
     info.version ? "v" + info.version : "",
-  ].filter(Boolean).join(" · ");
+  ].filter(Boolean).join(" / ");
   const n = info.network || {};
   $("#n-addr").value = n.addr || info.ip;
   $("#n-prefix").value = n.netmaskLen || "8";
@@ -428,10 +477,17 @@ function renderPorts() {
   const feeding = ports.filter((p) => p.powerW).length;
   const poeOff = ports.filter((p) => p.poe && p.poeMode === "0").length;
   const geOff = ports.filter((p) => !p.poe && !p.adminStat).length;
-  $("#port-info").textContent =
-    `${ports.length} port · ${up} bağlı · ${feeding} besleniyor` +
-    (poeOff ? ` · ${poeOff} güç kapalı` : "") +
-    (geOff ? ` · ${geOff} uplink kapalı` : "");
+  // Her sayaç kendi dikdörtgen bölmesinde: "·" ile ayrılan tek satır
+  // uzadıkça hangi sayının neye ait olduğu okunmuyordu.
+  const sayaclar = [
+    [ports.length, "port", ""],
+    [up, "bağlı", "link"],
+    [feeding, "besleniyor", "feed"],
+  ];
+  if (poeOff) sayaclar.push([poeOff, "güç kapalı", "nopwr"]);
+  if (geOff) sayaclar.push([geOff, "uplink kapalı", "off"]);
+  $("#port-info").innerHTML = sayaclar.map(([n, ad, sinif]) =>
+    `<span class="stat ${sinif}"><b>${n}</b>${ad}</span>`).join("");
 
   // "bekliyor" etiketi her satırda hep basılır, sadece görünürlüğü değişir.
   // Sonradan eklenirse sütun genişliği değişip tablo yana kayıyordu.
@@ -599,6 +655,27 @@ function bekleyenSayi() {
   return bekleyenPoe.size + bekleyenPort.size;
 }
 
+// Bekleyen değişikliklerin insan diliyle listesi. Tek yerde duruyor çünkü
+// üç ayrı yerde gösteriliyor: onay penceresi (yapılacak), işlem geçmişi
+// (yapıldı) ve şeritteki özet.
+function bekleyenAdimlar() {
+  const sirali = (m) => [...m].sort((a, b) => a[0] - b[0]);
+  const adimlar = [];
+  sirali(bekleyenPort).forEach(([pid, acik]) => adimlar.push({
+    gelecek: `Port ${pid} ${acik ? "açılacak" : "kapatılacak"}`,
+    gecmis: `Port ${pid} ${acik ? "açıldı" : "kapatıldı"}`,
+    riskli: !acik && uplinkPids().includes(pid),
+  }));
+  sirali(bekleyenPoe).forEach(([pid, mode]) => adimlar.push({
+    gelecek: mode === "0" ? `Port ${pid} gücü kesilecek`
+                          : `Port ${pid} gücü ${POE_AD[mode]} olacak`,
+    gecmis: mode === "0" ? `Port ${pid} gücü kesildi`
+                         : `Port ${pid} gücü ${POE_AD[mode]} yapıldı`,
+    riskli: mode === "0",
+  }));
+  return adimlar;
+}
+
 function batchBar() {
   const bar = $("#batchbar");
   bar.classList.toggle("hidden", mod !== "toplu");
@@ -607,11 +684,15 @@ function batchBar() {
   bar.classList.toggle("bos", n === 0);
   $("#batch-send").disabled = n === 0;
   $("#batch-clear").disabled = n === 0;
+  const liste = (m, ad) => (m.size
+    ? `${ad}: ${[...m.keys()].sort((a, b) => a - b).join(", ")}`
+    : "");
   $("#batch-info").textContent = n === 0
-    ? "Değişiklik yapın, sonra Gönder'e basın. Otomatik yenileme duraklatıldı."
-    : `${n} değişiklik bekliyor` +
-      (bekleyenPoe.size ? ` · PoE: ${[...bekleyenPoe.keys()].sort((a, b) => a - b).join(", ")}` : "") +
-      (bekleyenPort.size ? ` · Port: ${[...bekleyenPort.keys()].sort((a, b) => a - b).join(", ")}` : "");
+    ? "Toplu mod açık. Değişiklikleri yapın, sonra Gönder'e basın; " +
+      "otomatik yenileme duraklatıldı."
+    : `${n} değişiklik bekliyor — ` +
+      [liste(bekleyenPort, "port"), liste(bekleyenPoe, "güç")]
+        .filter(Boolean).join(", ") + ".";
 }
 
 function batchClear() {
@@ -624,22 +705,27 @@ async function batchSend() {
   const n = bekleyenSayi();
   if (!n) return;
 
-  // Riskli olanları özetleyip tek onay al — her satır için ayrı soru sormak
-  // toplu gönderimin amacını bozar.
-  const gucKesilen = [...bekleyenPoe].filter(([, v]) => v === "0")
-    .map(([pid]) => pid);
-  const uplinkKapanan = [...bekleyenPort]
-    .filter(([pid, v]) => !v && uplinkPids().includes(pid)).map(([pid]) => pid);
-  let uyari = "";
-  if (gucKesilen.length)
-    uyari += `\n• Güç kesilecek (cihaz kapanır): ${gucKesilen.join(", ")}`;
-  if (uplinkKapanan.length)
-    uyari += `\n• BAĞLI port kapanacak (uplink olabilir, erişimi ` +
-             `kaybedebilirsin): ${uplinkKapanan.join(", ")}`;
-  if (uyari && !(await onay({
+  // Her satır için ayrı soru sormak toplu gönderimin amacını bozar; bunun
+  // yerine gönderilecek her şeyi tek pencerede madde madde gösteriyoruz.
+  // Eskiden yalnızca riskli değişiklikler yazılıyordu, geri kalanı
+  // görülmeden gidiyordu.
+  const adimlar = bekleyenAdimlar();
+  const riskli = adimlar.some((a) => a.riskli);
+  const mesaj =
+    `${n} değişiklik switch'e tek seferde gönderilecek:\n\n` +
+    adimlar.map((a) => `• ${a.gelecek}`).join("\n") +
+    (riskli
+      ? "\n\nDikkat: gücü kesilen porttaki cihaz kapanır, kapatılan bağlı " +
+        "portun iletişimi durur. Yönetime bu portlardan birinden " +
+        "bağlıysanız switch'e erişimi kaybedebilirsiniz."
+      : "") +
+    "\n\nDeğişiklikler switch'in çalışan yapılandırmasına yazılır; " +
+    "kalıcı olması için sonrasında Kaydet'e basın.";
+
+  if (!(await onay({
         baslik: "Toplu gönderim",
-        mesaj: `${n} değişiklik gönderilecek.\n${uyari}`,
-        onayMetni: "Gönder", tehlike: true }))) return;
+        mesaj,
+        onayMetni: "Gönder", tehlike: riskli }))) return;
 
   const govde = {
     ip: current,
@@ -654,7 +740,7 @@ async function batchSend() {
     bekleyenPoe.clear();     // yalnızca başarılıysa temizlenir
     bekleyenPort.clear();
     return r;
-  }, `${n} değişiklik uygulandı`).catch(() => {});
+  }, adimlar.map((a) => a.gecmis)).catch(() => {});
 }
 
 async function setMod(yeni) {
@@ -801,18 +887,15 @@ function portEtiketi(p) {
   return p.poe ? (POE_AD[p.poeMode] || "") : (p.adminStat ? "Açık" : "Kapalı");
 }
 
-function konnektor(p) {
+// Konnektörün çizimi. Ayrı bir işlev çünkü gösterim kılavuzu da örnekleri
+// buradan çiziyor: biçim ya da renk değişirse kılavuz kendiliğinden aynı
+// değişir, elle güncellenmesi gereken ikinci bir çizim yok.
+//   PoE portu    — 4 pin
+//   Uplink portu — 8 pin + ortada çarpı
+function konnektorSvg(p) {
   const pinler = p.poe ? pinHalka(4, 6.6) : pinHalka(8, 7.2);
   const r = p.poe ? 2.5 : 1.9;
-  const b = document.createElement("button");
-  b.type = "button";
-  b.className = "m12 " + durumSinifi(p);
-  b.dataset.pid = p.pid;
-  b.title = `Port ${p.pid} · ${portEtiketi(p)} · ` +
-            `${p.linkStat === "up" ? "bağlı" : "boş"}` +
-            (p.powerW ? ` · ${p.powerW} W` : "");
-  b.innerHTML =
-    `<svg viewBox="0 0 40 40" aria-hidden="true">` +
+  return `<svg viewBox="0 0 40 40" aria-hidden="true">` +
     `<circle class="shell" cx="20" cy="20" r="18.4"></circle>` +
     `<circle class="inner" cx="20" cy="20" r="12.2"></circle>` +
     (p.poe ? "" : `<path class="cross" d="M13 13 L27 27 M27 13 L13 27"></path>`) +
@@ -820,7 +903,18 @@ function konnektor(p) {
     pinler.map(([x, y]) =>
       `<circle class="pin" cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="${r}"></circle>`)
       .join("") +
-    `</svg><span>${p.pid}</span>`;
+    `</svg>`;
+}
+
+function konnektor(p) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "m12 " + durumSinifi(p);
+  b.dataset.pid = p.pid;
+  b.title = `Port ${p.pid} / ${portEtiketi(p)} / ` +
+            `${p.linkStat === "up" ? "bağlı" : "boş"}` +
+            (p.powerW ? ` / ${p.powerW} W` : "");
+  b.innerHTML = konnektorSvg(p) + `<span>${p.pid}</span>`;
   b.onclick = () => {
     seciliPort = seciliPort === p.pid ? null : p.pid;
     boyaSecim();
@@ -879,11 +973,140 @@ function panelHaritasi(fe, ge) {
 }
 
 function boyaSecim() {
-  document.querySelectorAll(".m12").forEach((el) =>
+  // Yalnızca haritadaki konnektörler: kılavuzdaki örnekler de ".m12"
+  // sınıfını kullanıyor ama onların bir port numarası yok.
+  document.querySelectorAll("#pm-grid .m12").forEach((el) =>
     el.classList.toggle("sel", +el.dataset.pid === seciliPort));
   document.querySelectorAll("#fe-ports tbody tr, #ge-ports tbody tr")
     .forEach((tr) => tr.classList.toggle(
       "sel", +tr.children[0].textContent.trim() === seciliPort));
+}
+
+// ───────────────────────────────────── ön panel gösterim kılavuzu ─────────
+// Kullanıcının "bu kırmızı ne demekti?" sorusunun tek yanıt yeri.
+//
+// Örnekler uydurma resimler değil: her satırda gerçek bir port nesnesi var
+// ve tıpkı haritadaki gibi durumSinifi() + konnektorSvg() ile çiziliyor.
+// Yani kılavuz, kodun kendisinin ürettiği görüntüyü gösterir; renk kuralı
+// değişirse buradaki örnek de değişir, ikisi asla ayrı düşmez.
+//
+// Bir portun iki bağımsız anahtarı olduğu için (veri = adminStat,
+// güç = poeMode) PoE portunda altı ayrı görünüm çıkıyor; hepsi burada.
+const KILAVUZ = [
+  {
+    baslik: "PoE portları",
+    aciklama: "Dört pinli konnektör. Hem veri hem güç taşır; " +
+              "veri ve güç ayrı ayrı açılıp kapatılabilir.",
+    satirlar: [
+      { ad: "Cihazı besliyor",
+        not: "Port açık, güç açık, karşıdaki cihaz akım çekiyor. " +
+             "Tüketim tabloda watt olarak görünür.",
+        p: { poe: true, adminStat: true, linkStat: "up",
+             poeMode: "2", powerW: 6.4 } },
+      { ad: "Bağlı, güç çekmiyor",
+        not: "Veri geçiyor ve güç verilmeye hazır, ama cihaz PoE " +
+             "kullanmıyor — kendi elektriğiyle çalışıyor olabilir.",
+        p: { poe: true, adminStat: true, linkStat: "up",
+             poeMode: "2", powerW: null } },
+      { ad: "Bağlı, PoE kapalı",
+        not: "Kabuk bağlantıyı gösterir, kırmızı pinler gücün kapalı " +
+             "olduğunu. Cihaz haberleşir ama beslenmez.",
+        p: { poe: true, adminStat: true, linkStat: "up",
+             poeMode: "0", powerW: null } },
+      { ad: "Boş",
+        not: "Port açık ve güç açık, ama karşısında cihaz yok.",
+        p: { poe: true, adminStat: true, linkStat: "down",
+             poeMode: "2", powerW: null } },
+      { ad: "Boş, PoE kapalı",
+        not: "Karşısında cihaz yok, ayrıca gücü de kapatılmış.",
+        p: { poe: true, adminStat: true, linkStat: "down",
+             poeMode: "0", powerW: null } },
+      { ad: "Port kapalı",
+        not: "Veri iletimi kapatılmış. Veri kapalıyken güç de verilmez, " +
+             "bu yüzden konnektörün tamamı kırmızıdır.",
+        p: { poe: true, adminStat: false, linkStat: "down",
+             poeMode: "0", powerW: null } },
+      { ad: "Bekleyen değişiklik",
+        not: "Yalnızca Toplu modda görülür: seçim yapıldı ama henüz " +
+             "switch'e gönderilmedi. Gönder'e basınca gerçek rengine döner.",
+        p: { poe: true, adminStat: true, linkStat: "up",
+             poeMode: "2", powerW: 6.4, bekliyor: true } },
+    ],
+  },
+  {
+    baslik: "Uplink portları",
+    aciklama: "Sekiz pinli, ortası çarpılı konnektör. Yalnızca veri taşır; " +
+              "PoE beslemesi yoktur, bu yüzden güç durumu da gösterilmez.",
+    satirlar: [
+      { ad: "Bağlı",
+        not: "Karşıda bir cihaz var ve veri geçiyor.",
+        p: { poe: false, adminStat: true, linkStat: "up", powerW: null } },
+      { ad: "Boş",
+        not: "Port açık, ama karşısında cihaz yok.",
+        p: { poe: false, adminStat: true, linkStat: "down", powerW: null } },
+      { ad: "Port kapalı",
+        not: "Veri iletimi kapatılmış. Yönetime bu porttan bağlıysanız " +
+             "kapatmak switch'e erişimi keser.",
+        p: { poe: false, adminStat: false, linkStat: "down", powerW: null } },
+      { ad: "Bekleyen değişiklik",
+        not: "Toplu modda gönderilmeyi bekleyen seçim.",
+        p: { poe: false, adminStat: true, linkStat: "up", powerW: null,
+             bekliyor: true } },
+    ],
+  },
+];
+
+function kilavuzCiz() {
+  const govde = $("#legend-body");
+  if (!govde || govde.dataset.hazir) return;   // içerik sabit, bir kez çizilir
+  govde.innerHTML = "";
+  KILAVUZ.forEach((grup) => {
+    const bolum = document.createElement("div");
+    bolum.className = "lg-grup";
+    bolum.innerHTML = `<h4></h4><p class="lg-not"></p><div class="lg-liste"></div>`;
+    bolum.querySelector("h4").textContent = grup.baslik;
+    bolum.querySelector(".lg-not").textContent = grup.aciklama;
+    const liste = bolum.querySelector(".lg-liste");
+    grup.satirlar.forEach((s) => {
+      const satir = document.createElement("div");
+      satir.className = "lg-row";
+      const ornek = document.createElement("div");
+      // Haritadakiyle birebir aynı sınıf ve aynı çizim — "ornek" yalnızca
+      // tıklanamaz/küçük olmasını sağlar.
+      ornek.className = "m12 ornek " + durumSinifi(s.p);
+      ornek.innerHTML = konnektorSvg(s.p);
+      satir.appendChild(ornek);
+      const metin = document.createElement("div");
+      metin.className = "lg-metin";
+      metin.innerHTML = `<b></b><span></span>`;
+      metin.querySelector("b").textContent = s.ad;
+      metin.querySelector("span").textContent = s.not;
+      satir.appendChild(metin);
+      liste.appendChild(satir);
+    });
+    govde.appendChild(bolum);
+  });
+
+  // Renkten bağımsız, ayrıca bilinmesi gereken tek işaret
+  const ek = document.createElement("div");
+  ek.className = "lg-grup";
+  ek.innerHTML =
+    `<h4>Diğer işaretler</h4>` +
+    `<p class="lg-not">Bir konnektöre tıklayınca mavi çerçeveyle ` +
+    `işaretlenir ve alttaki tabloda karşılık gelen satır da vurgulanır. ` +
+    `Sağ tıklamak o portun güç ve durum seçeneklerini açar.</p>`;
+  govde.appendChild(ek);
+  govde.dataset.hazir = "1";
+}
+
+function kilavuzAc() {
+  kilavuzCiz();
+  $("#legend").classList.remove("hidden");
+  setTimeout(() => $("#legend-close").focus(), 30);
+}
+
+function kilavuzKapat() {
+  $("#legend").classList.add("hidden");
 }
 
 // ------------------------------------------------ sağ tık işlem menüsü ----
@@ -905,15 +1128,16 @@ function menuKapat() {
 function menuDisari(e) { if (menuEl && !menuEl.contains(e.target)) menuKapat(); }
 function menuEsc(e) { if (e.key === "Escape") menuKapat(); }
 
-function menuSatiri(etiket, sag, secenek, fn) {
+// Satırın o an geçerli olduğu soldaki kare işaretten anlaşılıyor; sağdaki
+// "geçerli" yazısı aynı bilgiyi ikinci kez söylediği için kaldırıldı.
+function menuSatiri(etiket, secenek, fn) {
   const o = secenek || {};
   const b = document.createElement("button");
   b.type = "button";
   b.className = "pm-item" + (o.danger ? " danger" : "") + (o.dim ? " dim" : "");
   b.innerHTML = `<i class="mark${o.mark ? " " + o.mark : ""}"></i>` +
-                `<span class="lbl"></span><span class="rt"></span>`;
+                `<span class="lbl"></span>`;
   b.querySelector(".lbl").textContent = etiket;
-  b.querySelector(".rt").textContent = sag || "";
   b.onclick = () => { menuKapat(); fn(); };
   return b;
 }
@@ -933,9 +1157,9 @@ function portMenusu(p, e) {
   m.appendChild(bas);
 
   const ozet = (x) =>
-    (x.poe ? "PoE · " : "Uplink · ") + portEtiketi(x) +
-    " · " + (x.linkStat === "up" ? "bağlı" : "boş") +
-    (x.powerW ? ` · ${x.powerW} W` : "");
+    (x.poe ? "PoE / " : "Uplink / ") + portEtiketi(x) +
+    " / " + (x.linkStat === "up" ? "bağlı" : "boş") +
+    (x.powerW ? ` / ${x.powerW} W` : "");
   bas.querySelector(".s").textContent = ozet(p);
 
   const baslik = (t) => {
@@ -947,12 +1171,12 @@ function portMenusu(p, e) {
   // olabilir, kapanışta yakalanan değere güvenmiyoruz.
   const canli = () => ports.find((x) => x.pid === p.pid) || p;
 
-  const satirlar = [];        // { el, gecerliMi(x), mark(x), danger(x) }
+  const satirlar = [];        // { el, mark(x), danger(x) }
 
   if (p.poe) {
     baslik("Güç (PoE)");
     ["0", "1", "2"].forEach((mode) => {
-      const el = menuSatiri(POE_AD[mode], "", {}, () => {
+      const el = menuSatiri(POE_AD[mode], {}, () => {
         const g = canli();
         // Port kapalıyken güç verilemez; önce portu açmak gerekir.
         if (!g.adminStat && mode !== "0") {
@@ -963,7 +1187,6 @@ function portMenusu(p, e) {
       });
       satirlar.push({
         el,
-        gecerliMi: (x) => x.poeMode === mode,
         mark: (x) => (x.poeMode === mode ? (mode === "0" ? "red" : "green") : ""),
         danger: (x) => mode === "0" && x.poeMode !== mode,
       });
@@ -972,18 +1195,19 @@ function portMenusu(p, e) {
   }
 
   {
+    // Satırlar bir eylem değil, portun alabileceği durumu adlandırıyor —
+    // tıpkı üstteki güç seçenekleri gibi. İşaretli olan o anki durumdur.
     baslik("Port durumu (veri)");
-    const ac = menuSatiri("Portu aç", "", {}, () => {
+    const ac = menuSatiri("Port açık", {}, () => {
       if (!canli().adminStat) togglePort(p.pid, true);
     });
-    const kapat = menuSatiri("Portu kapat", "", {}, () => {
+    const kapat = menuSatiri("Port kapalı", {}, () => {
       if (canli().adminStat) togglePort(p.pid, false);
     });
     satirlar.push(
-      { el: ac, gecerliMi: (x) => Boolean(x.adminStat),
-        mark: (x) => (x.adminStat ? "green" : ""), danger: () => false },
-      { el: kapat, gecerliMi: (x) => !x.adminStat,
-        mark: (x) => (x.adminStat ? "" : "red"), danger: (x) => Boolean(x.adminStat) });
+      { el: ac, mark: (x) => (x.adminStat ? "green" : ""), danger: () => false },
+      { el: kapat, mark: (x) => (x.adminStat ? "" : "red"),
+        danger: (x) => Boolean(x.adminStat) });
     m.appendChild(ac);
     m.appendChild(kapat);
   }
@@ -994,8 +1218,6 @@ function portMenusu(p, e) {
   const tazele = (x) => {
     bas.querySelector(".s").textContent = ozet(x);
     satirlar.forEach((s) => {
-      const gecerli = s.gecerliMi(x);
-      s.el.querySelector(".rt").textContent = gecerli ? "geçerli" : "";
       s.el.querySelector(".mark").className = "mark" +
         (s.mark(x) ? " " + s.mark(x) : "");
       s.el.classList.toggle("danger", s.danger(x));
@@ -1030,6 +1252,12 @@ const TUR = [
   [/tara|bulundu/i, "tara"],
 ];
 
+// Ekranda görünen etiketler. Sınıf adları ASCII (CSS'te kullanılıyor) ama
+// etiket Türkçe yazılmalı: sayfa dili tr olduğu için text-transform büyütmeyi
+// Türkçe kurallarına göre yapıyor ve "kayit" → "KAYİT" çıkıyordu.
+// Doğru kelime "kayıt", büyüğü "KAYIT".
+const TUR_ETIKET = { kayit: "kayıt", ag: "ağ" };
+
 function turBul(msg, hatali) {
   if (hatali) return "hata";
   for (const [re, t] of TUR) if (re.test(msg)) return t;
@@ -1047,7 +1275,9 @@ function logEkle(msg, hatali) {
   gecmis.push({ t: saatMetni(), tur: turBul(msg, hatali), msg,
                 ip: current || "—" });
   logCiz();
-  $("#last-log").textContent = `${gecmis[gecmis.length - 1].t}  ${msg}`;
+  // Alt barda saat:dakika yeter; saniye yalnızca işlem geçmişi listesinde.
+  $("#last-log").textContent =
+    `${gecmis[gecmis.length - 1].t.slice(0, 5)}  ${msg}`;
 }
 
 function logCiz() {
@@ -1067,7 +1297,7 @@ function logCiz() {
     r.querySelector(".t").textContent = l.t;
     const k = r.querySelector(".k");
     k.className = "k " + l.tur;
-    k.textContent = l.tur;
+    k.textContent = TUR_ETIKET[l.tur] || l.tur;
     r.querySelector(".m").textContent = l.msg;   // metin olarak, HTML değil
     r.querySelector(".ip").textContent = l.ip;
     govde.appendChild(r);
@@ -1075,7 +1305,8 @@ function logCiz() {
 }
 
 // --------------------------------------------------------- bağlama --------
-$("#scan").onclick = scan;
+// Aynı düğme iki iş yapıyor: tarama yokken başlatır, sürerken iptal eder.
+$("#scan").onclick = () => (scanning ? scanIptal() : scan());
 $("#cidr").addEventListener("keydown", (e) => e.key === "Enter" && scan());
 $("#save-net").onclick = saveNet;
 $("#reboot").onclick = doReboot;
@@ -1090,11 +1321,19 @@ $("#login-form").onsubmit = girisGonder;
 $("#login-cancel").onclick = girisIptal;
 $("#dialog-form").onsubmit = onayGonder;
 $("#dialog-cancel").onclick = () => onayKapat(false);
+// Sağ üstteki çarpı: "Vazgeç" ile aynı sonuç, yalnızca daha kısa yol
+$("#dialog-close").onclick = () => onayKapat(false);
+$("#pm-info").onclick = kilavuzAc;
+$("#legend-close").onclick = kilavuzKapat;
+// Perdenin boşluğuna tıklamak da kapatsın — kılavuz yalnızca okunan bir
+// pencere, kapatmak için kutunun içine nişan almak gerekmesin.
+$("#legend").onclick = (e) => { if (e.target.id === "legend") kilavuzKapat(); };
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   // Üstteki pencere kapanır: onay, giriş penceresinin üstünde açılabiliyor
   if (onayBekleyen) onayKapat(false);
   else if (girisBekleyen) girisIptal();
+  else if (!$("#legend").classList.contains("hidden")) kilavuzKapat();
 });
 $("#log-clear").onclick = () => { gecmis.length = 0; logCiz(); };
 $("#log-toggle").onclick = () =>
@@ -1122,8 +1361,10 @@ function tickRefresh() {
   const num = svg.querySelector(".rnum");
 
   if (mod === "toplu") {                 // yenileme duraklatıldı
-    svg.className.baseVal = "ring";
-    num.textContent = "‖";
+    // Duraklatma işareti SVG'de çizili; "‖" karakteri yazı tipine göre
+    // uzayıp halkanın dışına taşıyordu.
+    svg.className.baseVal = "ring paused";
+    num.textContent = "";
     arc.style.strokeDashoffset = RING_C;
     svg.setAttribute("title", "Toplu modda otomatik yenileme duraklatıldı");
     return;

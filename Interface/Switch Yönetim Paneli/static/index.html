@@ -12,7 +12,10 @@
 <header>
   <img src="/piton-logo.svg" alt="Piton" class="logo">
   <span class="rule"></span>
-  <span class="wordmark">Switch Yönetim Paneli</span>
+  <!-- Metin bilerek büyük harfle yazıldı: sayfa dili Türkçe olduğu için
+       text-transform:uppercase "switch" kelimesindeki i'yi "İ" yapıyordu
+       (SWİTCH). Kelime İngilizce, doğrusu SWITCH. -->
+  <span class="wordmark">SWITCH YÖNETİM PANELİ</span>
   <span class="grow"></span>
   <button id="log-toggle" class="icon" title="İşlem geçmişi" aria-label="İşlem geçmişi">
     <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
@@ -36,7 +39,7 @@
         <div class="sub" id="d-sub"></div>
       </div>
       <div class="actions">
-        <button id="save-cfg" class="ok"
+        <button id="save-cfg" class="ghost"
                 title="Çalışan yapılandırmayı kalıcı hale getir">Kaydet</button>
         <button id="reboot" class="warn">Yeniden Başlat</button>
         <button id="factory" class="danger"
@@ -46,7 +49,7 @@
     </div>
 
     <div class="tabs">
-      <button class="tab active" data-tab="ports">Portlar &amp; PoE</button>
+      <button class="tab active" data-tab="ports">Portlar</button>
       <button class="tab" data-tab="network">IP Ayarı</button>
       <button class="tab" data-tab="log">İşlem Geçmişi</button>
     </div>
@@ -58,13 +61,20 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
           <button class="mbtn active" data-mode="anlik">Anında</button>
           <button class="mbtn" data-mode="toplu">Toplu</button>
         </div>
+        <span class="ring-lbl">Son güncelleme:</span>
         <svg id="ring" class="ring" viewBox="0 0 28 28" width="26" height="26"
              title="Son güncellemeden bu yana geçen saniye">
           <circle class="rbg" cx="14" cy="14" r="11"></circle>
           <circle class="rfg" cx="14" cy="14" r="11"></circle>
           <text class="rnum" x="14" y="14">–</text>
+          <!-- Duraklatma işareti: "‖" karakteri yazı tipine göre uzayıp
+               halkanın dışına taşıyordu, onun yerine sabit ölçülü çizim. -->
+          <g class="rpause">
+            <rect x="10.4" y="9.4" width="2.5" height="9.2"></rect>
+            <rect x="15.1" y="9.4" width="2.5" height="9.2"></rect>
+          </g>
         </svg>
-        <span id="port-info" class="muted"></span>
+        <span id="port-info"></span>
       </div>
 
       <div id="batchbar" class="batchbar hidden">
@@ -88,6 +98,20 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
             <span><i class="o"></i>Kapalı</span>
             <span><i class="g"></i>Güç kapalı</span>
           </div>
+          <!-- Bilgi simgesi tamamen geometriden çizili (daire + çubuk +
+               nokta). Yazı tipi karakteri ya da emoji kullanılsaydı
+               Windows/macOS/Linux pencere motorlarında farklı görünürdü. -->
+          <button type="button" id="pm-info" class="pm-info"
+                  title="Gösterim kılavuzu — hangi renk ne demek?"
+                  aria-label="Ön panel gösterim kılavuzunu aç">
+            <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+              <circle class="g-line" cx="8" cy="8" r="6.7"
+                      stroke-width="1.25"></circle>
+              <circle class="g-dot" cx="8" cy="4.75" r="1"></circle>
+              <path class="g-line" d="M8 7.2 L8 11.7" stroke-width="1.6"
+                    stroke-linecap="round"></path>
+            </svg>
+          </button>
         </div>
         <div id="pm-grid" class="pm-grid"></div>
       </div>
@@ -146,7 +170,9 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
   </section>
 
   <aside id="side">
-    <div class="list-kicker">Bulunan switchler</div>
+    <!-- Başlıktaki gibi büyük harfle yazıldı: text-transform Türkçe
+         kurallarına göre "switchler" → "SWİTCHLER" yapıyordu. -->
+    <div class="list-kicker">KULLANILABİLİR SWITCHLER</div>
     <div id="list" class="list"></div>
     <div class="disc">
       <input id="cidr" value="10.1.1.0/24" spellcheck="false"
@@ -167,6 +193,13 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
   <form id="dialog-form" class="box bp loginbox">
     <i class="corner tl"></i><i class="corner tr"></i>
     <i class="corner bl"></i><i class="corner br"></i>
+    <button type="button" id="dialog-close" class="x" title="Kapat"
+            aria-label="Pencereyi kapat">
+      <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <path d="M3.5 3.5 L10.5 10.5 M10.5 3.5 L3.5 10.5"
+              stroke-linecap="round"></path>
+      </svg>
+    </button>
     <h3 id="dialog-title"></h3>
     <div id="dialog-body" class="dialog-body"></div>
     <label id="dialog-input-wrap" class="hidden">
@@ -205,6 +238,28 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
     <i class="corner bl"></i><i class="corner br"></i>
     <div class="spin"></div>
     <div class="msg">İşleniyor…</div>
+  </div>
+</div>
+
+<div id="legend" class="overlay hidden">
+  <div class="box bp legendbox">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
+    <button type="button" id="legend-close" class="x" title="Kapat"
+            aria-label="Kılavuzu kapat">
+      <svg viewBox="0 0 14 14" width="12" height="12" aria-hidden="true">
+        <path d="M3.5 3.5 L10.5 10.5 M10.5 3.5 L3.5 10.5"
+              stroke-linecap="round"></path>
+      </svg>
+    </button>
+    <div class="lg-head">
+      <h3>Ön Panel Gösterim Kılavuzu</h3>
+      <p>Konnektörün <b>biçimi</b> portun türünü, <b>rengi</b> o andaki
+        durumunu gösterir. Aşağıdaki örnekler haritadakiyle birebir aynı
+        çizimdir.</p>
+    </div>
+    <!-- İçeriği app.js çiziyor: örnekler gerçek port durumlarından üretilir -->
+    <div id="legend-body" class="lg-body"></div>
   </div>
 </div>
 

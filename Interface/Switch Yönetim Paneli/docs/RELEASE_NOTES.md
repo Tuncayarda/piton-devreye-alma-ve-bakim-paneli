@@ -1,3 +1,65 @@
+## Bu sürümde (v1.0.3)
+
+**Tarama**
+
+- Tarama sürerken "Tara" düğmesi **İptal**'e dönüşüyor; basınca tarama hem
+  arayüzde hem sunucu tarafında gerçekten duruyor ve hemen yeni bir tarama
+  başlatılabiliyor. Yanlış ağ aralığı yazıldığında beklemek gerekmiyor.
+- Sağ listenin başlığı "Bulunan switchler" yerine **Kullanılabilir
+  switchler**.
+
+**İşlem geçmişi**
+
+- Toplu gönderimde artık "3 değişiklik uygulandı" değil, **yapılan her
+  değişiklik tek tek** yazılıyor ("Port 26 kapatıldı", "Port 3 gücü
+  kesildi"…).
+- Büyük harfe çevirme Türkçe kuralına takıldığı için "KAYİT" görünen etiket
+  düzeltildi: **KAYIT**.
+- Alt bardaki son işlem satırında saniye gösterilmiyor (saat:dakika yeter);
+  saniye ayrıntısı işlem geçmişi listesinde duruyor.
+
+**Ön panel gösterim kılavuzu (yeni)**
+
+- Renk açıklamalarının sağına bir **bilgi düğmesi** eklendi. Tıklayınca
+  açılan pencerede, bir portun alabileceği **her görünüm tek tek örnekle**
+  anlatılıyor: cihazı besliyor, bağlı ama güç çekmiyor, bağlı ama PoE
+  kapalı, boş, boş + PoE kapalı, port kapalı, bekleyen değişiklik — ve
+  uplink portları için ayrı liste.
+- Örnekler haritadaki konnektörlerle **aynı koddan** çiziliyor, dolayısıyla
+  kılavuz gerçek görüntüden hiçbir zaman ayrı düşmez.
+- Simge yazı tipi karakteri değil, geometriden çizili SVG: Windows, macOS
+  ve Linux pencere motorlarında aynı görünür.
+
+**Portlar sekmesi**
+
+- Sekme adı "Portlar & PoE" yerine **Portlar**.
+- Sayaç satırı ("24 port · 5 bağlı…") noktalarla ayrılmış tek satır olmaktan
+  çıktı; her sayaç kendi **dikdörtgen bölmesinde**.
+- Sayacın önüne **"Son güncelleme:"** açıklaması eklendi.
+- Toplu modda duraklatma göstergesi: yazı tipine göre uzayıp halkanın dışına
+  taşan "‖" karakteri yerine **sabit ölçülü çizim**.
+- PoE ve uplink tablolarında **Hız sütunları hizalandı**; gigabit uplinkler
+  artık sağa kaymış görünmüyor.
+
+**Toplu gönderim**
+
+- Onay penceresi **gönderilecek tüm değişiklikleri madde madde** listeliyor.
+  Önceden yalnızca riskli olanlar yazılıyor, geri kalanı görülmeden
+  gidiyordu.
+- Şerit üzerindeki bilgilendirme metni ve noktalama düzeltildi.
+
+**Diğer**
+
+- **Kaydet** düğmesi: kaydedilecek bir şey yokken içi boş, kaydedilmemiş
+  değişiklik varken **yeşil** (turuncu "uyarı" rengi yerine).
+- Onay pencerelerine sağ üstte **kapatma çarpısı** eklendi.
+- Ön panelde sağ tık menüsünde, işaretli satırın yanındaki gereksiz
+  "geçerli" yazısı kaldırıldı; "Portu aç / Portu kapat" satırları durum
+  adı olarak **"Port açık" / "Port kapalı"** oldu.
+- Switch künyesindeki model / IP / sürüm bilgileri **/** ile ayrılıyor.
+- Logonun yanındaki başlıkta "SWİTCH" yazan yerler **SWITCH** olarak
+  düzeltildi.
+
 ## İndirme
 
 | Platform | Dosya | Nasıl çalıştırılır |

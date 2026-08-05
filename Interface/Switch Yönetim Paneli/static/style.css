@@ -142,7 +142,16 @@ aside.collapsed > * { display: none; }
 
 .disc { display: flex; gap: 7px; padding-top: 11px; border-top: 1px solid var(--line); }
 .disc input { flex: 1; min-width: 0; }
-#scan { min-width: 88px; }
+/* Genişlik sabit: düğme "Tara" / "İptal" / "Duruyor" arasında geçerken
+   yanındaki adres kutusu oynamasın. */
+#scan { min-width: 112px; flex: none; }
+/* Tarama sürerken aynı düğme iptale dönüşür — rengi de rolüne uysun */
+#scan.cancel {
+  background: transparent; border-color: rgba(210, 153, 34, .55);
+  color: var(--warn);
+}
+#scan.cancel:hover { background: rgba(210, 153, 34, .14); border-color: var(--warn); }
+#scan.cancel .btn-spin { border-color: rgba(210, 153, 34, .3); border-top-color: var(--warn); }
 
 /* ── form denetimleri ──────────────────────────────────────────── */
 input, select {
@@ -180,12 +189,18 @@ button:disabled:hover { background: var(--accent); border-color: var(--accent); 
 button.ok { background: var(--accent); border-color: var(--accent); color: #0b1116; }
 button.ok:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 
-/* kaydedilmemiş değişiklik varsa Kaydet düğmesi işaretlenir */
-#save-cfg.dirty { position: relative; background: var(--warn); border-color: var(--warn); }
-#save-cfg.dirty:hover { background: #e0a629; border-color: #e0a629; }
+/* Kaydet düğmesi kaydedilecek bir şey olup olmadığını rengiyle söyler:
+   boşken içi boş (yalnızca çerçeve), kaydedilecek değişiklik varken dolu
+   yeşil. Turuncu "dikkat/uyarı" anlamı taşıyordu; oysa burada yapılacak
+   şey olumlu ve güvenli bir işlem. */
+#save-cfg.dirty {
+  position: relative;
+  background: var(--ok); border-color: var(--ok); color: #0b1116;
+}
+#save-cfg.dirty:hover { background: #4cc45e; border-color: #4cc45e; }
 #save-cfg.dirty::after {
   content: ""; position: absolute; top: -4px; right: -4px;
-  width: 7px; height: 7px; background: var(--warn);
+  width: 7px; height: 7px; background: var(--ok);
   box-shadow: 0 0 0 2px var(--panel);
 }
 
@@ -236,10 +251,26 @@ h2 {
 /* Yenile düğmesi kaldırıldı — yenileme yalnızca otomatik. Öğe DOM'da
    duruyor çünkü app.js ona bir dinleyici bağlıyor; sadece gizlendi. */
 
-#port-info {
-  font-family: var(--font-m); font-size: 11px; letter-spacing: .02em;
-  color: var(--muted); margin-left: auto; text-align: right;
+/* Halkadaki sayının ne olduğunu söyler: tek başına duran rakam
+   "kaç saniye önce güncellendi" bilgisini anlatmıyordu. */
+.ring-lbl {
+  font-family: var(--font-m); font-size: 10.5px; letter-spacing: .04em;
+  color: var(--dim); margin-right: -5px; white-space: nowrap;
 }
+
+/* Port sayaçları: "·" ile ayrılmış tek satır yerine ayrı dikdörtgen
+   bölmeler. Hangi sayının neye ait olduğu bakışta anlaşılıyor. */
+#port-info { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+#port-info .stat {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 3px 9px; border: 1px solid var(--line);
+  font-family: var(--font-m); font-size: 10.5px; letter-spacing: .02em;
+  color: var(--muted); white-space: nowrap;
+}
+#port-info .stat b { font-weight: 500; font-size: 12px; color: var(--text-2); }
+#port-info .stat.link b { color: var(--accent); }
+#port-info .stat.feed b { color: var(--ok); }
+#port-info .stat.nopwr b, #port-info .stat.off b { color: var(--danger-hi); }
 
 .mode { display: flex; border: 1px solid var(--line-strong); overflow: hidden; }
 .mbtn {
@@ -265,6 +296,9 @@ h2 {
 .ring.stale .rfg { fill: none; }
 .ring.err .rfg { stroke: var(--danger); fill: none; }
 .ring.err .rnum { fill: var(--danger); }
+/* duraklatma işareti — sabit ölçülü, yazı tipinden bağımsız */
+.ring .rpause { display: none; fill: var(--muted); }
+.ring.paused .rpause { display: block; }
 
 /* ── toplu gönderim şeridi ─────────────────────────────────────── */
 .batchbar {
@@ -293,6 +327,21 @@ h2 {
 .pm-legend i.e { background: var(--faint); }
 .pm-legend i.o { background: var(--danger); }
 .pm-legend i.g { background: var(--danger-hi); border-radius: 50%; }
+
+/* Efsanenin sağındaki bilgi düğmesi — gösterim kılavuzunu açar */
+.pm-info {
+  display: flex; align-items: center; justify-content: center;
+  flex: none; width: 24px; height: 24px; padding: 0; margin-left: 2px;
+  background: transparent; border: 1px solid var(--line);
+  color: var(--muted); cursor: pointer;
+}
+.pm-info svg { display: block; }
+.pm-info .g-line { fill: none; stroke: currentColor; }
+.pm-info .g-dot { fill: currentColor; stroke: none; }
+.pm-info:hover {
+  background: rgba(66, 148, 224, .10); border-color: var(--accent);
+  color: var(--accent);
+}
 
 /* Fiziksel yerleşim: 4 satır. Sol sütun servis (Alarm/USB/CON/EX-PWR),
    ardından PoE portları sütun sütun aşağıdan yukarı (1-2-3-4 | 5-6-7-8 …),
@@ -351,6 +400,15 @@ h2 {
 .m12.off   .key { fill: rgba(218, 54, 51, .6); }
 .m12.off   .pin { fill: rgba(224, 92, 89, .55); }
 
+/* Kılavuzdaki örnek konnektörler: haritadakiyle aynı sınıfları kullanır
+   (renk kuralları tek yerde kalsın diye), yalnızca ölçüsü küçük ve
+   tıklanamaz. */
+.m12.ornek {
+  width: 42px; padding: 0; cursor: default; pointer-events: none;
+  border-color: transparent; background: transparent;
+}
+.m12.ornek svg { max-width: 42px; }
+
 /* Port açık ama PoE kapalı: hat çalışıyor, yalnızca güç yok.
    Kabuk rengi bağlantı durumunu göstermeye devam eder, pinler kırmızıya
    döner. (Eskiden bu durum "port kapalı" gibi kırmızı gösteriliyordu.) */
@@ -383,16 +441,19 @@ tr.sel td { background: rgba(66, 148, 224, .08); }
 tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 #fe-ports { margin-bottom: 22px; }
 
-/* Sütun genişlikleri (tasarımdaki ölçüler). Bağlantı sütunu bilerek
-   esnek: artan genişliği o yutuyor, sağdaki sütunlar sabit kalıyor.
-   Böylece link düşüp "1000M Full" yazısı kaybolunca düğmeler oynamıyor. */
+/* Sütun genişlikleri (tasarımdaki ölçüler). Port / Bağlantı / Hız üçlüsü
+   iki tabloda da aynı ölçüde: PoE ve uplink tabloları alt alta durduğu için
+   Hız sütunları hizalanmazsa gigabit uplinkler sağa kaymış görünüyordu.
+   Artan genişliği en sağdaki sütun yutar, böylece link düşüp "1000M / Full"
+   yazısı kaybolunca düğmeler yerinden oynamıyor. */
 #fe-ports th:nth-child(1), #ge-ports th:nth-child(1) { width: 64px; }
-#fe-ports th:nth-child(3), #ge-ports th:nth-child(3) { width: 110px; }
+#fe-ports th:nth-child(2), #ge-ports th:nth-child(2) { width: 120px; }
+#fe-ports th:nth-child(3), #ge-ports th:nth-child(3) { width: 120px; }
 /* PoE tablosu: Durum (veri) + Güç (PoE) + Tüketim */
 #fe-ports th:nth-child(4) { width: 150px; }
 #fe-ports th:nth-child(5) { width: 175px; }
-#fe-ports th:nth-child(6) { width: 110px; }
-#ge-ports th:nth-child(4) { width: 190px; }
+#fe-ports th:nth-child(6) { width: auto; }
+#ge-ports th:nth-child(4) { width: auto; }
 /* port kapalıyken güç seçilemez */
 select.poe:disabled { opacity: .45; cursor: not-allowed; }
 
@@ -542,8 +603,24 @@ footer .grow { flex: 1; }
   width: 380px; padding: 24px 26px; text-align: left;
 }
 .loginbox h3 {
-  margin: 0; font-family: var(--font-h); font-weight: 600; font-size: 14px;
+  margin: 0; padding-right: 26px;      /* sağ üstteki çarpıya yer */
+  font-family: var(--font-h); font-weight: 600; font-size: 14px;
   letter-spacing: .16em; text-transform: uppercase; color: #8fa3b5;
+}
+/* Pencereyi kapatan çarpı. "Vazgeç" ile aynı işi yapar; alışılmış yerinde
+   durduğu için elin gittiği ilk nokta orası. */
+.loginbox .x, .legendbox .x {
+  position: absolute; top: 10px; right: 10px;
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  background: transparent; border: 1px solid transparent;
+  color: var(--muted); cursor: pointer;
+}
+.loginbox .x svg, .legendbox .x svg {
+  fill: none; stroke: currentColor; stroke-width: 1.6;
+}
+.loginbox .x:hover, .legendbox .x:hover {
+  background: transparent; border-color: var(--line-strong); color: var(--text);
 }
 .login-ip {
   font-family: var(--font-m); font-size: 13px; color: var(--text-2);
@@ -575,6 +652,47 @@ footer .grow { flex: 1; }
   width: 20px; height: 20px; flex: none; border-radius: 50%;
   border: 2.5px solid rgba(214, 235, 255, .16); border-top-color: var(--accent);
   animation: spin .7s linear infinite;
+}
+
+/* ── ön panel gösterim kılavuzu ────────────────────────────────── */
+/* İşlem perdesinin üstünde, bildirimin altında: kullanıcı bilerek açıyor */
+#legend { z-index: 62; }
+/* Id ile yazıldı: ".overlay .box" ortak kutu kuralı (ortala, iç boşluk)
+   daha özgül olduğu için düz bir sınıf onu ezemiyor. */
+#legend .box {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  width: 660px; max-width: calc(100vw - 48px); padding: 0;
+  min-width: 0; text-align: left;
+}
+.legendbox .lg-head { padding: 20px 26px 15px; border-bottom: 1px solid var(--line); }
+.legendbox .lg-head h3 { margin: 0; padding-right: 26px; }
+.legendbox .lg-head p {
+  margin: 7px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-2);
+}
+.legendbox .lg-head b { color: var(--text); font-weight: 600; }
+.lg-body { padding: 4px 26px 20px; max-height: 66vh; overflow-y: auto; }
+
+.lg-grup { padding-top: 16px; }
+.lg-grup h4 {
+  margin: 0; font-family: var(--font-h); font-weight: 600; font-size: 12px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--accent);
+}
+.lg-grup .lg-not {
+  margin: 5px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted);
+}
+.lg-liste { margin-top: 10px; border-top: 1px solid var(--line); }
+.lg-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 2px; border-bottom: 1px solid var(--line);
+}
+.lg-metin { min-width: 0; }
+.lg-metin b {
+  display: block; font-family: var(--font-h); font-weight: 600;
+  font-size: 14px; letter-spacing: .04em; color: var(--text);
+}
+.lg-metin span {
+  display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.5;
+  color: var(--text-2); text-wrap: pretty;
 }
 
 /* ── bildirim ──────────────────────────────────────────────────── */
@@ -628,4 +746,3 @@ footer .grow { flex: 1; }
 .pm-item .mark.green { background: var(--ok); border-color: var(--ok); }
 .pm-item .mark.red { background: var(--danger); border-color: var(--danger); }
 .pm-item .lbl { flex: 1; text-align: left; }
-.pm-item .rt { font-family: var(--font-m); font-size: 10px; color: var(--dim); }

@@ -178,7 +178,7 @@ Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
   -OutFile packaging\windows\redist\MicrosoftEdgeWebview2Setup.exe
 
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  "/DMyAppVersion=1.0.2" `
+  "/DMyAppVersion=1.0.3" `
   "/DSourceDir=..\..\dist\SwitchYonetimPaneli" `
   "/DOutputDir=..\..\release" `
   "packaging\windows\SwitchYonetimPaneli.iss"
@@ -202,10 +202,10 @@ Kurulum paketi ne yapar:
 ```bash
 cd "Interface/Switch Yönetim Paneli"
 ./packaging/appimage.sh dist/SwitchYonetimPaneli \
-    release/SwitchYonetimPaneli-1.0.2-linux-x86_64.AppImage 1.0.2
+    release/SwitchYonetimPaneli-1.0.3-linux-x86_64.AppImage 1.0.3
 # CI ayrıca bunu ZIP'e alır (çalıştırma izni korunsun diye)
-zip -9 -j release/SwitchYonetimPaneli-1.0.2-linux-x86_64.zip \
-    release/SwitchYonetimPaneli-1.0.2-linux-x86_64.AppImage
+zip -9 -j release/SwitchYonetimPaneli-1.0.3-linux-x86_64.zip \
+    release/SwitchYonetimPaneli-1.0.3-linux-x86_64.AppImage
 ```
 
 `appimagetool` sürümü betikte sabittir (**1.9.1**). `APPIMAGETOOL_SHA256`

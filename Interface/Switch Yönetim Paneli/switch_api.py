@@ -49,7 +49,7 @@ def kaynak_dizini() -> Path:
 STATIC_DIR = kaynak_dizini() / "static"
 
 # Uygulama sürümü — alt barda gösterilir. Tek kaynak burası.
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 # ------------------------------------------------------------------ ayar --
 PREFIX_TO_MASK = {"8": "255.0.0.0", "16": "255.255.0.0", "24": "255.255.255.0"}
@@ -63,6 +63,12 @@ _LOCKS_GUARD = threading.Lock()
 # Aynı anda tek tarama. Üst üste tarama isteği gelirse ikincisi beklemez,
 # hemen reddedilir: yığılan taramalar switch'in web sunucusunu boğuyor.
 _SCAN_LOCK = threading.Lock()
+
+# Süren taramayı durdurma bayrağı. Arayüzdeki "İptal" bunu kaldırır;
+# tarama iş parçacıkları her adresten önce bakar ve sıradakilere hiç
+# dokunmadan çıkar. Yalnızca isteği kesmek yetmiyordu: sunucu tarafı
+# switch'lere sormaya devam edip kilidi tutuyordu.
+_SCAN_IPTAL = threading.Event()
 
 
 def lock_for(ip: str) -> threading.Lock:
@@ -206,7 +212,7 @@ def tcp_open(ip: str, port: int, timeout=0.4) -> bool:
         return False
 
 
-def discover(cidr: str, workers=64) -> dict:
+def discover(cidr: str, workers=64, iptal: threading.Event | None = None) -> dict:
     """Ağı tarayıp switch'leri bulur.
 
     Tek IP verilirse ("10.1.1.101") doğrudan HTTP ile sorgulanır — TCP ön
@@ -217,9 +223,15 @@ def discover(cidr: str, workers=64) -> dict:
     HTTP+auth isteği switch'in küçük web sunucusunu boğuyor), sonra yalnızca
     cevap veren adreslere basicInfo sorulur. TCP hiç sonuç vermezse yine de
     HTTP denenir; ön yoklama bir hız optimizasyonudur, kapı bekçisi değil.
+
+    `iptal` verilirse her adresten önce bakılır: kaldırılmışsa sıradaki
+    adreslere hiç dokunulmaz ve sonuçta "iptal" işareti döner. Çalışmakta
+    olan tek bir soket beklemesi kendi zaman aşımı kadar sürebilir; onun
+    ötesinde tarama anında biter.
     """
     cidr = (cidr or "").strip()
     tek = bool(re.fullmatch(r"\d+\.\d+\.\d+\.\d+", cidr))
+    durdu = lambda: bool(iptal and iptal.is_set())        # noqa: E731
 
     if tek:
         hosts = [cidr]
@@ -231,18 +243,25 @@ def discover(cidr: str, workers=64) -> dict:
         hosts = [f"{prefix}.{i}" for i in range(1, 255)]
         with cf.ThreadPoolExecutor(max_workers=workers) as pool:
             adaylar = [h for h, ok in zip(hosts, pool.map(
-                lambda h: tcp_open(h, SWITCH_PORT, TCP_PROBE_TIMEOUT),
+                lambda h: (not durdu()
+                           and tcp_open(h, SWITCH_PORT, TCP_PROBE_TIMEOUT)),
                 hosts)) if ok]
+        if durdu():
+            return {"switches": [], "probed": len(hosts), "queried": 0,
+                    "iptal": True}
         if not adaylar:                       # ön yoklama boş -> yine de dene
             adaylar = hosts
 
     sure = 6.0 if tek else 4.0
     found = []
     with cf.ThreadPoolExecutor(max_workers=min(len(adaylar) or 1, 24)) as pool:
-        for res in pool.map(lambda h: is_switch(h, timeout=sure), adaylar):
+        for res in pool.map(
+                lambda h: None if durdu() else is_switch(h, timeout=sure),
+                adaylar):
             if res:
                 found.append(res)
-    return {"switches": found, "probed": len(hosts), "queried": len(adaylar)}
+    return {"switches": found, "probed": len(hosts), "queried": len(adaylar),
+            "iptal": durdu()}
 
 
 # ------------------------------------------------------- iş mantığı --------
@@ -617,9 +636,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not _SCAN_LOCK.acquire(blocking=False):
                     return self._send(409, {"error": "tarama zaten sürüyor"})
                 try:
-                    return self._send(200, discover(cidr))
+                    _SCAN_IPTAL.clear()
+                    return self._send(200, discover(cidr, iptal=_SCAN_IPTAL))
                 finally:
                     _SCAN_LOCK.release()
+            if u.path == "/api/discover/cancel":
+                # Bayrağı kaldırıp taramanın gerçekten bitmesini bekliyoruz:
+                # arayüz bu yanıtı aldığında kilit boşta olsun ki hemen
+                # ardından basılan "Tara" 409'a düşmesin.
+                _SCAN_IPTAL.set()
+                if _SCAN_LOCK.acquire(timeout=10):
+                    _SCAN_LOCK.release()
+                    return self._send(200, {"ok": True, "durdu": True})
+                return self._send(200, {"ok": True, "durdu": False})
             if u.path == "/api/switch/info":
                 return self._send(200, get_info(q["ip"][0]))
             if u.path == "/api/switch/ports":
