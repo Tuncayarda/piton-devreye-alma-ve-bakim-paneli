@@ -1,0 +1,4 @@
+-r requirements.txt
+# Pencere motoru: WebView2 çalışma zamanı (Edge ile birlikte gelir).
+# Ayrı bir pip paketi gerekmez.
+pythonnet>=3.0

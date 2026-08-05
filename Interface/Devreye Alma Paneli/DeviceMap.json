@@ -1,0 +1,776 @@
+{
+  "Screens": null,
+  "Switches": [
+    {
+      "Devices": [
+        {
+          "CameraID": "1",
+          "CameraName": "Corridor 1",
+          "IP": "10.n.1.24",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Corridor_Cam_1",
+          "Password": "",
+          "Port": "1",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Corridor",
+          "Type": "Camera",
+          "Username": ""
+        },
+        {
+          "CameraID": "2",
+          "CameraName": "Corridor 2",
+          "IP": "10.n.1.25",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Corridor_Cam_2",
+          "Password": "",
+          "Port": "2",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Corridor",
+          "Type": "Camera",
+          "Username": ""
+        },
+        {
+          "CameraID": "3",
+          "CameraName": "Landing 1",
+          "IP": "10.n.1.26",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Landing_Cam_1",
+          "Password": "",
+          "Port": "3",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Landing",
+          "Type": "Camera",
+          "Username": ""
+        },
+        {
+          "CameraID": "4",
+          "CameraName": "Landing 2",
+          "IP": "10.n.1.27",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Landing_Cam_2",
+          "Password": "",
+          "Port": "4",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Landing",
+          "Type": "Camera",
+          "Username": ""
+        },
+        {
+          "IP": "10.n.1.1",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Piscu",
+          "Port": "7",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": true,
+            "Uptime": 2461
+          },
+          "SubType": "",
+          "Type": "PISCU"
+        },
+        {
+          "IP": "10.n.1.51",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Landing_Lcd_1",
+          "Port": "11",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Landing",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.52",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Landing_Lcd_2",
+          "Port": "12",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Landing",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.40",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_1",
+          "PBXExtension": "6001",
+          "PBXPassword": "",
+          "Port": "13",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": true,
+            "Uptime": 1210,
+            "Version": "0.0.5"
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.41",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_2",
+          "PBXExtension": "6002",
+          "PBXPassword": "",
+          "Port": "14",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.42",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_3",
+          "PBXExtension": "6003",
+          "PBXPassword": "",
+          "Port": "15",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.43",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_4",
+          "PBXExtension": "6004",
+          "PBXPassword": "",
+          "Port": "16",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.44",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_5",
+          "PBXExtension": "6005",
+          "PBXPassword": "",
+          "Port": "17",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.45",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_6",
+          "PBXExtension": "6006",
+          "PBXPassword": "",
+          "Port": "18",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.46",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_7",
+          "PBXExtension": "6007",
+          "PBXPassword": "",
+          "Port": "19",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.47",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_8",
+          "PBXExtension": "6008",
+          "PBXPassword": "",
+          "Port": "20",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.48",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_9",
+          "PBXExtension": "6009",
+          "PBXPassword": "",
+          "Port": "21",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.49",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_10",
+          "PBXExtension": "6010",
+          "PBXPassword": "",
+          "Port": "22",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.50",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Compartment_Lcd_11",
+          "PBXExtension": "6011",
+          "PBXPassword": "",
+          "Port": "23",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Compartment",
+          "Type": "LCD"
+        },
+        {
+          "IP": "10.n.1.7",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Ap_1",
+          "Port": "26",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "",
+          "Type": "AP"
+        },
+        {
+          "IP": "10.n.1.8",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Ap_2",
+          "Port": "27",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "",
+          "Type": "AP"
+        },
+        {
+          "IP": "10.n.1.2",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Icu",
+          "Port": "28",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": false,
+            "Has Power Failure": false,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "",
+          "Type": "ICU"
+        }
+      ],
+      "IP": "10.n.1.100",
+      "IsActive": true,
+      "Manufacturer": "KYLAND",
+      "Name": "Yataklı_1",
+      "Password": "",
+      "Status": {
+        "NoError": true,
+        "Uptime": 2428,
+        "Version": "F6014"
+      },
+      "TrainSet": 1,
+      "Username": ""
+    },
+    {
+      "Devices": [
+        {
+          "CallerName": "Uic",
+          "IP": "10.n.1.60",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Uic",
+          "PBXExtension": "4001",
+          "Port": "3",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "UIC",
+          "Type": "Announcement"
+        },
+        {
+          "IP": "10.n.1.3",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Nvr",
+          "Password": "",
+          "Port": "5",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "",
+          "Type": "NVR",
+          "Username": ""
+        },
+        {
+          "IP": "10.n.1.4",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Hmi",
+          "Port": "6",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": true,
+            "Uptime": 2461
+          },
+          "SubType": "",
+          "Type": "HMI"
+        },
+        {
+          "Height": 128,
+          "IP": "10.n.1.30",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Led_1",
+          "Port": "8",
+          "SerialNumber": "",
+          "Status": {
+            "DeviceOccupa": false,
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "ProcessError": false,
+            "SystemError": false,
+            "Uptime": -1,
+            "Version": "",
+            "VersionTooLow": false
+          },
+          "SubType": "Front",
+          "Type": "LED",
+          "Width": 192
+        },
+        {
+          "Height": 128,
+          "IP": "10.n.1.31",
+          "IsActive": true,
+          "Manufacturer": "",
+          "Name": "Led_2",
+          "Port": "9",
+          "SerialNumber": "",
+          "Status": {
+            "DeviceOccupa": false,
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": false,
+            "ProcessError": false,
+            "SystemError": false,
+            "Uptime": -1,
+            "Version": "",
+            "VersionTooLow": false
+          },
+          "SubType": "Front",
+          "Type": "LED",
+          "Width": 192
+        },
+        {
+          "IP": "10.n.1.5",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "Amplifier",
+          "PBXExtension": "1001",
+          "Port": "10",
+          "SerialNumber": "",
+          "Status": {
+            "General Announce Status": false,
+            "Has Network Failure": true,
+            "Has Power Failure": false,
+            "NoError": true,
+            "Uptime": 1390,
+            "Version": "1.2.5"
+          },
+          "SubType": "Amplifier",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011001",
+          "IP": "10.n.1.10",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011001",
+          "PBXExtension": "2001",
+          "PBXPassword": "",
+          "Port": "11",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": true,
+            "Uptime": 1279,
+            "Version": "1.2.4"
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011002",
+          "IP": "10.n.1.11",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011002",
+          "PBXExtension": "2002",
+          "PBXPassword": "",
+          "Port": "12",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011003",
+          "IP": "10.n.1.12",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011003",
+          "PBXExtension": "2003",
+          "PBXPassword": "",
+          "Port": "13",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011004",
+          "IP": "10.n.1.13",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011004",
+          "PBXExtension": "2004",
+          "PBXPassword": "",
+          "Port": "14",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011005",
+          "IP": "10.n.1.14",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011005",
+          "PBXExtension": "2005",
+          "PBXPassword": "",
+          "Port": "15",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011006",
+          "IP": "10.n.1.15",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011006",
+          "PBXExtension": "2006",
+          "PBXPassword": "",
+          "Port": "16",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011007",
+          "IP": "10.n.1.16",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011007",
+          "PBXExtension": "2007",
+          "PBXPassword": "",
+          "Port": "17",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011008",
+          "IP": "10.n.1.17",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011008",
+          "PBXExtension": "2008",
+          "PBXPassword": "",
+          "Port": "18",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011009",
+          "IP": "10.n.1.18",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011009",
+          "PBXExtension": "2009",
+          "PBXPassword": "",
+          "Port": "19",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011010",
+          "IP": "10.n.1.19",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011010",
+          "PBXExtension": "2010",
+          "PBXPassword": "",
+          "Port": "20",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011011",
+          "IP": "10.n.1.20",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011011",
+          "PBXExtension": "2011",
+          "PBXPassword": "",
+          "Port": "21",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "CallerName": "10011012",
+          "IP": "10.n.1.21",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "10011012",
+          "PBXExtension": "2012",
+          "PBXPassword": "",
+          "Port": "22",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": false,
+            "Uptime": -1
+          },
+          "SubType": "Intercom",
+          "Type": "Announcement"
+        },
+        {
+          "IP": "10.n.1.6",
+          "IsActive": true,
+          "Manufacturer": "PITON",
+          "Name": "Handset",
+          "PBXExtension": "3001",
+          "PBXPassword": "",
+          "Port": "23",
+          "SerialNumber": "",
+          "Status": {
+            "Has Network Failure": true,
+            "Has Power Failure": true,
+            "NoError": true,
+            "Uptime": 2410,
+            "Version": "1.2.5"
+          },
+          "SubType": "Handset",
+          "Type": "Announcement"
+        }
+      ],
+      "IP": "10.n.1.101",
+      "IsActive": true,
+      "Manufacturer": "KYLAND",
+      "Name": "Yataklı_2",
+      "Password": "",
+      "Status": {
+        "NoError": false,
+        "Uptime": -1
+      },
+      "TrainSet": 1,
+      "Username": ""
+    }
+  ]
+}

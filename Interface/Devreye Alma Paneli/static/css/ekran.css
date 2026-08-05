@@ -1,0 +1,301 @@
+/* Ekrana özgü yerleşimler. Ortak parçalar bilesen.css içindedir. */
+
+/* ─────────────────────────────────────────────────────── kenar menü ─── */
+.kenar .baslik {
+  font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em;
+  color: var(--soluk); text-transform: uppercase;
+  padding: 16px 14px 7px;
+}
+.kenar .baslik:first-of-type { padding-top: 0; }
+
+.kenar-genel {
+  display: flex; align-items: center; gap: 9px;
+  margin: 0 12px 12px; padding: 9px 11px;
+  background: transparent; border: 1px solid var(--cizgi);
+  color: var(--metin); cursor: pointer;
+  font-family: var(--f-baslik); font-weight: 600; font-size: 14px;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.kenar-genel[aria-current="page"] {
+  background: var(--accent-zayif); border-color: var(--accent);
+}
+
+.kenar-oge {
+  width: 100%;
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 0; border-left: 2px solid transparent;
+  color: var(--metin); cursor: pointer; text-align: left;
+  font-family: var(--f-baslik); font-weight: 600; font-size: 14.5px;
+  letter-spacing: .05em; text-transform: uppercase;
+}
+.kenar-oge:hover { background: rgba(214, 235, 255, .04); }
+.kenar-oge[aria-current="page"] {
+  background: var(--accent-zayif); border-left-color: var(--accent);
+}
+.kenar-oge .n { font-family: var(--f-mono); font-size: 10.5px; }
+
+.kenar-alt {
+  width: 100%;
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 14px 5px 26px;
+  background: transparent;
+  border: 0; border-left: 2px solid var(--cizgi);
+  color: var(--acik); cursor: pointer; text-align: left;
+  font-family: var(--f-mono); font-size: 11px;
+}
+.kenar-alt:hover { background: rgba(214, 235, 255, .04); }
+.kenar-alt[aria-pressed="true"] {
+  background: rgba(66, 148, 224, .08); color: var(--accent);
+}
+
+/* ────────────────────────────────────────────────────── genel bakış ─── */
+.kpi-izgara {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px; margin-top: 20px;
+}
+/* Kutucuk tıklanabilir: sayının arkasındaki cihaz listesine götürür.
+   button olduğu için tarayıcı varsayılanları burada sıfırlanır. */
+.kpi {
+  position: relative;
+  width: 100%;
+  display: block;
+  border: 1px solid var(--cizgi);
+  background: transparent;
+  padding: 13px 16px 14px;
+  color: inherit; font: inherit; text-align: left;
+  cursor: pointer;
+}
+.kpi:hover { border-color: var(--cizgi-kuvvetli); background: rgba(214, 235, 255, .03); }
+.kpi:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.kpi .ad {
+  font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .1em;
+  color: var(--soluk); text-transform: uppercase;
+}
+.kpi .deger-sar {
+  margin-top: 9px; display: flex; align-items: baseline; gap: 7px;
+}
+.kpi .deger {
+  font-family: var(--f-baslik); font-weight: 600; font-size: 32px; line-height: 1;
+}
+.kpi .birim { font-family: var(--f-mono); font-size: 11px; color: var(--orta); }
+.kpi .cubuk { margin-top: 12px; }
+
+.genel-izgara {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 18px; margin-top: 22px; align-items: start;
+}
+@media (max-width: 1000px) {
+  .genel-izgara { grid-template-columns: 1fr; }
+}
+
+.kat-satir {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  /* Çubuğun üst sınırı var: tek sütuna düşen geniş ekranda şerit sayfayı
+     boydan boya geçince satırın sayısı gözden kaçıyordu. */
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 320px) 62px;
+  align-items: center; gap: 16px;
+  padding: 11px 4px;
+  background: transparent;
+  border: 0; border-bottom: 1px solid rgba(214, 235, 255, .09);
+  color: var(--metin); cursor: pointer; text-align: left;
+}
+.kat-satir:hover { background: rgba(214, 235, 255, .04); }
+.kat-satir .ad {
+  font-family: var(--f-baslik); font-weight: 600; font-size: 15px;
+  letter-spacing: .05em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kat-satir .bar { height: 6px; background: rgba(214, 235, 255, .1); display: block; }
+.kat-satir .bar > i { display: block; height: 6px; }
+@media (max-width: 620px) {
+  .kat-satir { grid-template-columns: 1fr auto; }
+  .kat-satir .bar { display: none; }
+}
+
+/* Sıradaki adımlar: her satır bir işi ve o işi yapacak düğmeyi taşır. */
+.adim-satir {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start; gap: 10px;
+  padding: 11px 0; border-bottom: 1px solid var(--cizgi-hafif);
+}
+.adim-satir > .nokta { margin-top: 5px; }
+.adim-satir .metin { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.adim-satir .ad { font-size: 12.5px; color: var(--acik); line-height: 1.4; }
+.adim-satir .not {
+  font-family: var(--f-mono); font-size: 10px; color: var(--soluk);
+  line-height: 1.5;
+}
+.adim-dip {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding-top: 11px;
+  font-family: var(--f-mono); font-size: 10.5px; color: var(--soluk);
+}
+
+.ozet-satir {
+  display: grid; grid-template-columns: 1fr auto;
+  align-items: center; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid var(--cizgi-hafif);
+}
+.ozet-satir .sol { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ozet-satir .sol span:last-child { font-size: 12.5px; color: var(--acik); }
+.ozet-satir .deger { font-family: var(--f-mono); font-size: 11.5px; }
+
+/* ────────────────────────────────────────────────────── IP / ön panel ── */
+.ip-izgara {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 18px; margin-top: 18px; align-items: start;
+}
+@media (max-width: 1000px) {
+  .ip-izgara { grid-template-columns: 1fr; }
+  /* Tek sütuna düşünce ayar kartı sayfayı boydan boya kaplamasın; iki
+     alanlık form 1400px genişlikte gülünç duruyordu. */
+  .ip-izgara > .kart { max-width: 520px; }
+}
+
+.panel-yigin { display: flex; flex-direction: column; gap: 14px; }
+/* Dar ekranda panel ezilmez, kendi içinde yatay kayar. */
+.pm-sar { overflow-x: auto; }
+.pm-sar > .pm-izgara { min-width: 400px; }
+
+/* Koşu tek switch üzerinde yürür: etkin olmayan panel geri çekilir ama
+   tıklanabilir kalır — porta basmak koşuyu o switch'e taşır. */
+.on-panel[data-aktif="0"] { opacity: .62; }
+.on-panel[data-aktif="0"]:hover { opacity: 1; }
+.on-panel[data-aktif="1"] { border-color: var(--accent-cizgi); }
+
+/* Fiziksel yerleşim: 4 satır. PoE portları sütun sütun aşağıdan yukarı
+   (1-2-3-4 | 5-6-7-8 …), en sağda kesik çizgiyle ayrılmış uplink sütunu.
+   Dizilim kardeş projedeki Switch Yönetim Paneli ile birebir aynı. */
+.pm-izgara {
+  display: grid;
+  grid-template-columns: repeat(var(--pm-sutun, 6), minmax(0, 1fr))
+    12px minmax(0, 1fr);
+  gap: 4px 3px; align-items: center;
+}
+.pm-ayrac { height: 100%; border-left: 1px dashed rgba(214, 235, 255, .16); }
+.pm-bos { min-height: 10px; }
+
+.pm-port {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  width: 100%; padding: 5px 2px 4px;
+  background: transparent; border: 1px solid transparent;
+  color: var(--soluk); cursor: pointer;
+  font-family: var(--f-mono); font-size: 9.5px;
+}
+.pm-port svg { display: block; width: 100%; max-width: 30px; height: auto; }
+.pm-port .shell { fill: transparent; stroke: rgba(214, 235, 255, .3); stroke-width: 1.3; }
+.pm-port .inner { fill: none; stroke: rgba(214, 235, 255, .22); stroke-width: 1; }
+.pm-port .cross { fill: none; stroke: rgba(214, 235, 255, .22); stroke-width: .9; }
+.pm-port .key { fill: rgba(214, 235, 255, .3); }
+.pm-port .pin { fill: rgba(214, 235, 255, .34); }
+.pm-port:hover:not(:disabled) { border-color: var(--cizgi-kuvvetli); color: var(--acik); }
+.pm-port:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+/* Cihaz tanımlı değil: seçilemez, panelde yeri boş görünmesin diye durur. */
+.pm-port.bos { opacity: .3; cursor: not-allowed; }
+
+/* Hedef port — koşunun dokunacağı portlar. */
+.pm-port.sec { color: var(--accent); }
+.pm-port.sec .shell { stroke: var(--accent); fill: rgba(66, 148, 224, .14); }
+.pm-port.sec .inner, .pm-port.sec .cross { stroke: var(--accent); }
+.pm-port.sec .key, .pm-port.sec .pin { fill: var(--accent); }
+
+/* Bilgisayarın bağlı olduğu port: koşu buraya dokunursa kendi
+   bağlantısını keser, o yüzden her şeyin üstünde görünür. */
+.pm-port.pc { color: var(--turuncu); }
+.pm-port.pc .shell { stroke: var(--turuncu); fill: rgba(210, 153, 34, .16); }
+.pm-port.pc .inner, .pm-port.pc .cross { stroke: var(--turuncu); }
+.pm-port.pc .key, .pm-port.pc .pin { fill: var(--turuncu); }
+
+/* Switch canlı okunduysa ve port kapalıysa pinler kırmızıya döner. */
+.pm-port.kapali .pin { fill: rgba(224, 92, 89, .8); }
+
+.pm-alt {
+  display: flex; gap: 10px; margin-top: 9px;
+  font-family: var(--f-mono); font-size: 9px; color: var(--soluk);
+}
+
+/* Lejanttaki küçük örnekler: haritadaki sınıfların aynısını kullanır. */
+.pm-ornek {
+  display: block; width: 9px; height: 9px; flex: none;
+  border: 1px solid rgba(214, 235, 255, .3); border-radius: 50%;
+}
+.pm-ornek.sec { border-color: var(--accent); background: rgba(66, 148, 224, .3); }
+.pm-ornek.pc { border-color: var(--turuncu); background: rgba(210, 153, 34, .3); }
+.pm-ornek.bos { opacity: .3; }
+
+.panel-lejant {
+  display: flex; flex-wrap: wrap; gap: 6px 12px;
+  margin-top: 11px; padding-top: 9px;
+  border-top: 1px solid var(--cizgi);
+  font-family: var(--f-mono); font-size: 9px; color: var(--orta);
+}
+.panel-lejant span { display: flex; align-items: center; gap: 6px; }
+
+.lejant {
+  display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px;
+  font-family: var(--f-mono); font-size: 10.5px; color: var(--soluk);
+}
+.lejant i {
+  display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+}
+
+/* ───────────────────────────────────────────────────────── MQTT akış ── */
+.mqtt-izgara {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
+  gap: 18px; margin-top: 18px; align-items: start;
+}
+@media (max-width: 900px) { .mqtt-izgara { grid-template-columns: 1fr; } }
+
+.akis {
+  border: 1px solid var(--cizgi); background: var(--derin);
+  padding: 14px 16px 16px; min-height: 320px;
+  max-height: 60vh; overflow: auto;
+}
+.akis-satir {
+  display: grid; grid-template-columns: 74px minmax(120px, 190px) minmax(0, 1fr);
+  gap: 11px; padding: 5px 0;
+  font-family: var(--f-mono); font-size: 11px; line-height: 1.5;
+}
+.akis-satir .govde {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--acik); display: block; min-width: 0;
+}
+
+/* ───────────────────────────────────────────────────────── admin ────── */
+.proje-izgara {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px; margin-top: 18px;
+}
+.admin-izgara {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+  gap: 18px; margin-top: 20px; align-items: start;
+}
+@media (max-width: 1000px) { .admin-izgara { grid-template-columns: 1fr; } }
+
+/* ────────────────────────────────────────────────── kontrol listesi ─── */
+/* Şablonun bütün sütunları yan yana durur; tablo kendi içinde yatay
+   kayar, sayfa gövdesi kaymaz. */
+.na-hucre {
+  /* İçi boş gri kutucuk: "bu cihaz türünde kullanılmıyor". Metin
+     yazılmıyor, anlamı zemin taşıyor (bkz. lejant). */
+  background: #2a3339;
+  height: 14px;
+  align-self: center;
+  display: block;
+}
+
+/* Satırın durumu solundaki şeritten de okunur. Kenarlık yerine iç gölge:
+   çerçeve kalınlaşmadığı için başlık satırıyla hizası kaymıyor. */
+#v-dog .tablo-satir[data-durum] {
+  box-shadow: inset 3px 0 0 var(--durum-renk);
+}

@@ -201,17 +201,107 @@ basicInfo.operateTime  { day, hour, minute, second }
 - `serialNum` değeri literal `--`, yani seri numarası okunamıyor.
   `Cihaz Numarası` sütunu switch bölümünde gri bırakıldı.
 - Uptime tek bir `uptime` alanı olarak değil, `operateTime` altında parçalı
-  geliyor. Şu an çalışma süresi DeviceMap'ten alınıyor.
+  geliyor. Devreye Alma Paneli bu dört parçayı saniyeye çevirip
+  `Çalışma Süresi` sütununa yazar (`day*86400 + hour*3600 + minute*60 +
+  second`); saha örneği `{0, 7, 30, 39}` → `07:30:39`. Cihaz cevap
+  vermezse DeviceMap'teki `Status.Uptime` değerine düşülür.
 
-## 7. Compartment LCD sürümü belirsiz
+## 6b. PISCU ve HMI'nin çalışma süresi AppStatus'ta yok
+
+`ALFA/AppStatus/#` yükü yalnız şunları taşıyor:
+
+```json
+{"ClientId": "ClientManager_MCP_YATAKLI_1", "DeviceIP": "10.1.1.4",
+ "HWID": "34DA8534", "IsMaster": false, "MasterIP": "",
+ "Status": "connected", "Version": "1.2.5"}
+```
+
+Sürüm ve donanım kimliği buradan, **çalışma süresi ise aynı cihazın
+`ALFA/DeviceMap` kaydındaki `Status.Uptime` alanından** alınır. İki kaynak
+birleştirilmezse bu iki cihazın `Çalışma Süresi` sütunu boş kalır.
+
+Dikkat: `ALFA/DeviceMap` adresleri **şablondur** (`10.n.1.4`), AppStatus
+ise gerçek IP verir (`10.1.1.4`). Kayıt ararken şablonun çözülmesi gerekir;
+aksi halde DeviceMap kaynaklı hiçbir cihaz bulunamaz. Kapalı cihazlarda
+`Uptime` `-1` gelir — bu bir süre değildir, yazılmaz.
+
+## 7. Compartment LCD sürümü — kaynağı belirlendi
 
 - ADB `ro.build.display.id` → `C33P-V1.5-11-WM-15...` — bu Android **build**
-  kimliği, uygulama sürümü değil.
-- DeviceMap `Status.Version` → `0.0.5` — sahadaki kurulu sürümle uyuşmuyor.
+  kimliği, uygulama sürümü değil. Sürüm için kullanılmaz.
+- DeviceMap `Status.Version` → `0.0.5`.
 
-Doğru kaynak netleşene kadar `Versiyon` sütunu bu bölümde gri. Seri numarası
-(`ro.serialno`) ve saat dilimi (`persist.sys.timezone`) ADB'den okunmaya devam
-ediyor.
+Doğru kaynak paket yöneticisidir:
+
+```bash
+adb shell dumpsys package com.piton.train_lcd_panel \
+  | grep -E "versionName|versionCode|minSdk|targetSdk|firstInstallTime|lastUpdateTime"
+```
+
+```
+versionName=0.0.5        uygulama sürümü   -> Versiyon sütunu
+versionCode=1            sürüm kodu
+minSdk=21 targetSdk=35   Android API aralığı
+firstInstallTime=...     ilk kurulum
+lastUpdateTime=...       son güncelleme
+```
+
+`Versiyon` sütununun grisi bu bölümde kaldırıldı. SIP dahili numarası ve PBX
+adresi de uygulamanın kendi günlüğünden okunuyor:
+
+```bash
+adb logcat -d -s AnnounceSip:I '*:S'
+```
+
+```
+SIP engine started: sip:6001@10.1.1.1:5060 (UDP)  -> SIP Dahili No, SIP PBX IP
+Registration state=registered code=200            -> kayıt durumu (cihaz beyanı)
+```
+
+Seri numarası (`ro.serialno`) ve saat dilimi (`persist.sys.timezone`) ADB'den
+okunmaya devam ediyor.
+
+**Dikkat — `SIP engine started` satırı yalnız uygulama açılışında bir kez
+yazılır.** Cihaz günlerdir çalışıyorsa o satır döngüsel tampondan düşmüş
+olur; `Registration state` satırı ~5 dakikada bir tekrarlandığı için kayıt
+durumu gelir ama dahili numara gelmez. Numarayı görmek için uygulamayı
+yeniden başlatmak **gerekmez**: aynı bilgi broker'da retained duruyor.
+
+### ALFA/SipPort — dahili numaranın dokunmadan okunan kaynağı
+
+```
+ALFA/SipPort/10.1.1.40   {"SipPort": 6001}
+ALFA/SipPort/10.1.1.41   {"SipPort": 6002}
+...
+ALFA/SipPort/10.1.1.50   {"SipPort": 6011}
+```
+
+Konu adı **çözülmüş** IP taşır (şablon değil). Panel önce cihazın günlüğüne
+bakar, orada yoksa bu duyuruyu kullanır ve değerin kaynağını cihaz
+detayında yazar ("cihaz günlüğü" / "ALFA/SipPort/<ip>").
+
+`SIP PBX IP` de aynı günlük satırında. O satır düşmüşse ve cihaz
+`Registration state=registered` diyorsa PBX adresi setin PISCU'sudur —
+sette başka registrar yok — ve sütun oradan doldurulur. Kayıtlı olmayan
+cihaza PBX **yazılmaz**; olmayan bir bağlantıyı varmış göstermek olurdu.
+Her iki alanın kaynağı cihaz detayında yazılıdır:
+
+| Alan | Kaynak sırası |
+|---|---|
+| SIP Dahili No | cihaz günlüğü → `ALFA/SipPort/<ip>` |
+| SIP PBX IP | cihaz günlüğü → proje (PISCU), yalnız kayıtlıyken |
+
+Aynı cihazlar için broker'da başka künye konuları da var (kontrol
+listesinde kullanılmıyor, ihtiyaç olursa hazır):
+
+```
+ALFA/DeviceCheck/10.1.1.40  {"BundleId","IpAddress","MacAddress","VersionNo","Timestamp"}
+ALFA/DeviceInfo/10.1.1.40   {"LinkType","SerialNumber","SubType","Type"}
+ALFA/Volume/10.1.1.40       {"IsThereAnounce","Volume"}
+```
+
+Günlük tamponunun dönmesi tek başına hata sayılmaz — sürümün okunamaması
+sayılır, o cihaz yeşil gösterilmez.
 
 ## 8. DeviceMap'in tren seti kontrol edilmeli
 

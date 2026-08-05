@@ -460,6 +460,8 @@ for ip in $(device_ips LCD Compartment); do
   adb -s "${ip}:${COMPARTMENT_LCD_ADB_PORT}" shell getprop persist.sys.timezone
   adb -s "${ip}:${COMPARTMENT_LCD_ADB_PORT}" shell cat /proc/uptime
   adb -s "${ip}:${COMPARTMENT_LCD_ADB_PORT}" shell wm size
+  adb -s "${ip}:${COMPARTMENT_LCD_ADB_PORT}" shell dumpsys package "$COMPARTMENT_LCD_PAKET"
+  adb -s "${ip}:${COMPARTMENT_LCD_ADB_PORT}" logcat -d -s AnnounceSip:I '*:S'
 done
 ```
 
@@ -475,9 +477,12 @@ bilgilerini okur. `10.1.1.40:5555` bağlantısı doğrulanmış ve cihaz
 
 > **Not — uygulama sürümü:** `ro.build.display.id` değeri
 > `C33P-V1.5-11-WM-15...` şeklindedir; bu Android **build kimliğidir**,
-> uygulama sürümü değil. DeviceMap `Status.Version` alanı da (`0.0.5`)
-> sahadaki kurulu sürümle uyuşmuyor. Doğru kaynak netleşene kadar kontrol
-> listesinde bu bölümün `Versiyon` sütunu gri bırakılmıştır.
+> uygulama sürümü değil. Uygulama sürümü paket yöneticisinden okunur:
+> `dumpsys package com.piton.train_lcd_panel` → `versionName=0.0.5`.
+> Kontrol listesindeki `Versiyon` sütununun grisi bu bölümde kaldırıldı.
+> SIP dahili numarası ve PBX adresi `logcat -d -s AnnounceSip:I` çıktısındaki
+> `SIP engine started: sip:6001@10.1.1.1:5060 (UDP)` satırından,
+> kayıt durumu ise `Registration state=registered code=200` satırından gelir.
 > `ro.serialno` (seri no) ve `persist.sys.timezone` (saat dilimi) okunmaya
 > devam etmektedir.
 
@@ -492,6 +497,9 @@ bilgilerini okur. `10.1.1.40:5555` bağlantısı doğrulanmış ve cihaz
 - Saat dilimi
 - Sistem uptime
 - Ekran çözünürlüğü
+- Panel uygulamasının sürümü, sürüm kodu, min/hedef SDK'sı, kurulum ve
+  son güncelleme tarihi
+- SIP dahili numarası, PBX adresi/portu ve kayıt durumu
 
 ## Landing LCD'ler
 

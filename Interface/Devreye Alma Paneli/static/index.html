@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Devreye Alma Paneli</title>
+<link rel="icon" type="image/png" href="/piton-favicon.png">
+<link rel="stylesheet" href="/css/temel.css">
+<link rel="stylesheet" href="/css/bilesen.css">
+<link rel="stylesheet" href="/css/ekran.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════ rol seçimi ══════ -->
+<div id="rol-ekrani">
+  <div class="rol-marka">
+    <img src="/piton-logo.svg" alt="Piton">
+    <span class="ayrac" aria-hidden="true"></span>
+    <span>Devreye Alma Paneli</span>
+  </div>
+
+  <div class="rol-kutu kose">
+    <h1 class="gizli-metin">Rol seçimi</h1>
+    <div class="rol-secenekler">
+      <button type="button" class="rol-btn" id="rol-kullanici">
+        <svg viewBox="0 0 24 24" width="58" height="58" fill="none" stroke="#4294E0"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7 4v6c0 4-3 6.5-7 8-4-1.5-7-4-7-8V7z"></path>
+          <path d="M9 12l2 2 4-4"></path>
+        </svg>
+        <span>Kullanıcı</span>
+      </button>
+      <button type="button" class="rol-btn" id="rol-admin">
+        <svg viewBox="0 0 24 24" width="58" height="58" fill="none" stroke="#4294E0"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.2"></circle>
+          <path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"></path>
+        </svg>
+        <span>Admin</span>
+      </button>
+    </div>
+
+    <form class="rol-parola" id="admin-form" hidden>
+      <label>
+        <span class="etiket">Admin şifresi</span>
+        <input class="alan" type="password" id="admin-parola"
+               autocomplete="off" placeholder="••••••">
+      </label>
+      <button type="submit" class="btn btn-birincil">Aç</button>
+    </form>
+    <p class="uyari" id="rol-hata" hidden role="alert"></p>
+  </div>
+
+  <div class="rol-alt">
+    <span>Piton Technology</span>
+    <span id="rol-surum">—</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ uygulama ════════ -->
+<div id="uygulama" hidden>
+
+  <header class="ust-bar">
+    <button type="button" class="btn btn-simge kenar-ac" id="kenar-ac"
+            aria-label="Menüyü aç/kapat" aria-expanded="false">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <path d="M3 5h14M3 10h14M3 15h14"></path>
+      </svg>
+    </button>
+    <img src="/piton-logo.svg" alt="Piton" class="logo">
+    <span class="ayrac" aria-hidden="true"></span>
+    <span class="isim">Devreye Alma Paneli</span>
+
+    <!-- Proje künyesi. Tren seti buradan değiştirilir; admin rolü
+         gerekmez, saha kullanıcısı da set atlayabilmeli. -->
+    <div class="proje-serit">
+      <button type="button" id="proje-btn" title="Proje ayrıntıları">
+        <span class="nokta" style="background:var(--accent)" aria-hidden="true"></span>
+        <span id="proje-ad">—</span>
+      </button>
+      <span class="soluk" aria-hidden="true">/</span>
+      <!-- Set numarası elle yazılır: sahada 49, 112 gibi numaralar da var,
+           hazır bir liste hepsini kapsamıyordu. -->
+      <label class="set-secim" for="set-secici">
+        <span class="gizli-metin">Tren seti</span>
+        <span aria-hidden="true">SET</span>
+        <input type="number" id="set-secici" title="Tren setini değiştir"
+               inputmode="numeric" autocomplete="off" min="1" max="254" step="1">
+      </label>
+      <span class="soluk" aria-hidden="true">·</span>
+      <span class="orta" id="proje-ag">—</span>
+    </div>
+
+    <span class="esne"></span>
+
+    <!-- İki etiket üst üste durur: görünen olan duruma göre değişir,
+         genişliği ise her zaman uzun olan belirler. Yoksa "Güncelle" ->
+         "Taranıyor…" geçişinde düğme büyüyüp üst barı kaydırıyordu. -->
+    <button type="button" class="btn" id="guncelle-btn">
+      <span class="etiket-oynak">Güncelle</span>
+      <span class="etiket-olcu" aria-hidden="true">Taranıyor…</span>
+    </button>
+
+    <!-- İkon duruma göre değişir: çalışırken duraklat (||), duraklatılmışken
+         başlat (play). Simge app.js içinde kurulur. -->
+    <button type="button" class="btn btn-simge" id="duraklat-btn"
+            aria-pressed="false" title="Hafif yenilemeyi duraklat"
+            aria-label="Hafif yenilemeyi duraklat"></button>
+
+    <!-- Kilit: kimlik bekleyen cihazlar. Tasarımda olmayan ama gereken
+         kutucuk; rozet bekleyen cihaz sayısını gösterir. -->
+    <button type="button" class="btn btn-simge" id="kilit-btn"
+            style="position:relative" aria-expanded="false"
+            title="Kullanıcı adı/parola bekleyen cihazlar"
+            aria-label="Kullanıcı adı veya parola bekleyen cihazlar">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" aria-hidden="true">
+        <rect x="4.5" y="8.5" width="11" height="7.5"></rect>
+        <path d="M7 8.5V6.6a3 3 0 0 1 6 0v1.9"></path>
+      </svg>
+      <span class="sayac-rozet" id="kilit-sayac" data-tur="kilit" hidden>0</span>
+    </button>
+
+    <button type="button" class="btn btn-simge" id="kuyruk-btn"
+            style="position:relative" aria-expanded="false"
+            title="İşlem kuyruğu" aria-label="İşlem kuyruğu">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <path d="M4 5.5h12M4 10h12M4 14.5h8"></path>
+      </svg>
+      <span class="sayac-rozet" id="kuyruk-sayac" data-tur="kuyruk" hidden>0</span>
+    </button>
+
+    <span class="rozet" id="rol-rozet">Kullanıcı</span>
+
+    <button type="button" class="btn btn-simge" id="cikis-btn"
+            title="Oturumu kapat" aria-label="Oturumu kapat">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 6V4H4v12h8v-2M9 10h8m0 0l-2.5-2.5M17 10l-2.5 2.5"></path>
+      </svg>
+    </button>
+  </header>
+
+  <div class="govde">
+    <aside class="kenar" id="kenar" aria-label="Ana menü"></aside>
+
+    <section class="icerik" id="icerik" tabindex="-1">
+      <div class="ekran" id="v-genel"></div>
+      <div class="ekran" id="v-cihaz" hidden></div>
+      <div class="ekran" id="v-ip" hidden></div>
+      <div class="ekran" id="v-cfg" hidden></div>
+      <div class="ekran" id="v-fw" hidden></div>
+      <div class="ekran" id="v-dog" hidden></div>
+      <div class="ekran" id="v-piscu" hidden></div>
+      <div class="ekran" id="v-mqtt" hidden></div>
+      <div class="ekran" id="v-admin" hidden></div>
+    </section>
+
+    <aside class="yan-panel" id="kuyruk-panel" hidden aria-label="İşlem kuyruğu">
+      <header>
+        <span class="baslik">İşlem Kuyruğu</span>
+        <span class="esne" style="flex:1"></span>
+        <button type="button" class="btn btn-x" data-kapat="kuyruk"
+                aria-label="İşlem kuyruğunu kapat">×</button>
+      </header>
+      <div class="liste" id="kuyruk-liste"></div>
+    </aside>
+
+    <aside class="yan-panel" id="kilit-panel" hidden
+           aria-label="Kimlik bekleyen cihazlar">
+      <header>
+        <span class="baslik">Erişim Bekleyen</span>
+        <span class="esne" style="flex:1"></span>
+        <button type="button" class="btn btn-x" data-kapat="kilit"
+                aria-label="Kilit menüsünü kapat">×</button>
+      </header>
+      <div class="liste" id="kilit-liste"></div>
+    </aside>
+  </div>
+
+  <footer class="alt-bar">
+    <span>Piton Technology</span>
+    <span class="ayrac" aria-hidden="true"></span>
+    <span class="orta" id="alt-bilgi">Hazır</span>
+    <span style="flex:1"></span>
+    <span id="alt-surum">—</span>
+  </footer>
+</div>
+
+<div id="detay-yuva"></div>
+<div id="diyalog-yuva"></div>
+<div id="bildirim" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

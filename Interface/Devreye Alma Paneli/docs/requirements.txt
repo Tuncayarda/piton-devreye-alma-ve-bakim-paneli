@@ -1,0 +1,11 @@
+# Devreye Alma Paneli — çalışma bağımlılıkları
+#
+# Platforma özgü pencere paketleri için:
+#   macOS   : docs/requirements-macos.txt
+#   Windows : docs/requirements-windows.txt
+#   Linux   : docs/requirements-linux.txt
+
+requests>=2.31
+openpyxl>=3.1
+paho-mqtt>=2.0        # MQTT telemetri; yoksa ilgili cihazlar gri kalır
+pywebview>=5.0        # masaüstü penceresi; --tarayici ile gerekmez

@@ -1,0 +1,6 @@
+-r requirements.txt
+# Qt tabanlı pencere motoru
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6
+# Sistem kütüphaneleri gerekebilir:
+#   sudo apt install libxcb-cursor0 libegl1 libgl1

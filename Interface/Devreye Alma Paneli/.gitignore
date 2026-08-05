@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Üretilen kontrol listesi çıktıları (şablon değil)
+Yatakli_Saha_Cihaz_Dogrulama_set*.xlsx
+
+# Kimlik bilgisi hiçbir zaman dosyaya yazılmaz; yine de yanlışlıkla
+# oluşturulmuş bir .env deponun içine girmesin.
+.env
