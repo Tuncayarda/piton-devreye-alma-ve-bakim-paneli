@@ -7,7 +7,7 @@ import { el, doldur, ikon, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
 import { IS_DURUM_ETIKET, SATIR_DURUM_ETIKET, SATIR_RENK, saat } from '../core/bicim.js';
-import { hata } from './bildirim.js';
+import { bildir, hata } from './bildirim.js';
 
 const IS_RENK = {
   bekliyor: 'gri', calisiyor: 'mavi', tamam: 'yesil',
@@ -50,6 +50,14 @@ function isKart(j) {
   const s = j.sayilar || {};
   const oran = Math.round((j.ilerleme || 0) * 100);
   const surüyor = j.durum === 'bekliyor' || j.durum === 'calisiyor';
+  // Durdurma anında bitmez: worker o sırada bir cihazın zaman aşımını
+  // bekliyor olabilir. Bu aralıkta durum "Durduruluyor…" yazar, düğme de
+  // basılamaz olur — yoksa kullanıcı hiçbir şey olmadı sanıp tekrar basıyor.
+  const duruyor = surüyor && j.iptalIstendi;
+  const renk = duruyor ? 'turuncu' : (IS_RENK[j.durum] || 'gri');
+  const etiket = duruyor
+    ? 'Durduruluyor…'
+    : `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`;
 
   return el('div', { sinif: 'is-kart', veri: { durum: j.durum } }, [
     el('div', { stil: 'display:flex;align-items:stretch' }, [
@@ -59,15 +67,15 @@ function isKart(j) {
         onclick: () => ata({ acikIs: acik ? null : j.id }),
       }, [
         el('span', {
-          sinif: 'nokta', veri: { durum: IS_RENK[j.durum] || 'gri' },
+          sinif: 'nokta', veri: { durum: renk },
           'aria-hidden': 'true',
         }),
         el('span', { stil: 'min-width:0;flex:1' }, [
           el('span', { sinif: 'ad', metin: j.baslik }),
           el('span', {
-            sinif: 'alt', veri: { durum: IS_RENK[j.durum] || 'gri' },
+            sinif: 'alt', veri: { durum: renk },
             stil: 'color:var(--durum-renk)',
-            metin: `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`,
+            metin: etiket,
           }),
         ]),
         el('span', {
@@ -82,9 +90,15 @@ function isKart(j) {
         ? el('button', {
             type: 'button', sinif: 'btn btn-x',
             stil: 'align-self:center;margin-right:9px',
-            title: 'İşi iptal et', 'aria-label': `${j.baslik} işini iptal et`,
+            disabled: duruyor,
+            title: duruyor ? 'Durduruluyor…' : 'İşi durdur',
+            'aria-label': duruyor
+              ? `${j.baslik} durduruluyor` : `${j.baslik} işini durdur`,
             onclick: async () => {
-              try { await api.isIptal(j.id); } catch (e) { hata(e.message); }
+              try {
+                await api.isIptal(j.id);
+                bildir(`${j.baslik} durduruluyor…`);
+              } catch (e) { hata(e.message); }
             },
           }, ['⏹'])
         : el('button', {
@@ -189,6 +203,7 @@ export function isaretle() {
 export function ozetMetni(yenilenen = 0) {
   const j = (durum.isler || []).find(
     x => x.durum === 'calisiyor' || x.durum === 'bekliyor');
+  if (j && j.iptalIstendi) return `${j.baslik} · durduruluyor…`;
   if (!j) {
     if (!durum.sonTarama) return 'Henüz tarama yapılmadı';
     const taze = `Son tarama ${saat(durum.sonTarama)}`;

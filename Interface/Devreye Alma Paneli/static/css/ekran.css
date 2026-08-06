@@ -147,97 +147,683 @@
 .ozet-satir .deger { font-family: var(--f-mono); font-size: 11.5px; }
 
 /* ────────────────────────────────────────────────────── IP / ön panel ── */
+#v-ip { max-width: 1580px; margin: 0 auto; }
+
+.ip-sayfa-basi {
+  align-items: flex-end;
+  margin-bottom: 0;
+  padding-top: 2px;
+}
+.ip-baslik { max-width: 720px; }
+.ip-baslik > .ust-etiket {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+.ip-aciklama {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--orta);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.ip-hizli-ozet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 13px;
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+}
+.ip-hizli-ozet span { display: inline-flex; align-items: center; gap: 4px; }
+.ip-hizli-ozet span + span::before {
+  content: "";
+  width: 3px; height: 3px;
+  margin-right: 6px;
+  background: var(--cok-soluk);
+}
+.ip-hizli-ozet b { color: var(--metin); font-weight: 500; }
+
+.ip-ust-eylem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ip-hazirlik {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  color: var(--orta);
+}
+.ip-hazirlik i {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(66, 148, 224, .09);
+}
+.ip-hazirlik[data-durum="hazir"] i {
+  background: var(--yesil);
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, .09);
+}
+.ip-hazirlik[data-durum="hata"] { color: #e8817f; }
+.ip-hazirlik[data-durum="hata"] i {
+  background: var(--kirmizi);
+  box-shadow: 0 0 0 3px rgba(218, 54, 51, .1);
+}
+.ip-baslat-btn {
+  min-height: 40px;
+  padding: 9px 19px;
+  box-shadow: 0 8px 22px rgba(6, 10, 13, .24);
+}
+.ip-serit { margin-top: 20px; }
+
+.ip-bos-durum {
+  min-height: 88px;
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+}
+.ip-yukleniyor > i {
+  width: 13px; height: 13px;
+  border: 1px solid var(--cizgi-kuvvetli);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ip-don .75s linear infinite;
+}
+@keyframes ip-don { to { transform: rotate(360deg); } }
+
+/* Solda tek koşu paneli, sağında iki switch'in ön paneli alt alta.
+   Sağ sütun panelin genişliği kadardır; koşu paneli kalan yeri alır. */
 .ip-izgara {
   display: grid;
-  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
-  gap: 18px; margin-top: 18px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) 480px;
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
 }
-@media (max-width: 1000px) {
-  .ip-izgara { grid-template-columns: 1fr; }
-  /* Tek sütuna düşünce ayar kartı sayfayı boydan boya kaplamasın; iki
-     alanlık form 1400px genişlikte gülünç duruyordu. */
-  .ip-izgara > .kart { max-width: 520px; }
+.ip-panel-alani { min-width: 0; }
+
+.ip-bolum-basi {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.ip-bolum-baslik {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-width: 0;
+}
+.ip-adim-no {
+  width: 32px; height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent-cizgi);
+  background: var(--accent-zayif);
+  color: var(--accent);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+.ip-bolum-basi h3 { margin-top: 1px; }
+.ip-bolum-basi p,
+.ip-kart-basi p {
+  margin: 5px 0 0;
+  color: var(--orta);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.ip-bolum-sayac {
+  flex: none;
+  padding: 4px 7px;
+  border: 1px solid var(--cizgi);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
 }
 
-.panel-yigin { display: flex; flex-direction: column; gap: 14px; }
-/* Dar ekranda panel ezilmez, kendi içinde yatay kayar. */
-.pm-sar { overflow-x: auto; }
-.pm-sar > .pm-izgara { min-width: 400px; }
+/* Ayar kartı üç net katmandan oluşur: hedefler, korumalar ve özet. */
+.ip-ayar-kart {
+  position: sticky;
+  top: 8px;
+  min-width: 0;
+  padding: 0;
+  background:
+    linear-gradient(145deg, rgba(66, 148, 224, .035), transparent 42%),
+    var(--panel);
+}
+.ip-kart-basi {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 17px 19px;
+  border-bottom: 1px solid var(--cizgi);
+  background: rgba(214, 235, 255, .018);
+}
+.ip-kart-basi h3 { margin-top: 1px; }
+.ip-form-bolum,
+.ayar-bolum {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+}
+.ip-port-alani { padding: 18px 19px; }
+.ip-alan-baslik {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+.ip-alan-sayac {
+  color: var(--accent);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+}
+.ip-ayar-kart .alan {
+  min-height: 39px;
+  background: var(--derin);
+}
+.ip-ayar-kart #port-uyari { margin: 7px 0 0; }
+.ip-alan-yardim {
+  margin: 7px 0 0;
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
 
-/* Koşu tek switch üzerinde yürür: etkin olmayan panel geri çekilir ama
-   tıklanabilir kalır — porta basmak koşuyu o switch'e taşır. */
-.on-panel[data-aktif="0"] { opacity: .62; }
-.on-panel[data-aktif="0"]:hover { opacity: 1; }
-.on-panel[data-aktif="1"] { border-color: var(--accent-cizgi); }
-
-/* Fiziksel yerleşim: 4 satır. PoE portları sütun sütun aşağıdan yukarı
-   (1-2-3-4 | 5-6-7-8 …), en sağda kesik çizgiyle ayrılmış uplink sütunu.
-   Dizilim kardeş projedeki Switch Yönetim Paneli ile birebir aynı. */
-.pm-izgara {
+.ayar-bolum {
+  padding: 18px 19px;
+  border-top: 1px solid var(--cizgi);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ip-alt-baslik { margin-bottom: 3px; }
+.ip-alt-baslik p {
+  margin: 5px 0 0;
+  color: var(--orta);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ayar-satir {
   display: grid;
-  grid-template-columns: repeat(var(--pm-sutun, 6), minmax(0, 1fr))
-    12px minmax(0, 1fr);
-  gap: 4px 3px; align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 45px;
+  padding: 7px 9px;
+  border: 1px solid var(--cizgi-hafif);
+  background: rgba(11, 17, 22, .34);
 }
-.pm-ayrac { height: 100%; border-left: 1px dashed rgba(214, 235, 255, .16); }
-.pm-bos { min-height: 10px; }
+.ayar-satir:hover { border-color: var(--cizgi); }
+.ayar-satir .etiket {
+  margin: 0;
+  color: var(--orta);
+  line-height: 1.4;
+}
+.ayar-satir select.alan { width: auto; min-width: 138px; max-width: 180px; }
+.ip-kisa-alan { width: 82px; }
+.ip-orta-alan { width: 148px; }
+.ip-alan-hata {
+  margin: -2px 0 2px;
+  padding: 0 9px;
+  color: #e8817f;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+.ayar-ozet {
+  margin: 0;
+  padding: 17px 19px 19px;
+  border-top: 1px solid var(--cizgi);
+  background: rgba(11, 17, 22, .28);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.ip-ozet-basi {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ip-hazir-rozet {
+  border-color: var(--yesil-zayif);
+  color: var(--yesil);
+}
+.ip-bekliyor-rozet { border-color: var(--turuncu-zayif); color: var(--turuncu); }
+.ip-hata-rozet { border-color: var(--kirmizi-zayif); color: #e8817f; }
+.ip-kosu-hatasi {
+  margin: 0 0 8px;
+  padding: 7px 8px;
+  border-left: 2px solid var(--kirmizi);
+  background: rgba(218, 54, 51, .06);
+  color: #e8817f;
+  font-family: var(--f-govde);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.ayar-ozet .satir {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--cizgi-hafif);
+}
+.ayar-ozet .satir:last-child { border-bottom: 0; }
+.ayar-ozet .satir.korunan { color: var(--turuncu); }
+
+/* Test aracı: özetin altında kendi şeridinde, koşu düğmesinden uzakta. */
+.ip-test-alani {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--cizgi);
+}
+.ip-test-alani .btn {
+  padding: 4px 10px;
+  font-family: var(--f-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+}
+.ayar-ozet b {
+  max-width: 65%;
+  font-weight: 400;
+  color: var(--acik);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.ayar-ozet b.vurgu { color: var(--accent); }
+.ayar-ozet b.soluk { color: var(--orta); }
+
+/* Kullanılabilir genişlikte paneller yan yana, dar alanda alt alta akar. */
+/* Paneller her zaman alt alta: iki switch yan yana konunca ikisi de
+   daralıyor, port haritası da okunmuyordu. */
+.panel-yigin {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.ip-panel-bos {
+  min-height: 190px;
+  padding: 24px;
+  border: 1px dashed var(--cizgi-kuvvetli);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.ip-panel-bos p { margin: 6px 0 0; color: var(--orta); font-size: 12px; }
+
+.on-panel {
+  min-width: 0;
+  /* Sütun genişliği port haritasına göre ayarlı (bkz. .ip-izgara); kart
+     onu doldurur. Dar bırakınca harita sıkışıyor, geniş sütunda da 28
+     port kutunun ortasında yüzüyordu. */
+  width: auto;
+  max-width: 100%;
+  padding: 0;
+  background:
+    linear-gradient(180deg, rgba(214, 235, 255, .018), transparent 40%),
+    var(--panel);
+  transition: border-color .14s ease, background .14s ease, transform .14s ease;
+}
+/* İki panel görsel olarak eşit durur. Etkin switch'i çerçeve rengi, iç
+   şerit ve rozetle ayrıca işaretlemek kartları zayıflatıyordu; koşunun
+   hangi switch'te olduğu zaten koşu özetinde ve seçili portların mavi
+   işaretlerinde okunuyor. */
+.on-panel:hover { border-color: var(--cizgi-kuvvetli); }
+.ip-switch-basi {
+  min-height: 67px;
+  padding: 14px 16px 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--cizgi-hafif);
+}
+.ip-switch-kimlik { min-width: 0; }
+.ip-switch-ad { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ip-switch-ad i {
+  width: 7px; height: 7px;
+  flex: none;
+  background: var(--cok-soluk);
+}
+.on-panel[data-aktif="1"] .ip-switch-ad i {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(66, 148, 224, .1);
+}
+.ip-switch-ad h4 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-switch-kimlik > .mono {
+  display: block;
+  margin: 5px 0 0 15px;
+  color: var(--orta);
+  font-size: 10.5px;
+}
+.ip-switch-rozetler {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.ip-kaynak-rozet { color: var(--orta); }
+.ip-kaynak-rozet.canli { border-color: var(--yesil-zayif); color: var(--yesil); }
+
+/* Verinin kaç saniye önce okunduğu; 15 sn'yi geçince bayat sayılır. */
+.ip-tazelik {
+  font-family: var(--f-mono); font-size: 9.5px; color: var(--soluk);
+  align-self: center;
+}
+.ip-tazelik[data-bayat="1"] { color: var(--turuncu); }
+
+/* Ön panellerin otomatik yenilemesi — duraklatılabilir. */
+.ip-bolum-eylem { display: flex; align-items: center; gap: 8px; flex: none; }
+.ip-yenile-btn {
+  padding: 3px 9px;
+  font-family: var(--f-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+  border-color: var(--cizgi); color: var(--orta);
+}
+.ip-yenile-btn[aria-pressed="true"] {
+  border-color: var(--yesil-zayif); color: var(--yesil);
+}
+.ip-switch-yonerge {
+  margin: 11px 16px 0;
+  color: var(--orta);
+  font-size: 11px;
+  line-height: 1.45;
+}
+/* Panelin okunamama sebebi ve kimlik uyarısı: kutu değil, tek satır not.
+   İki switch'te aynı cümlenin iki kutusu paneli bastırıyordu. */
+.ip-panel-not {
+  margin: 9px 16px 0;
+  padding-left: 9px;
+  border-left: 2px solid var(--cizgi-kuvvetli);
+  color: var(--orta);
+  font-family: var(--f-mono); font-size: 10px; line-height: 1.5;
+}
+.ip-panel-not.uyari-ton {
+  border-left-color: var(--turuncu); color: var(--turuncu);
+}
+.ip-kimlik-btn {
+  padding: 3px 9px;
+  font-family: var(--f-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+  border-color: var(--turuncu-zayif); color: var(--turuncu);
+}
+.ip-kimlik-btn:hover:not(:disabled) {
+  background: rgba(210, 153, 34, .12); border-color: var(--turuncu);
+}
+
+/* Ön panel koyu bir cihaz kasası içinde, fiziksel port sırasını korur. */
+.pm-kasa {
+  margin: 14px 16px 0;
+  padding: 14px 13px 10px;
+  border: 1px solid var(--cizgi);
+  background: var(--derin);
+  box-shadow: inset 0 1px 12px rgba(0, 0, 0, .18);
+}
+.pm-sar { overflow-x: auto; padding-bottom: 2px; }
+/* Izgara içeriği kadar geniştir ve kasanın ortasında durur. Eskiden
+   `min-width:100%` ile kasayı boydan boya kaplıyor, portlar 500 piksellik
+   kutunun ortasında yüzüyordu. */
+.pm-izgara {
+  width: max-content;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(var(--pm-sutun, 6), 52px) 12px 52px;
+  gap: 4px 3px;
+  align-items: center;
+}
+.pm-ayrac { height: 100%; border-left: 1px dashed var(--cizgi-kuvvetli); }
+.pm-bos { min-height: 12px; }
 
 .pm-port {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  width: 100%; padding: 5px 2px 4px;
-  background: transparent; border: 1px solid transparent;
-  color: var(--soluk); cursor: pointer;
-  font-family: var(--f-mono); font-size: 9.5px;
+  min-height: 49px;
+  width: 100%;
+  padding: 3px 2px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--orta);
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
 }
-.pm-port svg { display: block; width: 100%; max-width: 30px; height: auto; }
-.pm-port .shell { fill: transparent; stroke: rgba(214, 235, 255, .3); stroke-width: 1.3; }
-.pm-port .inner { fill: none; stroke: rgba(214, 235, 255, .22); stroke-width: 1; }
-.pm-port .cross { fill: none; stroke: rgba(214, 235, 255, .22); stroke-width: .9; }
-.pm-port .key { fill: rgba(214, 235, 255, .3); }
-.pm-port .pin { fill: rgba(214, 235, 255, .34); }
-.pm-port:hover:not(:disabled) { border-color: var(--cizgi-kuvvetli); color: var(--acik); }
+.pm-port svg { display: block; width: 36px; height: 36px; }
+.pm-port .shell { fill: transparent; stroke: rgba(214, 235, 255, .38); stroke-width: 1.3; }
+.pm-port .inner { fill: none; stroke: rgba(214, 235, 255, .28); stroke-width: 1; }
+.pm-port .cross { fill: none; stroke: rgba(214, 235, 255, .28); stroke-width: .9; }
+.pm-port .key { fill: rgba(214, 235, 255, .38); }
+.pm-port .pin { fill: rgba(214, 235, 255, .42); }
+.pm-port:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: var(--cizgi-kuvvetli);
+  background: rgba(214, 235, 255, .04);
+  color: var(--metin);
+}
 .pm-port:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.pm-port[aria-disabled="true"] { cursor: not-allowed; }
 
 /* Cihaz tanımlı değil: seçilemez, panelde yeri boş görünmesin diye durur. */
-.pm-port.bos { opacity: .3; cursor: not-allowed; }
+.pm-port.bos { opacity: .38; cursor: not-allowed; }
 
-/* Hedef port — koşunun dokunacağı portlar. */
-.pm-port.sec { color: var(--accent); }
-.pm-port.sec .shell { stroke: var(--accent); fill: rgba(66, 148, 224, .14); }
-.pm-port.sec .inner, .pm-port.sec .cross { stroke: var(--accent); }
-.pm-port.sec .key, .pm-port.sec .pin { fill: var(--accent); }
+/* ── konnektörün RENGİ: portun o anki durumu ──
+   Ayrım ve renkler Switch Yönetim Paneli ile aynı; aynı switch'e iki
+   uygulamadan bakan kişi aynı şeyi görsün. */
+.pm-port.feed .shell { stroke: var(--yesil); fill: rgba(63, 185, 80, .13); }
+.pm-port.feed .inner, .pm-port.feed .cross { stroke: var(--yesil); }
+.pm-port.feed .key, .pm-port.feed .pin { fill: var(--yesil); }
 
-/* Bilgisayarın bağlı olduğu port: koşu buraya dokunursa kendi
-   bağlantısını keser, o yüzden her şeyin üstünde görünür. */
-.pm-port.pc { color: var(--turuncu); }
-.pm-port.pc .shell { stroke: var(--turuncu); fill: rgba(210, 153, 34, .16); }
-.pm-port.pc .inner, .pm-port.pc .cross { stroke: var(--turuncu); }
-.pm-port.pc .key, .pm-port.pc .pin { fill: var(--turuncu); }
+.pm-port.link .shell { stroke: var(--accent); fill: rgba(66, 148, 224, .12); }
+.pm-port.link .inner, .pm-port.link .cross { stroke: var(--accent); }
+.pm-port.link .key, .pm-port.link .pin { fill: var(--accent); }
 
-/* Switch canlı okunduysa ve port kapalıysa pinler kırmızıya döner. */
-.pm-port.kapali .pin { fill: rgba(224, 92, 89, .8); }
+.pm-port.off .shell { stroke: rgba(218, 54, 51, .6); fill: rgba(218, 54, 51, .08); }
+.pm-port.off .inner, .pm-port.off .cross { stroke: rgba(218, 54, 51, .6); }
+.pm-port.off .key { fill: rgba(218, 54, 51, .6); }
+.pm-port.off .pin { fill: rgba(224, 92, 89, .55); }
+
+/* Port açık ama PoE kapalı: hat çalışır, yalnız güç yok — pinler kırmızı. */
+.pm-port.gucsuz .pin { fill: rgba(224, 92, 89, .88); }
+
+/* ── ÇERÇEVE: portun koşudaki rolü ──
+   Renk portun durumunu söylediği için rol çerçeveyle gösterilir; ikisi
+   tek renge binince "açık mı, seçili mi" ayırt edilemiyordu. */
+.pm-port.sec {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: rgba(66, 148, 224, .06);
+  color: var(--accent);
+}
+
+/* Bilgisayarın bağlı olduğu port: koşu buraya dokunursa bağlantı kesilir. */
+.pm-port.pc {
+  border-color: var(--turuncu);
+  box-shadow: inset 0 0 0 1px var(--turuncu);
+  color: var(--turuncu); cursor: not-allowed;
+}
+
+/* İki switch'i birbirine bağlayan port koşu dışında; kesik çerçeve. */
+.pm-port.bag {
+  border: 1px dashed rgba(214, 235, 255, .62);
+  color: var(--acik); cursor: not-allowed;
+}
 
 .pm-alt {
-  display: flex; gap: 10px; margin-top: 9px;
-  font-family: var(--f-mono); font-size: 9px; color: var(--soluk);
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--cizgi-hafif);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 9px;
 }
 
-/* Lejanttaki küçük örnekler: haritadaki sınıfların aynısını kullanır. */
 .pm-ornek {
-  display: block; width: 9px; height: 9px; flex: none;
-  border: 1px solid rgba(214, 235, 255, .3); border-radius: 50%;
+  display: block;
+  width: 9px; height: 9px;
+  flex: none;
+  border: 1px solid rgba(214, 235, 255, .42);
+  border-radius: 50%;
 }
-.pm-ornek.sec { border-color: var(--accent); background: rgba(66, 148, 224, .3); }
-.pm-ornek.pc { border-color: var(--turuncu); background: rgba(210, 153, 34, .3); }
-.pm-ornek.bos { opacity: .3; }
+/* Rol örnekleri çerçeveyi, durum örnekleri rengi anlatır — panelde de
+   ayrım böyle. */
+.pm-ornek.sec {
+  border-radius: 2px; border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.pm-ornek.pc {
+  border-radius: 2px; border-color: var(--turuncu);
+  box-shadow: inset 0 0 0 1px var(--turuncu);
+}
+.pm-ornek.bag {
+  border-radius: 2px; border-style: dashed;
+  border-color: rgba(214, 235, 255, .62);
+}
+.pm-ornek.feed { border-color: var(--yesil); background: rgba(63, 185, 80, .35); }
+.pm-ornek.link { border-color: var(--accent); background: rgba(66, 148, 224, .3); }
+.pm-ornek.off { border-color: var(--kirmizi); background: rgba(218, 54, 51, .35); }
+.pm-ornek.bos { opacity: .38; }
 
+/* Lejant panel kartlarının içinde değil, bölümün altında bir kez durur. */
 .panel-lejant {
-  display: flex; flex-wrap: wrap; gap: 6px 12px;
-  margin-top: 11px; padding-top: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 13px;
+  margin: 12px 0 0;
+  padding: 11px 2px 0;
   border-top: 1px solid var(--cizgi);
-  font-family: var(--f-mono); font-size: 9px; color: var(--orta);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
 }
 .panel-lejant span { display: flex; align-items: center; gap: 6px; }
+
+/* Alttaki plan, satırı soldurmak yerine durum rozetleriyle taranır. */
+.ip-plan-bolum {
+  margin-top: 28px;
+  padding-top: 23px;
+  border-top: 1px solid var(--cizgi);
+}
+.ip-plan-metrikler {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  color: var(--orta);
+}
+.ip-plan-metrikler span {
+  padding: 4px 7px;
+  border: 1px solid var(--cizgi);
+}
+.ip-plan-metrikler b { color: var(--metin); font-weight: 500; }
+.ip-plan-tablo { margin-top: 0; }
+.ip-plan-tablo .tablo-basi { background: #182129; }
+.ip-plan-satir { min-height: 43px; }
+.ip-plan-satir[data-uygun="1"] {
+  box-shadow: inset 2px 0 0 rgba(66, 148, 224, .58);
+}
+.ip-plan-satir[data-uygun="0"] { background: rgba(17, 26, 32, .62); }
+.ip-plan-satir[data-uygun="0"] .ip-cihaz-adi,
+.ip-plan-satir[data-uygun="0"] .ip-adres { color: var(--soluk); }
+.ip-port-rozet {
+  width: fit-content;
+  padding: 3px 6px;
+  border: 1px solid var(--cizgi);
+  color: var(--acik);
+  font-family: var(--f-mono);
+  font-size: 10px;
+}
+.ip-cihaz-adi { font-size: 11.5px; }
+.ip-grup-adi { font-size: 11px; color: var(--orta); }
+.ip-adres { font-size: 11px; }
+.ip-hedef-ip { color: var(--accent); }
+.ip-durum-rozet {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border: 1px solid var(--cizgi);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.ip-durum-rozet i { width: 5px; height: 5px; background: var(--cok-soluk); }
+.ip-durum-rozet.dahil { border-color: var(--accent-cizgi); color: var(--accent); }
+.ip-durum-rozet.dahil i { background: var(--accent); }
+
+@media (max-width: 920px) {
+  .ip-izgara { grid-template-columns: minmax(0, 1fr); }
+  .ip-ayar-kart { position: static; }
+  /* Tek sütuna düşünce panel sayfayı germesin; harita zaten 480px'e
+     göre çizili. */
+  .ip-panel-alani { max-width: 480px; }
+}
+
+@media (max-width: 720px) {
+  .ip-sayfa-basi { align-items: stretch; }
+  .ip-ust-eylem { width: 100%; align-items: stretch; }
+  .ip-hazirlik { align-self: flex-end; }
+  .ip-baslat-btn { width: 100%; }
+  .ip-izgara { gap: 20px; margin-top: 20px; }
+  .panel-yigin { grid-template-columns: minmax(0, 1fr); }
+  .ip-bolum-basi { gap: 10px; }
+  .ip-bolum-sayac { display: none; }
+  .ip-plan-bolum { margin-top: 23px; padding-top: 20px; }
+}
+
+@media (max-width: 540px) {
+  .ip-hizli-ozet { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .ip-hizli-ozet span + span::before { display: none; }
+  .ip-kart-basi,
+  .ip-port-alani,
+  .ayar-bolum,
+  .ayar-ozet { padding-left: 15px; padding-right: 15px; }
+  .ayar-satir { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .ayar-satir select.alan,
+  .ip-kisa-alan, .ip-orta-alan { width: 100%; max-width: none; }
+  .ip-switch-basi { flex-direction: column; }
+  .ip-switch-rozetler { justify-content: flex-start; }
+  .pm-kasa { margin-left: 12px; margin-right: 12px; }
+  .panel-lejant { padding-left: 12px; padding-right: 12px; }
+  .ip-plan-bolum > .ip-bolum-basi { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ip-yukleniyor > i { animation: none; }
+}
 
 .lejant {
   display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px;
@@ -245,6 +831,48 @@
 }
 .lejant i {
   display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+}
+
+/* ─────────────────────────────────────────────────── konfigürasyon ── */
+/* Solda gruba bir kez girilen değerler, sağda seçili cihazın tablosu. */
+.cfg-izgara {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 18px; margin-top: 18px; align-items: start;
+}
+@media (max-width: 1000px) {
+  .cfg-izgara { grid-template-columns: minmax(0, 1fr); }
+  .cfg-grup-kart { max-width: 420px; }
+}
+.cfg-grup-kart .ayar-satir { margin-top: 9px; }
+.cfg-aciklama {
+  margin: 7px 0 4px;
+  font-family: var(--f-mono); font-size: 10px; line-height: 1.6;
+  color: var(--soluk);
+}
+.cfg-alan { width: 132px; }
+/* Devralınan değer: kutuda duruyor ama kullanıcı yazmadı — DeviceMap ya da
+   grup değeri. Girilen değerden ayırt edilebilmeli, yoksa kullanıcı kendi
+   yazdığı sanır. */
+/* Kart ayağı: kayıt durumu ve sıfırlama. */
+.cfg-varsayilan {
+  margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid var(--cizgi);
+}
+.cfg-devralinan { color: var(--orta); font-style: italic; }
+.cfg-devralinan:focus { color: var(--metin); font-style: normal; }
+/* Bölüm başlığı: UIC'te 20'yi aşan alan listesi başlıksız okunmuyor. */
+.cfg-bolum {
+  margin: 16px 0 2px;
+  font-family: var(--f-baslik); font-size: 10.5px; font-weight: 600;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--orta);
+  border-bottom: 1px solid var(--cizgi); padding-bottom: 5px;
+}
+.cfg-grup-kart .cfg-bolum:first-of-type { margin-top: 12px; }
+.cfg-cihaz-alani { min-width: 0; }
+.cfg-cihaz-basi {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px; flex-wrap: wrap;
 }
 
 /* ───────────────────────────────────────────────────────── MQTT akış ── */

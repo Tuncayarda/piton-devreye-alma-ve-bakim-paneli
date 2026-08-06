@@ -82,6 +82,64 @@ Dikkat edilecek noktalar:
   ayrıdır; kontrol listesinde ayrı sütunlarda tutulur.
 - `pbxpassword` çıktıdan silinmeli, kontrol listesine yazılmaz.
 
+## Announcement cihazlarına ayar yazma
+
+`GET /api/v1/system/settings` bütün ayarları okur ama **yazmak için
+kullanılamaz**: POST isteğine `405 Method Not Allowed` döner. Cihazın kendi
+web arayüzü ayarları konusuna göre ayrı uçlara gönderiyor. Aşağıdakiler
+sahadaki cihazların (Amplifier 10.1.1.5, Handset 10.1.1.6, Intercom
+10.1.1.10, UIC 10.1.1.60) arayüzünden ve doğrudan istekle doğrulanmıştır.
+Devreye Alma Paneli'ndeki `core/konfig.py` → `ROTA` tablosu bunun birebir
+karşılığıdır.
+
+| Uç | Gövde | Kısmi gövde | Yeniden başlatır |
+|---|---|---|---|
+| `POST /api/v1/audio/volume` | `micVolume`, `speakerVolume`, `speakerGain`, `micGain`, `logLevel` | evet | hayır |
+| `POST /api/v1/system/modes` | `pttEnabled`, `answerMode`, `callMode`, `hangupMode` (+ `speakerGain`, `micGain`, `logLevel`) | hayır — dört mod alanı zorunlu | hayır |
+| `POST /api/v1/uic/gains` | `tcSpeakerGain`, `tcMicGain`, `tlSpeakerGain`, `tlMicGain` | hayır — dördü zorunlu | hayır |
+| `POST /api/v1/sip/settings` | `pbxIp`, `pbxExtension`, `pbxPassword` (+ tipe göre `pbxOutExtension`, `callTimeout`, `target1..4`, `tcHigh/tcLow/tlHigh/tlLow`) | evet, ama üç zorunlu alan her istekte bulunmalı | **evet** |
+| `POST /api/v1/network/ip` | `useDhcp`, `ip`, `netmask`, `gateway`, `ntpIp` | — | evet |
+
+Cihaz tipine göre hangi alan hangi uca gider:
+
+| Alan | Amplifier | Handset | Intercom | UIC |
+|---|---|---|---|---|
+| `speakerVolume` | audio | audio | audio | audio |
+| `micVolume` | — | audio | audio | audio |
+| `speakerGain` / `micGain` | audio (yalnız speaker) | **modes** | audio | — |
+| `logLevel` | audio | **modes** | audio | audio |
+| mod alanları | — | modes | — | — |
+| `tc*/tl*Gain` | — | — | — | uic/gains |
+| `pbxOutExtension` | — | sip | sip | — |
+| `callTimeout` | — | sip | — | sip |
+| `target1..4`, eşikler | — | — | — | sip |
+
+Dikkat edilecek noktalar:
+
+- Zorunlu alan eksikse cihaz `400` ile `Missing required fields` /
+  `Missing mode fields` döndürüyor; `uic/gains` ucu ise bağlantıyı
+  düşürüyor. Değiştirilmeyen zorunlu alanlar okunan değerle doldurulmalı.
+- Gönderilmeyen alanlar korunuyor: yalnız `pbxExtension` yazıldığında
+  `pbxOutExtension` ve `callTimeout` yerinde kalıyor.
+- **`sip/settings` cihazı yeniden başlatıyor** (`SIP configuration saved.
+  Rebooting...`). Ses/gain ayarı için bu uca dokunmayın; ayar zaten
+  doğruysa istek atmayın.
+- `sip/settings` parolayı zorunlu tutuyor, dolayısıyla parola olmadan
+  dahili numara da yazılamıyor. DeviceMap'te `PBXPassword` bulunan
+  cihazlarda o değer, bulunmayanlarda (Amplifier, UIC) cihazda hâlihazırda
+  duran değer kullanılır.
+- Cevaplar JSON değil düz metin (`Volume updated`, `UIC gains saved`).
+- Ondalık alanlar cihazda float32 saklanıyor: `2.4` yazıldıktan sonra
+  `2.4000000953674316` okunuyor. Karşılaştırma tam eşitlikle yapılmamalı.
+- Gain seçenekleri: `1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64`.
+  `logLevel`: `0` = yalnız Error, `1` = Info + Error.
+  `callTimeout` (arayüzde "Ring Time"): `0, 5, 10, 15, 20, 30, 45, 60, 90, 120`.
+  `answerMode`: `0` butonla / `1` otomatik. `callMode`: `0` tek basış /
+  `1` uzun basış (3 sn). `hangupMode`: `0` tek / `1` çift basış / `2` DTMF.
+  Eşikler `0–5` V, `0,1` adım.
+- UIC yönlendirmesi: `target1` = TC (3+ 4-) → giden, `target2` = TL (3- 4+)
+  → giden, `target3` = gelen → TC, `target4` = gelen → TL.
+
 ## Amplifier
 
 ### Komut

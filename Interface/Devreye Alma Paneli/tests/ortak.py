@@ -14,6 +14,11 @@ KOK = Path(__file__).resolve().parent.parent
 if str(KOK) not in sys.path:
     sys.path.insert(0, str(KOK))
 
+# Panelin kalıcı verisi (konfigürasyon varsayılanları) testlerde geçici bir
+# dizine yazılır: testler kullanıcının gerçek ayarlarını ne okur ne bozar.
+import os  # noqa: E402
+os.environ["PANEL_VERI_DIZINI"] = tempfile.mkdtemp(prefix="devreye-veri-")
+
 from core import (ayar, device_map, firmware, isler, kimlik,  # noqa: E402
                   konfig, switch_okuma)
 import panel_api  # noqa: E402
@@ -43,7 +48,9 @@ class PanelTesti(unittest.TestCase):
         isler.YONETICI.ac()
         self.kuyrugu_bosalt()
         kimlik.hepsini_unut()
-        konfig.hedefleri_unut()
+        # Kayıtlı varsayılan dosyası da silinir: bir testin girdiği değer
+        # bir sonrakine sızmasın.
+        konfig.varsayilanlari_sil()
         firmware.temizle()
         for g in list(isler._GORUNUM.values()):
             g.temizle()

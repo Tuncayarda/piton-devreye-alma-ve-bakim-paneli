@@ -114,8 +114,15 @@ K_OUT = ("pbxoutextension", "pbx_out_extension", "pbxoutext",
 
 
 # ────────────────────────────────────────────────────────── okuyucular ────
-def anons_oku(ip: str, kimlik=None, timeout: float | None = None) -> dict:
-    """Amplifier / Handset / Intercom / UIC — /api/v1 HTTP API."""
+def anons_oku(ip: str, kimlik=None, timeout: float | None = None,
+              ek_uclar: tuple | None = None) -> dict:
+    """Amplifier / Handset / Intercom / UIC — /api/v1 HTTP API.
+
+    `ek_uclar` verilmezse bilinen bütün ek uçlar denenir (tarama böyle
+    çalışır: hangi firmware neyi veriyor bilinmiyor). Çağıran hangi ucun
+    gerektiğini biliyorsa daraltmalı — olmayan uç 404 dönene kadar
+    beklemek okumayı gereksiz yavaşlatıyor.
+    """
     sure = timeout if timeout is not None else ayar.OKUMA_TIMEOUT
     taban = f"http://{ip}:{ayar.ANONS_PORT}/api/v1"
     auth = tuple(kimlik) if kimlik else None
@@ -139,7 +146,7 @@ def anons_oku(ip: str, kimlik=None, timeout: float | None = None) -> dict:
 
     duz = duzle(govde)
     # Ek uçlar bonus: yoksa da cihaz okunmuş sayılır.
-    for uc in ANONS_EK:
+    for uc in (ANONS_EK if ek_uclar is None else ek_uclar):
         try:
             e = requests.get(f"{taban}/{uc}", timeout=min(sure, 2.5), auth=auth)
             if e.ok:
@@ -160,6 +167,11 @@ def anons_oku(ip: str, kimlik=None, timeout: float | None = None) -> dict:
         "hoparlorGain": sec(duz, *K_SPK_GAIN),
         "mikrofonGain": sec(duz, *K_MIC_GAIN),
         "ayarlar": govde,
+        # Ek uçlardan gelenler de dahil, düzleştirilmiş tam alan kümesi.
+        # Konfigürasyon ekranı bunu kullanır: Handset'in mod alanları ana
+        # uçta değil `system/modes` ucunda; yalnız `ayarlar` verilirse o
+        # alanlar hiç okunmamış görünüyor.
+        "duz": duz,
     }
 
 

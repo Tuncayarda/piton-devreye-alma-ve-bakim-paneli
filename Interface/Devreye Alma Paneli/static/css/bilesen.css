@@ -205,13 +205,20 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 }
 
 /* ────────────────────────────────────────────────────── hedef şeridi ── */
+/* Grup şeridi sığmayınca yatay kayar. Sağ kenardaki solma, listenin
+   devam ettiğini söyler: kesilen son çip "bitti" gibi duruyor, kullanıcı
+   kalan grupları aramıyordu. */
 .serit {
   display: flex; align-items: center; gap: 7px;
   flex-wrap: nowrap; overflow-x: auto;
   min-height: 44px; margin-top: 16px;
   padding: 6px 12px;
   border: 1px solid var(--cizgi); background: var(--panel);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
 }
+/* Sona gelindiğinde ya da hepsi sığdığında solmaya gerek yok. */
+.serit[data-son="1"] { -webkit-mask-image: none; mask-image: none; }
 .serit .etiket { flex: none; margin-right: 4px; }
 
 .cip {

@@ -443,16 +443,24 @@ class IpPlani(PanelTesti):
         self.assertFalse(p13["uygulanabilir"])
         self.assertEqual(p13["ad"], "—")
 
-    def test_pc_portu_hedefteyse_kosu_reddedilir(self):
+    def test_korumali_port_hedefteyse_kosu_reddedilir(self):
+        """Bilgisayarın portu ya da switch bağlantısı koşuya giremez.
+
+        Koşu PoE'yi sırayla kapatıp açıyor; bu portlardan birine dokunursa
+        kendi yolunu keser ve yarıda kalır.
+        """
         harita = sahte.device_map([
             {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
              "Type": "Announcement", "SubType": "Intercom", "Port": "11",
              "Status": {}}], switch_ip="10.n.1.101")
         env = self.kur_harita(harita)
-        with self.assertRaises(ValueError) as t:
-            ip_atama.kosu(env, env.switchler()[0].id, [11], True,
-                          lambda s: None, pc_port=11)
-        self.assertIn("kendi bağlantısını", str(t.exception))
+        for sebep in ("bilgisayar bu porta bağlı",
+                      "diğer switch'e giden bağlantı"):
+            with self.assertRaises(ValueError) as t:
+                ip_atama.kosu(env, env.switchler()[0].id, [11],
+                              lambda s: None, korumali={11: sebep})
+            self.assertIn("kendi bağlantısını", str(t.exception))
+            self.assertIn(sebep, str(t.exception))
 
 
 class ExcelCiktisi(ServisTesti):

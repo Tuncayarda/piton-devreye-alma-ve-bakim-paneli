@@ -131,24 +131,64 @@ def portlar(ip: str, kimlik: tuple[str, str] | None = None,
             timeout: float | None = None) -> list[dict]:
     """Port listesi — IP atama ekranındaki ön panel için.
 
-    Switch Yönetim Paneli'ndeki uçların aynısı kullanılır.
+    Switch Yönetim Paneli'ndeki uçların ve birleştirme sırasının aynısı
+    kullanılır (portMode + poePort + poeStatus). Ön panelin renkleri iki
+    uygulamada aynı veriden çıksın diye üç uç da okunur: yalnız portMode
+    ile "besliyor" ile "bağlı" ayırt edilemiyor.
+
+    PoE uçları her modelde yok; yoksa alanlar boş kalır, uydurulmaz.
     """
     api = _yukle()
     sure = timeout if timeout is not None else ayar.OKUMA_TIMEOUT
-    try:
-        pm = api.sw_get(ip, "stat/portMode", timeout=sure, kimlik=kimlik)
-    except api.YetkiHatasi as exc:
-        raise KimlikHatasi(str(exc) or "Cihaz kullanıcı adı/parola istiyor")
-    except Exception as exc:
-        raise sinifla(exc)
+
+    def cek(uc: str):
+        try:
+            return api.sw_get(ip, uc, timeout=sure, kimlik=kimlik)
+        except api.YetkiHatasi as exc:
+            raise KimlikHatasi(str(exc) or "Cihaz kullanıcı adı/parola istiyor")
+        except Exception as exc:
+            raise sinifla(exc)
+
+    pm = cek("stat/portMode")
     liste = pm.get("portMode", []) if isinstance(pm, dict) else []
     if not isinstance(liste, list):
         raise DogrulamaHatasi("Switch port listesi beklenen biçimde değil")
-    return [{"pid": int(p.get("pid", 0)),
-             "tip": p.get("type", ""),
-             "acik": bool(p.get("adminStat")),
-             "link": p.get("linkStat", "")}
-            for p in liste if isinstance(p, dict)]
+
+    def istege_bagli(uc: str, anahtar: str) -> dict:
+        """PoE uçları modele göre olmayabilir; kimlik hatası yutulmaz."""
+        try:
+            veri = cek(uc)
+        except KimlikHatasi:
+            raise
+        except Exception:
+            return {}
+        kayit = veri.get(anahtar, []) if isinstance(veri, dict) else []
+        return {int(p["pid"]): p for p in kayit
+                if isinstance(p, dict) and str(p.get("pid", "")).isdigit()}
+
+    poe = istege_bagli("stat/poePort", "poePort")
+    guc = istege_bagli("stat/poeStatus", "poeStatus")
+
+    cikan = []
+    for p in liste:
+        if not isinstance(p, dict):
+            continue
+        pid = int(p.get("pid", 0))
+        pp = poe.get(pid, {})
+        gs = guc.get(pid, {})
+        watt = gs.get("powerUsed")
+        cikan.append({
+            "pid": pid,
+            "tip": p.get("type", ""),
+            "acik": bool(p.get("adminStat")),
+            "link": p.get("linkStat", ""),
+            "poe": pid in poe,
+            "poeMod": str(pp.get("poeMode", "")),
+            "poeDurum": gs.get("portStatus", ""),
+            # Switch gücü on kat büyük tam sayı olarak veriyor.
+            "guc": round(int(watt) / 10, 1) if str(watt).isdigit() else None,
+        })
+    return cikan
 
 
 __all__ = ["oku", "portlar", "dogrula", "modul",

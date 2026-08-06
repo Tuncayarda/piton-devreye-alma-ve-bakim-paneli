@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures as cf
 import json
+import os
 import re
 import subprocess
 import sys
@@ -137,6 +138,83 @@ def host_mac(ip: str) -> str | None:
     return None
 
 
+# ─────────────────────────────────────────────────────── ARP önbelleği ────
+# Bütün intercomlar aynı fabrika adresiyle (10.n.1.12) geliyor ve her biri
+# ayrı MAC taşıyor. Bir cihaza IP yazılıp sıradaki port açıldığında işletim
+# sisteminin ARP tablosunda o adres HÂLÂ önceki cihazın MAC'ini gösteriyor:
+#
+#     ARP tablosu   10.1.1.12 -> 5c:01:3b:53:a4:73   (çoktan .13'e taşındı)
+#     gerçek        10.1.1.12 -> 5c:01:3b:53:65:ff
+#
+# HTTP yoklaması o eski MAC'e gidiyor, cevap gelmiyor ve cihaz "bulunamadı"
+# sayılıyor. macOS'ta kayıt 20 dakika yaşıyor; koşunun tur tur uzamasının,
+# arp-scan'in cihazı görüp betiğin görememesinin sebebi bu. host_mac() de
+# aynı bayat kaydı okuduğu için MAC doğrulaması yanlış portu bildiriyor.
+#
+# Kayıt silinince çekirdek yeniden ARP sorar ve doğru MAC'i öğrenir.
+_ARP_UYARI_VERILDI = False
+
+
+def arp_silebilir() -> bool:
+    """ARP kaydı silme yetkimiz var mı?
+
+    Doğrudan yetkiye bakılır; "sil" denemesinin çıktısına bakmak
+    yanıltıyor: kaydı olmayan bir adres yetkisizken de "cannot locate"
+    diyor ve mekanizma çalışıyor sanılıyordu.
+    """
+    try:
+        if os.geteuid() == 0:
+            return True
+    except AttributeError:                 # Windows
+        return False
+    try:
+        # -n hiçbir zaman parola sormaz; zaman damgası tazeyse 0 döner.
+        return subprocess.run(["sudo", "-n", "true"], capture_output=True,
+                              timeout=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def arp_unut(ips, cfg=None) -> bool:
+    """Verilen adresleri ARP önbelleğinden siler. Dönüş: silebildi mi.
+
+    Silme yönlendirme soketine yazmak demek, yani root ister. Uygulama
+    root değilse `sudo -n` denenir: kullanıcı koşudan önce bir kez
+    `sudo -v` çalıştırdıysa bu çalışır ve her başarılı çağrı sudo'nun
+    zaman damgasını tazelediği için koşu boyunca yeterlidir.
+    """
+    global _ARP_UYARI_VERILDI
+    if cfg is not None and not getattr(cfg, "arp_flush", True):
+        return False
+    if not arp_silebilir():
+        if not _ARP_UYARI_VERILDI:
+            _ARP_UYARI_VERILDI = True
+            print("[!] ARP önbelleği temizlenemiyor (root gerekiyor). Aynı "
+                  "fabrika adresindeki cihazlar")
+            print("    eski MAC'e yazıldığı için 'cihaz bulunamadı' hatası "
+                  "verir. Koşudan önce")
+            print("    terminalde bir kez: sudo -v    (ya da uygulamayı sudo "
+                  "ile başlatın)")
+        return False
+    kok = os.geteuid() == 0
+    for ip in ips:
+        for cmd in ([["arp", "-d", ip], ["ip", "neigh", "flush", "to", ip]]
+                    if kok else
+                    [["sudo", "-n", "arp", "-d", ip],
+                     ["sudo", "-n", "ip", "neigh", "flush", "to", ip]]):
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            ciktilar = (r.stdout or "") + (r.stderr or "")
+            # "cannot locate" / "no entry" = silinecek kayıt yoktu.
+            if (r.returncode == 0 or "no entry" in ciktilar
+                    or "cannot locate" in ciktilar):
+                break
+    return True
+
+
 def _mac_rows(data) -> list[dict]:
     if isinstance(data, dict):
         for value in data.values():
@@ -239,6 +317,51 @@ def verify_port(ip: str, expected_port: int, cfg) -> tuple[bool | None, str]:
     if port is None:
         return None, f"MAC {mac} tabloda yok"
     return port == expected_port, f"MAC {mac} -> port {port}"
+
+
+def port_link(cfg, port: int):
+    """Switch'e göre portun linki ayakta mı? True/False/None (okunamadı).
+
+    Cihazın gerçekten elektriği alıp hattı kurduğunun switch tarafındaki
+    kanıtı. HTTP yoklamasından önce buna bakmak, "daha açılmamış cihazı
+    aramakla" geçen süreyi ortadan kaldırıyor.
+    """
+    try:
+        r = switch_request(cfg, "GET", "stat/portMode")
+        satirlar = r.json().get("portMode", [])
+    except Exception:
+        return None
+    if not isinstance(satirlar, list):
+        return None
+    for p in satirlar:
+        if isinstance(p, dict) and str(p.get("pid")) == str(port):
+            return str(p.get("linkStat", "")).lower() == "up"
+    return None
+
+
+def link_bekle(cfg, port: int, sure: float):
+    """Port link'i ayağa kalkana kadar bekler. Döner: (durum, geçen sn).
+
+    durum True  — bağlandı
+          False — verilen sürede bağlanmadı
+          None  — switch link durumunu vermiyor (eski davranışa dönülür)
+
+    Koşunun ilk portunda link zaten ayakta olabilir: o port kapanmamıştı,
+    cihaz da yeniden başlamadı. Bu durum geçen süreden (≈0 sn) anlaşılır
+    ve çağıran taraf farkı yazdırır.
+    """
+    basla = time.monotonic()
+    ilk = port_link(cfg, port)
+    if ilk is None:
+        return None, 0.0
+    if ilk is True:
+        return True, 0.0
+    while True:
+        if port_link(cfg, port):
+            return True, time.monotonic() - basla
+        if time.monotonic() - basla >= sure:
+            return False, time.monotonic() - basla
+        time.sleep(cfg.poll_interval)
 
 
 def _poe_rows(data) -> list[dict]:
@@ -537,8 +660,14 @@ def parse_args(env):
     # ESP32'lerin açılışı en fazla ~10 sn. Aşağıdakiler ÜST SINIR; cihaz
     # cevap verir vermez beklemeden devam edilir. Yavaş bir cihaz çıkarsa
     # --retry-backoff zaten her takılan turda süreleri 1.5 katına çıkarır.
+    p.add_argument("--link-wait", type=float, default=25.0,
+                   help="Port açıldıktan sonra switch'te link'in ayağa "
+                        "kalkmasını bekleme süresi (sn). Cihaz aranmaya "
+                        "ancak link kurulunca başlanır.")
+    p.add_argument("--find-wait", type=float, default=10.0,
+                   help="Link kurulduktan SONRA cihazı arama süresi (sn)")
     p.add_argument("--boot-wait", type=float, default=15.0,
-                   help="Port açıldıktan sonra cihazı arama süresi (sn) "
+                   help="Link durumu okunamıyorsa cihazı arama süresi (sn) "
                         "— ESP32 açılışı ~10 sn")
     p.add_argument("--confirm-wait", type=float, default=30.0,
                    help="IP yazıldıktan (reset) sonra doğrulama süresi (sn) "
@@ -580,6 +709,10 @@ def parse_args(env):
     p.add_argument("--no-persist-check", dest="persist_check",
                    action="store_false",
                    help="Sonda güç çevirip ayarların kalıcı olduğunu doğrulama")
+    p.add_argument("--no-arp-flush", dest="arp_flush", action="store_false",
+                   help="Yoklamadan önce ARP önbelleğini temizleme. Aynı "
+                        "fabrika adresindeki cihazlarda temizlik şart: "
+                        "kapatılırsa eski MAC'e yazılıp cihaz bulunamaz.")
     p.add_argument("--poe-read-endpoint", default=None,
                    help=f"PoE durumunun okunacağı uç "
                         f"(denenenler: {', '.join(POE_READ_ENDPOINTS)})")
@@ -650,6 +783,12 @@ def main() -> int:
     print(f"Fabrika IP: {cfg.factory_ip}   "
           f"(bu adreste cevap veren = yapılandırılmamış intercom)")
     print(f"Aday IP'ler: {', '.join(candidates)}")
+
+    # ARP temizliği koşunun tek turda bitmesinin şartı; yetki yoksa
+    # kullanıcı bunu koşu bitince değil, en başta öğrensin.
+    if cfg.arp_flush and not cfg.dry_run:
+        if arp_unut([cfg.factory_ip], cfg):
+            print("ARP       : önbellek temizlenebiliyor")
     if cfg.dry_run:
         print("\n[dry-run] Hiçbir değişiklik yapılmayacak.\n")
 
@@ -678,6 +817,9 @@ def main() -> int:
                 assigned: set[str]) -> tuple[bool, str]:
         target = plan[port]["target"]
         print(f"\n{label} Port {port} -> {target} ({plan[port]['name']})")
+
+        # Aralıktaki portlar kapatılır ve hedef port AYNI yazımda açılır:
+        # switch'e tek istek gider, biri kapanırken diğeri açılır.
         print(f"    aralıktaki portlar kapatılıyor, {port} açılıyor...")
         try:
             poe_apply(cfg, state, {port}, managed)
@@ -687,29 +829,39 @@ def main() -> int:
             return True, ""
         time.sleep(cfg.settle)
 
-        # Fabrika IP'si asla "atanmış" sayılmaz: yapılandırılmamış bütün
-        # cihazlar orada durur. Bir portun hedefi fabrika IP'si olsa bile
-        # o adres aday listesinden çıkarılmaz, beklenmez.
-        bekle = {ip for ip in assigned if ip != cfg.factory_ip}
+        # Yoklamadan ÖNCE ARP önbelleği temizlenir: bu adreslerin kaydı
+        # önceki cihazın MAC'ini gösteriyor olabilir (bkz. arp_unut).
+        arp_unut({cfg.factory_ip, target}
+                 | {plan[p]["target"] for p in ports}, cfg)
 
-        # Önceki portun cihazı IP yazımından sonra reset attığı için uptime'ı
-        # sıfırlanır; hâlâ ayaktaysa "en taze cihaz" sanılıp üzerine yazılır.
-        # Bu yüzden gerçekten sustuğu doğrulanır.
-        if bekle:
-            kalan = wait_gone(bekle, cfg, cfg.baseline_wait)
-            if kalan:
-                print(f"    [!] Atanmış cihaz(lar) hâlâ ayakta: "
-                      f"{', '.join(kalan)} — bu tur atlanıyor")
-                return False, f"önceki cihaz kapanmadı ({', '.join(kalan)})"
+        # Körlemesine saymak yerine switch'e sorulur: port bağlandı mı?
+        # Link "up" olduğu an cihaz elektriği aldı ve hattı kurdu demektir;
+        # arama penceresi ancak o zaman başlar. Eskiden port açılır açılmaz
+        # 15 sn'lik pencere işlemeye başlıyor, cihaz daha açılmadan süre
+        # tükeniyordu — turların çoğu buradan çıkıyordu.
+        bagli, gecen = link_bekle(cfg, port, cfg.link_wait)
+        if bagli is True:
+            nasil = ("link zaten ayaktaydı" if gecen < 0.5
+                     else f"port bağlandı ({gecen:.1f} sn)")
+            print(f"    {nasil} — cihaz aranıyor "
+                  f"(en fazla {cfg.find_wait:.0f} sn)...")
+            arama_suresi = cfg.find_wait
+        elif bagli is None:
+            print(f"    (link durumu okunamadı) cihaz aranıyor "
+                  f"(en fazla {cfg.boot_wait:.0f} sn)...")
+            arama_suresi = cfg.boot_wait
+        else:
+            print(f"    [!] Port {gecen:.0f} sn'de bağlanmadı — kablo/cihaz "
+                  f"kontrolü gerekebilir")
+            return False, "port bağlanmadı (link up olmadı)"
 
         # Atanmış IP'ler aday listesinden çıkarılır (fabrika IP'si hariç).
         search = [ip for ip in candidates
                   if ip not in assigned or ip == cfg.factory_ip]
-        print(f"    cihaz aranıyor (en fazla {cfg.boot_wait:.0f} sn)...")
 
         # MAC doğrulaması: yanlış porttaki cihazlar elenip arama sürdürülür
         blocked, found_ip, settings = [], None, None
-        end = time.monotonic() + cfg.boot_wait
+        end = time.monotonic() + arama_suresi
         while True:
             kalan = max(1.0, end - time.monotonic())
             ip, st = find_device([c for c in search if c not in blocked],
@@ -761,6 +913,9 @@ def main() -> int:
 
         print(f"    doğrulama: {target} bekleniyor "
               f"(reset + en fazla {cfg.confirm_wait:.0f} sn)...")
+        # Hedef adresin ARP kaydı da bayat olabilir: cihaz oraya YENİ
+        # taşındı, önbellekte ise başka bir cihazın MAC'i durabilir.
+        arp_unut([target], cfg)
         ok_ip, _ = find_device([target], cfg, cfg.confirm_wait)
         if ok_ip == target:
             print(f"    [OK] Port {port} -> {target}")
@@ -826,8 +981,13 @@ def main() -> int:
                       f"Kalan: {pending}")
                 break
             if cfg.retry_backoff > 1:
+                # Arama pencereleri her ilerlemesiz turda uzar; link
+                # beklemesi de öyle, çünkü yavaş açılan bir cihaz ikisini
+                # de aşabiliyor.
                 cfg.boot_wait *= cfg.retry_backoff
                 cfg.confirm_wait *= cfg.retry_backoff
+                cfg.find_wait *= cfg.retry_backoff
+                cfg.link_wait *= cfg.retry_backoff
     except KeyboardInterrupt:
         print("\n\n[İPTAL] Kullanıcı durdurdu — portlar geri açılıyor...")
     finally:
@@ -848,6 +1008,9 @@ def main() -> int:
     if not cfg.dry_run:
         print(f"\nSon doğrulama ({cfg.boot_wait:.0f} sn'ye kadar "
               f"tüm cihazların açılması bekleniyor)...")
+        # Portlar yeni açıldı, cihazlar yeni adreslerine oturdu; ARP
+        # kayıtlarının hepsi bayat olabilir.
+        arp_unut(targets, cfg)
         end = time.monotonic() + cfg.confirm_wait
         seen = {}
         while time.monotonic() < end:

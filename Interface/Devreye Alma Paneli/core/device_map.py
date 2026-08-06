@@ -66,6 +66,11 @@ class Cihaz:
     kategori: str
     yontem: str
     pbx_extension: str | None = None
+    # Cihazın SIP kaydında kullanacağı parola (DeviceMap tanım verisi).
+    # Cihazın SIP ucu bu alanı zorunlu istiyor, o yüzden konfigürasyon
+    # yazarken gerekiyor. `dto()` içinde YOKTUR: arayüze hiç gitmez ve
+    # panelin cihaza bağlanırken kullandığı kimlikle ilgisi de yoktur.
+    pbx_password: str | None = None
     ekstra: dict = field(default_factory=dict)
 
     @property
@@ -99,11 +104,12 @@ class Envanter:
     """Bir tren seti için çözülmüş cihaz listesi."""
 
     def __init__(self, set_no: int, cihazlar: list[Cihaz], proje: str,
-                 kaynak: Path):
+                 kaynak: Path, config: dict | None = None):
         self.set_no = set_no
         self.cihazlar = cihazlar
         self.proje = proje
         self.kaynak = kaynak
+        self.config = config or {}
         self._id_ile = {c.id: c for c in cihazlar}
 
     def bul(self, cihaz_id: str) -> Cihaz | None:
@@ -120,6 +126,27 @@ class Envanter:
     def piscu_ip(self) -> str | None:
         p = self.tip_ile("PISCU")
         return p[0].ip if p else None
+
+    def proje_ayarlari(self, cihaz: Cihaz) -> dict:
+        """Cihaz için DeviceMap'te tanımlı ayarlar — {küçükharfalan: değer}.
+
+        Üç düzey birleşir, sonraki öncekini ezer:
+          1. `Config["Announcement"]`         — tipin tamamı
+          2. `Config["Announcement/Handset"]` — alt tip
+          3. cihazın kendi kaydındaki alanlar (PBXExtension gibi)
+
+        Böylece bütün Handset'lere aynı ses seviyesi bir kez yazılabilir,
+        tek cihazda farklı olması gerekiyorsa o cihazın kaydına yazılır.
+        Konfigürasyon ekranı bu değerleri hedef olarak gösterir; kullanıcı
+        elle bir şey girmezse cihaza yazılan bunlardır.
+        """
+        birlesik: dict = {}
+        for anahtar in (cihaz.type, f"{cihaz.type}/{cihaz.subtype or ''}"):
+            blok = self.config.get(anahtar.lower())
+            if isinstance(blok, dict):
+                birlesik.update(blok)
+        birlesik.update({k.lower(): v for k, v in cihaz.ekstra.items()})
+        return birlesik
 
     def dto(self) -> list[dict]:
         return [c.dto() for c in self.cihazlar]
@@ -140,6 +167,30 @@ def _ham_oku(yol: Path) -> dict:
     if not yol.exists():
         raise FileNotFoundError(f"DeviceMap bulunamadı: {yol}")
     return json.loads(yol.read_text(encoding="utf-8"))
+
+
+def _config_oku(ham: dict) -> dict:
+    """DeviceMap'in tepesindeki `Config` bloğu (varsa).
+
+        "Config": {
+          "Announcement":         {"LogLevel": 1},
+          "Announcement/Handset": {"SpeakerVolume": 80, "AnswerMode": 1}
+        }
+
+    Tip başına bir kez yazılan ayarlar buraya konur; cihaza özel değer
+    cihazın kendi kaydına yazılır. Blok yoksa hiçbir şey değişmez — bu
+    alanlar için hedef değer de olmaz.
+    """
+    blok = ham.get("Config")
+    if not isinstance(blok, dict):
+        return {}
+    cikan = {}
+    for anahtar, deger in blok.items():
+        if isinstance(deger, dict):
+            cikan[str(anahtar).lower()] = {
+                k.lower(): v for k, v in deger.items()
+                if k.lower() not in GIZLI_ALANLAR}
+    return cikan
 
 
 def yukle(set_no: int, yol: Path | None = None,
@@ -182,12 +233,13 @@ def yukle(set_no: int, yol: Path | None = None,
                 aktif=bool(dv.get("IsActive", True)),
                 kategori=kategori_of(tip), yontem=yontem_of(tip, alt),
                 pbx_extension=dv.get("PBXExtension") or None,
+                pbx_password=dv.get("PBXPassword") or None,
                 ekstra=_temiz(dv),
             ))
 
     env = Envanter(int(set_no), cihazlar,
                    proje=yol.stem.replace("DeviceMap", "").strip("_- ") or "YATAKLI",
-                   kaynak=yol)
+                   kaynak=yol, config=_config_oku(ham))
     if onbellek:
         with _ONBELLEK_KILIT:
             _ONBELLEK[imza] = env

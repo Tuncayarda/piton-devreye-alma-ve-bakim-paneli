@@ -28,6 +28,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from . import ayar, dogrulama
+from .hata import CihazHatasi
 
 BEKLIYOR, CALISIYOR, TAMAM, IPTAL, HATA = (
     "bekliyor", "calisiyor", "tamam", "iptal", "hata")
@@ -85,6 +86,25 @@ _GORUNUM_KILIT = threading.Lock()
 def gorunum(set_no: int) -> Gorunum:
     with _GORUNUM_KILIT:
         return _GORUNUM.setdefault(int(set_no), Gorunum(int(set_no)))
+
+
+def _hata_metni(exc: BaseException) -> str:
+    """İşin neden bittiğini kullanıcıya anlatan tek cümle.
+
+    Kendi hata sınıflarımızın (CihazHatasi ailesi) ve girdi doğrulamasının
+    (ValueError) metinleri kullanıcı için yazılmıştır, parola içermez ve
+    ne yapılacağını söyler: "Yataklı_2 için kullanıcı adı/parola
+    girilmemiş" ile "KimlikHatasi" arasındaki fark, kullanıcının işi
+    çözüp çözemeyeceğidir.
+
+    Tanımadığımız istisnalarda yalnız sınıf adı kalır — beklenmeyen bir
+    hatanın metni iç bilgi ya da ham iz taşıyabilir.
+    """
+    if isinstance(exc, (CihazHatasi, ValueError, FileNotFoundError)):
+        metin = str(exc).strip()
+        if metin:
+            return metin
+    return f"İş yürütülemedi: {type(exc).__name__}"
 
 
 # ──────────────────────────────────────────────────────────────── iş ──────
@@ -202,6 +222,10 @@ class Is:
             "olusturma": self.olusturma, "baslama": self.baslama,
             "bitis": self.bitis, "ilerleme": self.ilerleme(),
             "hata": self.hata, "sayilar": say,
+            # İptal istendi ama iş henüz duruyor: worker o an bir cihazın
+            # zaman aşımını bekliyor olabiliyor. Arayüz bu aralıkta hâlâ
+            # "Çalışıyor" yazınca düğmeye basan kişi bir şey olmadı sanıyor.
+            "iptalIstendi": self.iptal.is_set(),
         }
         if satir:
             veri["satirlar"] = self.satirlar()
@@ -347,7 +371,7 @@ class Yonetici:
                 # Worker hatası cihaz hatasından ayrı raporlanır: burada
                 # sorun cihazda değil, işi yürüten tarafta.
                 is_.durum = HATA
-                is_.hata = f"İş yürütülemedi: {type(exc).__name__}"
+                is_.hata = _hata_metni(exc)
             finally:
                 is_.bitis = time.time()
                 with self._kilit:

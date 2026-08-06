@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import struct
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -50,14 +51,17 @@ DEVICE_INFO_XML = (
 ANONS_AYAR = {
     "firmwareVersion": "1.2.5",
     "serialNumber": "ANON-0001",
+    "status": "Registered",
     "uptime": 1234,
     "pbxIp": "10.9.1.1",
     "pbxExtension": "2001",
+    "pbxPassword": "2001",
     "pbxOutExtension": "5001",
     "speakerVolume": 70,
-    "microphoneVolume": 60,
+    "micVolume": 60,
     "speakerGain": 4,
     "micGain": 2,
+    "logLevel": 1,
 }
 
 
@@ -68,6 +72,8 @@ class _Sunucu:
         self.srv = ThreadingHTTPServer(("127.0.0.1", 0), handler_sinifi)
         self.port = self.srv.server_address[1]
         self.istek_sayisi = 0
+        # (yöntem, yol) — hangi uca gerçekten istek gittiğini görmek için.
+        self.gecmis: list[tuple[str, str]] = []
         handler_sinifi.sunucu = self
         self._t = threading.Thread(target=self.srv.serve_forever, daemon=True)
         self._t.start()
@@ -190,17 +196,109 @@ def kamera(kullanici="admin", parola="sahte-parola"):
 
 
 # ──────────────────────────────────────────────────── Announcement cihaz ──
-def anons(ayarlar=None):
-    veri = json.dumps(ayarlar or ANONS_AYAR).encode()
+# Cihazın yazma uçları ve zorunlu alanları. Sahadaki cihazlardan
+# doğrulanmıştır: ana uç POST'a 405 döner, her uç kendi zorunlu alan
+# kümesini ister, SIP yazımı cihazı yeniden başlatır.
+ANONS_MOD_ALANLARI = ("pttEnabled", "answerMode", "callMode", "hangupMode")
+ANONS_UIC_ALANLARI = ("tcSpeakerGain", "tcMicGain",
+                      "tlSpeakerGain", "tlMicGain")
+ANONS_SIP_ZORUNLU = ("pbxIp", "pbxExtension", "pbxPassword")
+
+
+def anons(ayarlar=None, modlar=None, yoksay=()):
+    """Announcement cihazı taklidi — okuma ve yazma uçlarıyla.
+
+    `modlar` verilirse cihaz Handset gibi davranır: mod alanları ana uçta
+    değil `system/modes` ucunda görünür ve oraya yazılır.
+
+    `yoksay` içindeki alanlar 200 ile kabul edilip sessizce atılır —
+    sahadaki cihaz tanımadığı alanda böyle davranıyor.
+    """
+    hal = dict(ayarlar or ANONS_AYAR)
+    mod_hali = dict(modlar) if modlar else None
+    kilit = threading.Lock()
+
+    def suz(gelen: dict) -> dict:
+        # Cihaz ondalıkları float32 saklıyor: 2.4 yazıldıktan sonra
+        # 2.4000000953674316 okunuyor. Panelin karşılaştırması bunu
+        # "yazılmadı" saymamalı.
+        return {k: (struct.unpack("f", struct.pack("f", v))[0]
+                    if isinstance(v, float) else v)
+                for k, v in gelen.items() if k not in yoksay}
+
+    def metin(self, kod: int, s: str):
+        # Cihaz düz metin döndürüyor; panel JSON beklemeyi varsaymamalı.
+        return self.yaz(kod, s.encode(), "text/plain")
+
+    def govde_al(self) -> dict:
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            return json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            return {}
+
+    def eksik(gelen: dict, zorunlu) -> bool:
+        return any(a not in gelen for a in zorunlu)
 
     def gonder(self):
         self.sunucu.istek_sayisi += 1
         yol = self.path.split("?")[0]
-        if yol == "/api/v1/system/settings":
-            return self.yaz(200, veri, "application/json")
-        return self.yaz(404, b'{"error":"yok"}', "application/json")
+        self.sunucu.gecmis.append((self.command, yol))
 
-    return _Sunucu(_temel_handler("AnonsHandler", gonder))
+        if self.command == "GET":
+            if yol == "/api/v1/system/settings":
+                with kilit:
+                    return self.yaz(200, json.dumps(hal).encode(),
+                                    "application/json")
+            if yol == "/api/v1/system/modes" and mod_hali is not None:
+                with kilit:
+                    return self.yaz(200, json.dumps(mod_hali).encode(),
+                                    "application/json")
+            return self.yaz(404, b"File not found", "text/plain")
+
+        # Ana uç yalnız okumak içindir.
+        if yol == "/api/v1/system/settings":
+            return metin(self, 405, "Method Not Allowed")
+
+        gelen = govde_al(self)
+        if yol == "/api/v1/audio/volume":
+            with kilit:
+                hal.update(suz(gelen))           # kısmi gövde kabul edilir
+            return metin(self, 200, "Volume updated")
+
+        if yol == "/api/v1/system/modes" and mod_hali is not None:
+            if eksik(gelen, ANONS_MOD_ALANLARI):
+                return metin(self, 400, "Missing mode fields")
+            with kilit:
+                mod_hali.update(suz(gelen))
+            return metin(self, 200, "Modes updated successfully")
+
+        if yol == "/api/v1/uic/gains" and "tcSpeakerGain" in hal:
+            if eksik(gelen, ANONS_UIC_ALANLARI):
+                return metin(self, 400, "Missing UIC gain fields")
+            with kilit:
+                hal.update(suz(gelen))
+            return metin(self, 200, "UIC gains saved")
+
+        if yol == "/api/v1/sip/settings":
+            if eksik(gelen, ANONS_SIP_ZORUNLU):
+                return metin(self, 400, "Missing required fields")
+            with kilit:
+                hal.update(suz(gelen))
+                hal["uptime"] = 1               # yeniden başladı
+            return metin(self, 200, "SIP configuration saved. Rebooting...")
+
+        return self.yaz(404, b"File not found", "text/plain")
+
+    sunucu = _Sunucu(_temel_handler("AnonsHandler", gonder))
+    sunucu.hal = hal                            # testler halini okuyabilsin
+    sunucu.mod_hali = mod_hali
+    return sunucu
+
+
+def anons_yazmalari(sunucu) -> list[str]:
+    """Cihaza yazma isteği atılan uçlar — sırasıyla."""
+    return [yol for yontem, yol in sunucu.gecmis if yontem == "POST"]
 
 
 def sessiz():

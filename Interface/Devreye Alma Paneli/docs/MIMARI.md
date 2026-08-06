@@ -304,6 +304,78 @@ aynıdır — bir test bunu doğrudan karşılaştırır.
 cihazlar gösterilir. 23 sütun sığmadığı için tablo kendi içinde yatay
 kayar; sayfa gövdesi kaymaz.
 
+### Konfigürasyon = DeviceMap hedefi ↔ cihazdaki değer
+
+Ekran her alan için iki değeri yan yana gösterir: cihazdan okunan ve
+yazılacak hedef. Hedefin sırası **cihaza özel > gruba girilen > DeviceMap**.
+Kutular hedef değerle **hazır gelir**; kullanıcı hiçbir şeye dokunmazsa
+"Gruba Uygula" DeviceMap'teki konfigürasyonu yazar. Devralınan değer
+kutuda soluk/italik durur, girilen değerden ayırt edilir.
+
+DeviceMap'te bir ayarın anahtarı **cihazın kendi alan adıdır** (büyük/küçük
+harf önemsiz): `SpeakerVolume`, `MicGain`, `LogLevel`, `PBXExtension`,
+`Target1`, `TcHigh`… Panel ayrıca bir eşleme tablosu tutmaz. Üç düzey
+birleşir, sonraki öncekini ezer:
+
+```json
+{
+  "Config": {
+    "Announcement":         { "LogLevel": 1 },
+    "Announcement/Handset": { "SpeakerVolume": 80, "AnswerMode": 1 }
+  },
+  "Switches": [
+    { "Devices": [
+      { "Type": "Announcement", "SubType": "Handset",
+        "PBXExtension": "3001", "SpeakerVolume": 70 }
+    ]}
+  ]
+}
+```
+
+- Geçersiz proje değeri (aralık dışı, tanımsız seçim) hedef sayılmaz ve
+  cihaza yazılmaz; satırda `DeviceMap ✕` olarak sebebiyle görünür. Hatalı
+  proje verisini cihaza yazmak, yanlış ayarı kalıcı hâle getirmek olurdu.
+- Gruba yazılacak değer kutusu, o ayar gruptaki bütün cihazlarda aynıysa
+  dolu gelir. Cihaza göre değişen alanda (dahili numara) bilerek boş kalır:
+  tek numara gösterip kullanıcının bir harf değiştirmesi bütün gruba aynı
+  numarayı yazdırırdı.
+- Alan listesi **cihaz tipine göre** daralır; hangi alanın hangi uca
+  gittiği `core/konfig.py` → `ROTA` tablosundadır (ayrıntı:
+  `YATAKLI_DevreyeAlma/CIHAZ_ENDPOINTLERI.md`). Cihaz tek bir "ayarları
+  yaz" ucu sunmuyor; ana uç POST'a 405 döner.
+- **Yalnız farklı olan alan yazılır.** SIP ucu cihazı yeniden başlattığı
+  için, zaten uyuşan bir ayar uğruna cihaz karartılmaz; iş satırı bu
+  durumda "Ayarlar zaten uyuşuyor — yazılmadı" der.
+- Yazımdan sonra ayarlar tekrar okunur. HTTP 200 başarı sayılmaz: cihaz
+  tanımadığı alanı hata vermeden yok sayabiliyor.
+- SIP parolası girilebilir ama **hiçbir yanıtta geri dönmez**; satırda
+  yalnız uyuşup uyuşmadığı ve kaynağı görünür. Bu değer cihazın SIP kaydı
+  içindir, panelin cihaza bağlanma kimliği değildir (bkz. bölüm 4).
+  Parola `Config` bloğuna YAZILMAZ — projede önerilen ya da fabrika
+  parolası diye bir şey yok. DeviceMap'te cihaz kaydında `PBXPassword`
+  varsa (Intercom, Handset) o kullanılır; yoksa (Amplifier, UIC) cihazda
+  duran parola korunur ya da kullanıcı ekrandan girer.
+- Girilen değerler **kalıcıdır**: her değişiklikte kullanıcının veri
+  dizinine (`ayar.veri_dizini()`, macOS'ta *Application Support*) yazılır ve
+  `panel_api.sunucu()` açılışta geri yükler. Gizli alan (SIP parolası)
+  dosyaya HİÇ girmez; bozuk dosya, tanınmayan alan ya da geçersiz değer
+  sessizce atlanır — eski bir dosya yüzünden panel açılmaz olmamalı, cihaza
+  da tanımsız değer gitmemeli. "Kayıtlı Değerleri Sıfırla" dosyayı siler,
+  ekran DeviceMap değerlerine döner. Dosya proje ağacına ya da DeviceMap'in
+  yanına yazılmaz (bir test bunu doğrular).
+- Ekran **iki aşamalı** yüklenir: `/api/konfig/alanlar` cihaza hiç
+  gitmez (alan listesi + hedefler + DeviceMap değerleri, ~5 ms), cihazdaki
+  değerler arkadan `/api/konfig` ile gelir. Tek istek beklenirken grup
+  değiştirmek saniyelerce eski grubun alanlarını gösteriyordu. Geciken
+  yanıtın yeni seçimin üstüne yazmaması için her tazelemenin sıra numarası
+  var. Konfigürasyon okuması ek uçlardan yalnız gerekeni ister (Handset'te
+  `system/modes`, diğerlerinde hiç): olmayan altı ucu denemek okumayı
+  gereksiz uzatıyordu.
+- Salt okunur **SIP Kaydı** satırı cihazın `status` alanıdır. Dahili
+  numara/parola yazıldıktan sonra bakılacak yer burasıdır: cihaz ayarı
+  kabul etmiş olabilir ama PBX'e kaydolmamış olabilir; yazma doğrulaması
+  yalnız alanın oturduğunu söyler, kaydın tuttuğunu söylemez.
+
 ### Tren seti değiştirme
 
 Üst bardaki `SET n` bir açılır listedir ve **rolden bağımsızdır**: saha

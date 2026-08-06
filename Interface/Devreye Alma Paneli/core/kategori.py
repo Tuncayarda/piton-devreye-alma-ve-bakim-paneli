@@ -86,7 +86,7 @@ GRUPLAR = [
     {"ad": "AP", "tip": "AP", "alt": "", "ops": "ip dog"},
     {"ad": "PISCU", "tip": "PISCU", "alt": "", "ops": "dog"},
     {"ad": "HMI", "tip": "HMI", "alt": "", "ops": "dog"},
-    {"ad": "Tümü", "tip": "*", "alt": "", "ops": "dog"},
+    {"ad": "Tümü", "tip": "*", "alt": "", "ops": "ip dog"},
 ]
 
 

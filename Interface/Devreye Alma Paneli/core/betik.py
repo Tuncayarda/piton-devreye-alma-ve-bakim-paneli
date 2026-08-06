@@ -61,15 +61,13 @@ def device_verify():
     openpyxl gerektirir; bu yüzden yalnızca gerçekten kullanılacağı anda
     çağrılır (tarama sırasında değil, alan ayıklarken ve Excel üretirken).
     """
-    return yukle("yatakli_device_verify",
-                 ayar.KOK.parent.parent / "YATAKLI_DevreyeAlma" / "device_verify.py",
+    return yukle("yatakli_device_verify", ayar.DEVICE_VERIFY,
                  "Saha doğrulama betiği (device_verify.py)")
 
 
 def intercom_ip_assign():
     """IP atama betiği — PoE ile port açma/kapama ve cihaza IP yazma."""
-    return yukle("yatakli_ip_assign",
-                 ayar.KOK.parent.parent / "YATAKLI_DevreyeAlma" / "intercom_ip_assign.py",
+    return yukle("yatakli_ip_assign", ayar.INTERCOM_IP_ASSIGN,
                  "IP atama betiği (intercom_ip_assign.py)")
 
 

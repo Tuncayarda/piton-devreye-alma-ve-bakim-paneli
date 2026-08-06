@@ -470,7 +470,13 @@ async function basla() {
     }
   });
 
-  kilit.baglaYenile(() => { isleriCek(); });
+  // Kimlik doğrulandıktan sonra açık ekran da tazelenir: IP atama ekranı
+  // switch kimliğine bakıp koşuyu kilitliyor, kullanıcı parolayı girince
+  // özetin güncellenmesi için sayfadan çıkıp girmek zorunda kalıyordu.
+  kilit.baglaYenile(() => {
+    isleriCek();
+    ekranaGirildi(durum.gorunum);
+  });
   abone(ciz);
   $('#rol-kullanici').focus();
 }

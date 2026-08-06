@@ -144,23 +144,101 @@ def tarama_isi(env: device_map.Envanter):
     return govde
 
 
-def ip_isi(env, switch_id, portlar, dry_run, pc_port):
+def ip_fabrika_isi(env, switch_id, portlar, gruplar, ayarlar):
+    """Test akışı: seçili cihazları fabrika adresine döndürür."""
     def govde(is_: isler.Is):
         adim = {"n": 0}
 
         def satir(metin: str):
             adim["n"] += 1
-            is_.ozel_satir(f"adim{adim['n']}", metin, durum="tamam")
+            is_.ozel_satir(f"adim{adim['n']}", metin,
+                           durum=_ip_satir_durumu(metin))
 
-        kod = ip_atama.kosu(env, switch_id, portlar, dry_run, satir,
-                            pc_port=pc_port)
-        if kod:
+        kalan = ip_atama.fabrikaya_dondur(
+            env, switch_id, portlar, gruplar, satir,
+            ayarlar=ayarlar, iptal=is_.iptal.is_set)
+        if kalan:
+            is_.hata = f"{kalan} cihaza fabrika IP'si yazılamadı"
+
+    return govde
+
+
+def _ip_satir_durumu(metin: str) -> str:
+    """Betik çıktısının satırını kuyruk rengine çevirir.
+
+    Koşu iki yüz satır yazıyor; hepsi yeşil "Tamam" görününce bir portun
+    neden tamamlanmadığı gözden kaçıyordu. Betiğin kendi işaretleri
+    kullanılır: "[HATA]" ve "EKSİK —" başarısızlık, "[!]" uyarıdır.
+    """
+    if "PORTLAR KAPALI KALMIŞ" in metin or "[HATA]" in metin:
+        return "hata"
+    if "EKSİK —" in metin or "tamamlanmadı" in metin:
+        return "hata"
+    if "[!]" in metin:
+        return "uyari"
+    return "tamam"
+
+
+def ip_isi(env, switch_id, portlar, korumali, gruplar, ayarlar):
+    def govde(is_: isler.Is):
+        adim = {"n": 0}
+        # Betik portları geri açamazsa cihazlar sahada kapalı kalır. Bu,
+        # kuyruk satırları arasında kaybolacak bir uyarı değil; işin
+        # hatasına çıkar ki kullanıcı elle açması gerektiğini görsün.
+        acik_kalmadi = {"var": False}
+
+        def satir(metin: str):
+            adim["n"] += 1
+            if "PORTLAR KAPALI KALMIŞ" in metin:
+                acik_kalmadi["var"] = True
+            is_.ozel_satir(f"adim{adim['n']}", metin,
+                           durum=_ip_satir_durumu(metin))
+
+        # İptal bayrağı betiğe kadar gider: kullanıcı durdurunca betik
+        # kendi Ctrl-C yolundan geçip PoE portlarını geri açar.
+        kod = ip_atama.kosu(env, switch_id, portlar, satir,
+                            korumali=korumali, gruplar=gruplar,
+                            ayarlar=ayarlar, iptal=is_.iptal.is_set)
+        sw = env.bul(switch_id)
+        if acik_kalmadi["var"]:
+            is_.hata = (
+                "PoE portları geri açılamadı — cihazlar hâlâ kapalı olabilir. "
+                f"Switch arayüzünden elle açın: http://{sw.ip if sw else ''}"
+                "/poePort.html")
+        elif kod and kod != 130:      # 130 = kullanıcı durdurdu
             is_.hata = f"IP atama betiği {kod} koduyla bitti"
 
     return govde
 
 
-def konfig_isi(env, cihazlar):
+def _konfig_alanlari(env, c, grup: str) -> dict:
+    """Ekranın alan tanımları, gruba girilen hedefler ve DeviceMap değerleri.
+
+    Cihaz okunamadığında da dönmeli: gruba yazılacak değerler sahada
+    cihaza erişilemezken hazırlanıyor. Alanlar cihaz tipine göre değişir —
+    Handset'in mod alanları Amplifier'da yok, UIC'in eşikleri yalnız
+    UIC'te var. Gizli alanın (SIP parolası) değeri arayüze gönderilmez;
+    yalnız "girildi mi" bilgisi gider.
+
+    `projeHedef`, gruptaki bütün cihazlarda aynı olan DeviceMap değerleri;
+    ekran bunları kutulara hazır yazar. `projeFarkli` cihaza göre değişen
+    alanların listesi — o kutular boş kalır.
+    """
+    gr = kategori.grup_bul(grup)
+    hedefler = [x for x in env.cihazlar
+                if gr and kategori.grup_eslesir(gr, x)] or [c]
+    ortak, farkli = konfig.grup_proje_ozeti(env, hedefler)
+    return {
+        "alanlar": konfig.alan_listesi(c.subtype or ""),
+        "grupHedef": konfig.grup_hedef_gosterim(grup),
+        "grupGizli": konfig.grup_gizli_alanlar(grup),
+        "projeHedef": ortak,
+        "projeFarkli": farkli,
+        "varsayilan": konfig.varsayilan_ozeti(),
+    }
+
+
+def konfig_isi(env, cihazlar, grup=""):
     def govde(is_: isler.Is):
         for c in cihazlar:
             is_.satir_kur(c)
@@ -170,8 +248,16 @@ def konfig_isi(env, cihazlar):
                 continue
             is_.satir_guncelle(c.id, isler.CALISIYOR, "Uygulanıyor")
             try:
-                konfig.uygula(c, env, _kimlik(c))
-                is_.satir_guncelle(c.id, "tamam", "Yazıldı ve doğrulandı")
+                sonuc = konfig.uygula(c, env, _kimlik(c), grup)
+                yazilan = sonuc.get("yazilanAlanlar") or []
+                # Zaten uyuşan cihaza istek atılmıyor; satır bunu açıkça
+                # söylemeli, yoksa "yazıldı" diyen bir satırın arkasında
+                # hiçbir istek olmadığı görünmez.
+                is_.satir_guncelle(c.id, "tamam", (
+                    f"Yazıldı ve doğrulandı: {', '.join(yazilan)}"
+                    + (" · cihaz yeniden başlatıldı"
+                       if sonuc.get("yenidenBaslatildi") else "")
+                ) if yazilan else "Ayarlar zaten uyuşuyor — yazılmadı")
             except KimlikHatasi as exc:
                 is_.satir_guncelle(c.id, "kimlik", kullanici_mesaji(exc))
             except Exception as exc:
@@ -366,10 +452,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if yol == "/api/ip/plan":
             env = _env(tek("set", 1))
-            grup = kategori.grup_bul(tek("grup", "")) or kategori.GRUPLAR[0]
+            # Birden çok grup seçilebilir: "gruplar=Intercom,Kamera".
+            # Tek gruplu eski biçim (grup=…) da kabul edilir.
+            adlar = [a for a in (tek("gruplar") or tek("grup", "")).split(",")
+                     if a.strip()]
+            gruplar = ip_atama.gruplari_coz(adlar) or [kategori.GRUPLAR[0]]
             hedefler = [c for c in env.cihazlar
-                        if kategori.grup_eslesir(grup, c) and c.port]
-            # Hedef grubun cihazları hangi switch'teyse plan o switch içindir.
+                        if c.port and any(kategori.grup_eslesir(g, c)
+                                          for g in gruplar)]
+            # Hedef grupların cihazları hangi switch'teyse plan o switch içindir.
             sw = tek("switch") or (hedefler[0].switch_id if hedefler else
                                    (env.switchler()[0].id if env.switchler() else ""))
             izinli = set(ip_atama.izinli_portlar(env, sw))
@@ -377,16 +468,25 @@ class Handler(BaseHTTPRequestHandler):
             if metin:
                 portlar = ip_atama.portlar_ayristir(metin, izinli)
             else:
-                # Varsayılan: yalnız bu grupta cihazı olan portlar. Boş
-                # portları da seçili göstermek kullanıcıyı yanıltıyor.
+                # Varsayılan: yalnız seçili gruplarda cihazı olan portlar.
+                # Boş portları da seçili göstermek kullanıcıyı yanıltıyor.
                 portlar = sorted(
                     {int(c.port) for c in hedefler
                      if c.switch_id == sw and str(c.port).isdigit()} & izinli)
-            grup = grup["ad"]
+            adlar = [g["ad"] for g in gruplar]
             return self._gonder(200, {
-                **ip_atama.plan(env, grup, portlar, sw),
+                **ip_atama.plan(env, adlar, portlar, sw),
                 "izinliPortlar": sorted(izinli),
-                # grupCihaz: o switch'te bu hedef gruptan kaç cihaz var.
+                # Arayüzde önerilecek varsayılanlar: cihazların fabrika
+                # çıkışı beklediği adres ve setin kendi ağı.
+                "fabrikaIp": ip_atama.fabrika_ip(env),
+                "aramaAgi": device_map.coz("10.n.1.0", env.set_no),
+                "aramaMaskesi": "255.255.255.0",
+                # Cihazlar aynı fabrika adresinde geldiği için koşu, her
+                # port değişiminde ARP önbelleğini temizlemek zorunda;
+                # yetki yoksa kullanıcı bunu koşudan önce bilsin.
+                "arpTemizlik": ip_atama.arp_yetkisi(),
+                # grupCihaz: o switch'te seçili gruplardan kaç cihaz var.
                 # Arayüz, gruba ait cihazı olmayan switch'in panelini buna
                 # bakarak işaretler; kullanıcı boşuna port aramaz.
                 "switchler": [{"id": s.id, "ad": s.ad, "ip": s.ip,
@@ -401,14 +501,33 @@ class Handler(BaseHTTPRequestHandler):
             sw = _cihaz(env, sw_id)
             return self._gonder(200, ip_atama.onpanel(env, sw.id, _kimlik(sw)))
 
+        if yol == "/api/konfig/alanlar":
+            # Cihaza HİÇ gitmeyen hızlı uç: alan listesi, hedefler ve
+            # DeviceMap değerleri. Grup değiştirilince ekran bunu bekler,
+            # cihaz okumasını değil — okuma saniyeler sürebiliyor ve o
+            # sürede kart eski grubun alanlarını gösteriyordu.
+            env = _env(tek("set", 1))
+            c = _cihaz(env, tek("id"))
+            grup = tek("grup", "")
+            return self._gonder(200, {
+                "cihazId": c.id, "grup": grup, "alt": c.subtype or "",
+                "satirlar": [], "okunuyor": True,
+                **_konfig_alanlari(env, c, grup)})
+
         if yol == "/api/konfig":
             env = _env(tek("set", 1))
             c = _cihaz(env, tek("id"))
+            grup = tek("grup", "")
             try:
-                return self._gonder(200, konfig.cek(c, env, _kimlik(c)))
+                return self._gonder(200, {
+                    **konfig.cek(c, env, _kimlik(c), grup),
+                    **_konfig_alanlari(env, c, grup),
+                })
             except CihazHatasi as exc:
                 return self._gonder(200, {
-                    "cihazId": c.id, "satirlar": [],
+                    "cihazId": c.id, "grup": grup, "satirlar": [],
+                    "alt": c.subtype or "",
+                    **_konfig_alanlari(env, c, grup),
                     "hata": kullanici_mesaji(exc),
                     "kimlik": isinstance(exc, KimlikHatasi)})
 
@@ -572,30 +691,136 @@ class Handler(BaseHTTPRequestHandler):
                         (env.switchler()[0].id if env.switchler() else ""))
             izinli = set(ip_atama.izinli_portlar(env, sw.id))
             portlar = ip_atama.portlar_ayristir(str(g.get("portlar", "")), izinli)
+            # Koşunun dokunmaması gereken portlar. İkisi de fiziksel
+            # gerçek: bilgisayar bir switch'in bir portunda, iki switch de
+            # birbirine bir portla bağlı. Yalnız hedef switch'e ait olanlar
+            # bu koşuyu ilgilendirir.
+            korumali: dict[int, str] = {}
+            pc_sw = str(g.get("pcSwitch") or "")
             pc = g.get("pcPort")
-            pc = int(pc) if str(pc).isdigit() else None
-            kuru = g.get("dryRun", True) is not False
+            if (not pc_sw or pc_sw == sw.id) and str(pc).isdigit():
+                korumali[int(pc)] = "bilgisayar bu porta bağlı"
+            bag = g.get("baglanti")
+            if isinstance(bag, dict) and str(bag.get(sw.id, "")).isdigit():
+                korumali[int(bag[sw.id])] = "diğer switch'e giden bağlantı"
+            # Kuyruğa girmeden burada da denetlenir: kullanıcı hatayı
+            # düğmeye bastığı anda görsün, bir de kuyrukta ölü iş kalmasın.
+            ip_atama.korumali_denetle(portlar, korumali)
+            # Seçilen gruplar sırayla, her biri kendi betiğiyle yürür.
+            # Betiği olmayan grup kuyruğa hiç girmez.
+            ham = g.get("gruplar") or g.get("grup") or []
+            adlar = [ham] if isinstance(ham, str) else list(ham)
+            gruplar = [x["ad"] for x in ip_atama.gruplari_coz(adlar)]
+            if not gruplar:
+                return self._gonder(400, {"hata": "Cihaz grubu seçilmedi"})
+            eksik = ip_atama.kosucusuz(gruplar)
+            if eksik:
+                return self._gonder(400, {
+                    "hata": "Bu grup için IP atama betiği henüz yok: "
+                            + ", ".join(eksik)})
+            # Adresleme: cihazların fabrika çıkışı beklediği IP ve orada
+            # bulunamayanlar için taranacak ağ. Aday listesi burada
+            # üretilmez, yalnız doğrulanır — üretimi koşu yapar.
+            ayarlar = {
+                "fabrikaIp": str(g.get("fabrikaIp") or "").strip(),
+                "aramaAgi": str(g.get("aramaAgi") or "").strip(),
+                "aramaMaskesi": str(g.get("aramaMaskesi") or "").strip(),
+            }
+            if ayarlar["fabrikaIp"] and not ip_atama.ipv4_mi(ayarlar["fabrikaIp"]):
+                return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
+            try:
+                ip_atama.arama_adaylari(ayarlar["aramaAgi"],
+                                        ayarlar["aramaMaskesi"])
+            except ValueError as exc:
+                return self._gonder(400, {"hata": str(exc)})
+
+            baslik = gruplar[0] if len(gruplar) == 1 else f"{len(gruplar)} grup"
             is_ = isler.Is("ip",
-                           f"IP atama · {sw.ad} · {ip_atama.metin_yap(portlar)}"
-                           + (" (dry-run)" if kuru else ""),
+                           f"IP atama · {sw.ad} · {baslik} · "
+                           f"{ip_atama.metin_yap(portlar)}",
                            env.set_no, anahtar=f"ip:{env.set_no}:{sw.id}")
             is_, yeni = isler.YONETICI.ekle(
-                is_, ip_isi(env, sw.id, portlar, kuru, pc))
+                is_, ip_isi(env, sw.id, portlar, korumali, gruplar, ayarlar))
+            return self._gonder(200 if yeni else 202,
+                                {**is_.dto(satir=False), "yeni": yeni})
+
+        if yol == "/api/ip/fabrika":
+            # Test akışı: seçili cihazları yeniden fabrika adresinde topla.
+            # Koşunun tersi değil, başlangıç durumunu kurma aracı.
+            env = _env(g.get("set"))
+            sw = _cihaz(env, g.get("switch") or
+                        (env.switchler()[0].id if env.switchler() else ""))
+            izinli = set(ip_atama.izinli_portlar(env, sw.id))
+            portlar = ip_atama.portlar_ayristir(str(g.get("portlar", "")), izinli)
+            ham = g.get("gruplar") or g.get("grup") or []
+            adlar = [ham] if isinstance(ham, str) else list(ham)
+            gruplar = [x["ad"] for x in ip_atama.gruplari_coz(adlar)]
+            if not gruplar:
+                return self._gonder(400, {"hata": "Cihaz grubu seçilmedi"})
+            fabrika = str(g.get("fabrikaIp") or "").strip()
+            if fabrika and not ip_atama.ipv4_mi(fabrika):
+                return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
+            is_ = isler.Is("ipfab",
+                           f"Fabrika IP'sine döndür · {sw.ad} · "
+                           f"{ip_atama.metin_yap(portlar)}",
+                           env.set_no, anahtar=f"ipfab:{env.set_no}:{sw.id}")
+            is_, yeni = isler.YONETICI.ekle(
+                is_, ip_fabrika_isi(env, sw.id, portlar, gruplar,
+                                    {"fabrikaIp": fabrika}))
             return self._gonder(200 if yeni else 202,
                                 {**is_.dto(satir=False), "yeni": yeni})
 
         if yol == "/api/konfig/hedef":
             env = _env(g.get("set"))
             c = _cihaz(env, g.get("cihazId"))
-            konfig.hedef_yaz(c.id, str(g.get("alan", "")), str(g.get("deger", "")))
-            return self._gonder(200, konfig.cek(c, env, _kimlik(c)))
+            grup = str(g.get("grup") or "")
+            alan, deger = str(g.get("alan", "")), str(g.get("deger", ""))
+            # "kapsam": grup = aynı değer bütün gruba, cihaz = yalnız bu
+            # cihaza (grubunkini ezer). Değer, cihaz tipinin alan tanımına
+            # göre burada doğrulanır: geçersiz değer bellekte bekleyip
+            # yazma anında patlarsa kullanıcı hatayı kuyrukta görürdü.
+            alt = c.subtype or ""
+            if str(g.get("kapsam") or "cihaz") == "grup":
+                if not grup:
+                    return self._gonder(400, {"hata": "grup gerekli"})
+                gr = kategori.grup_bul(grup)
+                konfig.grup_hedef_yaz(grup, alan, deger,
+                                      (gr or {}).get("alt") or alt)
+            else:
+                konfig.hedef_yaz(c.id, alan, deger, alt)
+            try:
+                govde = konfig.cek(c, env, _kimlik(c), grup)
+            except CihazHatasi as exc:
+                govde = {"cihazId": c.id, "grup": grup, "satirlar": [],
+                         "alt": alt,
+                         "hata": kullanici_mesaji(exc),
+                         "kimlik": isinstance(exc, KimlikHatasi)}
+            return self._gonder(200, {**govde, **_konfig_alanlari(env, c, grup)})
+
+        if yol == "/api/konfig/sifirla":
+            # Kayıtlı varsayılanlar silinir; DeviceMap'teki proje değerleri
+            # yerinde kalır, ekran onlara döner.
+            env = _env(g.get("set"))
+            c = _cihaz(env, g.get("cihazId"))
+            grup = str(g.get("grup") or "")
+            konfig.varsayilanlari_sil()
+            try:
+                govde = konfig.cek(c, env, _kimlik(c), grup)
+            except CihazHatasi as exc:
+                govde = {"cihazId": c.id, "grup": grup, "satirlar": [],
+                         "alt": c.subtype or "",
+                         "hata": kullanici_mesaji(exc),
+                         "kimlik": isinstance(exc, KimlikHatasi)}
+            return self._gonder(200, {**govde, **_konfig_alanlari(env, c, grup)})
 
         if yol == "/api/konfig/uygula":
             env = _env(g.get("set"))
             cihazlar = self._hedef_cihazlar(env, g)
+            grup = str(g.get("grup") or "")
             is_ = isler.Is("cfg", f"Konfigürasyon · {len(cihazlar)} cihaz",
                            env.set_no, anahtar=f"cfg:{env.set_no}")
-            is_, yeni = isler.YONETICI.ekle(is_, konfig_isi(env, cihazlar))
+            is_, yeni = isler.YONETICI.ekle(is_,
+                                            konfig_isi(env, cihazlar, grup))
             return self._gonder(200 if yeni else 202,
                                 {**is_.dto(satir=False), "yeni": yeni})
 
@@ -780,6 +1005,10 @@ def sunucu(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
     """Yalnız yerel arayüzde dinleyen sunucu."""
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError("Bu servis yalnızca localhost üzerinde çalışır")
+    # Konfigürasyon varsayılanları açılışta dosyadan gelir (parola hariç;
+    # o hiç yazılmaz). İki giriş noktası da (app.py ve main) buradan
+    # geçtiği için yükleme tek yerde duruyor.
+    konfig.varsayilanlari_yukle()
     return ThreadingHTTPServer((host, port), Handler)
 
 

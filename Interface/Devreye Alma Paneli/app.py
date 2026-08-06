@@ -103,8 +103,14 @@ def self_test() -> int:
     for varlik in ("index.html", "css/temel.css", "js/app.js",
                    "piton-logo.svg", "piton-favicon.png"):
         kontrol(f"static/{varlik}", (ayar.STATIC_DIR / varlik).exists())
-    kontrol("Switch Yönetim Paneli backend'i", ayar.SWITCH_PANELI.exists(),
-            str(ayar.SWITCH_PANELI))
+    # Kardeş projelerdeki üç betik (bkz. core/betik.py). Paketlenmiş
+    # uygulamada bunlar paketin içine kopyalanır; biri eksikse switch
+    # okuması, IP atama ya da Excel çıktısı sahada çalışmaz — paket
+    # üretildiği yerde anlaşılsın.
+    for ad, yol in (("Switch Yönetim Paneli backend'i", ayar.SWITCH_PANELI),
+                    ("Saha doğrulama betiği", ayar.DEVICE_VERIFY),
+                    ("IP atama betiği", ayar.INTERCOM_IP_ASSIGN)):
+        kontrol(ad, yol.exists(), str(yol))
 
     try:
         env = device_map.yukle(1)

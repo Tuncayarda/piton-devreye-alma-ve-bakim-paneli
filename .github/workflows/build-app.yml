@@ -1,26 +1,58 @@
-name: Build
+name: Paket üret (ortak)
 
-# Dört platform için taşınabilir paket + Windows kurulum paketi üretir.
-#   • workflow_dispatch  -> yalnızca Artifact
-#   • v* etiketi push'u  -> Artifact + GitHub Release
+# Bir uygulamayı dört platform için paketler ve etiket push'unda Release
+# yayınlar. Kendi başına çalışmaz: çağıran workflow'lar hangi uygulamanın
+# derleneceğini söyler.
 #
-# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı — bkz. docs/BUILD_RELEASE.md).
+#   .github/workflows/build-switch.yml    Switch Yönetim Paneli
+#   .github/workflows/build-devreye.yml   Devreye Alma Paneli
+#
+# Depoda iki uygulama var ve ikisi AYRI AYRI derlenip ayrı Release alıyor.
+# Ortak adımlar (build, self-test, paketleme, Release doğrulaması) burada tek
+# yerde durur; iki kopya yan yana yaşarsa biri düzeltilip diğeri unutuluyor.
+#
+# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı).
 
 on:
-  workflow_dispatch:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      uygulama_dizini:
+        description: Uygulama kökü (depo köküne göre)
+        required: true
+        type: string
+      ad:
+        description: Çıktı adı — exe/dist klasörü ve dosya adları (ASCII)
+        required: true
+        type: string
+      gorunen_ad:
+        description: macOS .app paketinin görünen adı
+        required: true
+        type: string
+      spec:
+        description: PyInstaller spec dosyası (uygulama köküne göre)
+        required: true
+        type: string
+      iss:
+        description: Inno Setup betiği (uygulama köküne göre)
+        required: true
+        type: string
+      testler:
+        description: Birim test komutu — boşsa test adımı atlanır
+        required: false
+        type: string
+        default: ""
+      python_surumu:
+        required: false
+        type: string
+        default: "3.12"
 
 permissions:
   contents: read          # build job'ları için okuma yeterli
 
-concurrency:
-  group: build-${{ github.ref }}
-  cancel-in-progress: false      # yarım kalan release build'i iptal etme
-
 env:
-  UYGULAMA_DIZINI: Interface/Switch Yönetim Paneli
-  PYTHON_SURUMU: "3.12"
+  UYGULAMA_DIZINI: ${{ inputs.uygulama_dizini }}
+  ADI: ${{ inputs.ad }}
+  PYTHON_SURUMU: ${{ inputs.python_surumu }}
   # appimagetool'un beklenen sha256'sı. Boşken doğrulama yapılmaz, indirilen
   # dosyanın özeti log'a yazılır; ilk çalıştırmadan sonra buraya yapıştırıp
   # sabitleyin.
@@ -28,7 +60,7 @@ env:
 
 jobs:
   build:
-    name: ${{ matrix.ad }}
+    name: ${{ inputs.ad }} · ${{ matrix.ad }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -87,10 +119,12 @@ jobs:
           KAYNAK="$(python app.py --version)"
           echo "Kaynaktaki sürüm: $KAYNAK"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            ETIKET="${GITHUB_REF_NAME#v}"
+            # Etiket önekleri: "dap-v0.9.0" ya da eski biçim "v1.0.2".
+            ETIKET="${GITHUB_REF_NAME#*-v}"
+            ETIKET="${ETIKET#v}"
             if [[ "$ETIKET" != "$KAYNAK" ]]; then
-              echo "::error::Etiket ($GITHUB_REF_NAME) ile APP_VERSION ($KAYNAK) uyuşmuyor."
-              echo "switch_api.py içindeki APP_VERSION'ı güncelleyin ya da doğru etiketi atın."
+              echo "::error::Etiket ($GITHUB_REF_NAME → $ETIKET) ile APP_VERSION ($KAYNAK) uyuşmuyor."
+              echo "Kaynaktaki sürümü güncelleyin ya da doğru etiketi atın."
               exit 1
             fi
             SURUM="$ETIKET"
@@ -99,6 +133,11 @@ jobs:
           fi
           echo "surum=$SURUM" >> "$GITHUB_OUTPUT"
           echo "Kullanılacak sürüm: $SURUM"
+
+      - name: Birim testler
+        if: inputs.testler != ''
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: ${{ inputs.testler }}
 
       - name: Self-test (kaynak koddan)
         working-directory: ${{ env.UYGULAMA_DIZINI }}
@@ -110,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf build dist
-          python -m PyInstaller --noconfirm --clean SwitchYonetimPaneli.spec
+          python -m PyInstaller --noconfirm --clean "${{ inputs.spec }}"
           ls -la dist
 
       # ── paketlenmiş uygulamada self-test ────────────────────────────────
@@ -124,7 +163,7 @@ jobs:
         shell: pwsh
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
-          $exe = "dist/SwitchYonetimPaneli/SwitchYonetimPaneli.exe"
+          $exe = "dist/${{ inputs.ad }}/${{ inputs.ad }}.exe"
           if (-not (Test-Path $exe)) { throw "exe bulunamadı: $exe" }
           $tam = (Resolve-Path $exe).Path
           $cikti = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
@@ -149,7 +188,7 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          BIN="dist/Switch Yönetim Paneli.app/Contents/MacOS/SwitchYonetimPaneli"
+          BIN="dist/${{ inputs.gorunen_ad }}.app/Contents/MacOS/${{ inputs.ad }}"
           test -x "$BIN" || { echo "çalıştırılabilir bulunamadı: $BIN"; exit 1; }
           "$BIN" --self-test
 
@@ -158,7 +197,7 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          ./dist/SwitchYonetimPaneli/SwitchYonetimPaneli --self-test
+          "./dist/${{ inputs.ad }}/${{ inputs.ad }}" --self-test
 
       # ── platforma göre paketleme ────────────────────────────────────────
       - name: Paketle — Windows (onedir ZIP)
@@ -166,9 +205,9 @@ jobs:
         shell: pwsh
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
-          $ad = "SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          $ad = "${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path dist/SwitchYonetimPaneli -DestinationPath "release/$ad" -Force
+          Compress-Archive -Path "dist/${{ inputs.ad }}" -DestinationPath "release/$ad" -Force
           Get-Item "release/$ad" | Select-Object Name, Length
 
       # ── Windows kurulum paketi (Inno Setup) ─────────────────────────────
@@ -212,12 +251,12 @@ jobs:
           $surum = "${{ steps.surum.outputs.surum }}"
           & "$env:ISCC" `
             "/DMyAppVersion=$surum" `
-            "/DSourceDir=..\..\dist\SwitchYonetimPaneli" `
+            "/DSourceDir=..\..\dist\${{ inputs.ad }}" `
             "/DOutputDir=..\..\release" `
-            "packaging\windows\SwitchYonetimPaneli.iss"
+            "${{ inputs.iss }}".Replace('/', '\')
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup başarısız ($LASTEXITCODE)" }
 
-          $setup = "release/SwitchYonetimPaneli-$surum-windows-x64-Setup.exe"
+          $setup = "release/${{ inputs.ad }}-$surum-windows-x64-Setup.exe"
           if (-not (Test-Path $setup)) { throw "kurulum paketi üretilmedi: $setup" }
           $b = (Get-Item $setup).Length
           if ($b -lt 5mb) { throw "kurulum paketi şüpheli küçük: $b bayt" }
@@ -228,11 +267,11 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          AD="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          AD="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
           mkdir -p release
           # ditto: macOS dosya öznitelikleri ve sembolik bağlar korunur
           ditto -c -k --sequesterRsrc --keepParent \
-            "dist/Switch Yönetim Paneli.app" "release/$AD"
+            "dist/${{ inputs.gorunen_ad }}.app" "release/$AD"
           ls -lh "release/$AD"
 
       - name: Paketle — Linux (AppImage)
@@ -240,9 +279,9 @@ jobs:
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          TEMEL="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
+          TEMEL="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
           chmod +x packaging/appimage.sh
-          ./packaging/appimage.sh dist/SwitchYonetimPaneli "release/$TEMEL.AppImage" \
+          ./packaging/appimage.sh "dist/${{ inputs.ad }}" "release/$TEMEL.AppImage" \
             "${{ steps.surum.outputs.surum }}"
 
       - name: AppImage doğrulaması
@@ -257,14 +296,14 @@ jobs:
           cd "$(mktemp -d)"
           "$OLDPWD/$IMG" --appimage-extract > /dev/null
           test -x squashfs-root/AppRun || { echo "AppRun yok"; exit 1; }
-          ./squashfs-root/usr/bin/SwitchYonetimPaneli --self-test
+          "./squashfs-root/usr/bin/${{ inputs.ad }}" --self-test
 
       - name: AppImage'i ZIP'e koy
         if: runner.os == 'Linux'
         working-directory: ${{ env.UYGULAMA_DIZINI }}
         run: |
           set -euo pipefail
-          TEMEL="SwitchYonetimPaneli-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
+          TEMEL="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
           cd release
           # ZIP çalıştırma iznini saklar; AppImage açıldığında chmod +x
           # gerekmez. Ayrıca artifact/release boyutu küçülür.
@@ -280,17 +319,16 @@ jobs:
           set -euo pipefail
           SURUM="${{ steps.surum.outputs.surum }}"
           HEDEF="${{ matrix.hedef }}"
+          ADI="${{ inputs.ad }}"
 
           # Platform başına TAM olarak hangi dosyaların beklendiği.
           # Eksik dosya sessizce geçmesin diye tek tek arıyoruz.
           case "$HEDEF" in
             windows-x64)
-              BEKLENEN=("SwitchYonetimPaneli-$SURUM-windows-x64.zip"
-                        "SwitchYonetimPaneli-$SURUM-windows-x64-Setup.exe") ;;
-            linux-x86_64)
-              BEKLENEN=("SwitchYonetimPaneli-$SURUM-linux-x86_64.zip") ;;
+              BEKLENEN=("$ADI-$SURUM-windows-x64.zip"
+                        "$ADI-$SURUM-windows-x64-Setup.exe") ;;
             *)
-              BEKLENEN=("SwitchYonetimPaneli-$SURUM-$HEDEF.zip") ;;
+              BEKLENEN=("$ADI-$SURUM-$HEDEF.zip") ;;
           esac
 
           echo "release/ içeriği:"
@@ -316,7 +354,7 @@ jobs:
 
           # İş özetine yaz: log'a girmeden görünür olsun
           {
-            echo "### $HEDEF"
+            echo "### $ADI · $HEDEF"
             for d in "${BEKLENEN[@]}"; do
               echo "- \`$d\` — $(du -h "release/$d" | cut -f1)"
             done
@@ -325,15 +363,15 @@ jobs:
       - name: Artifact yükle
         uses: actions/upload-artifact@v7
         with:
-          name: portable-${{ matrix.hedef }}
+          name: ${{ inputs.ad }}-portable-${{ matrix.hedef }}
           path: ${{ env.UYGULAMA_DIZINI }}/release/*
           if-no-files-found: error
           retention-days: 14
 
   release:
-    name: GitHub Release
-    # Yalnızca v* etiketi push'unda ve tüm build'ler geçtiyse
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: ${{ inputs.ad }} · GitHub Release
+    # Yalnızca etiket push'unda ve tüm build'ler geçtiyse
+    if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -347,25 +385,26 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: indirilen
-          pattern: portable-*
+          pattern: ${{ inputs.ad }}-portable-*
           merge-multiple: true
 
       - name: Dosyaları doğrula
         shell: bash
         run: |
           set -euo pipefail
-          SURUM="${GITHUB_REF_NAME#v}"
+          SURUM="${GITHUB_REF_NAME#*-v}"; SURUM="${SURUM#v}"
+          ADI="${{ inputs.ad }}"
           cd indirilen
           echo "İndirilen dosyalar:"
           ls -lh
 
           # Beklenen tam liste — biri eksikse Release YAYINLANMAZ.
           BEKLENEN=(
-            "SwitchYonetimPaneli-$SURUM-windows-x64.zip"
-            "SwitchYonetimPaneli-$SURUM-windows-x64-Setup.exe"
-            "SwitchYonetimPaneli-$SURUM-linux-x86_64.zip"
-            "SwitchYonetimPaneli-$SURUM-macos-arm64.zip"
-            "SwitchYonetimPaneli-$SURUM-macos-x64.zip"
+            "$ADI-$SURUM-windows-x64.zip"
+            "$ADI-$SURUM-windows-x64-Setup.exe"
+            "$ADI-$SURUM-linux-x86_64.zip"
+            "$ADI-$SURUM-macos-arm64.zip"
+            "$ADI-$SURUM-macos-x64.zip"
           )
           EKSIK=0
           for d in "${BEKLENEN[@]}"; do
@@ -395,8 +434,8 @@ jobs:
           ETIKET: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          SURUM="${GITHUB_REF_NAME#v}"
-          NOTLAR="$GITHUB_WORKSPACE/Interface/Switch Yönetim Paneli/docs/RELEASE_NOTES.md"
+          NOTLAR="$GITHUB_WORKSPACE/${{ inputs.uygulama_dizini }}/docs/RELEASE_NOTES.md"
+          BASLIK="${{ inputs.gorunen_ad }} $ETIKET"
           cd indirilen
 
           if gh release view "$ETIKET" >/dev/null 2>&1; then
@@ -405,7 +444,7 @@ jobs:
             # Notları da tazele: yalnızca dosya yüklemek, gövdeyi ilk
             # oluşturmadaki eski metinle bırakıyordu.
             gh release edit "$ETIKET" \
-              --draft=false --title "$ETIKET" --notes-file "$NOTLAR"
+              --draft=false --title "$BASLIK" --notes-file "$NOTLAR"
 
             # Adı değişen çıktılar geride kalıyor: --clobber yalnızca aynı
             # isimli dosyayı değiştirir, eskisini silmez. (Örn. AppImage
@@ -420,10 +459,15 @@ jobs:
               done
           else
             echo "Yeni release oluşturuluyor: $ETIKET"
+            # Ön sürüm etiketleri (0.9.0-dev gibi) "pre-release" işaretlenir.
+            EK=()
+            case "$ETIKET" in
+              *-dev|*-alpha*|*-beta*|*-rc*) EK+=(--prerelease) ;;
+            esac
             gh release create "$ETIKET" ./* \
-              --title "$ETIKET" \
+              --title "$BASLIK" \
               --notes-file "$NOTLAR" \
-              --generate-notes
+              --generate-notes "${EK[@]}"
           fi
 
       - name: Release'i doğrula
@@ -460,7 +504,7 @@ jobs:
           echo "Release varlıkları beklenenle birebir aynı."
 
           {
-            echo "## Release yayınlandı"
+            echo "## ${{ inputs.gorunen_ad }} — Release yayınlandı"
             echo ""
             echo "$ADRES"
             echo ""

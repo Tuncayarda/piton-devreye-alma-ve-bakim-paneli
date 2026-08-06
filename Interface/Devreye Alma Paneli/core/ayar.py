@@ -13,12 +13,13 @@ from pathlib import Path
 
 APP_ADI = "Devreye Alma Paneli"
 KISA_AD = "DevreyeAlmaPaneli"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.9.0-dev"
 
 # Kaynaktan çalışırken bu dosyanın bir üstü; PyInstaller ile paketlenince
 # veriler geçici klasöre açılır ve yolu sys._MEIPASS ile verilir.
 _BURASI = Path(__file__).resolve().parent
 KOK = _BURASI.parent
+PAKETLI = bool(getattr(sys, "frozen", False))
 
 
 def kaynak_dizini() -> Path:
@@ -26,9 +27,23 @@ def kaynak_dizini() -> Path:
     return Path(temel) if temel else KOK
 
 
+def veri_dosyasi(ad: str, *kaynak_yolu: str) -> Path:
+    """Uygulamayla gelen veri dosyasının yolu.
+
+    Kaynaktan çalışırken dosya proje ağacındaki yerinde durur (`kaynak_yolu`,
+    KOK'a göre; verilmezse KOK/ad). Paketlenince aynı dosya paketin köküne
+    konur ve oradan okunur: pakette proje ağacı yoktur, `KOK.parent.parent`
+    gibi yollar kurulum dizininin dışına düşer.
+    """
+    if PAKETLI:
+        return kaynak_dizini() / ad
+    return KOK.joinpath(*(kaynak_yolu or (ad,)))
+
+
 STATIC_DIR = kaynak_dizini() / "static"
-DEVICE_MAP = Path(os.environ.get("DEVICE_MAP_FILE") or (KOK / "DeviceMap.json"))
-EXCEL_SABLON = KOK / "Yatakli_Saha_Cihaz_Dogrulama.xlsx"
+DEVICE_MAP = Path(os.environ.get("DEVICE_MAP_FILE")
+                  or veri_dosyasi("DeviceMap.json"))
+EXCEL_SABLON = veri_dosyasi("Yatakli_Saha_Cihaz_Dogrulama.xlsx")
 
 
 def belgeler_dizini() -> Path:
@@ -53,11 +68,52 @@ def belgeler_dizini() -> Path:
 
 CIKTI_DIZINI = belgeler_dizini()
 
-# Switch Yönetim Paneli'nin çalışan backend'i. Switch erişimi orada
-# doğrulanmış haliyle kullanılır; burada ikinci bir uygulama yazılmaz.
+
+def veri_dizini() -> Path:
+    """Panelin kendi kalıcı verisini yazdığı yer.
+
+    Buraya yalnız kullanıcının panelde ayarladığı değerler yazılır
+    (konfigürasyon varsayılanları). PAROLA YAZILMAZ — ne cihaz kimliği ne
+    SIP parolası; onlar yalnız bellekte durur (bkz. core/kimlik.py).
+
+    Proje ağacına ya da DeviceMap'in yanına yazılmaz: kurulum dizini salt
+    okunur olabiliyor ve DeviceMap klasörü projenin verisidir, panelin
+    çalışma dosyası orada birikmemeli.
+    """
+    ozel = os.environ.get("PANEL_VERI_DIZINI")
+    if ozel:
+        return Path(ozel).expanduser()
+    ev = Path.home()
+    if sys.platform == "darwin":
+        return ev / "Library" / "Application Support" / KISA_AD
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA") or (ev / "AppData" / "Roaming")) / KISA_AD
+    return Path(os.environ.get("XDG_CONFIG_HOME") or (ev / ".config")) / KISA_AD
+
+
+# Konfigürasyon ekranında girilen hedef değerler. Uygulama açılışında
+# buradan yüklenir; parola alanları dosyaya hiç girmez.
+def konfig_varsayilan_dosyasi() -> Path:
+    return veri_dizini() / "konfig_varsayilanlari.json"
+
+
+# ── kardeş projelerdeki çalışan betikler ────────────────────────────────
+# Bu panel switch erişimini ve saha betiklerini yeniden yazmaz; çalışma
+# anında dosya yolundan içe aktarır (bkz. core/betik.py). Paketlenirken bu
+# üç dosya paketin köküne kopyalanır, o yüzden yol çözümü ikisini de bilir.
 SWITCH_PANELI = Path(
     os.environ.get("SWITCH_PANEL_API")
-    or (KOK.parent / "Switch Yönetim Paneli" / "switch_api.py"))
+    or veri_dosyasi("switch_api.py",
+                    "..", "Switch Yönetim Paneli", "switch_api.py"))
+DEVICE_VERIFY = Path(
+    os.environ.get("DEVICE_VERIFY_BETIGI")
+    or veri_dosyasi("device_verify.py",
+                    "..", "..", "YATAKLI_DevreyeAlma", "device_verify.py"))
+INTERCOM_IP_ASSIGN = Path(
+    os.environ.get("IP_ATAMA_BETIGI")
+    or veri_dosyasi("intercom_ip_assign.py",
+                    "..", "..", "YATAKLI_DevreyeAlma",
+                    "intercom_ip_assign.py"))
 
 # ─────────────────────────────────────────────────────────── ağ / portlar ──
 KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", 80))

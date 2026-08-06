@@ -39,6 +39,10 @@ export const SATIR_DURUM_ETIKET = {
   calisiyor: 'Çalışıyor',
   tamam: 'Tamam',
   kimlik: 'Kimlik',
+  // Betik çıktısındaki "[!]" satırları: koşu sürüyor ama bir şey ters
+  // gitti. Hepsini yeşil "Tamam" göstermek, 200 satırlık çıktıda asıl
+  // sebebi görünmez kılıyordu.
+  uyari: 'Uyarı',
   hata: 'Hata',
   atlandi: 'Atlandı',
 };
@@ -48,6 +52,7 @@ export const SATIR_RENK = {
   calisiyor: 'mavi',
   tamam: 'yesil',
   kimlik: 'turuncu',
+  uyari: 'turuncu',
   hata: 'kirmizi',
   atlandi: 'gri',
 };

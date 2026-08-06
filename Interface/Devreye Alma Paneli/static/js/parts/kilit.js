@@ -68,7 +68,10 @@ function yontemKodu(c) {
   return (y && y.kod) || String(c.yontem || '').toUpperCase();
 }
 
-export function kimlikDiyalogu(cihaz) {
+// `bittiginde` doğrulama başarılı olduğunda çağrılır: diyaloğu açan ekran
+// kendi verisini tazeleyebilsin (IP atama ekranı switch panelini yeniden
+// okur). Verilmezse yalnız genel yenileme çalışır.
+export function kimlikDiyalogu(cihaz, bittiginde = null) {
   const kullaniciAlan = el('input', {
     sinif: 'alan', type: 'text', id: 'kimlik-kullanici',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
@@ -118,6 +121,7 @@ export function kimlikDiyalogu(cihaz) {
         basari(`${cihaz.ad} doğrulandı`
           + (y.grubaUygulandi ? ' · hesap gruba uygulandı' : ''));
         yenile();
+        if (bittiginde) bittiginde();
       } catch (err) {
         // Yanlış parola bellekteki çalışan kimliği ezmez (sunucu tarafı).
         parolaAlan.value = '';

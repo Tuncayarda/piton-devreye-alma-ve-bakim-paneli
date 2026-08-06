@@ -78,14 +78,24 @@ export const api = {
 
   adminGiris: (parola) => post('/api/admin/giris', { parola }),
 
-  ipPlan: (set, grup, portlar, sw) =>
-    get('/api/ip/plan', { set, grup, portlar, switch: sw }),
+  // `gruplar`: virgülle ayrılmış grup adları — koşuya birden çok cihaz
+  // grubu girebiliyor.
+  ipPlan: (set, gruplar, portlar, sw) =>
+    get('/api/ip/plan', { set, gruplar, portlar, switch: sw }),
   ipPanel: (set, sw) => get('/api/ip/panel', { set, switch: sw }),
   ipKosu: (govde) => post('/api/ip/kosu', govde),
+  // Test akışı: seçili cihazlara "IP'ni fabrika adresine çevir" isteği.
+  ipFabrika: (govde) => post('/api/ip/fabrika', govde),
 
-  konfig: (set, id) => get('/api/konfig', { set, id }),
-  konfigHedef: (set, cihazId, alan, deger) =>
-    post('/api/konfig/hedef', { set, cihazId, alan, deger }),
+  konfig: (set, id, grup) => get('/api/konfig', { set, id, grup }),
+  // Cihaza gitmeyen hızlı uç: alan listesi + hedefler. Grup değişince
+  // ekran bunu bekler, yavaş cihaz okumasını değil.
+  konfigAlanlar: (set, id, grup) => get('/api/konfig/alanlar', { set, id, grup }),
+  konfigSifirla: (set, cihazId, grup) =>
+    post('/api/konfig/sifirla', { set, cihazId, grup }),
+  // kapsam: 'grup' = değer bütün gruba yazılır, 'cihaz' = yalnız o cihaza.
+  konfigHedef: (set, cihazId, alan, deger, grup, kapsam = 'cihaz') =>
+    post('/api/konfig/hedef', { set, cihazId, alan, deger, grup, kapsam }),
   konfigUygula: (set, grup, cihazlar) =>
     post('/api/konfig/uygula', { set, grup, cihazlar }),
 

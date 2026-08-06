@@ -1,17 +1,23 @@
 name: CI
 
-# Üç platformda kurulum + self-test.
-# Gerçek switch'e ya da yerel ağa hiç dokunmaz: self-test yalnızca
-# 127.0.0.1'de kendi servisini sınar.
+# Her iki uygulama için üç platformda kurulum + self-test (+ Devreye Alma
+# Paneli'nin birim testleri). Gerçek cihaza ya da yerel ağa hiç dokunmaz:
+# self-test yalnızca 127.0.0.1'de kendi servisini sınar, testler sahte
+# cihaz sunucuları kullanır.
 #
 # Maliyet için her commit'te ÇALIŞMAZ. Yalnızca:
-#   • v* etiketi push'unda (yayın öncesi son kontrol)
+#   • etiket push'unda (yayın öncesi son kontrol)
 #   • elle başlatınca (Actions → CI → Run workflow)
-# Günlük geliştirmede yerelde çalıştır:  python3 app.py --self-test
+# Günlük geliştirmede yerelde çalıştır:
+#   python3 app.py --self-test
+#   python3 -m unittest discover -s tests -t .        (Devreye Alma Paneli)
 
 on:
   push:
-    tags: ["v*"]
+    tags:
+      - "v*"
+      - "syp-v*"
+      - "dap-v*"
   workflow_dispatch:
 
 permissions:
@@ -22,21 +28,47 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UYGULAMA_DIZINI: Interface/Switch Yönetim Paneli
   PYTHON_SURUMU: "3.12"
 
 jobs:
   self-test:
-    name: ${{ matrix.ad }}
+    name: ${{ matrix.uygulama }} · ${{ matrix.ad }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
+      # Matris bilerek tek tek yazıldı: iki eksenli bir matrise `include` ile
+      # uygulama başına yol eklemek, GitHub'ın birleştirme kuralları yüzünden
+      # eksik ya da fazla iş üretiyor. Altı satır açıkça görünsün.
       matrix:
         include:
-          - { ad: Windows,  os: windows-2025,   req: requirements-windows.txt }
-          - { ad: Ubuntu,   os: ubuntu-22.04,   req: requirements-linux.txt }
-          - { ad: macOS,    os: macos-15,       req: requirements-macos.txt }
+          - { uygulama: Switch, ad: Windows, os: windows-2025,
+              req: requirements-windows.txt,
+              dizin: Interface/Switch Yönetim Paneli,
+              moduller: app.py switch_api.py, testler: "" }
+          - { uygulama: Switch, ad: Ubuntu, os: ubuntu-22.04,
+              req: requirements-linux.txt,
+              dizin: Interface/Switch Yönetim Paneli,
+              moduller: app.py switch_api.py, testler: "" }
+          - { uygulama: Switch, ad: macOS, os: macos-15,
+              req: requirements-macos.txt,
+              dizin: Interface/Switch Yönetim Paneli,
+              moduller: app.py switch_api.py, testler: "" }
+          - { uygulama: Devreye, ad: Windows, os: windows-2025,
+              req: requirements-windows.txt,
+              dizin: Interface/Devreye Alma Paneli,
+              moduller: app.py panel_api.py,
+              testler: python -m unittest discover -s tests -t . }
+          - { uygulama: Devreye, ad: Ubuntu, os: ubuntu-22.04,
+              req: requirements-linux.txt,
+              dizin: Interface/Devreye Alma Paneli,
+              moduller: app.py panel_api.py,
+              testler: python -m unittest discover -s tests -t . }
+          - { uygulama: Devreye, ad: macOS, os: macos-15,
+              req: requirements-macos.txt,
+              dizin: Interface/Devreye Alma Paneli,
+              moduller: app.py panel_api.py,
+              testler: python -m unittest discover -s tests -t . }
 
     steps:
       - name: Depoyu al
@@ -47,7 +79,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_SURUMU }}
           cache: pip
-          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/docs/requirements*.txt
+          cache-dependency-path: ${{ matrix.dizin }}/docs/requirements*.txt
 
       - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
         if: runner.os == 'Linux'
@@ -58,22 +90,67 @@ jobs:
             libxkbcommon-x11-0 libegl1 libgl1 libnss3
 
       - name: Bağımlılıkları kur
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ matrix.dizin }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r "docs/${{ matrix.req }}"
 
       - name: Söz dizimi / derleme kontrolü
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
-        run: python -m compileall -q app.py switch_api.py
+        working-directory: ${{ matrix.dizin }}
+        run: python -m compileall -q ${{ matrix.moduller }}
+
+      - name: Birim testler
+        if: matrix.testler != ''
+        working-directory: ${{ matrix.dizin }}
+        run: ${{ matrix.testler }}
 
       - name: Self-test (kaynak koddan)
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ matrix.dizin }}
         run: python app.py --self-test
 
       - name: Sürüm okunabiliyor mu
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ matrix.dizin }}
         run: python app.py --version
+
+  surum-kontrol:
+    name: Etiket ↔ sürüm kontrolü
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v6
+
+      - name: Etiket doğru uygulamayı ve sürümü gösteriyor mu
+        shell: bash
+        run: |
+          set -euo pipefail
+          ETIKET="$GITHUB_REF_NAME"
+          case "$ETIKET" in
+            dap-v*) DIZIN="Interface/Devreye Alma Paneli" ;;
+            syp-v*) DIZIN="Interface/Switch Yönetim Paneli" ;;
+            v*)     DIZIN="Interface/Switch Yönetim Paneli" ;;
+            *) echo "::error::Bilinmeyen etiket biçimi: $ETIKET"; exit 1 ;;
+          esac
+          SURUM="${ETIKET#*-v}"; SURUM="${SURUM#v}"
+          # Sürüm kaynağı: uygulamanın kendi sabiti (grep ile — bağımlılık
+          # kurmadan okunuyor).
+          if [ -f "$DIZIN/switch_api.py" ]; then
+            KAYNAK_DOSYA="$DIZIN/switch_api.py"
+          else
+            KAYNAK_DOSYA="$DIZIN/core/ayar.py"
+          fi
+          KAYNAK=$(sed -n 's/^APP_VERSION[[:space:]]*=[[:space:]]*["'"'"']\([^"'"'"']*\)["'"'"'].*/\1/p' \
+                   "$KAYNAK_DOSYA" | head -n1)
+          echo "Etiket : $ETIKET"
+          echo "Uygulama: $DIZIN"
+          echo "Etiketteki sürüm: $SURUM"
+          echo "Kaynaktaki sürüm: $KAYNAK  ($KAYNAK_DOSYA)"
+          if [ "$SURUM" != "$KAYNAK" ]; then
+            echo "::error::Etiket ile APP_VERSION uyuşmuyor."
+            exit 1
+          fi
+          echo "Uyuşuyor."
 
   repo-kontrol:
     name: Depo kontrolleri

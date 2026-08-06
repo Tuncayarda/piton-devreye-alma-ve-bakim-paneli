@@ -22,20 +22,49 @@ export function gecerliGrup(op) {
   return liste.find(g => g.ad === durum.hedefGrup) || liste[0];
 }
 
-export function ciz(op, secilenler = () => {}) {
+// Şerit sığmadığında sağ kenar soluyor (bkz. .serit maskesi). Sonuna
+// gelindiğinde ya da hepsi sığdığında solmaya gerek yok; bunu ancak
+// ölçerek bilebiliyoruz.
+function kenariIsaretle(kap) {
+  const guncelle = () => {
+    // Ölçüm ancak öğe sayfaya girdikten sonra anlamlı; çağrıldığı yerde
+    // henüz bağlı değil.
+    if (!kap.isConnected) return;
+    const son = kap.scrollLeft + kap.clientWidth >= kap.scrollWidth - 2;
+    kap.dataset.son = son ? '1' : '0';
+  };
+  kap.addEventListener('scroll', guncelle, { passive: true });
+  // requestAnimationFrame değil: pencere boyanmıyorken (arka planda,
+  // simge durumunda) hiç çalışmıyor ve şerit sonsuza kadar solmuş kalıyor.
+  setTimeout(guncelle, 0);
+  return kap;
+}
+
+// `secenekler.coklu` verilirse şerit çoklu seçim yapar: seçili adlar
+// çağıran ekranda tutulur (durum.hedefGrup tek ad taşıdığı için diğer
+// ekranların davranışı değişmez), tıklama yalnız geri çağrıya gider.
+export function ciz(op, secilenler = () => {}, secenekler = {}) {
+  const { coklu = false, secili = null } = secenekler;
   const liste = gruplar(op);
   const aktif = gecerliGrup(op);
-  return el('div', {
-    sinif: 'serit', role: 'group', 'aria-label': 'Hedef cihaz grubu',
+  const secildiMi = (g) => (coklu
+    ? !!secili && secili.includes(g.ad)
+    : !!aktif && aktif.ad === g.ad);
+  return kenariIsaretle(el('div', {
+    sinif: 'serit', role: 'group',
+    'aria-label': coklu ? 'Hedef cihaz grupları' : 'Hedef cihaz grubu',
   }, [
-    el('span', { sinif: 'etiket', metin: 'Hedef grup' }),
+    el('span', { sinif: 'etiket', metin: coklu ? 'Hedef gruplar' : 'Hedef grup' }),
     ...liste.map(g => el('button', {
       type: 'button', sinif: 'cip',
-      'aria-pressed': String(!!aktif && aktif.ad === g.ad),
-      onclick: () => { ata({ hedefGrup: g.ad }); secilenler(g); },
+      'aria-pressed': String(secildiMi(g)),
+      onclick: () => {
+        if (!coklu) ata({ hedefGrup: g.ad });
+        secilenler(g);
+      },
     }, [
       el('span', { metin: g.ad }),
       el('span', { sinif: 'n', metin: String(eslesen(g).length) }),
     ])),
-  ]);
+  ]));
 }

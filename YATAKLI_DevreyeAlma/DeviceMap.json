@@ -1,4 +1,48 @@
 {
+  "Config": {
+    "Announcement/Amplifier": {
+      "SpeakerVolume": 69,
+      "SpeakerGain": 2,
+      "LogLevel": 1
+    },
+    "Announcement/Intercom": {
+      "SpeakerVolume": 100,
+      "MicVolume": 82,
+      "SpeakerGain": 2,
+      "MicGain": 1,
+      "LogLevel": 0,
+      "PBXOutExtension": "5001"
+    },
+    "Announcement/Handset": {
+      "SpeakerVolume": 80,
+      "MicVolume": 90,
+      "SpeakerGain": 1,
+      "MicGain": 1,
+      "LogLevel": 1,
+      "PttEnabled": 1,
+      "AnswerMode": 0,
+      "CallMode": 1,
+      "HangupMode": 2,
+      "CallTimeout": 0,
+      "PBXOutExtension": "4001"
+    },
+    "Announcement/UIC": {
+      "SpeakerVolume": 100,
+      "MicVolume": 83,
+      "LogLevel": 1,
+      "TcSpeakerGain": 1,
+      "TcMicGain": 1,
+      "TlSpeakerGain": 2,
+      "TlMicGain": 1,
+      "TcHigh": 5,
+      "TcLow": 2.5,
+      "TlHigh": 5,
+      "TlLow": 2.5,
+      "CallTimeout": 0,
+      "Target1": "2002",
+      "Target3": "2002"
+    }
+  },
   "Screens": null,
   "Switches": [
     {

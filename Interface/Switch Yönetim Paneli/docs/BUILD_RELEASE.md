@@ -12,12 +12,21 @@ Switch Yönetim Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 
 ## 0. Depo yapısı
 
+Depoda **iki** uygulama var (bu panel ve Devreye Alma Paneli); ikisi ayrı
+ayrı derlenir ve ayrı Release alır. Ortak derleme adımları tek workflow'da
+durur. Devreye Alma Paneli bu uygulamanın `switch_api.py` dosyasını çalışma
+anında kullanıyor (switch erişimi iki yerde yazılmasın diye); o paketlenirken
+dosya kopyalanır — bu uygulamanın derlemesini etkilemez.
+
 ```
 .
 ├── README.md
 ├── .github/workflows/
-│   ├── ci.yml                         kurulum + self-test
-│   └── build.yml                      paket üretimi ve Release
+│   ├── ci.yml                         iki uygulama · kurulum + self-test
+│   ├── build-app.yml                  ortak derleme motoru (workflow_call)
+│   ├── build-switch.yml               bu uygulama         (syp-v* , v*)
+│   └── build-devreye.yml              Devreye Alma Paneli (dap-v*)
+├── Interface/Devreye Alma Paneli/      kardeş uygulama
 └── Interface/Switch Yönetim Paneli/    uygulamanın tamamı
     ├── app.py                         giriş noktası, pencere, self-test
     ├── switch_api.py                  yerel HTTP servisi + switch API'si
@@ -219,7 +228,7 @@ ile indirme atlanır.
 
 ### `ci.yml` — yayın öncesi kontrol
 
-Tetikleyici: `v*` etiketi push'u, elle çalıştırma.
+Tetikleyici: `v*`, `syp-v*`, `dap-v*` etiketi push'u, elle çalıştırma.
 
 Maliyet nedeniyle **her commit'te çalışmaz**. Günlük geliştirmede yerelde:
 
@@ -227,16 +236,19 @@ Maliyet nedeniyle **her commit'te çalışmaz**. Günlük geliştirmede yerelde:
 python3 app.py --self-test
 ```
 
-Windows / Ubuntu / macOS üzerinde: Python 3.12 kurar, platform
-requirements'ı yükler, `compileall` ile derleme kontrolü yapar, kaynak
-koddan `--self-test` çalıştırır. Ayrı bir job depoda izlenen hassas dosya
-olup olmadığına ve çalışma ağacının temizliğine bakar.
+**İki uygulama için** Windows / Ubuntu / macOS üzerinde: Python 3.12 kurar,
+platform requirements'ı yükler, `compileall` ile derleme kontrolü yapar,
+kaynak koddan `--self-test` çalıştırır (Devreye Alma Paneli'nde ayrıca birim
+testler). İki ayrı job: etiket ↔ `APP_VERSION` kontrolü ve depo kontrolleri
+(izlenen hassas dosya, çalışma ağacı temizliği).
 
 CI gerçek switch'e ya da özel ağa **bağlanmaz**.
 
-### `build.yml` — paket üretimi
+### `build-app.yml` — ortak derleme motoru
 
-Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
+Kendi başına çalışmaz (`workflow_call`): hangi uygulamanın derleneceğini
+çağıran workflow söyler. İki uygulamanın adımları tek yerde durur; iki kopya
+yan yana yaşarsa biri düzeltilip diğeri unutuluyor.
 
 | Matrix | Runner | Çıktı |
 |---|---|---|
@@ -246,22 +258,35 @@ Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya `v*` etiketi push'u.
 | macos-x64 | `macos-15-intel` | `.app` → `ditto` ZIP |
 
 Her job: checkout → Python 3.12 (pip cache) → bağımlılıklar → sürüm
-belirleme → kaynak self-test → temiz PyInstaller build → **paketlenmiş**
-self-test → paketleme → çıktı boş mu kontrolü → artifact yükleme.
+belirleme → birim testler (varsa) → kaynak self-test → temiz PyInstaller
+build → **paketlenmiş** self-test → paketleme → çıktı boş mu kontrolü →
+artifact yükleme.
 
 Ubuntu 22.04 üzerinde build alınır; daha yeni dağıtımlarda çalışma ihtimali
 bu sayede artar (glibc geriye dönük uyumlu değildir).
 
+### `build-switch.yml` — bu uygulamanın paketleri
+
+Tetikleyici: elle çalıştırma (`workflow_dispatch`), **`syp-v*`** ya da eski
+biçim **`v*`** etiketi push'u. Devreye Alma Paneli `build-devreye.yml` ile
+ayrı derlenir; ikisi birbirini beklemez, birbirinin Release'ine dokunmaz.
+
 ### Elle build başlatma
 
-GitHub → **Actions** → *Build* → **Run workflow**.
+GitHub → **Actions** → *Build · Switch Yönetim Paneli* → **Run workflow**.
 Sonuç yalnızca **Artifact** olur, Release oluşmaz.
 
 ### Sürüm etiketiyle yayınlama
 
-`v1.2.3` biçiminde etiket push'lanır. Etiketteki sürüm ile
+`syp-v1.2.3` (ya da eski biçim `v1.2.3`) push'lanır. Etiketteki sürüm ile
 `switch_api.py` içindeki `APP_VERSION` **aynı olmalıdır**; değilse build
 açık bir hatayla durur. Bütün build'ler geçmeden Release oluşturulmaz.
+
+| Etiket | Uygulama |
+|---|---|
+| `syp-v…` | Switch Yönetim Paneli |
+| `v…` | Switch Yönetim Paneli (depoda tek uygulama varken kullanılan biçim) |
+| `dap-v…` | Devreye Alma Paneli |
 
 Release job'ı artifact'leri indirir, dosyaların var ve boş olmadığını
 doğrular, `SHA256SUMS.txt` üretir ve `gh` CLI ile Release'i oluşturur.
@@ -272,7 +297,7 @@ güncellenir (yeni Release açılmaz).
 
 | | Artifact | Release |
 |---|---|---|
-| Ne zaman | Her Build çalıştırması | Yalnızca `v*` etiketinde |
+| Ne zaman | Her Build çalıştırması | Yalnızca etiket push'unda |
 | Süre | 14 gün | Kalıcı |
 | Erişim | Depoya erişimi olanlar | Herkes (depo public ise) |
 | Checksum | Yok | `SHA256SUMS.txt` |
