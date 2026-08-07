@@ -10,9 +10,10 @@ IP atayan ve konfigüre eden masaüstü uygulaması.
 > | `main` | Devreye Alma Paneli (bu ağaç) | `dap-v*` |
 > | `syp` | Switch Yönetim Paneli | `syp-v*`, `v*` |
 >
-> İki branch'in ortak geçmişi `fb320cd` commit'ine kadar aynıdır; eski
-> `Interface/…` ve `YATAKLI_DevreyeAlma/` düzeni o commit'e kadar geçmişte
-> olduğu gibi durur.
+> İki branch'in geçmişi, ayrışmadan önceki son commit'e ("Çoklu port seçme
+> ve düzenleme özelliği eklendi") kadar ortaktır; eski `Interface/…` ve
+> `YATAKLI_DevreyeAlma/` düzeni o noktaya kadar geçmişte olduğu gibi durur.
+> Ortak atayı `git merge-base main syp` ile bulabilirsin.
 
 ## Çalıştırma
 
