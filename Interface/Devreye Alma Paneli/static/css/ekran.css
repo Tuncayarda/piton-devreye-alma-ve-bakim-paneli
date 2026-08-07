@@ -910,6 +910,56 @@
 }
 @media (max-width: 1000px) { .admin-izgara { grid-template-columns: 1fr; } }
 
+/* ─────────────────────────────────────────────────── yazılım yükleme ── */
+/* İmaj cihaz başına seçiliyor: her satırda kendi yol ve sürüm kutusu var.
+   Üstteki toplu alan yalnız kolaylık — değeri satırlara yazılır. */
+.fw-toplu { margin-top: 16px; padding: 16px 18px 14px; }
+.fw-toplu-basi p {
+  margin: 5px 0 0;
+  color: var(--orta); font-size: 11px; line-height: 1.45;
+}
+.fw-toplu-alanlar {
+  display: flex; align-items: flex-end; gap: 12px;
+  flex-wrap: wrap; margin-top: 12px;
+}
+.fw-toplu-alanlar label { display: block; }
+.fw-toplu-alanlar .etiket { display: block; margin-bottom: 5px; }
+.fw-alan-dar { flex: 0 1 150px; }
+
+/* Satırdaki dosya hücresi: ad + seç/kaldır. Ad kırpılır, tam yol ipucu
+   metninde durur — yol satıra sığmıyor ve elle yazılmıyor. */
+.fw-dosya {
+  display: flex; align-items: center; gap: 7px; min-width: 0;
+  font-size: 11.5px;
+}
+.fw-dosya > span { flex: 1; min-width: 0; }
+.fw-sec-btn { flex: none; padding: 3px 9px; font-size: 11px; }
+.fw-dosya .btn-x { width: 20px; height: 20px; }
+
+/* Satır kutuları tablo hücresine oturur: tablo satırının yüksekliğini
+   büyütmesinler, yoksa 15 cihazlık liste ekrana sığmıyor. */
+.fw-satir .alan {
+  min-height: 0; padding: 5px 8px;
+  font-size: 11.5px; background: var(--derin);
+}
+.fw-satir .alan:disabled { color: var(--soluk); cursor: not-allowed; }
+.fw-cihaz {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+}
+.fw-durum { font-size: 11.5px; color: var(--orta); }
+/* Dosyası seçilmiş satır soldaki şeritten okunur; "hangisi hazır"
+   sorusunun cevabı listeye tek tek bakmadan görünsün. */
+.fw-satir[data-secili="1"] { box-shadow: inset 3px 0 0 var(--accent); }
+.fw-onay-liste {
+  margin-top: 10px; max-height: 240px; overflow-y: auto;
+  font-family: var(--f-mono); font-size: 11.5px;
+}
+.fw-onay-liste .satir {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 4px 0; border-bottom: 1px solid var(--cizgi-hafif);
+}
+.fw-onay-liste .satir b { color: var(--accent); font-weight: 500; }
+
 /* ────────────────────────────────────────────────── kontrol listesi ─── */
 /* Şablonun bütün sütunları yan yana durur; tablo kendi içinde yatay
    kayar, sayfa gövdesi kaymaz. */

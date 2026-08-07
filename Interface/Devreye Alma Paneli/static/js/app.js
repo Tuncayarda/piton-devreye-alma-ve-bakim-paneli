@@ -179,7 +179,6 @@ function ciz(_d, degisen) {
   const meta = durum.meta;
   if (meta) {
     $('#proje-ad').textContent = meta.proje;
-    $('#proje-ag').textContent = `10.${durum.setNo}.1.0/24`;
     setSeciciyiKur();
   }
   $('#rol-rozet').textContent = durum.rol === 'admin' ? 'Admin' : 'Kullanıcı';

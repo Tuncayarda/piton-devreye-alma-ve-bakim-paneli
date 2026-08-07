@@ -185,8 +185,13 @@ class KonfigYazma(PanelTesti):
             self.assertEqual(satir["mevcut"], "2.4")
             self.assertEqual(satir["sonuc"], "uyuyor")
 
-    def test_devicemapte_parola_yoksa_cihazdaki_korunur(self):
-        """UIC/Amplifier kaydında PBXPassword yok; SIP ucu ise zorunlu tutuyor."""
+    def test_devicemapte_parola_yoksa_dahili_numara_yazilir(self):
+        """SIP parolası dahili numaranın aynısıdır.
+
+        UIC/Amplifier kaydında PBXPassword yok; SIP ucu ise parolayı
+        zorunlu tutuyor. Eskiden cihazdaki eski parola korunuyordu ve
+        cihaz PBX'e kaydolamıyordu.
+        """
         env, c = self.kur("UIC", PBXExtension="4001")
         self.assertIsNone(c.pbx_password)
         with sahte.anons(ayarlar=UIC_AYAR) as an:
@@ -195,7 +200,45 @@ class KonfigYazma(PanelTesti):
             hal = dict(an.hal)
 
         self.assertEqual(hal["pbxExtension"], "4001")   # DeviceMap hedefi
-        self.assertEqual(hal["pbxPassword"], "2005")    # cihazdaki korundu
+        self.assertEqual(hal["pbxPassword"], "4001")    # numaranın aynısı
+
+    def test_ekrandan_girilen_dahili_parolayi_da_degistirir(self):
+        """Numara ekrandan değişince parola da onunla birlikte gider."""
+        env, c = self.kur("UIC", PBXExtension="4001")
+        konfig.hedef_yaz(c.id, "sipDahili", "4009", "UIC")
+        with sahte.anons(ayarlar=UIC_AYAR) as an:
+            ayar.ANONS_PORT = an.port
+            konfig.uygula(c, env, None, "UIC")
+            hal = dict(an.hal)
+
+        self.assertEqual(hal["pbxExtension"], "4009")
+        self.assertEqual(hal["pbxPassword"], "4009")
+
+    def test_devicemap_parolasi_varsa_o_kullanilir(self):
+        """Projede açıkça yazılmış parola numaraya çevrilmez."""
+        env, c = self.kur("Intercom", PBXExtension="2001",
+                          PBXPassword="ozel-parola")
+        with sahte.anons() as an:
+            ayar.ANONS_PORT = an.port
+            konfig.uygula(c, env, None, "Intercom")
+            hal = dict(an.hal)
+
+        self.assertEqual(hal["pbxExtension"], "2001")
+        self.assertEqual(hal["pbxPassword"], "ozel-parola")
+
+    def test_parolayi_bildirmeyen_cihaz_hata_saymaz(self):
+        """Cihaz parolayı maskeliyorsa yazım başarısız sayılmaz.
+
+        Gizli alanın cihazdaki değeri okunamıyorsa doğrulanamaz; ama
+        okunamaması "cihaz yazmadı" demek değildir.
+        """
+        env, c = self.kur("UIC", PBXExtension="4001")
+        ayarlar = {k: v for k, v in UIC_AYAR.items() if k != "pbxPassword"}
+        with sahte.anons(ayarlar=ayarlar) as an:
+            ayar.ANONS_PORT = an.port
+            sonuc = konfig.uygula(c, env, None, "UIC")   # hata vermemeli
+            self.assertEqual(an.hal["pbxExtension"], "4001")
+        self.assertIn("SIP Dahili No", sonuc["yazilanAlanlar"])
 
     def test_cihaz_alani_sessizce_yok_sayarsa_hata_verir(self):
         """HTTP 200 tek başına başarı değil; yazım okunarak doğrulanır."""

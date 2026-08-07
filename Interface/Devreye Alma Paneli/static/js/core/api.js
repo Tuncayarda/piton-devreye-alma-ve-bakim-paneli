@@ -99,8 +99,17 @@ export const api = {
   konfigUygula: (set, grup, cihazlar) =>
     post('/api/konfig/uygula', { set, grup, cihazlar }),
 
-  firmware: () => get('/api/firmware'),
-  firmwareDosya: (yol, surum) => post('/api/firmware/dosya', { yol, surum }),
+  // İmaj cihaz başına seçilir. `cihazlar` verilirse yalnız o cihazlara,
+  // verilmezse gruptaki bütün cihazlara atanır/silinir.
+  firmware: (set, grup) => get('/api/firmware', { set, grup }),
+  // Dosya seçici işletim sisteminde açılır: tarayıcı gerçek yolu vermiyor.
+  // İstek, kullanıcı pencereyi kapatana kadar sürer — zaman aşımı yok.
+  firmwareSec: (set, grup, cihazlar, surum) =>
+    post('/api/firmware/sec', { set, grup, cihazlar, surum }),
+  firmwareSurum: (set, grup, cihazlar, surum) =>
+    post('/api/firmware/surum', { set, grup, cihazlar, surum }),
+  firmwareSil: (set, grup, cihazlar) =>
+    post('/api/firmware/sil', { set, grup, cihazlar }),
   firmwareYukle: (set, grup, cihazlar) =>
     post('/api/firmware/yukle', { set, grup, cihazlar }),
 

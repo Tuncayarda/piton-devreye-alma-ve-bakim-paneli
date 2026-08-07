@@ -34,10 +34,18 @@ SIP PAROLASI
 SIP ucu parolayı zorunlu istiyor, dolayısıyla parola olmadan dahili numara
 da yazılamaz. Parolanın kaynağı sırayla: kullanıcının bu ekranda girdiği
 değer (yalnız bellekte), DeviceMap'teki PBXPassword (projenin tanım
-verisi) ve cihazda hâlihazırda duran değer. Bu değer arayüze HİÇ
-gönderilmez: satırda yalnız "uyuşuyor/farklı" ve kaynağı görünür. Buradaki
-parola cihazın SIP kaydı içindir; panelin cihaza bağlanırken kullandığı
-kimlik değildir (o yalnız kullanıcıdan alınır, bkz. core/kimlik.py).
+verisi) ve **dahili numaranın kendisi**.
+
+Son adım sahadaki kuraldır: bu projede anons ekipmanlarının SIP parolası
+dahili numarasıyla aynı. DeviceMap'te PBXPassword yazmayan cihazlarda
+(Amplifier, UIC) parola hiç bulunamıyordu; SIP ucu onu zorunlu istediği
+için o cihazlarda dahili numara da yazılamıyordu. Numara ekrandan
+değiştirilirse parola da onunla birlikte değişir.
+
+Bu değer arayüze HİÇ gönderilmez: satırda yalnız "uyuşuyor/farklı" ve
+kaynağı görünür. Buradaki parola cihazın SIP kaydı içindir; panelin
+cihaza bağlanırken kullandığı kimlik değildir (o yalnız kullanıcıdan
+alınır, bkz. core/kimlik.py).
 """
 from __future__ import annotations
 
@@ -491,8 +499,8 @@ def varsayilan_ozeti() -> dict:
             "grupDegeri": grup_sayi, "cihazDegeri": cihaz_sayi}
 
 
-def _proje_hedefi(cihaz: Cihaz, env: Envanter,
-                  alan: str) -> tuple[str, str]:
+def _proje_hedefi(cihaz: Cihaz, env: Envanter, alan: str,
+                  grup: str | None = None) -> tuple[str, str]:
     """DeviceMap'te tanımlı değer ve (varsa) neden kullanılamadığı.
 
     DeviceMap anahtarı, cihazın alan adının kendisidir: `SpeakerVolume`,
@@ -513,6 +521,15 @@ def _proje_hedefi(cihaz: Cihaz, env: Envanter,
         # Gizli alan `ekstra` içinde yok (DeviceMap parolaları ayıklanıyor);
         # değeri yalnız cihazın kendi kaydından gelir.
         ham = cihaz.pbx_password if alan == "sipParola" else None
+        if alan == "sipParola" and str(ham or "").strip() == "":
+            # Sahadaki kural: SIP parolası dahili numaranın aynısıdır.
+            # DeviceMap'te PBXPassword yazmayan cihazlarda (Amplifier,
+            # UIC) parola bulunamıyor, SIP ucu da onu zorunlu istediği
+            # için dahili numara bile yazılamıyordu.
+            #
+            # Numaranın kendisi de hedeften alınır: kullanıcı ekranda
+            # dahiliyi değiştirdiyse parola onunla birlikte değişsin.
+            ham, _kaynak = hedef_of(cihaz, env, "sipDahili", grup)
     else:
         ham = env.proje_ayarlari(cihaz).get(a.yaz.lower())
     if ham in (None, "") and alan == "sipPbx":
@@ -534,7 +551,7 @@ def hedef_detay(cihaz: Cihaz, env: Envanter, alan: str,
     Sıra: cihaza özel > gruba girilen > DeviceMap'teki proje değeri.
     """
     ozel = hedef_al(cihaz.id).get(alan)
-    proje, uyari = _proje_hedefi(cihaz, env, alan)
+    proje, uyari = _proje_hedefi(cihaz, env, alan, grup)
     if ozel:
         return ozel, "cihaz", uyari
     grubun = grup_hedef_al(grup or "").get(alan)
@@ -832,8 +849,13 @@ def uygula(cihaz: Cihaz, env: Envanter, kimlik=None,
     son_duz = _duz_oku(cihaz, kimlik)
     sonuc = _satirlar(cihaz, env, son_duz, grup)
     yeni = _mevcutlar(son_duz, alt)
+    # Gizli alanı cihaz geri bildirmiyorsa doğrulanamaz — ama bu, yazımın
+    # başarısız olduğu anlamına da gelmez. Parolayı maskeleyen bir cihazda
+    # "cihaz bu alanı yazmadı" demek, aslında yazılmış SIP ayarını
+    # her seferinde hata göstermek olurdu.
     tutmayan = [ALANLAR[ad].etiket for ad in hedef
-                if not _esit(yeni.get(ad), hedef[ad], ALANLAR[ad].tur)]
+                if not (ALANLAR[ad].gizli and yeni.get(ad) in (None, ""))
+                and not _esit(yeni.get(ad), hedef[ad], ALANLAR[ad].tur)]
     if tutmayan:
         raise DogrulamaHatasi(
             "Cihaz bu alanları yazmadı: " + ", ".join(tutmayan))

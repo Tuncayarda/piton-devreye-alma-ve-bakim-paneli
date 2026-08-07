@@ -28,10 +28,12 @@ const KOLON = '68px minmax(150px,1.25fr) minmax(104px,.85fr) 112px 112px '
 const yerel = {
   gruplar: null,           // null = şeritteki ilk grup; yoksa seçili adlar
   portMetni: null,         // null = plandaki varsayılan (grubun portları)
-  fabrikaIp: null,         // null = plandaki varsayılan (10.n.1.12)
+  fabrikaIp: null,         // null = plandaki varsayılan (10.1.1.12)
   aramaAcik: false,        // fabrika adresinde bulunamayanları ağda ara
   aramaAgi: null,
   aramaMaskesi: null,
+  aramaBas: null,          // açık adres aralığı — verilirse ağ/maske yerine
+  aramaSon: null,
   pcPort: '24',
   pcSwitchId: null,        // null = ilk switch
   baglanti: {},            // switchId -> diğer switch'e giden port (metin)
@@ -242,7 +244,7 @@ export function portlariAyristir(metin, izinli) {
 }
 
 // ── adresleme ───────────────────────────────────────────────────────────
-// Cihazlar fabrikadan aynı adresle (10.n.1.12) geliyor; koşu portu açıp
+// Cihazlar fabrikadan aynı adresle (10.1.1.12) geliyor; koşu portu açıp
 // orada bulduğu cihaza DeviceMap'teki IP'yi yazıyor. Cihaz daha önce
 // yapılandırılmışsa fabrika adresinde olmaz — o zaman verilen ağ taranır.
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -267,7 +269,32 @@ function maskeOnek(metin) {
 
 const ARAMA_SINIRI = 512;      // core/ip_atama.ARAMA_SINIRI ile aynı
 
-function aramaDenetle(agMetni, maskeMetni) {
+function ipSayi(metin) {
+  return String(metin).trim().split('.')
+    .reduce((t, p) => (t * 256) + Number(p), 0);
+}
+
+// Aranacak yer iki türlü verilebilir: ağ + maske ya da açık adres
+// aralığı. Proje maskesi genişse (üst barda /8 gibi) ağı açmak milyonlarca
+// adres demek; o kurulumda aranacak yeri daraltmanın tek yolu aralık.
+// Aralık girilmişse ağ/maske hiç kullanılmaz (sunucuda da öyle).
+function aramaDenetle(agMetni, maskeMetni, basMetni, sonMetni) {
+  const bas = String(basMetni || '').trim();
+  const son = String(sonMetni || '').trim();
+  if (bas || son) {
+    if (!bas || !son) {
+      return 'Arama aralığının başlangıcı ve sonu birlikte girilmeli';
+    }
+    if (!ipv4Mi(bas) || !ipv4Mi(son)) {
+      return 'Arama aralığı geçerli IPv4 adresleri olmalı';
+    }
+    const adet = ipSayi(son) - ipSayi(bas) + 1;
+    if (adet <= 0) return 'Aralığın sonu başlangıcından küçük olamaz';
+    if (adet > ARAMA_SINIRI) {
+      return `Bu aralık ${adet} adres tarar; en fazla ${ARAMA_SINIRI} olabilir`;
+    }
+    return '';
+  }
   const ag = String(agMetni || '').trim();
   const maske = String(maskeMetni || '').trim();
   if (!ag && !maske) return 'Arama ağı ve maskesi gerekli';
@@ -276,7 +303,8 @@ function aramaDenetle(agMetni, maskeMetni) {
   if (onek === null) return 'Maske 255.255.255.0 ya da 24 biçiminde olmalı';
   const adet = onek >= 31 ? 1 : (2 ** (32 - onek)) - 2;
   if (adet > ARAMA_SINIRI) {
-    return `Bu maske ${adet} adres tarar; en fazla ${ARAMA_SINIRI} olabilir`;
+    return `Bu maske ${adet} adres tarar; en fazla ${ARAMA_SINIRI} olabilir `
+      + '— ya maskeyi daraltın ya da aşağıya adres aralığı yazın';
   }
   return '';
 }
@@ -356,7 +384,8 @@ function kosuDenetle(veri) {
     ? '' : 'Fabrika IP geçerli bir IPv4 adresi olmalı';
   const aramaHatasi = yerel.aramaAcik
     ? aramaDenetle(yerel.aramaAgi ?? plan.aramaAgi,
-                   yerel.aramaMaskesi ?? plan.aramaMaskesi)
+                   yerel.aramaMaskesi ?? plan.aramaMaskesi,
+                   yerel.aramaBas, yerel.aramaSon)
     : '';
   const hataMetni = grupHatasi || fabrikaHatasi || aramaHatasi || pcPortHatasi
     || ilkBaglantiHatasi || portHatasi || kapsamHatasi || kimlikHatasi;
@@ -618,7 +647,7 @@ export function ciz(kok) {
 
   // ── adresleme alanları ──
   // Fabrika IP: cihazların kutudan çıktığı adres (sahada hepsi aynı
-  // adreste görünür — arp-scan'de 10.n.1.12'de beş cihaz birden).
+  // adreste görünür — arp-scan'de 10.1.1.12'de beş cihaz birden).
   // Arama ağı: daha önce yapılandırılmış, yani fabrika adresinde
   // olmayan cihazlar için taranacak adresler.
   const fabrikaUyari = el('p', {
@@ -714,7 +743,20 @@ export function ciz(kok) {
           plan.aramaAgi, '10.1.1.0'),
         aramaAlani('aramaMaskesi', 'ip-arama-maske', 'Arama maskesi',
           plan.aramaMaskesi, '255.255.255.0'),
+        // Açık aralık: proje maskesi geniş olduğunda (üst barda /8 gibi)
+        // ağı açmak milyonlarca adres demek. Aralık girilirse yukarıdaki
+        // ağ/maske ikilisi kullanılmaz.
+        aramaAlani('aramaBas', 'ip-arama-bas', 'Aralık başlangıcı',
+          '', '10.1.1.10'),
+        aramaAlani('aramaSon', 'ip-arama-son', 'Aralık sonu',
+          '', '10.1.1.60'),
         aramaUyari,
+        el('p', {
+          sinif: 'ip-alan-yardim',
+          metin: 'Aralık girilirse ağ/maske yerine o taranır. Her iki '
+            + `yolda da en fazla ${ARAMA_SINIRI} adres denenir; ağ maskesi `
+            + 'bundan genişse aralık verin.',
+        }),
       ] : []),
     ]),
 
@@ -1202,6 +1244,17 @@ function fabrikayaDondur() {
         metin: 'Bu bir test aracıdır: IP atama koşusunu baştan denemek '
           + 'için başlangıç durumunu kurar. PoE portlarına dokunmaz.',
       }),
+      // Fabrika adresi tren setine göre çözülmüyor (hep 10.1.1.12).
+      // Bilgisayar başka bir ağdaysa cihazlar bu yazımdan sonra
+      // görünmez olur ve koşu onları bulamaz — geri almanın yolu da
+      // cihaza ulaşmaktan geçtiği için önce söylenmeli.
+      el('p', {
+        sinif: 'uyari', stil: 'margin-top:10px',
+        metin: `Cihazlar ${denetim.fabrika} ağına gider. Bilgisayarınız o `
+          + 'ağa erişemiyorsa cihazlar bu işlemden sonra görünmez olur; '
+          + 'setin kendi ağında kalsınlar istiyorsanız yukarıdaki '
+          + '"Fabrika (varsayılan) IP" alanını değiştirin.',
+      }),
     ]),
     eylemler: [
       el('button', {
@@ -1251,6 +1304,8 @@ async function baslat() {
       aramaAgi: yerel.aramaAcik ? (yerel.aramaAgi ?? plan.aramaAgi) : '',
       aramaMaskesi: yerel.aramaAcik
         ? (yerel.aramaMaskesi ?? plan.aramaMaskesi) : '',
+      aramaBas: yerel.aramaAcik ? (yerel.aramaBas || '') : '',
+      aramaSon: yerel.aramaAcik ? (yerel.aramaSon || '') : '',
       pcSwitch: pcSwitchId(plan),
       pcPort: yerel.pcPort,
       baglanti: yerel.baglanti,

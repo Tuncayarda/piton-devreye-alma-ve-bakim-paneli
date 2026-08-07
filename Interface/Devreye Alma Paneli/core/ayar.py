@@ -148,11 +148,27 @@ OKUMA_TIMEOUT = float(os.environ.get("OKUMA_TIMEOUT", 5.0))
 KIMLIK_TIMEOUT = float(os.environ.get("KIMLIK_TIMEOUT", 6.0))
 MQTT_TIMEOUT = float(os.environ.get("MQTT_TIMEOUT", 4.0))
 ADB_TIMEOUT = int(os.environ.get("ADB_TIMEOUT", 12))
+# APK kurulumu okumadan uzun sürüyor: dosya cihaza itiliyor, sonra paket
+# yöneticisi kuruyor. Okuma zaman aşımıyla aynı olamaz.
+ADB_KURULUM_TIMEOUT = int(os.environ.get("ADB_KURULUM_TIMEOUT", 180))
 TARAMA_WORKER = int(os.environ.get("TARAMA_WORKER", 12))
+
+# Aynı anda kaç cihaza yazılım yüklenir. Tarama kadar yüksek tutulmaz:
+# her yükleme cihazı yeniden başlatıyor ve sonrasında sürüm doğrulanana
+# kadar bekleniyor; bir switch'in arkasındaki 12 cihazı birden karartmak
+# hem PoE bütçesini hem de sahadaki kişinin "ne oluyor" görüşünü zorlar.
+# Dördü, 12 intercomluk bir seti sırayla yapmanın dörtte birine indiriyor.
+FIRMWARE_WORKER = int(os.environ.get("FIRMWARE_WORKER", 4))
 
 # ──────────────────────────────────────────────────────────── doğrulama ────
 BEKLENEN_TZ = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")
 BEKLENEN_MASKE = os.environ.get("EXPECTED_SUBNET_MASK", "255.255.0.0")
+
+# Yapılandırılmamış cihazın fabrikadan geldiği adres. Tren setine göre
+# DEĞİŞMEZ: cihaz kutudan çıkarken hangi sete gideceğini bilmiyor, hepsi
+# aynı adresle geliyor. Şablon (10.n.1.12) çözmek, set 8'de cihazı
+# 10.8.1.12'de aratıp hiç bulamamak demekti.
+FABRIKA_IP = os.environ.get("INTERCOM_FACTORY_IP", "10.1.1.12")
 
 # Tren seti (IP şablonundaki n). Dışarıdan gelen her set numarası bu
 # aralıkta olmak zorunda — istemci ne gönderirse göndersin.

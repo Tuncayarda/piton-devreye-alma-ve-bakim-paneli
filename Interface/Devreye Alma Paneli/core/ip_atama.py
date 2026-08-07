@@ -26,7 +26,7 @@ import threading
 import time
 
 from . import ayar, betik, kimlik as kimlik_deposu, switch_okuma
-from .device_map import Envanter
+from .device_map import Envanter, coz
 from .hata import KimlikHatasi
 
 # main() süreç genelindeki sys.stdout/sys.argv'ye dokunduğu için aynı anda
@@ -189,8 +189,9 @@ def plan(env: Envanter, grup_adlari, portlar: list[int],
 
 # Aday adres listesinin üst sınırı. Sahadaki maske /16 (255.255.0.0)
 # olabiliyor; onu açmak 65 bin adres demek ve her port için baştan sona
-# taranıyor — koşu bitmez. Aramanın anlamlı olduğu yer cihazların
-# bulunduğu /24 ve daha dar ağlar.
+# taranıyor — koşu bitmez. Geniş maskeli kurulumda aranacak yeri
+# daraltmanın yolu ağ + maske değil, açık adres aralığı vermektir
+# (bkz. aralik_adaylari).
 ARAMA_SINIRI = 512
 
 
@@ -220,16 +221,52 @@ def ipv4_mi(metin) -> bool:
         return False
 
 
-def arama_adaylari(ag: str, maske: str, sinir: int = ARAMA_SINIRI) -> list[str]:
+def aralik_adaylari(bas: str, son: str,
+                    sinir: int = ARAMA_SINIRI) -> list[str]:
+    """'10.1.1.10' + '10.1.1.60' → aradaki bütün adresler.
+
+    Ağ + maske ikilisinin işe yaramadığı durumun karşılığı: proje maskesi
+    /8 olduğunda o ağı açmak 16 milyon adres demek, ama aranacak cihazlar
+    bilinen dar bir aralıkta duruyor. Kullanıcı o aralığı doğrudan yazar.
+    """
+    import ipaddress
+
+    bas, son = str(bas or "").strip(), str(son or "").strip()
+    if not (bas and son):
+        raise ValueError(
+            "Arama aralığının başlangıcı ve sonu birlikte verilmeli")
+    try:
+        ilk, sonuncu = ipaddress.IPv4Address(bas), ipaddress.IPv4Address(son)
+    except ValueError as exc:
+        raise ValueError(f"Arama aralığı çözülemedi: {exc}") from exc
+    if int(sonuncu) < int(ilk):
+        raise ValueError("Arama aralığının sonu başlangıcından küçük olamaz")
+    adet = int(sonuncu) - int(ilk) + 1
+    if adet > sinir:
+        raise ValueError(
+            f"Arama aralığı çok geniş ({adet} adres). "
+            f"En fazla {sinir} adres taranabilir — aralığı daraltın.")
+    return [str(ipaddress.IPv4Address(x))
+            for x in range(int(ilk), int(sonuncu) + 1)]
+
+
+def arama_adaylari(ag: str, maske: str, sinir: int = ARAMA_SINIRI,
+                   bas: str = "", son: str = "") -> list[str]:
     """'10.1.1.0' + '255.255.255.0' → ['10.1.1.1', …, '10.1.1.254'].
 
     Fabrika adresinde olmayan cihazlar için taranacak adresler. Maske
     yerine önek uzunluğu da yazılabilir ("24").
+
+    Başlangıç/bitiş verilirse ağ + maske yerine o aralık kullanılır
+    (bkz. aralik_adaylari): geniş maskeli kurulumlarda aranacak yeri
+    daraltmanın tek yolu bu.
     """
     import ipaddress
 
     ag = str(ag or "").strip()
     maske = str(maske or "").strip()
+    if str(bas or "").strip() or str(son or "").strip():
+        return aralik_adaylari(bas, son, sinir)
     if not ag:
         return []
     try:
@@ -247,13 +284,14 @@ def arama_adaylari(ag: str, maske: str, sinir: int = ARAMA_SINIRI) -> list[str]:
     return adresler
 
 
-def fabrika_ip(env: Envanter) -> str:
+def fabrika_ip(env: Envanter | None = None) -> str:
     """Yapılandırılmamış cihazların beklendiği adres.
 
-    intercom_ip_assign.py ile aynı varsayılan: 10.n.1.12.
+    Sabittir (10.1.1.12) — tren setine göre çözülmez. Cihaz fabrikadan
+    hangi sete gideceğini bilmeden çıkıyor; hepsi aynı adreste geliyor.
+    `env` yalnız çağrı yerlerini bozmamak için duruyor.
     """
-    from .device_map import coz
-    return coz("10.n.1.12", env.set_no)
+    return ayar.FABRIKA_IP
 
 
 def onpanel(env: Envanter, switch_id: str,
@@ -399,16 +437,35 @@ def _intercom_kosu(env: Envanter, sw, portlar: list[int], hesap,
         # yapılıyor; ikinci bir güç çevrimi istenmiyor.
         "--no-persist-check",
     ]
-    fabrika = str(ayarlar.get("fabrikaIp") or "").strip()
-    if fabrika:
-        argv += ["--factory-ip", fabrika]
+    # Fabrika adresi her zaman açıkça verilir: betiğin kendi varsayılanı
+    # şablon (10.n.1.12) ve set numarasıyla çözülüyor; cihazlar ise sete
+    # bakmadan hep aynı adresle geliyor.
+    fabrika = str(ayarlar.get("fabrikaIp") or "").strip() or fabrika_ip()
+    argv += ["--factory-ip", fabrika]
+
+    # Sete göre çözülmüş adres de denenir. Fabrika adresi sabitlenmeden
+    # önce koşu cihazı 10.n.1.12'de arıyordu; sahadaki cihazların bir
+    # kısmı hâlâ orada duruyor ve yalnız sabit adrese bakmak onları
+    # "bulunamadı" yapıyor. Maliyeti tek bir adres, bulamamanın maliyeti
+    # bütün koşu.
+    ek = []
+    set_adresi = coz("10.n.1.12", env.set_no)
+    if set_adresi != fabrika:
+        ek.append(set_adresi)
+    satir_geri(f"[Intercom] Fabrika adresi: {fabrika}"
+               + (f" (ayrıca {set_adresi} denenecek)" if ek else ""))
+
     # Fabrika adresinde olmayan cihazlar için ek aday adresler. Betik
     # zaten fabrika IP'sini ve DeviceMap'teki bütün intercom adreslerini
     # deniyor; buradakiler onların üstüne eklenir.
-    ek = arama_adaylari(ayarlar.get("aramaAgi"), ayarlar.get("aramaMaskesi"))
+    arama = arama_adaylari(ayarlar.get("aramaAgi"), ayarlar.get("aramaMaskesi"),
+                           bas=ayarlar.get("aramaBas") or "",
+                           son=ayarlar.get("aramaSon") or "")
+    if arama:
+        satir_geri(f"[Intercom] Ek arama ağı: {len(arama)} adres "
+                   f"({arama[0]} – {arama[-1]})")
+    ek = list(dict.fromkeys(ek + arama))
     if ek:
-        satir_geri(f"[Intercom] Ek arama ağı: {len(ek)} adres "
-                   f"({ek[0]} – {ek[-1]})")
         argv += ["--default-ip", *ek]
     return _betigi_calistir(mod, argv, satir_geri, iptal)
 

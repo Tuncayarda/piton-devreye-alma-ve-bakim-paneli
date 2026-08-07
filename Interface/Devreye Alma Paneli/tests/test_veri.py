@@ -423,6 +423,86 @@ class IpPlani(PanelTesti):
             ip_atama.portlar_ayristir("11-14", {11, 12})
         self.assertIn("tanımlı olmayan port", str(t.exception))
 
+    def test_fabrika_ip_sete_gore_degismez(self):
+        """Cihaz kutudan çıkarken hangi sete gideceğini bilmiyor.
+
+        Şablon çözülseydi set 8'de cihaz 10.8.1.12'de aranır ve hiç
+        bulunamazdı.
+        """
+        harita = sahte.device_map([
+            {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
+             "Type": "Announcement", "SubType": "Intercom", "Port": "11",
+             "Status": {}}], switch_ip="10.n.1.101")
+        self.kur_harita(harita)
+        for n in (1, 8, 112):
+            env = device_map.yukle(n, self.harita_yolu)
+            self.assertEqual(ip_atama.fabrika_ip(env), "10.1.1.12")
+            plan = ip_atama.plan(env, "Intercom", [11])
+            self.assertEqual(plan["satirlar"][0]["fabrika"], "10.1.1.12")
+            # Hedef IP yine sete göre çözülür; değişmeyen yalnız fabrika.
+            self.assertEqual(plan["satirlar"][0]["hedefIp"], f"10.{n}.1.10")
+
+    def test_arama_adaylari_ag_ve_maskeden_cikar(self):
+        adaylar = ip_atama.arama_adaylari("10.1.1.0", "255.255.255.0")
+        self.assertEqual(adaylar[0], "10.1.1.1")
+        self.assertEqual(adaylar[-1], "10.1.1.254")
+        with self.assertRaises(ValueError) as t:
+            ip_atama.arama_adaylari("10.0.0.0", "255.0.0.0")
+        self.assertIn("çok geniş", str(t.exception))
+
+    def test_arama_araligi_ag_maskenin_yerine_gecer(self):
+        """Maske geniş olduğunda aranacak yer aralıkla daraltılır."""
+        adaylar = ip_atama.arama_adaylari("10.0.0.0", "255.0.0.0",
+                                          bas="10.1.1.10", son="10.1.1.12")
+        self.assertEqual(adaylar, ["10.1.1.10", "10.1.1.11", "10.1.1.12"])
+
+    def test_bozuk_arama_araligi_reddedilir(self):
+        for bas, son, beklenen in (
+                ("10.1.1.10", "", "birlikte"),
+                ("10.1.1.60", "10.1.1.10", "küçük olamaz"),
+                ("10.1.0.0", "10.1.9.0", "çok geniş")):
+            with self.assertRaises(ValueError, msg=f"{bas}-{son}") as t:
+                ip_atama.arama_adaylari("", "", bas=bas, son=son)
+            self.assertIn(beklenen, str(t.exception))
+
+    def test_kosu_iki_fabrika_adresini_de_dener(self):
+        """Sabit fabrika adresi + sete göre çözülmüş adres, ikisi de aday.
+
+        Fabrika adresi sabitlenmeden önce koşu cihazı 10.n.1.12'de
+        arıyordu; sahadaki cihazların bir kısmı hâlâ orada. Yalnız sabit
+        adrese bakmak onları "bulunamadı" yapıyordu.
+        """
+        harita = sahte.device_map([
+            {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
+             "Type": "Announcement", "SubType": "Intercom", "Port": "11",
+             "Status": {}}], switch_ip="10.n.1.101")
+        self.kur_harita(harita)
+        env = device_map.yukle(8, self.harita_yolu)
+        sw = env.switchler()[0]
+
+        yakalanan = {}
+
+        def sahte_calistir(mod, argv, satir_geri, iptal=None):
+            yakalanan["argv"] = argv
+            return 0
+
+        eski = ip_atama._betigi_calistir
+        ip_atama._betigi_calistir = sahte_calistir
+        self.addCleanup(lambda: setattr(ip_atama, "_betigi_calistir", eski))
+
+        satirlar = []
+        ip_atama._intercom_kosu(env, sw, [11], ("admin", "x"),
+                                satirlar.append, {})
+        argv = yakalanan["argv"]
+        self.assertEqual(argv[argv.index("--factory-ip") + 1], "10.1.1.12")
+        self.assertIn("--default-ip", argv)
+        self.assertIn("10.8.1.12", argv[argv.index("--default-ip") + 1:])
+        self.assertTrue(any("10.1.1.12" in s and "10.8.1.12" in s
+                            for s in satirlar), satirlar)
+        # Maske cihaza dayatılmaz: cihazın kendi netmask'i korunur.
+        self.assertNotIn("--force-netmask", argv)
+        self.assertNotIn("--netmask", argv)
+
     def test_plan_devicemapten_cikar(self):
         harita = sahte.device_map([
             {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,

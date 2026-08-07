@@ -51,7 +51,7 @@ core/
   isler.py        FIFO iş kuyruğu + tarama görünümü
   ip_atama.py     IP atama planı ve koşusu
   konfig.py       konfigürasyon oku/yaz
-  firmware.py     multipart yazılım yükleme
+  firmware.py     yazılım yükleme (anons: HTTP imaj, LCD: adb APK)
   excel.py        kontrol listesi Excel çıktısı
   kontrol.py      Excel şablonunun ekran önizlemesi
 static/           index.html + css/ + js/ (vanilla ES modules, build yok)
@@ -273,7 +273,7 @@ döndüğünde onu turuncuya çeviremez. Karşılaştırma saat değil sayaç
 | **Kontrol Listesi** | Çıktının ön izlemesi (şablonun tüm sütunları) + kategori filtresi |
 | IP Atama | DeviceMap'ten çıkan plan, ön panel, dry-run |
 | Konfigürasyon | Cihazdaki değer ↔ hedef değer karşılaştırması |
-| Yazılım Yükleme | Dosya seçimi, hedef sürüm, cihaz listesi |
+| Yazılım Yükleme | Cihaz başına dosya seçimi (.bin / .apk), hedef sürüm, gruba toplu atama |
 | PISCU & PBX | MQTT istemcileri, SIP dahili numaraları |
 | MQTT İzleme | Canlı akış (kullanıcı başlatır, tampon sınırlı) |
 | Proje & Cihaz Listesi | DeviceMap, tren seti, kategori tanımı (admin) |
@@ -352,9 +352,15 @@ birleşir, sonraki öncekini ezer:
   yalnız uyuşup uyuşmadığı ve kaynağı görünür. Bu değer cihazın SIP kaydı
   içindir, panelin cihaza bağlanma kimliği değildir (bkz. bölüm 4).
   Parola `Config` bloğuna YAZILMAZ — projede önerilen ya da fabrika
-  parolası diye bir şey yok. DeviceMap'te cihaz kaydında `PBXPassword`
-  varsa (Intercom, Handset) o kullanılır; yoksa (Amplifier, UIC) cihazda
-  duran parola korunur ya da kullanıcı ekrandan girer.
+  parolası diye bir şey yok. Kaynak sırası: ekrandan girilen değer >
+  DeviceMap'teki `PBXPassword` (Intercom, Handset) > **dahili numaranın
+  kendisi**. Son adım sahadaki kuraldır: anons ekipmanlarının SIP
+  parolası dahili numarasıyla aynı. `PBXPassword` yazmayan cihazlarda
+  (Amplifier, UIC) parola hiç bulunamıyor, SIP ucu onu zorunlu istediği
+  için o cihazlarda dahili numara da yazılamıyordu. Numara ekrandan
+  değişirse parola da onunla birlikte değişir.
+- Gizli alanı cihaz geri bildirmiyorsa (parolayı maskeleyen firmware)
+  doğrulama o alanı atlar: okunamaması "cihaz yazmadı" demek değildir.
 - Girilen değerler **kalıcıdır**: her değişiklikte kullanıcının veri
   dizinine (`ayar.veri_dizini()`, macOS'ta *Application Support*) yazılır ve
   `panel_api.sunucu()` açılışta geri yükler. Gizli alan (SIP parolası)
@@ -383,6 +389,82 @@ kullanıcısı da set atlayabilir. Set değişince cihaz listesi, IP planı,
 kontrol listesi ve çıktı dosyası adı yeniden hesaplanır; görünüm set
 başına tutulduğu için eski setin sonuçları taşınmaz. Tarama sürerken
 seçici kilitlenir.
+
+### Yazılım yükleme = cihaz başına dosya
+
+Dosya **her cihaz için ayrı** seçilir (`core/firmware.py`, cihaz kimliğine
+göre bir sözlük). Sahada bir intercom farklı bir donanım revizyonundan
+olabiliyor ve grubun geri kalanıyla aynı .bin'i almıyor; tek bir "seçili
+dosya" tutulduğunda bu görünmüyor, yanlış imaj sessizce gidiyordu.
+
+**İki cihaz ailesi, iki yol:**
+
+| Aile | Dosya | Yol | Doğrulama |
+|---|---|---|---|
+| Anons (Intercom, Handset, Amplifier, UIC) | `.bin` | HTTP multipart | cihaz yeniden başlar, `/api/v1/system/settings` sürümü okunur |
+| Compartment LCD | `.apk` | `adb install -r` | `dumpsys package` → `okuma.paket_bilgisi` |
+
+Beklenen uzantı `firmware.UZANTI` tablosundan gelir; dosya seçicinin
+süzgeci ve ekrandaki yardım metni oradan beslenir. APK bekleyen cihaza
+.bin seçtirmenin anlamı yok, karışık seçim de tek dosyayla karşılanamaz
+(uç 400 döner).
+
+APK tarafının ayrıntıları:
+
+- Kurulum cihazı yeniden başlatmaz, yalnız uygulama yeniden kurulur;
+  bu yüzden "cihaz geri gelene kadar bekle" adımı yoktur.
+- Cihazdaki sürüm yenisinden büyükse paket yöneticisi reddediyor. Sahada
+  eski sürüme dönmek gerekebildiği için `INSTALL_FAILED_VERSION_DOWNGRADE`
+  görülürse `-d` ile bir kez daha denenir (bayrak baştan gönderilmez:
+  bazı cihazlarda düşürme kapalı ve komutun tamamı reddediliyor).
+- `adb install` çıktısındaki bilinen hata kodları tek satırlık Türkçe
+  mesaja çevrilir (`firmware._kurulum_hatasi`).
+- Kurulum başarılı görünüp `com.piton.train_lcd_panel` sürümü
+  okunamıyorsa iş başarısız sayılır: APK başka bir pakete ait olabilir.
+
+**Koşu paraleldir.** Cihazlar birbirinden bağımsız (her biri kendi
+dosyasını alıyor, kendi doğrulamasını bekliyor); sırayla yapmak bütün
+bekleme sürelerini uç uca ekliyordu. Aynı anda `ayar.FIRMWARE_WORKER`
+(varsayılan **4**) cihaz yüklenir — tarama kadar yüksek tutulmaz, çünkü
+her yükleme bir cihazı karartıyor ve sahadaki kişinin neyin kapandığını
+görmesi gerekiyor. İptal her cihazdan önce denetlenir; o an süren yazım
+kesilmez (yarıda kesilen firmware cihazı kullanılamaz bırakır).
+
+Dosya **işletim sisteminin kendi penceresinden** seçilir: tarayıcı sanal
+alanı `<input type=file>` seçiminin gerçek yolunu vermiyor, panel de
+imajı kopyalamıyor — yalnız yolunu tutuyor. Satırdaki "Seç" düğmesi
+`POST /api/firmware/sec` çağırır; sunucu `core/dosya.sec` ile seçiciyi
+açar (macOS `osascript`, Windows `OpenFileDialog`, Linux
+`zenity`/`kdialog`), dönen yolu doğrular ve hedef cihazlara atar. İstek
+kullanıcı pencereyi kapatana kadar sürer; vazgeçilirse eski seçim
+korunur. Yol elle yazılmaz.
+
+Olağan durum (bütün gruba aynı imaj) için ekranın üstünde tek bir düğme
+var: aynı uç grup adıyla çağrılır ve dosya gruptaki her cihaza atanır.
+Satırdaki "Değiştir" yalnız o cihazı etkiler, "×" seçimi kaldırır. Hedef
+sürüm `POST /api/firmware/surum` ile dosyaya dokunmadan değişir.
+
+`POST /api/firmware/dosya` (yolla doğrudan atama) arayüzde kullanılmaz;
+penceresiz çalıştırma ve testler için durur.
+
+İstek cihazın kendi arayüzünün gönderdiğiyle birebir aynıdır:
+`POST /api/v1/system/firmware`, `multipart/form-data`, alan adı
+`firmware`, parça türü `application/macbinary`. Uç adı "update" değil —
+yanlış adrese giden yükleme cihazda HTTP 404 ile düşüyordu.
+
+Kurallar:
+
+- Yükleme yalnız yolu tanımlı cihazlarda var (anons ailesi ve
+  Compartment LCD). Başka bir gruba dosya atanmaz — uç 400 döner.
+- **Dosyası olmayan cihaz kuyruğa girmez.** Yükleme ucu yalnız seçimi
+  olanları işe koyar; hiç yoksa iş hiç oluşmaz (400).
+- Dosya yolu girildiği anda doğrulanır (var mı, boş mu, 32 MB sınırı) ve
+  yükleme anında bir kez daha bakılır: seçimden sonra silinmiş olabilir.
+- Seçim **yalnız bellektedir**; panel imajı kendi dizinine kopyalamaz,
+  kapanışta seçim gider (bkz. `panel_api.temizle`).
+- HTTP 200 başarı sayılmaz: cihaz yeniden başlar, sürümü tekrar okunur ve
+  hedef sürüm girilmişse onunla karşılaştırılır. Kuyruk satırında hangi
+  dosyanın gittiği yazar.
 
 ### Tarama sırasında canlı durum
 

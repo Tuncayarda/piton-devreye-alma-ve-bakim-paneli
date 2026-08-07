@@ -205,7 +205,7 @@ ANONS_UIC_ALANLARI = ("tcSpeakerGain", "tcMicGain",
 ANONS_SIP_ZORUNLU = ("pbxIp", "pbxExtension", "pbxPassword")
 
 
-def anons(ayarlar=None, modlar=None, yoksay=()):
+def anons(ayarlar=None, modlar=None, yoksay=(), yeni_surum="1.2.6"):
     """Announcement cihazı taklidi — okuma ve yazma uçlarıyla.
 
     `modlar` verilirse cihaz Handset gibi davranır: mod alanları ana uçta
@@ -213,10 +213,15 @@ def anons(ayarlar=None, modlar=None, yoksay=()):
 
     `yoksay` içindeki alanlar 200 ile kabul edilip sessizce atılır —
     sahadaki cihaz tanımadığı alanda böyle davranıyor.
+
+    `yeni_surum`: firmware yüklendikten sonra cihazın bildireceği sürüm.
     """
     hal = dict(ayarlar or ANONS_AYAR)
     mod_hali = dict(modlar) if modlar else None
     kilit = threading.Lock()
+    # Yüklenen imajın gövdesi: hangi cihaza hangi dosyanın gittiğini test
+    # doğrudan buradan okur.
+    yuklenen: list[bytes] = []
 
     def suz(gelen: dict) -> dict:
         # Cihaz ondalıkları float32 saklıyor: 2.4 yazıldıktan sonra
@@ -260,6 +265,21 @@ def anons(ayarlar=None, modlar=None, yoksay=()):
         if yol == "/api/v1/system/settings":
             return metin(self, 405, "Method Not Allowed")
 
+        # Firmware yükleme: gövde JSON değil, multipart/form-data.
+        if yol == "/api/v1/system/firmware":
+            n = int(self.headers.get("Content-Length") or 0)
+            ham = self.rfile.read(n)
+            tur = self.headers.get("Content-Type", "")
+            if not tur.startswith("multipart/form-data"):
+                return metin(self, 400, "Expected multipart/form-data")
+            if b'name="firmware"' not in ham:
+                return metin(self, 400, "Missing firmware field")
+            with kilit:
+                yuklenen.append(ham)
+                hal["firmwareVersion"] = yeni_surum
+                hal["uptime"] = 1               # cihaz yeniden başladı
+            return metin(self, 200, "Update started")
+
         gelen = govde_al(self)
         if yol == "/api/v1/audio/volume":
             with kilit:
@@ -293,6 +313,7 @@ def anons(ayarlar=None, modlar=None, yoksay=()):
     sunucu = _Sunucu(_temel_handler("AnonsHandler", gonder))
     sunucu.hal = hal                            # testler halini okuyabilsin
     sunucu.mod_hali = mod_hali
+    sunucu.yuklenen = yuklenen
     return sunucu
 
 

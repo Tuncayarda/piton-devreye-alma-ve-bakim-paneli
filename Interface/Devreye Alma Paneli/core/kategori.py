@@ -77,7 +77,9 @@ GRUPLAR = [
     {"ad": "Handset", "tip": "Announcement", "alt": "Handset", "ops": "ip cfg fw dog"},
     {"ad": "Amplifier", "tip": "Announcement", "alt": "Amplifier", "ops": "ip cfg fw dog"},
     {"ad": "UIC", "tip": "Announcement", "alt": "UIC", "ops": "ip cfg fw dog"},
-    {"ad": "Compartment LCD", "tip": "LCD", "alt": "Compartment", "ops": "ip dog"},
+    # Compartment LCD'nin yazılımı APK: adb ile kuruluyor (bkz. core/firmware).
+    {"ad": "Compartment LCD", "tip": "LCD", "alt": "Compartment",
+     "ops": "ip fw dog"},
     {"ad": "Landing LCD", "tip": "LCD", "alt": "Landing", "ops": "ip dog"},
     {"ad": "LED", "tip": "LED", "alt": "Front", "ops": "ip dog"},
     {"ad": "ICU", "tip": "ICU", "alt": "", "ops": "ip dog"},

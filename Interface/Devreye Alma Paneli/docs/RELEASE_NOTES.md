@@ -30,11 +30,50 @@ kararlı sayılmaz.
 - Hedef değerler DeviceMap'ten gelir ve kutularda hazır durur; kullanıcı
   dokunmazsa cihaza yazılan da o değerdir. Girilen değerler kaydedilir,
   uygulama açılışında geri yüklenir.
+- **SIP parolası dahili numaranın aynısıdır.** DeviceMap'te `PBXPassword`
+  yazmayan cihazlarda (Amplifier, UIC) parola bulunamıyordu; SIP ucu onu
+  zorunlu istediği için o cihazlarda dahili numara da yazılamıyordu.
+  Projede açıkça yazılmış bir parola varsa yine o kullanılır.
 
 **IP atama**
 
 - Switch ön panelinden port seçilir, PoE ile cihazlar sırayla açılıp adres
   yazılır. Koşu iptal edilebilir; iptal edilse de PoE portları geri açılır.
+- **Fabrika IP'si sete göre değişmez**: yapılandırılmamış cihaz hangi
+  sette çalışacağını bilmeden hep aynı adresle (10.1.1.12) geliyor.
+  Önceden şablon set numarasıyla çözülüyordu ve set 8'de cihaz
+  10.8.1.12'de aranıp bulunamıyordu. Alan yine ekrandan değiştirilebilir.
+  Koşu ikisini de dener: sabit adres ve setin kendi 10.n.1.12'si — daha
+  önce atanmış cihazlar hâlâ orada olabiliyor.
+- Fabrika adresinde bulunamayan cihazlar için ağ + maske yerine **açık
+  adres aralığı** da verilebilir (10.1.1.10 – 10.1.1.60 gibi). Ağ maskesi
+  geniş olduğunda aranacak yeri daraltmanın yolu budur; her iki yolda da
+  en fazla 512 adres denenir.
+
+**Yazılım yükleme**
+
+- Dosya **cihaz başına** seçilir: her satırın kendi dosyası ve hedef
+  sürümü var. Bir cihaz farklı bir revizyondan olduğunda grubun geri
+  kalanıyla aynı dosyayı almak zorunda değil.
+- Dosya, satırdaki **"Seç"** düğmesiyle bilgisayarın kendi dosya
+  penceresinden seçilir; yol elle yazılmaz.
+- Hepsine aynı dosya gidecekse üstteki düğme tek seçimle bütün gruba yazar.
+- Dosyası seçilmemiş cihaz kuyruğa hiç girmez; yol girildiği anda
+  doğrulanır (var mı, boş mu, 32 MB sınırı).
+- Yükleme sonrası sürüm tekrar okunur. "İstek kabul edildi" tek başına
+  başarı sayılmaz; hedef sürüm girilmişse cihazın bildirdiği sürümle
+  karşılaştırılır. Kuyruk satırında hangi dosyanın gittiği yazar.
+- **Anons ekipmanları** imaj (.bin) alır; istek cihazın kendi arayüzüyle
+  birebir aynı: `POST /api/v1/system/firmware`.
+- **Compartment LCD** uygulama paketi (.apk) alır: `adb install -r` ile
+  kurulur, sürüm `dumpsys package` ile doğrulanır. Cihazdaki sürüm daha
+  yeniyse düşürme bir kez `-d` ile denenir; `adb` hata kodları
+  anlaşılır mesaja çevrilir.
+- Dosya seçicinin süzgeci cihaza göre: APK bekleyen cihaza .bin
+  seçtirilmez.
+- **Yükleme paralel yürür**: aynı anda en fazla 4 cihaz (ayarlanabilir:
+  `FIRMWARE_WORKER`). 12 cihazlık bir sette bekleme süreleri artık uç uca
+  eklenmiyor.
 
 **Kimlik ve gizlilik**
 

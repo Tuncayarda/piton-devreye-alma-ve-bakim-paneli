@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -79,6 +80,11 @@ def _kimlik(cihaz):
 
 def _telemetri(env: device_map.Envanter) -> piscu.Telemetri:
     return piscu.Telemetri(env.piscu_ip()).topla(beklenen_set=env.set_no)
+
+
+def _mevcut_surum(sonuc) -> str:
+    """Cihazdan okunan sürüm; okunmadıysa boş (uydurulmaz)."""
+    return str((sonuc.alanlar.get("surum") if sonuc else "") or "")
 
 
 def _cihaz_dto(cihaz, sonuc) -> dict:
@@ -267,22 +273,46 @@ def konfig_isi(env, cihazlar, grup=""):
 
 
 def firmware_isi(env, cihazlar):
+    """Yükleme işi — cihazlar paralel yüklenir.
+
+    Cihazlar birbirinden bağımsız: her biri kendi dosyasını alıyor, kendi
+    yeniden başlamasını bekliyor. Sırayla yapmak 12 intercomluk bir sette
+    bekleme sürelerini uç uca ekliyordu. Aynı anda kaç tanesinin
+    yükleneceği `ayar.FIRMWARE_WORKER` (varsayılan 4).
+    """
     def govde(is_: isler.Is):
         for c in cihazlar:
             is_.satir_kur(c)
-        for c in cihazlar:
+
+        def tek(c):
+            # İptal her cihazdan ÖNCE denetlenir: sıradakilere hiç
+            # dokunulmaz, o an süren yükleme kendi zaman aşımı kadar
+            # sürebilir — yarıda kesilen bir firmware yazımı cihazı
+            # kullanılamaz bırakır.
             if is_.iptal.is_set():
                 is_.satir_guncelle(c.id, "atlandi", "İptal edildi")
-                continue
-            is_.satir_guncelle(c.id, isler.CALISIYOR, "Yükleniyor")
+                return
+            # Hangi dosyanın gittiği satırda yazar: cihaz başına ayrı
+            # dosya seçilebildiği için "yüklendi" tek başına yetmiyor.
+            dosya_adi = firmware.secili_of(c.id)["ad"]
+            is_.satir_guncelle(c.id, isler.CALISIYOR,
+                               f"Yükleniyor · {dosya_adi}")
             try:
                 sonuc = firmware.yukle(c, _kimlik(c))
                 is_.satir_guncelle(c.id, "tamam",
-                                   f"Yüklendi · sürüm {sonuc['yeni']}")
+                                   f"{dosya_adi} yüklendi · "
+                                   f"sürüm {sonuc['yeni']}")
             except KimlikHatasi as exc:
                 is_.satir_guncelle(c.id, "kimlik", kullanici_mesaji(exc))
             except Exception as exc:
                 is_.satir_guncelle(c.id, "hata", kullanici_mesaji(exc))
+
+        havuz = ThreadPoolExecutor(
+            max_workers=max(1, min(ayar.FIRMWARE_WORKER, len(cihazlar))))
+        try:
+            list(havuz.map(tek, cihazlar))
+        finally:
+            havuz.shutdown(wait=True)
 
     return govde
 
@@ -482,6 +512,9 @@ class Handler(BaseHTTPRequestHandler):
                 "fabrikaIp": ip_atama.fabrika_ip(env),
                 "aramaAgi": device_map.coz("10.n.1.0", env.set_no),
                 "aramaMaskesi": "255.255.255.0",
+                # Aranacak yer aralıkla da verilebiliyor; sınırı arayüz de
+                # bilsin (bkz. ip_atama.ARAMA_SINIRI).
+                "aramaSiniri": ip_atama.ARAMA_SINIRI,
                 # Cihazlar aynı fabrika adresinde geldiği için koşu, her
                 # port değişiminde ARP önbelleğini temizlemek zorunda;
                 # yetki yoksa kullanıcı bunu koşudan önce bilsin.
@@ -542,7 +575,33 @@ class Handler(BaseHTTPRequestHandler):
             })
 
         if yol == "/api/firmware":
-            return self._gonder(200, firmware.secili())
+            # İmaj cihaz başına seçiliyor; ekran hangi cihazda hangi
+            # dosyanın durduğunu buradan öğrenir. Grup verilmezse yalnız
+            # seçili olanlar döner (yükleme düğmesi bunu sayar).
+            env = _env(tek("set", 1))
+            grup = kategori.grup_bul(str(tek("grup", "") or ""))
+            hedef = [c for c in env.cihazlar
+                     if grup is None or kategori.grup_eslesir(grup, c)]
+            gor = isler.gorunum(env.set_no)
+            return self._gonder(200, {
+                "setNo": env.set_no,
+                "grup": grup["ad"] if grup else "",
+                "enBuyuk": firmware.EN_BUYUK,
+                "cihazlar": [{
+                    "cihazId": c.id,
+                    "ad": c.ad,
+                    "ip": c.ip,
+                    # Yükleme yolu olmayan cihazları ekran "uygulanmıyor"
+                    # diye göstersin; olanlarda hangi dosyanın beklendiği
+                    # de belli olsun (anons .bin, Compartment LCD .apk).
+                    "yuklenebilir": firmware.destekli(c),
+                    "uzanti": firmware.uzanti(c),
+                    "mevcutSurum": _mevcut_surum(gor.al(c.id)),
+                    "dosya": firmware.secili_of(c.id),
+                } for c in hedef],
+                "seciliSayi": len(firmware.secilenler()),
+                "esZamanli": ayar.FIRMWARE_WORKER,
+            })
 
         if yol == "/api/piscu":
             return self._gonder(200, self._piscu(_env(tek("set", 1))))
@@ -725,12 +784,18 @@ class Handler(BaseHTTPRequestHandler):
                 "fabrikaIp": str(g.get("fabrikaIp") or "").strip(),
                 "aramaAgi": str(g.get("aramaAgi") or "").strip(),
                 "aramaMaskesi": str(g.get("aramaMaskesi") or "").strip(),
+                # Ağ + maske yerine açık adres aralığı: proje maskesi geniş
+                # olduğunda (örn. /8) taranacak yeri daraltmanın tek yolu.
+                "aramaBas": str(g.get("aramaBas") or "").strip(),
+                "aramaSon": str(g.get("aramaSon") or "").strip(),
             }
             if ayarlar["fabrikaIp"] and not ip_atama.ipv4_mi(ayarlar["fabrikaIp"]):
                 return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
             try:
                 ip_atama.arama_adaylari(ayarlar["aramaAgi"],
-                                        ayarlar["aramaMaskesi"])
+                                        ayarlar["aramaMaskesi"],
+                                        bas=ayarlar["aramaBas"],
+                                        son=ayarlar["aramaSon"])
             except ValueError as exc:
                 return self._gonder(400, {"hata": str(exc)})
 
@@ -824,19 +889,99 @@ class Handler(BaseHTTPRequestHandler):
             return self._gonder(200 if yeni else 202,
                                 {**is_.dto(satir=False), "yeni": yeni})
 
+        if yol == "/api/firmware/sec":
+            # İşletim sisteminin dosya seçicisini açar ve seçileni hedef
+            # cihaz(lar)a atar. Yol istemciden gelmiyor: tarayıcı gerçek
+            # yolu vermiyor, kullanıcı da elle yazmak zorunda kalmasın.
+            # İstek, kullanıcı pencereyi kapatana kadar bekler.
+            env = _env(g.get("set"))
+            cihazlar = self._hedef_cihazlar(env, g)
+            hedef = [c for c in cihazlar if firmware.destekli(c)]
+            if not hedef:
+                return self._gonder(400, {
+                    "hata": "Seçilen cihazlarda yazılım yükleme tanımlı değil"})
+            # Süzgeç cihazın beklediği dosyaya göre: anons ekipmanı imaj
+            # (.bin), Compartment LCD uygulama paketi (.apk). Karışık bir
+            # seçim tek dosyayla karşılanamaz.
+            uzantilar = {firmware.uzanti(c) for c in hedef}
+            if len(uzantilar) > 1:
+                return self._gonder(400, {
+                    "hata": "Seçilen cihazlar farklı dosya türü bekliyor "
+                            "(.bin / .apk) — grupları ayrı ayrı seçin"})
+            tur = next(iter(uzantilar))
+            baslik = (f"{hedef[0].ad} için .{tur} dosyası"
+                      if len(hedef) == 1
+                      else f"{len(hedef)} cihaz için .{tur} dosyası")
+            try:
+                secilen = dosya.sec(baslik, (tur,))
+            except RuntimeError as exc:
+                return self._gonder(500, {"hata": str(exc)})
+            if not secilen:
+                return self._gonder(200, {"iptal": True})
+            secim = firmware.dosya_sec(
+                [c.id for c in hedef], secilen, str(g.get("surum", "")))
+            return self._gonder(200, {"dosyalar": secim,
+                                      "cihazSayisi": len(hedef),
+                                      "seciliSayi": len(firmware.secilenler())})
+
+        if yol == "/api/firmware/surum":
+            # Yalnız hedef sürüm değişir; seçili dosyaya dokunulmaz.
+            env = _env(g.get("set"))
+            cihazlar = self._hedef_cihazlar(env, g)
+            secim = firmware.surum_yaz([c.id for c in cihazlar],
+                                       str(g.get("surum", "")))
+            return self._gonder(200, {"dosyalar": secim})
+
         if yol == "/api/firmware/dosya":
+            # Yolla doğrudan atama. Arayüz bunu kullanmaz (orada dosya
+            # işletim sisteminin seçicisinden gelir, bkz. /api/firmware/sec);
+            # penceresiz çalıştırmada ve testlerde gereken uç budur.
+            # Hedef: tek cihaz (cihazlar: [id]) ya da bütün grup.
+            env = _env(g.get("set"))
             yol_metni = g.get("yol")
             if not isinstance(yol_metni, str) or not yol_metni.strip():
                 return self._gonder(400, {"hata": "dosya yolu gerekli"})
-            return self._gonder(200, firmware.dosya_sec(
-                yol_metni, str(g.get("surum", ""))))
+            cihazlar = self._hedef_cihazlar(env, g)
+            # Yükleme ucu olmayan cihaza imaj atanmaz: "gruba uygula"
+            # dediğinde listede yükleme yapılamayacak bir cihaz varsa
+            # onu sessizce atlamak, sonra "neden yüklenmedi" sorusunu
+            # doğuruyordu — hiç seçilmemiş görünmesi doğrusu.
+            hedef = [c for c in cihazlar if firmware.destekli(c)]
+            if not hedef:
+                return self._gonder(400, {
+                    "hata": "Seçilen cihazlarda yazılım yükleme tanımlı değil"})
+            secim = firmware.dosya_sec(
+                [c.id for c in hedef], yol_metni, str(g.get("surum", "")))
+            return self._gonder(200, {"dosyalar": secim,
+                                      "cihazSayisi": len(hedef),
+                                      "seciliSayi": len(firmware.secilenler())})
+
+        if yol == "/api/firmware/sil":
+            if g.get("hepsi") is True:
+                firmware.temizle()
+                return self._gonder(200, {"silindi": "hepsi", "seciliSayi": 0})
+            env = _env(g.get("set"))
+            cihazlar = self._hedef_cihazlar(env, g)
+            silindi = firmware.sil([c.id for c in cihazlar])
+            return self._gonder(200, {
+                "silindi": silindi,
+                "dosyalar": firmware.secilenler([c.id for c in cihazlar]),
+                "seciliSayi": len(firmware.secilenler())})
 
         if yol == "/api/firmware/yukle":
             env = _env(g.get("set"))
             cihazlar = self._hedef_cihazlar(env, g)
-            is_ = isler.Is("fw", f"Yazılım yükleme · {len(cihazlar)} cihaz",
+            # Yalnız imajı seçilmiş cihazlar kuyruğa girer: dosyası
+            # olmayanı işe koymak, satırı "hata" ile dolduran ama hiçbir
+            # şey yapmayan bir koşu demek.
+            hedef = [c for c in cihazlar
+                     if firmware.destekli(c) and firmware.secili_var(c.id)]
+            if not hedef:
+                return self._gonder(400, {
+                    "hata": "Yüklenecek dosyası seçilmiş cihaz yok"})
+            is_ = isler.Is("fw", f"Yazılım yükleme · {len(hedef)} cihaz",
                            env.set_no, anahtar=f"fw:{env.set_no}")
-            is_, yeni = isler.YONETICI.ekle(is_, firmware_isi(env, cihazlar))
+            is_, yeni = isler.YONETICI.ekle(is_, firmware_isi(env, hedef))
             return self._gonder(200 if yeni else 202,
                                 {**is_.dto(satir=False), "yeni": yeni})
 
