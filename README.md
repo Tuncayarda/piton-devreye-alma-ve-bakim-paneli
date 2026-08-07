@@ -73,5 +73,12 @@ Cihaz uçları ve veri alanları:
 **[docs/CIHAZ_ENDPOINTLERI.md](docs/CIHAZ_ENDPOINTLERI.md)** ·
 **[docs/CIHAZ_VERI_ALANLARI.md](docs/CIHAZ_VERI_ALANLARI.md)**
 
-Hazır paketler [Releases](../../releases) sayfasındadır. Paketler imzasızdır;
-Windows'ta WebView2 Runtime gerekir.
+Hazır paketler: **[bu uygulamanın Release'leri](../../releases?q=dap-v&expanded=true)**
+(depoda iki uygulama var, bu bağlantı `dap-v*` etiketlerini süzer —
+[tümü](../../releases)). Paketler imzasızdır; Windows'ta WebView2 Runtime
+gerekir.
+
+> "Latest" rozeti GitHub'da depo başına tektir, branch başına değil.
+> İki uygulamanın birbirinin rozetini çalmaması için release'ler bilerek
+> `--latest=false` ile yayınlanır; ayrım başlıktan ve etiket önekinden
+> yapılır.

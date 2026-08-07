@@ -185,8 +185,8 @@ bu sayede artar (glibc geriye dönük uyumlu değildir).
 ### `build-devreye.yml` — bu uygulamanın paketleri
 
 Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya **`dap-v*`** etiketi.
-Switch Yönetim Paneli `build-switch.yml` ile ayrı derlenir; ikisi birbirini
-beklemez, birbirinin Release'ine dokunmaz.
+Switch Yönetim Paneli `syp` branch'inde kendi `build-switch.yml`'i ile ayrı
+derlenir; ikisi birbirini beklemez, birbirinin Release'ine dokunmaz.
 
 ### Sürüm etiketiyle yayınlama
 
@@ -210,6 +210,29 @@ oluşturulmaz. Ön sürüm ekleri (`-dev`, `-alpha`, `-beta`, `-rc`) Release'i
 Release job'ı artifact'leri indirir, dosyaların var ve boş olmadığını
 doğrular, `SHA256SUMS.txt` üretir ve `gh` CLI ile Release'i oluşturur. Aynı
 etiket için tekrar çalıştırılırsa varlıklar `--clobber` ile güncellenir.
+
+### İki uygulama, tek Releases sayfası
+
+GitHub'da Releases **depo başınadır**, branch başına ayrı sayfa yoktur. İki
+uygulamanın release'leri aynı listede görünür; ayrım şöyle kurulur:
+
+| Ne | Nasıl |
+|---|---|
+| Başlık | `Devreye Alma Paneli v0.9.0-dev` — ham etiket değil, uygulama adı + sürüm |
+| Etiket | `dap-v*` / `syp-v*` · `v*` |
+| Dosya adları | `DevreyeAlmaPaneli-…` / `SwitchYonetimPaneli-…` |
+| Release gövdesi | O uygulamanın kendi `docs/RELEASE_NOTES.md` dosyası |
+| Süzülmüş bağlantı | `…/releases?q=dap-v` (README'de bu kullanılıyor) |
+
+İki ayrıntı bilerek böyle:
+
+- **`--latest=false`.** "Latest" rozeti depo başına tektir. Serbest
+  bırakılsaydı hangi uygulama sonra yayınlanırsa ötekinin rozetini alırdı;
+  bu yüzden hiçbirine verilmiyor.
+- **`--notes-start-tag`.** Üretilen changelog'un başlangıcı, *bu*
+  uygulamanın bir önceki etiketine sabitlenir (`etiket_desenleri` girdisi).
+  Serbest bırakılsaydı GitHub "önceki etiket" olarak öteki uygulamanınkini
+  seçip changelog'a alakasız commit'ler koyabilirdi.
 
 ### İzinler
 
