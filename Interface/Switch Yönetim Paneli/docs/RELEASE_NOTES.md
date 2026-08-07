@@ -1,4 +1,46 @@
-## Bu sürümde (v1.0.3)
+## Yayınlanmamış (sıradaki sürüm)
+
+**Çoklu port seçimi**
+
+- Portlar artık **dosya seçer gibi** seçiliyor: düz tık tek portu seçer,
+  **⌘ (macOS) / Ctrl (Windows, Linux) + tık** seçime port ekler ya da
+  çıkarır, **Shift + tık** aralık seçer. **⌘/Ctrl + A** görünen tüm
+  portları, **Esc** seçimi bırakır.
+- Seçim ön panel haritasında ve tablolarda ortak: hangisine tıklarsanız
+  tıklayın ikisi birden işaretlenir. Tablo satırları da tıklanabilir oldu.
+- Tabloların üstünde **seçim şeridi**: seçim yokken nasıl seçileceğini
+  anlatır, seçim varken kaç portun seçili olduğunu (örn. "6 port seçili —
+  3–5, 9, 12") gösterir ve **Toplu işlem…** düğmesiyle sağ tık menüsünü
+  açar.
+
+**Sağ tık menüsü yeniden yazıldı**
+
+- Menü artık tek porta değil, **seçili portların tamamına** iş yapar.
+- İki bölüm ayrı ayrı seçiliyor — **Güç (PoE)** ve **Port durumu (veri)** —
+  ve her ikisinde de **Değiştirme** seçeneği var. Böylece "yalnızca gücü
+  kapat", "yalnızca portu aç" ya da "ikisini birden ayarla" aynı pencereden
+  yapılabiliyor; **Uygula**'ya basınca hepsi tek istekte gidiyor.
+- Satırların sağında portların o anki durumu yazıyor: hepsi o durumdaysa
+  "şu an", bir kısmıysa "3/8" gibi bir oran.
+- Seçimde uplink portu varsa güç seçimi onlarda sessizce atlanmıyor; onay
+  penceresinde ve bildirimde kaç portun atlandığı söyleniyor.
+
+**PoE ile port durumu birbirinden ayrıldı**
+
+- Artık **yalnızca PoE'yi açıp kapatmak mümkün**. Güç sütunundaki açılır
+  kutu, port kapalıyken de kullanılabiliyor (eskiden gri ve tıklanamazdı).
+- Bir portu kapatmak **artık PoE ayarını da sıfırlamıyor**; portu tekrar
+  açtığınızda güç eskiden neyse odur. İki ayarı birlikte değiştirmek
+  isterseniz sağ tık menüsünden ikisini birden seçebilirsiniz.
+
+**Diğer**
+
+- Anında modda birden çok portu ilgilendiren her işlem, gönderilmeden önce
+  **madde madde onaya** düşüyor — toplu gönderimdeki pencerenin aynısı.
+- Tekil düğmeler, açılır kutular ve sağ tık menüsü aynı koddan geçiyor;
+  onay soruları ve işlem geçmişi satırları her yolda birebir aynı.
+
+## v1.0.3
 
 **Tarama**
 

@@ -311,6 +311,18 @@ h2 {
 .batchbar .grow { flex: 1; }
 .batchbar.bos { border-left-color: var(--line); color: var(--muted); background: transparent; }
 
+/* Çoklu seçim şeridi. Batchbar ile aynı ölçüler, vurgu rengi mavi:
+   seçim bir "bekleyen değişiklik" değil, yalnızca neye iş yapılacağı. */
+.selbar {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 13px; margin-bottom: 14px;
+  background: rgba(66, 148, 224, .07);
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 0; font-size: 12.5px;
+}
+.selbar .grow { flex: 1; }
+.selbar.bos { border-left-color: var(--line); color: var(--muted); background: transparent; }
+
 /* ── ön panel / M12 konnektör haritası ─────────────────────────── */
 .panelmap { padding: 16px 18px 18px; margin-bottom: 22px; }
 .panelmap .pm-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
@@ -454,8 +466,8 @@ tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 #fe-ports th:nth-child(5) { width: 175px; }
 #fe-ports th:nth-child(6) { width: auto; }
 #ge-ports th:nth-child(4) { width: auto; }
-/* port kapalıyken güç seçilemez */
-select.poe:disabled { opacity: .45; cursor: not-allowed; }
+/* Satırlar seçilebilir; metin sürüklemesi seçimi bozmasın */
+#fe-ports tbody tr, #ge-ports tbody tr { cursor: pointer; user-select: none; }
 
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 0; margin-right: 7px; vertical-align: 1px; }
 .dot.up { background: var(--ok); }        /* bağlı, güç çekiyor */
@@ -713,7 +725,8 @@ footer .grow { flex: 1; }
 
 /* ── ön panel sağ tık menüsü ───────────────────────────────────── */
 .pm-menu {
-  position: fixed; z-index: 81; width: 224px; padding-bottom: 6px;
+  position: fixed; z-index: 81; width: 252px; padding-bottom: 0;
+  max-height: calc(100vh - 20px); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 0;
   box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
 }
@@ -723,7 +736,8 @@ footer .grow { flex: 1; }
   letter-spacing: .06em; text-transform: uppercase; color: var(--text);
 }
 .pm-menu-head .s {
-  margin-top: 2px; font-family: var(--font-m); font-size: 10.5px; color: var(--muted);
+  margin-top: 2px; font-family: var(--font-m); font-size: 10.5px;
+  line-height: 1.5; color: var(--muted); white-space: pre-line;
 }
 .pm-kicker {
   padding: 9px 12px 4px; font-family: var(--font-m); font-size: 9.5px;
@@ -743,6 +757,26 @@ footer .grow { flex: 1; }
   flex: none; width: 7px; height: 7px;
   border: 1px solid rgba(214, 235, 255, .22); background: transparent;
 }
-.pm-item .mark.green { background: var(--ok); border-color: var(--ok); }
-.pm-item .mark.red { background: var(--danger); border-color: var(--danger); }
 .pm-item .lbl { flex: 1; text-align: left; }
+
+/* Seçilen (uygulanacak) satır: soldaki kare dolar, satır vurgulanır.
+   Sağdaki küçük yazı ise portların şu anki durumunu söyler — ikisi ayrı
+   bilgi, bu yüzden ayrı işaretler. */
+.pm-item.pick { background: rgba(66, 148, 224, .16); }
+.pm-item.pick .mark { background: var(--accent); border-color: var(--accent); }
+.pm-item.pick.danger .mark { background: var(--danger); border-color: var(--danger); }
+.pm-item .now {
+  flex: none; font-family: var(--font-m); font-weight: 400; font-size: 10px;
+  letter-spacing: .02em; color: var(--dim); text-transform: none;
+}
+.pm-item .now.tam { color: var(--muted); }
+
+.pm-not {
+  padding: 8px 12px 2px; font-family: var(--font-b); font-size: 11px;
+  line-height: 1.45; color: var(--dim);
+}
+.pm-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 8px; padding: 9px 12px;
+  border-top: 1px solid var(--line); background: rgba(214, 235, 255, .02);
+}

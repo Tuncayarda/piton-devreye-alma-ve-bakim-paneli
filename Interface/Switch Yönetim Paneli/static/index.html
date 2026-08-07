@@ -116,6 +116,18 @@ Toplu: değişiklikler biriktirilir, Gönder'e basınca tek seferde uygulanır."
         <div id="pm-grid" class="pm-grid"></div>
       </div>
 
+      <!-- Çoklu seçim şeridi: seçim yokken nasıl seçileceğini anlatır,
+           seçim varken kaç port seçildiğini ve toplu işlem yolunu gösterir.
+           Metni ve düğme durumlarını app.js kurar. -->
+      <div id="selbar" class="selbar bos">
+        <span id="sel-info"></span>
+        <span class="grow"></span>
+        <button id="sel-menu" class="ok sm" disabled
+                title="Seçili portların hepsine güç / port durumu uygula">
+          Toplu işlem…</button>
+        <button id="sel-clear" class="ghost sm" disabled>Seçimi temizle</button>
+      </div>
+
       <h3 class="tbl-title">PoE portları <span id="fe-cnt" class="cnt"></span></h3>
       <table id="fe-ports">
         <thead><tr>
