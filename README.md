@@ -73,12 +73,13 @@ Cihaz uçları ve veri alanları:
 **[docs/CIHAZ_ENDPOINTLERI.md](docs/CIHAZ_ENDPOINTLERI.md)** ·
 **[docs/CIHAZ_VERI_ALANLARI.md](docs/CIHAZ_VERI_ALANLARI.md)**
 
-Hazır paketler: **[bu uygulamanın Release'leri](../../releases?q=dap-v&expanded=true)**
-(depoda iki uygulama var, bu bağlantı `dap-v*` etiketlerini süzer —
-[tümü](../../releases)). Paketler imzasızdır; Windows'ta WebView2 Runtime
-gerekir.
+Hazır paketler [Releases](../../releases) sayfasındadır — arama kutusuna
+`Devreye` yazarak yalnız bu uygulamanınkileri süzebilirsin. Paketler
+imzasızdır; Windows'ta WebView2 Runtime gerekir.
 
-> "Latest" rozeti GitHub'da depo başına tektir, branch başına değil.
-> İki uygulamanın birbirinin rozetini çalmaması için release'ler bilerek
-> `--latest=false` ile yayınlanır; ayrım başlıktan ve etiket önekinden
-> yapılır.
+> **Neden tek liste:** GitHub'da Releases depo başınadır, branch başına ayrı
+> sayfa yoktur. İki uygulamanın release'leri aynı listede görünür; ayrım
+> başlıktan (`Devreye Alma Paneli v0.9.0-dev`), etiketten (`dap-v*`) ve
+> dosya adlarından (`DevreyeAlmaPaneli-…`) yapılır. "Latest" rozeti de depo
+> başına tek olduğu için, iki uygulama birbirinin rozetini çalmasın diye
+> release'ler bilerek `--latest=false` ile yayınlanır.
