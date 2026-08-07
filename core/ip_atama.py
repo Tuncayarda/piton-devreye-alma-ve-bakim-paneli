@@ -2,7 +2,7 @@
 """Otomatik IP atama.
 
 Plan (hangi porta hangi cihaz, hangi IP yazılacak) DeviceMap'ten çıkar.
-Koşunun kendisi YATAKLI_DevreyeAlma/intercom_ip_assign.py içindeki
+Koşunun kendisi betikler/intercom_ip_assign.py içindeki
 doğrulanmış akışla yapılır: PoE portlarını sırayla açıp yalnız o an
 ayakta olan cihazı bulmak, MAC tablosuyla portu doğrulamak, IP yazıp
 reset sonrası teyit etmek — hepsi sahada denenmiş adımlar. Burada ikinci

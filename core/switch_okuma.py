@@ -2,7 +2,7 @@
 """KYLAND switch okuması — Switch Yönetim Paneli'nin çalışan erişimi.
 
 Burada switch'e bağlanan ikinci bir uygulama YOKTUR. Kardeş projedeki
-`Interface/Switch Yönetim Paneli/switch_api.py` dosyası çalışma anında
+`betikler/switch_api.py` dosyası çalışma anında
 içe aktarılır ve onun doğrulanmış çağrıları kullanılır:
 
     sw_get(ip, "stat/basicInfo", timeout, kimlik=(kullanıcı, parola))

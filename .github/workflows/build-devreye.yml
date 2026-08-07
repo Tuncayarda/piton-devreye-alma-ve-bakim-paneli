@@ -4,8 +4,9 @@ name: Build · Devreye Alma Paneli
 #   • workflow_dispatch      -> yalnızca Artifact
 #   • dap-v* etiketi push'u  -> Artifact + GitHub Release
 #
-# Etiket öneki neden var: depoda iki uygulama var, ikisi ayrı sürümleniyor.
-# Öneksiz "v*" etiketi Switch Yönetim Paneli'ne ait (build-switch.yml).
+# Etiket öneki neden var: depoda iki uygulama var, her biri kendi
+# branch'inde ve kendi sürümüyle. Öneksiz "v*" ve "syp-v*" etiketleri
+# Switch Yönetim Paneli'ne ait; o uygulama `syp` branch'inde derlenir.
 # Örnek: dap-v0.9.0-dev  →  APP_VERSION 0.9.0-dev ile eşleşmek zorunda.
 #
 # Ön sürüm etiketleri (-dev, -alpha, -beta, -rc) Release'de "pre-release"
@@ -30,7 +31,7 @@ jobs:
     permissions:
       contents: write            # Release adımı için
     with:
-      uygulama_dizini: Interface/Devreye Alma Paneli
+      uygulama_dizini: .
       ad: DevreyeAlmaPaneli
       gorunen_ad: Devreye Alma Paneli
       spec: DevreyeAlmaPaneli.spec

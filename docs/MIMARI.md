@@ -9,7 +9,6 @@ kilit menüsünde toplar ve kontrol listesini Excel'e döker.
 ## 1. Çalıştırma
 
 ```bash
-cd "Interface/Devreye Alma Paneli"
 python3 -m venv .venv
 .venv/bin/python -m pip install -r docs/requirements.txt
 .venv/bin/python app.py
@@ -69,9 +68,9 @@ Panel üç betiği **çalışma anında içe aktarır** (`core/betik.py`), kopya
 
 | Betik | Ne için |
 |---|---|
-| `Interface/Switch Yönetim Paneli/switch_api.py` | Switch erişiminin tamamı |
-| `YATAKLI_DevreyeAlma/device_verify.py` | Excel şeması ve alan tabloları |
-| `YATAKLI_DevreyeAlma/intercom_ip_assign.py` | IP atama koşusu |
+| `betikler/switch_api.py` | Switch erişiminin tamamı |
+| `betikler/device_verify.py` | Excel şeması ve alan tabloları |
+| `betikler/intercom_ip_assign.py` | IP atama koşusu |
 
 Switch okuması `switch_api.sw_get(ip, "stat/basicInfo", kimlik=(k, p))`
 çağrısına iner. URL, Basic Auth biçimi, port, timeout, header ve
@@ -341,7 +340,7 @@ birleşir, sonraki öncekini ezer:
   numarayı yazdırırdı.
 - Alan listesi **cihaz tipine göre** daralır; hangi alanın hangi uca
   gittiği `core/konfig.py` → `ROTA` tablosundadır (ayrıntı:
-  `YATAKLI_DevreyeAlma/CIHAZ_ENDPOINTLERI.md`). Cihaz tek bir "ayarları
+  `docs/CIHAZ_ENDPOINTLERI.md`). Cihaz tek bir "ayarları
   yaz" ucu sunmuyor; ana uç POST'a 405 döner.
 - **Yalnız farklı olan alan yazılır.** SIP ucu cihazı yeniden başlattığı
   için, zaten uyuşan bir ayar uğruna cihaz karartılmaz; iş satırı bu

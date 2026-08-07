@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PISCU üzerindeki MQTT broker'dan telemetri.
 
-İki retained kaynak okunur (YATAKLI_DevreyeAlma/device_verify.py ile aynı):
+İki retained kaynak okunur (betikler/device_verify.py ile aynı):
 
     ALFA/DeviceMap      bütün cihazların canlı durumu (NoError, Uptime, ...)
     ALFA/AppStatus/#    uygulama çalıştıran cihazların sürüm + donanım kimliği

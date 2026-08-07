@@ -1,4 +1,0 @@
-# Yalnızca paket üretirken gerekenler — uygulamanın çalışması için gerekmez.
-# Sürüm sabit: build'lerin tekrar üretilebilir olması için.
-# PyInstaller 6.x Python 3.12 ile uyumludur ve CI'da bu sürümle doğrulanır.
-pyinstaller==6.21.0

@@ -97,23 +97,24 @@ def konfig_varsayilan_dosyasi() -> Path:
     return veri_dizini() / "konfig_varsayilanlari.json"
 
 
-# ── kardeş projelerdeki çalışan betikler ────────────────────────────────
+# ── betikler/ altındaki çalışan motorlar ────────────────────────────────
 # Bu panel switch erişimini ve saha betiklerini yeniden yazmaz; çalışma
 # anında dosya yolundan içe aktarır (bkz. core/betik.py). Paketlenirken bu
 # üç dosya paketin köküne kopyalanır, o yüzden yol çözümü ikisini de bilir.
+#
+# switch_api.py aslen Switch Yönetim Paneli'nin dosyasıdır (o uygulama
+# `syp` branch'inin kökünde yaşar); buradaki kopya panelin çalışması için
+# durur ve o branch'le elle eşitlenir.
 SWITCH_PANELI = Path(
     os.environ.get("SWITCH_PANEL_API")
-    or veri_dosyasi("switch_api.py",
-                    "..", "Switch Yönetim Paneli", "switch_api.py"))
+    or veri_dosyasi("switch_api.py", "betikler", "switch_api.py"))
 DEVICE_VERIFY = Path(
     os.environ.get("DEVICE_VERIFY_BETIGI")
-    or veri_dosyasi("device_verify.py",
-                    "..", "..", "YATAKLI_DevreyeAlma", "device_verify.py"))
+    or veri_dosyasi("device_verify.py", "betikler", "device_verify.py"))
 INTERCOM_IP_ASSIGN = Path(
     os.environ.get("IP_ATAMA_BETIGI")
     or veri_dosyasi("intercom_ip_assign.py",
-                    "..", "..", "YATAKLI_DevreyeAlma",
-                    "intercom_ip_assign.py"))
+                    "betikler", "intercom_ip_assign.py"))
 
 # ─────────────────────────────────────────────────────────── ağ / portlar ──
 KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", 80))

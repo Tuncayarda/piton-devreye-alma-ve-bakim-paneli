@@ -12,38 +12,42 @@ Devreye Alma Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
 
 ## 0. Depo yapısı
 
-Depoda **iki** uygulama var ve ikisi ayrı ayrı derlenip ayrı Release alıyor.
+Depoda **iki** uygulama var; her biri kendi branch'inin kökünde durur ve
+ayrı ayrı derlenip ayrı Release alır. Bu ağaç (`main`) Devreye Alma
+Paneli'dir; Switch Yönetim Paneli `syp` branch'indedir.
 
 ```
 .
 ├── README.md
 ├── .github/workflows/
-│   ├── ci.yml                         iki uygulama · kurulum + self-test + testler
-│   ├── build-app.yml                  ortak derleme motoru (workflow_call)
-│   ├── build-switch.yml               Switch Yönetim Paneli  (syp-v* , v*)
-│   └── build-devreye.yml              Devreye Alma Paneli    (dap-v*)
-├── Interface/Switch Yönetim Paneli/    kardeş uygulama
-├── YATAKLI_DevreyeAlma/                saha betikleri
-└── Interface/Devreye Alma Paneli/      bu uygulama
-    ├── app.py                         giriş noktası, pencere, self-test
-    ├── panel_api.py                    yerel HTTP servisi (127.0.0.1)
-    ├── core/                           iş mantığı (ayar, okuma, konfig, …)
-    ├── DevreyeAlmaPaneli.spec           PyInstaller yapılandırması
-    ├── DeviceMap.json                  topoloji envanteri (pakete girer)
-    ├── Yatakli_Saha_Cihaz_Dogrulama.xlsx  Excel şablonu (pakete girer)
-    ├── static/                         arayüz (html, css, js, görseller)
-    ├── tests/                          birim testler (pakete GİRMEZ)
-    ├── packaging/
-    │   ├── appimage.sh                 Linux AppImage
-    │   └── windows/                    Inno Setup betiği
-    └── docs/                           belgeler ve bağımlılık listeleri
-        ├── MIMARI.md                   mimari ve ekranlar
-        ├── BUILD_RELEASE.md            bu dosya
-        ├── RELEASE_NOTES.md            Release gövdesi (CI kullanır)
-        └── requirements*.txt           platform + build bağımlılıkları
+│   ├── ci.yml                          kurulum + self-test + testler
+│   ├── build-app.yml                   ortak derleme motoru (workflow_call)
+│   └── build-devreye.yml               bu uygulama            (dap-v*)
+├── app.py                              giriş noktası, pencere, self-test
+├── panel_api.py                        yerel HTTP servisi (127.0.0.1)
+├── core/                               iş mantığı (ayar, okuma, konfig, …)
+├── betikler/                           çalışma anında yüklenen motorlar
+│   ├── switch_api.py                   Switch Yönetim Paneli'nden kopya
+│   ├── device_verify.py                saha doğrulama betiği
+│   └── intercom_ip_assign.py           IP atama betiği
+├── DevreyeAlmaPaneli.spec              PyInstaller yapılandırması
+├── DeviceMap.json                      topoloji envanteri (pakete girer)
+├── Yatakli_Saha_Cihaz_Dogrulama.xlsx   Excel şablonu (pakete girer)
+├── static/                             arayüz (html, css, js, görseller)
+├── tests/                              birim testler (pakete GİRMEZ)
+├── packaging/
+│   ├── appimage.sh                     Linux AppImage
+│   └── windows/                        Inno Setup betiği
+└── docs/                               belgeler ve bağımlılık listeleri
+    ├── MIMARI.md                       mimari ve ekranlar
+    ├── BUILD_RELEASE.md                bu dosya
+    ├── RELEASE_NOTES.md                Release gövdesi (CI kullanır)
+    ├── CIHAZ_ENDPOINTLERI.md           cihaz uçları
+    ├── CIHAZ_VERI_ALANLARI.md          okunan veri alanları
+    └── requirements*.txt               platform + build bağımlılıkları
 ```
 
-### Pakete giren kardeş dosyalar
+### Pakete giren veri dosyaları
 
 Panel switch erişimini ve saha betiklerini yeniden yazmaz; çalışma anında
 dosya yolundan içe aktarır (`core/betik.py`). Kaynaktan çalışırken bunlar
@@ -51,9 +55,9 @@ depodaki yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 
 | Dosya | Nereden | Ne için |
 |---|---|---|
-| `switch_api.py` | `Interface/Switch Yönetim Paneli/` | switch okuma, PoE |
-| `device_verify.py` | `YATAKLI_DevreyeAlma/` | alan ayıklama, Excel şeması |
-| `intercom_ip_assign.py` | `YATAKLI_DevreyeAlma/` | IP atama koşusu |
+| `switch_api.py` | `betikler/` | switch okuma, PoE |
+| `device_verify.py` | `betikler/` | alan ayıklama, Excel şeması |
+| `intercom_ip_assign.py` | `betikler/` | IP atama koşusu |
 | `DeviceMap.json` | uygulama kökü | cihaz envanteri |
 | `Yatakli_Saha_Cihaz_Dogrulama.xlsx` | uygulama kökü | kontrol listesi şablonu |
 
@@ -67,7 +71,6 @@ yarım paket üretip sahada "DeviceMap bulunamadı" ile karşılaşmak istemiyor
 ## 1. Geliştirme çalıştırması
 
 ```bash
-cd "Interface/Devreye Alma Paneli"
 pip install -r docs/requirements-macos.txt   # ya da -windows / -linux
 python3 app.py
 ```
@@ -106,7 +109,6 @@ dizine yazılır (`PANEL_VERI_DIZINI`).
 ## 3. Yerel build
 
 ```bash
-cd "Interface/Devreye Alma Paneli"
 pip install -r docs/requirements-build.txt
 rm -rf build dist
 python3 -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec

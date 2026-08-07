@@ -52,7 +52,7 @@ YONTEMLER = {
 def yontem_of(tip: str, alt: str | None) -> str:
     """Cihaz tipine göre hangi okuyucunun kullanılacağı.
 
-    Bu eşleme YATAKLI_DevreyeAlma/device_verify.py içindeki COLLECTORS
+    Bu eşleme betikler/device_verify.py içindeki COLLECTORS
     tablosuyla aynıdır; iki yerde farklı davranmasın diye tek satırlık
     tahminler yerine oradaki çalışan ayrım korunmuştur.
     """

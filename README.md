@@ -1,41 +1,22 @@
-# VIP / YATAKLI — Devreye Alma
+# Devreye Alma Paneli
 
-Tren devreye alma çalışmaları için araçlar.
+Tren setinin tamamını (switch, anons, video, ekran, kontrol) doğrulayan,
+IP atayan ve konfigüre eden masaüstü uygulaması.
 
-## İçerik
+> **Depo iki uygulama barındırır, her biri kendi branch'inde:**
+>
+> | Branch | Uygulama | Etiket |
+> |---|---|---|
+> | `main` | Devreye Alma Paneli (bu ağaç) | `dap-v*` |
+> | `syp` | Switch Yönetim Paneli | `syp-v*`, `v*` |
+>
+> İki branch'in ortak geçmişi `fb320cd` commit'ine kadar aynıdır; eski
+> `Interface/…` ve `YATAKLI_DevreyeAlma/` düzeni o commit'e kadar geçmişte
+> olduğu gibi durur.
 
-| Klasör | Ne işe yarar |
-|---|---|
-| `Interface/Switch Yönetim Paneli/` | KYLAND switch'leri bulan, port/PoE/IP ayarlarını yöneten masaüstü uygulaması |
-| `Interface/Devreye Alma Paneli/` | Tren setinin tamamını (switch, anons, video, ekran, kontrol) doğrulayan, IP atayan ve konfigüre eden masaüstü uygulaması |
-| `YATAKLI_DevreyeAlma/` | Saha cihaz doğrulama ve intercom IP atama betikleri |
-
-İki uygulama **ayrı ayrı** derlenir ve **ayrı** Release alır. Devreye Alma
-Paneli, switch erişimi ve saha betikleri için Switch Yönetim Paneli'nin
-`switch_api.py` dosyasını ve `YATAKLI_DevreyeAlma/` betiklerini çalışma
-anında kullanır; paketlenirken bu dosyalar paketin içine kopyalanır.
-
-## Switch Yönetim Paneli
-
-```bash
-cd "Interface/Switch Yönetim Paneli"
-pip install -r docs/requirements-macos.txt   # ya da -windows / -linux
-python3 app.py
-```
-
-Hızlı doğrulama (pencere açmaz, ağa çıkmaz):
+## Çalıştırma
 
 ```bash
-python3 app.py --self-test
-```
-
-Paket üretme, GitHub Actions ve sürüm yayınlama:
-**[Interface/Switch Yönetim Paneli/docs/BUILD_RELEASE.md](Interface/Switch%20Y%C3%B6netim%20Paneli/docs/BUILD_RELEASE.md)**
-
-## Devreye Alma Paneli
-
-```bash
-cd "Interface/Devreye Alma Paneli"
 pip install -r docs/requirements-macos.txt   # ya da -windows / -linux
 python3 app.py
 ```
@@ -47,22 +28,49 @@ python3 app.py --self-test
 python3 -m unittest discover -s tests -t .
 ```
 
-Mimari ve ekranlar: **[docs/MIMARI.md](Interface/Devreye%20Alma%20Paneli/docs/MIMARI.md)** ·
-paket üretme ve yayınlama: **[docs/BUILD_RELEASE.md](Interface/Devreye%20Alma%20Paneli/docs/BUILD_RELEASE.md)**
+## Dizin yapısı
 
-## Sürüm etiketleri
+| Yol | Ne var |
+|---|---|
+| `app.py` | Uygulama penceresi ve açılış akışı |
+| `panel_api.py` | Panelin yerel HTTP API'si |
+| `core/` | İş mantığı (`ayar.py` içinde `APP_VERSION`) |
+| `betikler/` | Panelin çalışma anında yüklediği motorlar — aşağıya bak |
+| `static/` | Arayüz (HTML / CSS / JS) |
+| `tests/` | Birim testler (sahte cihaz sunucularıyla) |
+| `docs/` | Mimari, cihaz uçları, paketleme belgeleri |
+| `DeviceMap.json` | Ağ topolojisinin tek kaynağı |
+| `Yatakli_Saha_Cihaz_Dogrulama.xlsx` | Boş kontrol listesi şablonu |
 
-Depoda iki uygulama olduğu için etiketler önekli:
+### `betikler/` neden ayrı
 
-| Etiket | Hangi uygulama | Workflow |
+Panel, sahada denenmiş üç betiğin iş mantığını yeniden yazmaz; çalışma
+anında dosya yolundan içe aktarır (`core/betik.py`). Paketlenirken bu üç
+dosya paketin köküne kopyalanır.
+
+| Dosya | Ne yapar | Aslen |
 |---|---|---|
-| `syp-v1.2.3` | Switch Yönetim Paneli | `build-switch.yml` |
-| `v1.2.3` | Switch Yönetim Paneli (eski biçim, çalışmaya devam eder) | `build-switch.yml` |
-| `dap-v0.9.0-dev` | Devreye Alma Paneli | `build-devreye.yml` |
+| `switch_api.py` | Switch erişimi, PoE / port okuma | Switch Yönetim Paneli (`syp` branch'i) |
+| `device_verify.py` | Alan ayıklama, Excel şeması | Saha doğrulama betiği |
+| `intercom_ip_assign.py` | Intercom IP atama akışı | Saha atama betiği |
 
-Etiketteki sürüm, uygulamanın kendi `APP_VERSION` değeriyle aynı olmak
-zorundadır; değilse build açık bir hatayla durur.
+`switch_api.py` bir kopyadır: özgün dosya `syp` branch'inin kökündedir ve
+iki taraf **elle** eşitlenir. Switch tarafında API değişince buraya da
+taşınması gerekir.
+
+## Sürüm ve paketleme
+
+Etiket biçimi `dap-v0.9.0-dev`. Etiketteki sürüm `core/ayar.py` içindeki
+`APP_VERSION` ile birebir aynı olmak zorundadır; değilse build açık bir
+hatayla durur.
+
+Mimari ve ekranlar: **[docs/MIMARI.md](docs/MIMARI.md)** ·
+paket üretme ve yayınlama: **[docs/BUILD_RELEASE.md](docs/BUILD_RELEASE.md)** ·
+sürüm notları: **[docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)**
+
+Cihaz uçları ve veri alanları:
+**[docs/CIHAZ_ENDPOINTLERI.md](docs/CIHAZ_ENDPOINTLERI.md)** ·
+**[docs/CIHAZ_VERI_ALANLARI.md](docs/CIHAZ_VERI_ALANLARI.md)**
 
 Hazır paketler [Releases](../../releases) sayfasındadır. Paketler imzasızdır;
-Windows'ta WebView2 Runtime gerekir — ayrıntılar uygulamaların
-BUILD_RELEASE belgelerinde.
+Windows'ta WebView2 Runtime gerekir.

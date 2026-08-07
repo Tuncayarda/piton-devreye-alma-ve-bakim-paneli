@@ -23,6 +23,8 @@ packaging/windows/redist/
 # Loglar kullanıcı dizinine yazılır; yine de yanlışlıkla kopyalanana karşı
 *.log
 *.log.[0-9]
+# Doldurulmuş kontrol listeleri (depodaki dosya yalnızca boş şablondur)
+Yatakli_Saha_Cihaz_Dogrulama_set*.xlsx
 
 # ── hassas dosyalar ───────────────────────────────────────────────
 .env

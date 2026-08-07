@@ -1,8 +1,0 @@
-# Her platformda gereken ortak bağımlılıklar.
-# Pencere katmanı platforma göre değişir — kendi dosyanı kur:
-#   Windows : pip install -r docs/requirements-windows.txt
-#   macOS   : pip install -r docs/requirements-macos.txt
-#   Ubuntu  : pip install -r docs/requirements-linux.txt
-# Paket üretmek için ayrıca: docs/requirements-build.txt
-requests>=2.32,<3
-pywebview>=5.3,<6

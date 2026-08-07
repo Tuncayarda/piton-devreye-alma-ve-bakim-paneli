@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Kardeş projelerdeki çalışan betikleri içe aktarma.
+"""betikler/ altındaki çalışan motorları içe aktarma.
 
 Bu panel, sahada denenmiş üç betiğin iş mantığını yeniden yazmaz; çalışma
 anında dosya yolundan içe aktarıp kullanır:
 
-    Interface/Switch Yönetim Paneli/switch_api.py   switch erişimi
-    YATAKLI_DevreyeAlma/device_verify.py            alan ayıklama + Excel
-    YATAKLI_DevreyeAlma/intercom_ip_assign.py       IP atama akışı
+    betikler/switch_api.py           switch erişimi
+    betikler/device_verify.py        alan ayıklama + Excel
+    betikler/intercom_ip_assign.py   IP atama akışı
 
 Neden import: aynı işi ikinci kez yazmak, iki uygulamanın zamanla
 ayrışması demek. Switch'te çalışan bir hesabın burada "doğrulanamadı"
 demesi tam olarak böyle oluyor.
 
-Betikler ayrı klasörlerde olduğu için normal `import` yetmez; her biri
-tek seferlik yüklenip önbelleğe alınır. Bulunamayan betik sessizce
+switch_api.py aslen Switch Yönetim Paneli'nin dosyasıdır; o uygulama
+`syp` branch'inin kökünde yaşar, buradaki kopya onunla elle eşitlenir.
+
+Betikler paket ağacının dışında olduğu için normal `import` yetmez; her
+biri tek seferlik yüklenip önbelleğe alınır. Bulunamayan betik sessizce
 atlanmaz — çağıran taraf anlaşılır bir hata alır.
 """
 from __future__ import annotations

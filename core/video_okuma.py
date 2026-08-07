@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Kamera / NVR okuması — Hikvision ISAPI.
 
-Uçlar ve ayrıştırma YATAKLI_DevreyeAlma/device_verify.py içindeki
+Uçlar ve ayrıştırma betikler/device_verify.py içindeki
 `fetch_isapi` ile aynıdır; oradaki çalışan davranış korunmuştur.
 
 Fark: burada kimlik `.env`'den değil kullanıcıdan gelir ve yalnızca
