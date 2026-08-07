@@ -229,10 +229,11 @@ uygulamanın release'leri aynı listede görünür; ayrım şöyle kurulur:
 - **`--latest=false`.** "Latest" rozeti depo başına tektir. Serbest
   bırakılsaydı hangi uygulama sonra yayınlanırsa ötekinin rozetini alırdı;
   bu yüzden hiçbirine verilmiyor.
-- **`--notes-start-tag`.** Üretilen changelog'un başlangıcı, *bu*
-  uygulamanın bir önceki etiketine sabitlenir (`etiket_desenleri` girdisi).
-  Serbest bırakılsaydı GitHub "önceki etiket" olarak öteki uygulamanınkini
-  seçip changelog'a alakasız commit'ler koyabilirdi.
+- **`--generate-notes` kullanılmıyor.** Release gövdesi yalnız
+  `docs/RELEASE_NOTES.md`: amaç sayfaya bakan kişinin doğru dosyayı indirip
+  kurabilmesi. GitHub'ın ürettiği commit listesi hem sayfayı uzatıyor hem de
+  iki etiket serisi iç içe olduğu için öteki uygulamanın commit'lerini
+  karıştırabiliyordu. Sürüm geçmişi `docs/DEGISIKLIKLER.md` dosyasında.
 
 ### İzinler
 

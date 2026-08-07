@@ -67,7 +67,10 @@ hatayla durur.
 
 Mimari ve ekranlar: **[docs/MIMARI.md](docs/MIMARI.md)** ·
 paket üretme ve yayınlama: **[docs/BUILD_RELEASE.md](docs/BUILD_RELEASE.md)** ·
-sürüm notları: **[docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md)**
+değişiklik günlüğü: **[docs/DEGISIKLIKLER.md](docs/DEGISIKLIKLER.md)**
+
+Release sayfası bilerek sade: yalnız indirme ve kurulum bilgisi
+(`docs/RELEASE_NOTES.md`). Sürümlerde ne değiştiği günlükte.
 
 Cihaz uçları ve veri alanları:
 **[docs/CIHAZ_ENDPOINTLERI.md](docs/CIHAZ_ENDPOINTLERI.md)** ·

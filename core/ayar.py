@@ -13,7 +13,7 @@ from pathlib import Path
 
 APP_ADI = "Devreye Alma Paneli"
 KISA_AD = "DevreyeAlmaPaneli"
-APP_VERSION = "0.9.0-dev"
+APP_VERSION = "0.9.1-dev"
 
 # Kaynaktan çalışırken bu dosyanın bir üstü; PyInstaller ile paketlenince
 # veriler geçici klasöre açılır ve yolu sys._MEIPASS ile verilir.

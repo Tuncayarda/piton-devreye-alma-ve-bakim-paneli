@@ -36,15 +36,6 @@ on:
         description: Inno Setup betiği (uygulama köküne göre)
         required: true
         type: string
-      etiket_desenleri:
-        description: >
-          Bu uygulamaya ait etiket glob'ları, boşlukla ayrılmış
-          (örn. "syp-v* v*"). Release notlarının nereden başlayacağını
-          bulmak için kullanılır: depoda iki uygulamanın etiketleri iç
-          içe olduğu için GitHub'ın kendi seçtiği "önceki etiket" yanlış
-          uygulamanınki olabiliyor.
-        required: true
-        type: string
       testler:
         description: Birim test komutu — boşsa test adımı atlanır
         required: false
@@ -389,11 +380,6 @@ jobs:
     steps:
       - name: Depoyu al
         uses: actions/checkout@v6
-        with:
-          # Bir önceki etiketi bulabilmek için tüm geçmiş ve etiketler
-          # gerekli; varsayılan sığ checkout yalnız tek commit getirir.
-          fetch-depth: 0
-          fetch-tags: true
 
       - name: Artifact'leri indir
         uses: actions/download-artifact@v8
@@ -446,7 +432,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ETIKET: ${{ github.ref_name }}
-          DESENLER: ${{ inputs.etiket_desenleri }}
         run: |
           set -euo pipefail
           NOTLAR="$GITHUB_WORKSPACE/${{ inputs.uygulama_dizini }}/docs/RELEASE_NOTES.md"
@@ -455,21 +440,6 @@ jobs:
           # uygulama olduğu için Releases listesinde hangisinin hangisi
           # olduğu tek bakışta anlaşılmalı.
           BASLIK="${{ inputs.gorunen_ad }} v$SURUM"
-
-          # Bu uygulamanın bir önceki etiketi. Depoda iki etiket serisi
-          # (syp-v*, dap-v*) iç içe olduğu için GitHub'ın kendi bulduğu
-          # "önceki etiket" öteki uygulamanınki olabiliyor ve changelog'a
-          # alakasız commit'ler giriyordu.
-          # Desenler birden çok glob olabilir ("syp-v* v*"); örtük kelime
-          # ayrımına güvenmeden açıkça diziye alıyoruz.
-          read -ra DESEN_DIZI <<< "$DESENLER"
-          ONCEKI=$(git tag --list "${DESEN_DIZI[@]}" --sort=-creatordate \
-                   | grep -vx "$ETIKET" | head -n1 || true)
-          if [ -n "$ONCEKI" ]; then
-            echo "Notlar şu etiketten beri: $ONCEKI"
-          else
-            echo "Bu serinin ilk etiketi — notlar baştan üretilecek."
-          fi
 
           cd indirilen
 
@@ -503,15 +473,12 @@ jobs:
             case "$ETIKET" in
               *-dev|*-alpha*|*-beta*|*-rc*) EK+=(--prerelease) ;;
             esac
-            # Üretilen notlar yalnızca bu uygulamanın önceki etiketinden
-            # beri gelen commit'leri kapsasın.
-            if [ -n "$ONCEKI" ]; then
-              EK+=(--notes-start-tag "$ONCEKI")
-            fi
+            # --generate-notes YOK: release gövdesi yalnız RELEASE_NOTES.md
+            # olsun isteniyor. GitHub'ın ürettiği commit listesi sayfayı
+            # uzatıyordu; sürüm geçmişi docs/DEGISIKLIKLER.md dosyasında.
             gh release create "$ETIKET" ./* \
               --title "$BASLIK" \
               --notes-file "$NOTLAR" \
-              --generate-notes \
               --latest=false "${EK[@]}"
           fi
 

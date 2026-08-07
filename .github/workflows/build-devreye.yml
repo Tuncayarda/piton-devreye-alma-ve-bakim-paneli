@@ -34,7 +34,6 @@ jobs:
       uygulama_dizini: .
       ad: DevreyeAlmaPaneli
       gorunen_ad: Devreye Alma Paneli
-      etiket_desenleri: "dap-v*"
       spec: DevreyeAlmaPaneli.spec
       iss: packaging/windows/DevreyeAlmaPaneli.iss
       # Bu panelin birim testleri var; paket üretilmeden önce koşar.
