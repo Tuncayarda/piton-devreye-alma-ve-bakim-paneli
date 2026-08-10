@@ -225,6 +225,25 @@ def _ip_satir_durumu(metin: str) -> str:
     return "tamam"
 
 
+def _ip_ozet_hatasi(say: dict, kod: int) -> str:
+    """Koşu neyi bitiremedi — tek cümlede, port sayılarıyla.
+
+    Kısmen başarılı koşu sık: on iki porttan onu tamamlanır, ikisi
+    kalır. Kullanıcının görmesi gereken şey budur, betiğin çıkış kodu
+    değil. Sebepler port satırlarında ve günlük dosyasında duruyor.
+    """
+    eksik = say.get("hatali", 0) + say.get("atlanan", 0)
+    basarili, toplam = say.get("basarili", 0), say.get("toplam", 0)
+    if not eksik:
+        return (f"IP atama betiği {kod} koduyla bitti — ayrıntı için "
+                "koşu günlüğüne bakın")
+    nere = "Sebepler port satırlarında ve koşu günlüğünde."
+    if basarili:
+        return (f"{basarili}/{toplam} port tamamlandı, {eksik} port "
+                f"tamamlanamadı. {nere}")
+    return f"Hiçbir port tamamlanamadı ({eksik} port). {nere}"
+
+
 def ip_isi(env, switch_id, portlar, korumali, gruplar, ayarlar):
     """IP atama koşusu — ilerleme PORT başına raporlanır.
 
@@ -273,7 +292,12 @@ def ip_isi(env, switch_id, portlar, korumali, gruplar, ayarlar):
                 f"Switch arayüzünden elle açın: http://{sw.ip if sw else ''}"
                 "/poePort.html")
         elif kod and kod != 130:      # 130 = kullanıcı durdurdu
-            is_.hata = f"IP atama betiği {kod} koduyla bitti"
+            # "Betik 1 koduyla bitti" kullanıcıya hiçbir şey söylemiyordu:
+            # koşu portların çoğunu tamamlamış olsa da aynı cümle
+            # yazılıyordu. Betiğin çıkış kodu zaten tek bir şey demek —
+            # "bir şeyler eksik kaldı"; eksiğin NE olduğu satırlarda
+            # duruyor, özeti buraya çıkar.
+            is_.hata = _ip_ozet_hatasi(is_.sayilar(), kod)
 
     return govde
 

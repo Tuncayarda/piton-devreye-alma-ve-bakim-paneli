@@ -6,11 +6,12 @@ alma işlemlerini yönetmek için geliştirilmiş masaüstü uygulamasıdır. Pa
 anons ekipmanlarında yapılandırma, uygun cihazlarda yazılım yükleme ve Excel
 kontrol listesi üretme işlemlerini yürütür.
 
-> **Proje durumu:** Kaynak kod `0.9.3` sürümünü bildirir. Bu sürüm henüz
+> **Proje durumu:** Kaynak kod `0.9.4` sürümünü bildirir. Bu sürüm henüz
 > etiketlenip yayımlanmamıştır; hazırlanan değişiklikler
 > [değişiklik günlüğünde](docs/DEGISIKLIKLER.md) yer alır. Yayın için
-> `dap-v0.9.3` etiketi oluşturulmalıdır. `dap-v0.9.2` etiketi hiç
-> oluşturulmadığından o sürümün değişiklikleri de bu yayına girer.
+> `dap-v0.9.4` etiketi oluşturulmalıdır. `dap-v0.9.2` ve `dap-v0.9.3`
+> etiketleri hiç oluşturulmadığından o sürümlerin değişiklikleri de bu
+> yayına girer.
 
 ## Öne çıkan özellikler
 
@@ -127,7 +128,7 @@ Depoda iki uygulama bulunur ve her biri kendi dalında geliştirilir:
 | `syp` | Switch Yönetim Paneli | `syp-v*`, eski sürümlerde `v*` |
 
 Etiket sürümü, `core/ayar.py` içindeki `APP_VERSION` değeriyle birebir aynı
-olmalıdır. Örneğin `APP_VERSION = "0.9.3"` için etiket `dap-v0.9.3` olur;
+olmalıdır. Örneğin `APP_VERSION = "0.9.4"` için etiket `dap-v0.9.4` olur;
 uyuşmazlıkta yayın derlemesi durur.
 
 Hazır paketler [Devreye Alma Paneli sürümleri](../../releases?q=dap-v)

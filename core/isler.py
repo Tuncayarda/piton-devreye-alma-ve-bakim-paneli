@@ -109,6 +109,11 @@ def _hata_metni(exc: BaseException) -> str:
         metin = str(exc).strip()
         if metin:
             return metin
+    if isinstance(exc, SystemExit):
+        # Süreç içinde çalışan betik sys.exit() çağırdı — neredeyse her
+        # zaman argparse'ın geçersiz argümanda yaptığı şey.
+        return (f"İş yürütülemedi: betik {exc.code} koduyla çıktı "
+                "(geçersiz argüman olabilir)")
     return f"İş yürütülemedi: {type(exc).__name__}"
 
 
@@ -468,6 +473,11 @@ class Yonetici:
             is_.durum = CALISIYOR
             is_.baslama = time.time()
             try:
+                if govde is None:
+                    # İş kuyruğa alınıp gövdesi budandıysa (ya da silindiyse)
+                    # burada None gelir. Çağırmaya kalkmak TypeError'dı;
+                    # sebebi de anlaşılmıyordu.
+                    raise RuntimeError("İşin gövdesi bulunamadı")
                 govde(is_)
                 is_.durum = IPTAL if is_.iptal.is_set() else TAMAM
             except Exception as exc:
@@ -475,6 +485,22 @@ class Yonetici:
                 # sorun cihazda değil, işi yürüten tarafta.
                 is_.durum = HATA
                 is_.hata = _hata_metni(exc)
+            except BaseException as exc:                     # noqa: BLE001
+                # SystemExit ve benzeri BaseException'lar da işi KAPATMALI.
+                #
+                # Yakalanmadıklarında iş sonsuza kadar "çalışıyor" kalıyor
+                # ve dağıtıcı iş parçacığı ölüyordu. İkisinin birlikte
+                # sonucu, tek bir çöken koşunun bütün paneli kilitlemesi:
+                # "yazan iş sürüyor" sayıldığı için hafif yenileme de tam
+                # tarama da 409 ile reddediliyor, ekranlar bir daha
+                # tazelenmiyordu (bkz. panel_api hafif yenileme kapısı).
+                #
+                # En bilinen kaynağı argparse: betiğin main()'i hatalı bir
+                # argümanda sys.exit() çağırıyor ve bu Exception değil.
+                is_.durum = HATA
+                is_.hata = _hata_metni(exc)
+                # Yeniden fırlatılmaz: dağıtıcı ayakta kalır, sıradaki iş
+                # çalışır. İptal bayrağını kapanış zaten ayrıca yönetiyor.
             finally:
                 is_.bitis = time.time()
                 with self._kilit:

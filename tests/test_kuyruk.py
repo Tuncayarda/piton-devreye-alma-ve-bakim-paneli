@@ -353,5 +353,107 @@ class Kuyruk(ServisTesti):
         self.assertEqual(eski_is.satirlar()[0]["durum"], "hata")
 
 
+class CokenIsKuyrugu(unittest.TestCase):
+    """Çöken bir iş kuyruğu kilitlememeli.
+
+    Sahada görülen zincir: IP atama koşusu çöküyor, iş sonsuza kadar
+    "çalışıyor" kalıyor ve o iş "yazan iş" sayıldığı için hem hafif
+    yenileme hem tam tarama 409 ile reddediliyor — koşudan sonra bütün
+    ekranlar tazelenmeyi bırakıyordu.
+    """
+
+    def setUp(self):
+        self.y = isler.Yonetici()
+        self.addCleanup(self.y.kapat)
+
+    def _bekle(self, is_, sure=5.0):
+        son = time.time() + sure
+        while time.time() < son:
+            if is_.durum in (isler.TAMAM, isler.IPTAL, isler.HATA):
+                return True
+            time.sleep(0.02)
+        return False
+
+    def _kosturt(self, patlat):
+        is_ = isler.Is("ip", "IP atama · Test", 1)
+        self.y.ekle(is_, patlat)
+        self.assertTrue(self._bekle(is_), f"iş kapanmadı: {is_.durum}")
+        return is_
+
+    def test_systemexit_isi_calisiyor_birakmaz(self):
+        """argparse geçersiz argümanda sys.exit() çağırıyor; bu bir
+        Exception DEĞİL ve eski `except Exception` onu kaçırıyordu."""
+        def patlat(is_):
+            raise SystemExit(2)
+
+        is_ = self._kosturt(patlat)
+        self.assertEqual(is_.durum, isler.HATA)
+        self.assertIn("2", is_.hata)
+
+    def test_coken_isten_sonra_kuyruk_calismaya_devam_eder(self):
+        """Dağıtıcı iş parçacığı ölmemeli: asıl zarar burada."""
+        self._kosturt(lambda is_: (_ for _ in ()).throw(SystemExit(1)))
+
+        sonraki = isler.Is("tarama", "Sonraki iş", 1)
+        calisti = threading.Event()
+        self.y.ekle(sonraki, lambda is_: calisti.set())
+        self.assertTrue(calisti.wait(5.0), "kuyruk durmuş")
+        self.assertTrue(self._bekle(sonraki))
+        self.assertEqual(sonraki.durum, isler.TAMAM)
+
+    def test_yazan_is_takili_kalmaz(self):
+        """Kilidin kaynağı: `aktif`/`CALISIYOR` sorgusu takılı işi görüyordu."""
+        is_ = self._kosturt(lambda is_: (_ for _ in ()).throw(SystemExit(1)))
+        self.assertIsNone(self.y.aktif(is_.anahtar))
+        self.assertEqual(
+            [j for j in self.y.liste() if j.durum == isler.CALISIYOR], [])
+
+    def test_govdesiz_is_kapanir(self):
+        is_ = isler.Is("tarama", "Gövdesiz", 1)
+        self.y.ekle(is_, lambda j: None)
+        self.y._is_govde.pop(is_.id, None)          # budanmış gibi
+        self.assertTrue(self._bekle(is_))
+        self.assertEqual(is_.durum, isler.HATA)
+
+    def test_olagan_hata_eskisi_gibi_raporlanir(self):
+        is_ = self._kosturt(
+            lambda j: (_ for _ in ()).throw(ValueError("Port seçilmedi")))
+        self.assertEqual(is_.durum, isler.HATA)
+        self.assertEqual(is_.hata, "Port seçilmedi")
+
+
+class IpOzetHatasi(unittest.TestCase):
+    """Kısmen tamamlanan koşu ne yazmalı.
+
+    "IP atama betiği 1 koduyla bitti" kullanıcıya hiçbir şey söylemiyordu:
+    on iki portun onu tamamlanmış olsa da aynı cümle çıkıyordu.
+    """
+
+    def _ozet(self, basarili, hatali, atlanan=0, kod=1):
+        import panel_api
+
+        return panel_api._ip_ozet_hatasi(
+            {"toplam": basarili + hatali + atlanan, "basarili": basarili,
+             "hatali": hatali, "atlanan": atlanan}, kod)
+
+    def test_kismi_basarida_sayilar_yazilir(self):
+        metin = self._ozet(basarili=10, hatali=2)
+        self.assertIn("10/12", metin)
+        self.assertIn("2 port", metin)
+        self.assertNotIn("koduyla", metin)
+
+    def test_hicbiri_bitmediyse_ayri_cumle(self):
+        self.assertIn("Hiçbir port", self._ozet(basarili=0, hatali=12))
+
+    def test_eksik_yoksa_cikis_koduna_duser(self):
+        """Port satırları temizse söylenecek tek şey çıkış kodudur."""
+        self.assertIn("2 koduyla", self._ozet(basarili=12, hatali=0, kod=2))
+
+    def test_atlanan_portlar_da_eksik_sayilir(self):
+        metin = self._ozet(basarili=8, hatali=1, atlanan=3)
+        self.assertIn("8/12", metin)
+        self.assertIn("4 port", metin)
+
+
 if __name__ == "__main__":
     unittest.main()

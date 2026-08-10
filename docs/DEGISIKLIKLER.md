@@ -5,9 +5,27 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v0.9.4 — Yayımlanmamış
+
+### İşlem kuyruğu dayanıklılığı
+
+- **Çöken bir işlem tüm paneli kilitliyordu.** İşlem gövdesi
+  `SystemExit` gibi olağan dışı bir hatayla sonlanırsa iş sonsuza kadar
+  **Çalışıyor** durumunda kalıyor, kuyruğun dağıtıcı iş parçacığı ise
+  sona eriyordu. Cihazlara yazan bir işlem sürüyor sayıldığından hafif
+  yenileme ve tam tarama istekleri reddediliyor, işlem sonrasında hiçbir
+  ekran güncellenmiyordu. Bu tür hatalar artık işi hata durumunda
+  kapatır ve kuyruk çalışmaya devam eder.
+- Gövdesi kuyruktan düşmüş bir iş, anlaşılmayan bir tür hatası yerine
+  açıklamalı biçimde sonlandırılır.
+- **IP atama özeti çıkış kodu yerine sonucu bildirir.** Kısmen tamamlanan
+  koşuda "betik 1 koduyla bitti" yazıyordu; artık kaç portun tamamlandığı
+  ve kaçının kaldığı yazılır, ayrıntı için port satırları ve koşu günlüğü
+  gösterilir.
+
 ## v0.9.3 — Yayımlanmamış
 
-Bu sürüm yalnızca Windows'a özgü düzeltmeler içerir. Aşağıdaki üç sorunun
+Bu sürüm yalnızca Windows'a özgü düzeltmeler içerir. Aşağıdaki sorunların
 hiçbiri macOS ve Linux'ta görülmüyordu; bu yüzden geliştirme sırasında
 fark edilmemişlerdi.
 
@@ -43,9 +61,11 @@ fark edilmemişlerdi.
 ## v0.9.2 — Yayımlanmamış
 
 Bu sürüm için hazırlanan değişiklikler `dap-v0.9.1-dev` etiketinden sonra
-eklenmiştir. `dap-v0.9.2` etiketi oluşturulmadan `v0.9.3` sürümüne
-geçildiği için buradaki değişiklikler de ilk kez `dap-v0.9.3` ile
-yayımlanacaktır.
+eklenmiştir.
+
+> `dap-v0.9.2` ve `dap-v0.9.3` etiketleri hiç oluşturulmadı. Bu iki
+> sürümün değişiklikleri de ilk kez `dap-v0.9.4` ile yayımlanacaktır;
+> bölümler yalnız neyin ne zaman eklendiğini göstermek için ayrı duruyor.
 
 ### Tarama ve canlı yenileme
 
