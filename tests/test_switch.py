@@ -9,6 +9,7 @@ Kapsanan gereksinimler:
 """
 from __future__ import annotations
 
+import subprocess
 import unittest
 from unittest import mock
 
@@ -386,6 +387,200 @@ class YerelAg(unittest.TestCase):
             self.assertEqual(yerel_ag.normalle(ham), "5c:01:3b:8a:76:43")
         self.assertEqual(yerel_ag.normalle("yok"), "")
         self.assertEqual(yerel_ag.normalle(None), "")
+
+
+# Türkçe Windows'ta `ipconfig /all` çıktısı — TÜRKÇE HARFLERİYLE.
+# Yukarıdaki WINDOWS örneği "Yapilandirmasi" diye ASCII'ye sadeleştirilmiş
+# ve asıl arıza tam da orada saklanmıştı: konsol bu metni OEM kod
+# sayfasıyla (cp857) yazıyor, Python `text=True` ile ANSI kod sayfasını
+# (cp1254) kullanıyor ve "ı" harfinin baytı cp1254'te tanımsız.
+IPCONFIG_TR = (
+    "Windows IP Yapılandırması\n"
+    "\n"
+    "   Ana Bilgisayar Adı . . . . . . . : DEVREYE-PC\n"
+    "\n"
+    "Ethernet bağdaştırıcısı Ethernet:\n"
+    "\n"
+    "   Bağlantıya özgü DNS Soneki . . . :\n"
+    "   Açıklama. . . . . . . . . . . . . : Intel(R) I219-LM\n"
+    "   Fiziksel Adres. . . . . . . . . . : 5C-01-3B-8A-76-43\n"
+    "   DHCP Etkin. . . . . . . . . . . . : Hayır\n"
+    "   IPv4 Adresi . . . . . . . . . . . : 10.1.1.50(Tercih Edilen)\n"
+    "   Alt Ağ Maskesi  . . . . . . . . . : 255.255.0.0\n"
+    "   Varsayılan Ağ Geçidi. . . . . . . : 10.1.1.101\n"
+)
+
+
+class SahteKomut:
+    """subprocess.run yerine geçer; hazır BAYT çıktı döndürür."""
+
+    def __init__(self, ham: bytes):
+        self.ham = ham
+        self.cagrilar: list[dict] = []
+
+    def __call__(self, argv, **kwargs):
+        self.cagrilar.append({"argv": list(argv), **kwargs})
+        return subprocess.CompletedProcess(argv, 0, self.ham, b"")
+
+
+class WindowsKodSayfasi(unittest.TestCase):
+    """Konsol çıktısı ANSI değil OEM kod sayfasıyla geliyor.
+
+    Sahada görülen: Windows'ta bilgisayarın switch portu hiç bulunamıyor,
+    korunacak port listesi boş kalıyordu. macOS'ta sorun yoktu — orada
+    hem çıktı hem tercih edilen kod sayfası UTF-8.
+    """
+
+    def test_text_true_turkce_ciktida_patlardi(self):
+        """Arızanın kendisi: cp857 baytları cp1254 ile çözülemiyor.
+
+        Bu, `text=True`nin Türkçe Windows'ta yaptığı şeydir ve attığı
+        UnicodeDecodeError ne OSError ne SubprocessError — eski `except`
+        onu yakalamıyor, istisna API ucuna kadar çıkıyordu.
+        """
+        ham = IPCONFIG_TR.encode("cp857")
+        with self.assertRaises(UnicodeDecodeError):
+            ham.decode("cp1254")
+        self.assertNotIsInstance(
+            UnicodeDecodeError("cp1254", b"", 0, 1, ""),
+            (OSError, subprocess.SubprocessError))
+
+    def test_oem_ciktisi_cozulur_ve_mac_bulunur(self):
+        sahte_komut = SahteKomut(IPCONFIG_TR.encode("cp857"))
+        with mock.patch.object(yerel_ag.sys, "platform", "win32"), \
+                mock.patch.object(yerel_ag, "_KOD_SAYFASI", "cp857"), \
+                mock.patch.object(yerel_ag.subprocess, "run", sahte_komut):
+            arayuz = yerel_ag.arayuzler()
+        maclar = [a["mac"] for a in arayuz]
+        self.assertIn("5c:01:3b:8a:76:43", maclar)
+        ipler = [i for a in arayuz for i in a["ipler"]]
+        self.assertIn("10.1.1.50", ipler)
+
+    def test_hicbir_kod_sayfasi_istisna_attirmaz(self):
+        """Kod sayfası ne olursa olsun çözme adımı patlamamalı.
+
+        Çözülemeyen bayt "yanlış harf" olur; aranan her şey (MAC, IPv4)
+        ASCII olduğu için ayrıştırma bundan etkilenmez.
+        """
+        for kod in ("cp1254", "utf-8", "latin-1", "cp857"):
+            with mock.patch.object(yerel_ag, "_KOD_SAYFASI", kod):
+                metin = yerel_ag.coz(IPCONFIG_TR.encode("cp857"))
+            self.assertIn("5C-01-3B-8A-76-43", metin, kod)
+
+    def test_bilinmeyen_kod_sayfasi_latin1e_duser(self):
+        with mock.patch.object(yerel_ag, "_KOD_SAYFASI", "boyle-bir-kod-yok"):
+            metin = yerel_ag.coz(IPCONFIG_TR.encode("cp857"))
+        self.assertIn("5C-01-3B-8A-76-43", metin)
+
+    def test_windowsta_konsol_penceresi_acilmaz(self):
+        """Konsolsuz derlemede her komut bir pencere açıp kapatıyordu."""
+        sahte_komut = SahteKomut(b"")
+        with mock.patch.object(yerel_ag, "_PENCERESIZ",
+                               {"creationflags": 0x08000000}), \
+                mock.patch.object(yerel_ag.subprocess, "run", sahte_komut):
+            yerel_ag._komut(["ipconfig", "/all"])
+        self.assertEqual(sahte_komut.cagrilar[0]["creationflags"], 0x08000000)
+        # `text=True` bir daha kullanılmamalı: çözümü Python'a bırakmak
+        # arızanın ta kendisiydi.
+        self.assertNotIn("text", sahte_komut.cagrilar[0])
+
+
+class WindowsArp(unittest.TestCase):
+    """IP atama koşusunun ARP adımı Windows'ta hiç çalışmıyordu.
+
+    Cihazların hepsi aynı fabrika adresiyle geldiği için koşu her port
+    değişiminde ARP kaydını tazelemek zorunda; tazeleyemezse yoklama eski
+    MAC'e gidiyor ve cihaz "bulunamadı" sayılıyor.
+    """
+
+    def setUp(self):
+        from core import betik
+
+        self.mod = betik.intercom_ip_assign()
+
+    def _windows(self, yonetici: bool):
+        return (mock.patch.object(self.mod, "WINDOWS", True),
+                mock.patch.object(self.mod, "yonetici_mi", lambda: yonetici))
+
+    def test_windowsta_kosulsuz_yetkisiz_sayilmiyor(self):
+        """Arıza: `os.geteuid` Windows'ta yok, AttributeError yakalanıp
+        "yetki yok" deniyordu. Yönetici olarak başlatılsa bile ARP
+        önbelleği hiç temizlenmiyordu."""
+        p1, p2 = self._windows(yonetici=True)
+        with p1, p2:
+            self.assertTrue(self.mod.arp_silebilir())
+
+    def test_windowsta_yonetici_degilse_yetki_yok(self):
+        p1, p2 = self._windows(yonetici=False)
+        with p1, p2:
+            self.assertFalse(self.mod.arp_silebilir())
+
+    def test_windows_ipucu_sudo_onermez(self):
+        """Windows'ta `sudo` diye bir komut yok; öneri uygulanabilir olmalı."""
+        with mock.patch.object(self.mod, "WINDOWS", True):
+            ipucu = self.mod.arp_yetki_ipucu()
+        self.assertIn("Yönetici", ipucu)
+        self.assertNotIn("sudo", ipucu)
+
+    def test_posix_ipucu_degismedi(self):
+        with mock.patch.object(self.mod, "WINDOWS", False):
+            self.assertIn("sudo -v", self.mod.arp_yetki_ipucu())
+
+    def test_windows_silme_komutlarinda_sudo_ve_ip_neigh_yok(self):
+        with mock.patch.object(self.mod, "WINDOWS", True):
+            komutlar = self.mod._arp_sil_komutlari("10.1.1.12")
+        duz = [" ".join(k) for k in komutlar]
+        self.assertIn("arp -d 10.1.1.12", duz)
+        self.assertTrue(any("netsh" in k for k in duz), duz)
+        # `sudo` ve `ip neigh` Windows'ta yok. ("neigh" tek başına aranmaz:
+        # netsh komutunun kendisi "neighbors" diyor.)
+        self.assertFalse(any(k.startswith("sudo") or k.startswith("ip neigh")
+                             for k in duz), duz)
+
+    def test_host_mac_windows_tire_bicimini_okur(self):
+        """Windows `arp -a` çıktısı MAC'i tire ile yazıyor; `-n` seçeneği
+        de yok. İkisi de karşılanmadığı için MAC ile port doğrulaması
+        Windows'ta sessizce hiç çalışmıyordu."""
+        cikti = (
+            "Arabirim: 10.1.1.50 --- 0xb\n"
+            "  Internet Adresi       Fiziksel Adres        Tür\n"
+            "  10.1.1.12             5c-01-3b-53-a4-73     dinamik\n"
+        ).encode("cp857")
+        sahte_komut = SahteKomut(cikti)
+        with mock.patch.object(self.mod, "WINDOWS", True), \
+                mock.patch.object(self.mod, "_KOD_SAYFASI", "cp857"), \
+                mock.patch.object(self.mod.subprocess, "run", sahte_komut):
+            mac = self.mod.host_mac("10.1.1.12")
+        self.assertEqual(mac, "5c:01:3b:53:a4:73")
+        self.assertEqual(sahte_komut.cagrilar[0]["argv"],
+                         ["arp", "-a", "10.1.1.12"])
+
+    def test_host_mac_posix_bicimi_bozulmadi(self):
+        cikti = b"? (10.1.1.12) at 5c:01:3b:53:a4:73 on en6 ifscope [ethernet]\n"
+        sahte_komut = SahteKomut(cikti)
+        with mock.patch.object(self.mod, "WINDOWS", False), \
+                mock.patch.object(self.mod.subprocess, "run", sahte_komut):
+            mac = self.mod.host_mac("10.1.1.12")
+        self.assertEqual(mac, "5c:01:3b:53:a4:73")
+        self.assertEqual(sahte_komut.cagrilar[0]["argv"],
+                         ["arp", "-n", "10.1.1.12"])
+
+    def test_komut_ciktisi_hicbir_baytta_patlamaz(self):
+        """Çözülemeyen bayt istisna değil, yanlış harf üretmeli."""
+        sahte_komut = SahteKomut(bytes(range(256)))
+        for kod in ("cp1254", "utf-8", "oem", "yok-boyle-kod"):
+            with mock.patch.object(self.mod, "_KOD_SAYFASI", kod), \
+                    mock.patch.object(self.mod.subprocess, "run", sahte_komut):
+                kodu, metin = self.mod.komut_ciktisi(["arp", "-a"])
+            self.assertEqual(kodu, 0, kod)
+            self.assertIsInstance(metin, str)
+
+    def test_calistirilamayan_komut_none_doner(self):
+        def patla(*a, **k):
+            raise FileNotFoundError("netsh yok")
+
+        with mock.patch.object(self.mod.subprocess, "run", patla):
+            self.assertEqual(self.mod.komut_ciktisi(["netsh"]), (None, ""))
 
 
 if __name__ == "__main__":

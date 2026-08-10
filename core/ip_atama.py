@@ -203,6 +203,14 @@ ARAMA_SINIRI = 512
 _ARP_YETKI = {"zaman": 0.0, "deger": False}
 
 
+def arp_ipucu() -> str:
+    """Yetki yoksa kullanıcının ne yapması gerektiği (platforma göre)."""
+    try:
+        return str(betik.intercom_ip_assign().arp_yetki_ipucu())
+    except Exception:
+        return ""
+
+
 def arp_yetkisi(ttl: float = 10.0) -> bool:
     simdi = time.time()
     if simdi - _ARP_YETKI["zaman"] > ttl:

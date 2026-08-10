@@ -602,6 +602,12 @@ class Handler(BaseHTTPRequestHandler):
                 # port değişiminde ARP önbelleğini temizlemek zorunda;
                 # yetki yoksa kullanıcı bunu koşudan önce bilsin.
                 "arpTemizlik": ip_atama.arp_yetkisi(),
+                # Yetki yoksa ne yapılacağı PLATFORMA GÖRE değişiyor:
+                # Windows'ta `sudo` diye bir şey yok, karşılığı
+                # "Yönetici olarak çalıştır". Arayüz metni sunucudan gelir
+                # ki tarayıcı işletim sistemini tahmin etmek zorunda
+                # kalmasın.
+                "arpIpucu": ip_atama.arp_ipucu(),
                 # grupCihaz: o switch'te seçili gruplardan kaç cihaz var.
                 # Arayüz, gruba ait cihazı olmayan switch'in panelini buna
                 # bakarak işaretler; kullanıcı boşuna port aramaz.

@@ -162,7 +162,7 @@ if ($islem.ExitCode -ne 0) {
 ### Windows kurulum paketi
 
 ```powershell
-$surum = "0.9.2"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
+$surum = "0.9.3"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   "/DMyAppVersion=$surum" `
   "/DSourceDir=..\..\dist\DevreyeAlmaPaneli" `
@@ -285,7 +285,7 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 
 | Ne | Nasıl |
 |---|---|
-| Başlık | `Devreye Alma Paneli v0.9.2` — ham etiket değil, uygulama adı + sürüm |
+| Başlık | `Devreye Alma Paneli v0.9.3` — ham etiket değil, uygulama adı + sürüm |
 | Etiket | `dap-v*` / `syp-v*` · `v*` |
 | Dosya adları | `DevreyeAlmaPaneli-…` / `SwitchYonetimPaneli-…` |
 | Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |

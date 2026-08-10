@@ -5,11 +5,47 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v0.9.3 — Yayımlanmamış
+
+Bu sürüm yalnızca Windows'a özgü düzeltmeler içerir. Aşağıdaki üç sorunun
+hiçbiri macOS ve Linux'ta görülmüyordu; bu yüzden geliştirme sırasında
+fark edilmemişlerdi.
+
+### Windows uyumluluğu
+
+- **Bilgisayarın bağlı olduğu switch portu bulunamıyordu.** Korunan port
+  listesi Windows'ta boş kalıyor, IP atama koşusu kendi bağlantısını
+  kesme riskine karşı korunamıyordu. Nedeni, konsol çıktısının yanlış kod
+  sayfasıyla çözülmesiydi: `ipconfig /all` çıktısı OEM kod sayfasıyla
+  (Türkçe kurulumda cp857) yazılırken Python ANSI kod sayfasını (cp1254)
+  kullanıyordu. Çıktının ilk satırındaki "ı" harfi cp1254'te tanımsız
+  olduğundan çözme adımı hata veriyor ve bu hata `/api/ip/korunan` ucuna
+  kadar ulaşıyordu. Komut çıktıları artık bayt olarak alınıp platforma
+  uygun kod sayfasıyla, hata vermeyecek biçimde çözülür.
+- **ARP önbelleği Yönetici olarak çalıştırıldığında bile
+  temizlenemiyordu.** Yetki denetimi Windows'ta yalnızca POSIX'e özgü bir
+  çağrıya dayandığı için sonuç koşulsuz "yetki yok" oluyordu. Denetim
+  artık yükseltilmiş süreci tanır; silme işlemi `arp -d` ve gerekirse
+  `netsh interface ipv4 delete neighbors` ile yapılır. Aynı fabrika
+  adresini kullanan cihazlarda bayat ARP kaydı bu nedenle "cihaz
+  bulunamadı" hatasına yol açmaz.
+- **Yetki uyarısı Windows'ta uygulanamayacak bir öneri veriyordu.** Metin
+  `sudo -v` çalıştırılmasını istiyordu; artık platforma göre üretilir ve
+  Windows'ta uygulamanın Yönetici olarak başlatılması önerilir.
+- **MAC ile port doğrulaması Windows'ta hiç çalışmıyordu.** ARP tablosu
+  POSIX söz dizimiyle (`arp -n`) sorgulanıyor ve MAC yalnızca iki nokta
+  ile ayrılmış biçimde aranıyordu. Windows'ta karşılığı `arp -a`, ayraç
+  ise tiredir; ikisi de karşılanmadığı için doğrulama sessizce atlanıyordu.
+- Konsolsuz Windows derlemesinde her yardımcı komut için kısa süreli bir
+  konsol penceresi açılıyordu; komutlar artık pencere oluşturmadan
+  çalıştırılır.
+
 ## v0.9.2 — Yayımlanmamış
 
 Bu sürüm için hazırlanan değişiklikler `dap-v0.9.1-dev` etiketinden sonra
-eklenmiştir. `dap-v0.9.2` etiketi henüz oluşturulmadığı için bunlar bir GitHub
-sürümünde yayımlanmamıştır.
+eklenmiştir. `dap-v0.9.2` etiketi oluşturulmadan `v0.9.3` sürümüne
+geçildiği için buradaki değişiklikler de ilk kez `dap-v0.9.3` ile
+yayımlanacaktır.
 
 ### Tarama ve canlı yenileme
 

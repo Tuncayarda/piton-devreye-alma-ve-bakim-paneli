@@ -575,6 +575,32 @@ kalıpları aranır. IP karşılaştırmasında metin içinde arama yerine **tam
 eşitlik** kullanılır; böylece `10.1.1.5` aranırken `10.1.1.50` adresinin
 arayüzü seçilmez.
 
+##### Konsol çıktısı bayt okunur, `text=True` kullanılmaz
+
+Etiketten bağımsız ayrıştırma yetmedi: Windows'ta bilgisayarın switch
+portu **hiç bulunamıyordu**, korunacak port listesi boş kalıyordu.
+
+Sebep ayrıştırma değil, çözme (decode) adımıydı. `subprocess.run(...,
+text=True)` çözümü Python'a bırakıyor, Python da Windows'ta **ANSI** kod
+sayfasını seçiyor (Türkçe kurulumda cp1254). Oysa konsol araçları
+**OEM** kod sayfasıyla yazıyor (cp857). `ipconfig /all` çıktısının ilk
+satırındaki "Yapılandırması" kelimesinin `ı` harfi cp857'de `0x8d` ve o
+bayt cp1254'te **tanımsız** → `UnicodeDecodeError`.
+
+Bu istisna ne `OSError` ne `SubprocessError`; `_komut`'un `except`i onu
+yakalamıyordu ve hata `/api/ip/korunan` ucuna kadar çıkıp 500
+veriyordu. macOS ve Linux'ta hem çıktı hem tercih edilen kod sayfası
+UTF-8 olduğu için arıza hiç görünmedi — testteki Windows örneği de
+ASCII'ye sadeleştirilmiş ("Yapilandirmasi") olduğu için yakalanmamıştı.
+
+Şimdi çıktı **bayt** alınıp `yerel_ag.coz()` ile çözülüyor: Windows'ta
+`oem`, diğerlerinde `utf-8`, ikisi de bulunamazsa `latin-1` — hepsi
+`errors="replace"` ile. Aranan her şey ASCII olduğundan (MAC kalıbı,
+IPv4, arayüz adı) yanlış çözülmüş bir Türkçe harf ayrıştırmayı
+etkilemez; yani `replace` burada kayıpsızdır ve "çözemedim" diye bir
+durum kalmaz. Aynı çağrı Windows'ta `CREATE_NO_WINDOW` ile yapılır:
+konsolsuz derlemede her komut bir konsol penceresi açıp kapatıyordu.
+
 > **Zamanlayıcı davranışı.** IP ekranındaki turlar (`yenilemeyiKur`) her
 > çizimde yeniden kurulduğunda, birkaç saniyelik cihaz yenilemesi hem 5
 > saniyelik panel turunun hem de 30 saniyelik doğrulama turunun tamamlanmasını
@@ -600,10 +626,34 @@ betiğin standart son doğrulaması tamamlandığı için iptal yanıtı anlık
 olmayabilir.
 
 Aynı fabrika adresini kullanan cihazlar arasında geçiş yapılırken ARP
-önbelleğinin temizlenmesi gerekir. POSIX sistemlerde bunun için root yetkisi
-veya önceden alınmış `sudo -v` yetkisi gerekir; Windows'ta mevcut uygulama bu
-temizliği yapamaz. Yetki yoksa ekran koşudan önce uyarır ve cihaz arama
-sonuçları bayat ARP kaydından etkilenebilir.
+önbelleğinin temizlenmesi gerekir. Yetki yoksa ekran koşudan önce uyarır ve
+cihaz arama sonuçları bayat ARP kaydından etkilenebilir.
+
+| | yetki | silme komutu | MAC okuma |
+|---|---|---|---|
+| POSIX | root ya da `sudo -v` | `arp -d` · `ip neigh flush` | `arp -n` |
+| Windows | Yönetici (`IsUserAnAdmin`) | `arp -d` · `netsh … delete neighbors` | `arp -a` |
+
+Windows sütunu **eskiden yoktu ve üç yerde birden bozuktu**:
+
+1. `arp_silebilir()` orada koşulsuz `False` dönüyordu. `os.geteuid`
+   Windows'ta yok; `AttributeError` yakalanıp "yetki yok" sayılıyordu.
+   Yani uygulama **Yönetici olarak başlatılsa bile** ARP önbelleği hiç
+   temizlenmiyordu. Karşılığı yükseltilmiş süreçtir, `sudo` değil.
+2. Yetki uyarısı kullanıcıya `sudo -v` öneriyordu — Windows'ta öyle bir
+   komut yok. Öneri metni artık platforma göre üretilir
+   (`arp_yetki_ipucu`) ve arayüze `/api/ip/plan` içinde `arpIpucu` olarak
+   gider; tarayıcı işletim sistemini tahmin etmez.
+3. `host_mac()` `arp -n` çağırıyor ve MAC'i yalnız iki nokta ile arıyordu.
+   Windows'ta `-n` diye bir seçenek yok (`-a` var) ve MAC tire ile
+   yazılıyor. İkisi de tutmadığı için **MAC ile port doğrulaması
+   Windows'ta sessizce hiç çalışmıyordu** — `verify_port` her seferinde
+   "ARP'ta MAC yok" deyip doğrulamayı atlıyordu.
+
+Betiğin iki `subprocess` çağrısı da artık `komut_ciktisi()` üzerinden
+geçer: çıktı bayt alınır ve kod sayfası ne olursa olsun istisna atmadan
+çözülür (yukarıdaki `text=True` tuzağının aynısı burada da vardı, üstelik
+koşuyu ortasından düşürebilecek yerde).
 
 ### IP atama koşusunun ilerlemesi
 

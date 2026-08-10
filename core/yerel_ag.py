@@ -38,6 +38,40 @@ _BOS_MAC = {"00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"}
 
 KOMUT_TIMEOUT = 4.0
 
+# Komut çıktısı BAYT alınıp burada çözülür; `text=True` kullanılmaz.
+#
+# `text=True` çözümü Python'a bırakıyor, Python da Windows'ta ANSI kod
+# sayfasını seçiyor (Türkçe kurulumda cp1254). Oysa konsol araçları OEM
+# kod sayfasıyla yazıyor (cp857). `ipconfig /all` çıktısının ilk
+# satırındaki "Yapılandırması" kelimesinin "ı" harfi cp857'de 0x8d ve o
+# bayt cp1254'te TANIMSIZ: UnicodeDecodeError.
+#
+# Bu hata ne OSError ne SubprocessError; aşağıdaki `except` onu
+# yakalamıyordu ve istisna /api/ip/korunan ucuna kadar çıkıp 500
+# veriyordu. Sonuç: Windows'ta bilgisayarın switch portu hiç bulunamıyor,
+# korunacak portlar boş kalıyordu. macOS/Linux'ta hem çıktı hem tercih
+# edilen kod sayfası UTF-8 olduğu için sorun hiç görünmedi.
+#
+# Aranan her şey ASCII (MAC kalıbı, IPv4, arayüz adı); yanlış çözülmüş
+# bir Türkçe harf ayrıştırmayı etkilemez. Bu yüzden errors="replace"
+# burada kayıpsızdır ve "çözemedim" diye bir durum kalmaz.
+_KOD_SAYFASI = "oem" if sys.platform == "win32" else "utf-8"
+
+# Konsolsuz (pencereli) Windows derlemesinde her komut için bir konsol
+# penceresi açılıp kapanıyor: hem göze çarpıyor hem kullanıcının odağını
+# çalıyor. Arayüz dökümü switch başına değil tur başına okunsa da
+# görünüyordu.
+_PENCERESIZ = ({"creationflags": 0x08000000}      # CREATE_NO_WINDOW
+               if sys.platform == "win32" else {})
+
+
+def coz(ham: bytes) -> str:
+    """Komut çıktısını metne çevirir — hiçbir kod sayfasında patlamaz."""
+    try:
+        return (ham or b"").decode(_KOD_SAYFASI, errors="replace")
+    except LookupError:               # kod sayfası bu Python'da yoksa
+        return (ham or b"").decode("latin-1", errors="replace")
+
 
 def normalle(deger) -> str:
     """5c-1-3B-8A-76-43 / 5c01.3b8a.7643 -> 5c:01:3b:8a:76:43"""
@@ -68,11 +102,11 @@ def yerel_ip(hedef_ip: str) -> str:
 
 def _komut(argv: list[str]) -> str:
     try:
-        sonuc = subprocess.run(argv, capture_output=True, text=True,
-                               timeout=KOMUT_TIMEOUT)
+        sonuc = subprocess.run(argv, capture_output=True,
+                               timeout=KOMUT_TIMEOUT, **_PENCERESIZ)
     except (OSError, subprocess.SubprocessError):
         return ""
-    return sonuc.stdout or ""
+    return coz(sonuc.stdout)
 
 
 def _cikti() -> str:

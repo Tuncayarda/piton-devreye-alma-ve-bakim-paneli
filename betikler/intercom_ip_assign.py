@@ -121,18 +121,59 @@ def norm_mac(value) -> str | None:
     return ":".join(h.rjust(2, "0").lower() for h in hexes[:6])
 
 
+WINDOWS = sys.platform == "win32"
+
+# Konsol araçlarının çıktısı Windows'ta OEM kod sayfasıyla yazılıyor
+# (Türkçe kurulumda cp857), Python'un `text=True` ile seçtiği ANSI kod
+# sayfasıyla (cp1254) değil. "ı" harfinin baytı cp1254'te tanımsız ve
+# UnicodeDecodeError ne OSError ne SubprocessError — aşağıdaki
+# `except`ler yakalamıyor, istisna koşuyu düşürüyordu. Aranan her şey
+# ASCII olduğu için errors="replace" hiçbir bilgi kaybettirmez.
+_KOD_SAYFASI = "oem" if WINDOWS else "utf-8"
+# Konsolsuz Windows derlemesinde her komut bir konsol penceresi açıyordu.
+_PENCERESIZ = {"creationflags": 0x08000000} if WINDOWS else {}   # NO_WINDOW
+
+
+def _coz(ham) -> str:
+    try:
+        return (ham or b"").decode(_KOD_SAYFASI, errors="replace")
+    except LookupError:               # kod sayfası bu Python'da yoksa
+        return (ham or b"").decode("latin-1", errors="replace")
+
+
+def komut_ciktisi(cmd, timeout: float = 3.0):
+    """Komutu çalıştırıp (returncode, stdout+stderr) döndürür.
+
+    Çıktı bayt alınıp burada çözülür; kod sayfası ne olursa olsun istisna
+    atmaz. Çalıştırılamadıysa (None, "") döner.
+    """
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout,
+                           **_PENCERESIZ)
+    except (OSError, subprocess.SubprocessError):
+        return None, ""
+    return r.returncode, _coz(r.stdout) + _coz(r.stderr)
+
+
+# Hem "5c:01:3b:..." (POSIX) hem "5c-01-3b-..." (Windows arp) biçimi.
+_MAC_KALIBI = re.compile(r"(?:[0-9a-fA-F]{1,2}[:-]){5}[0-9a-fA-F]{1,2}")
+
+
 def host_mac(ip: str) -> str | None:
     """İşletim sisteminin ARP tablosundan IP'nin MAC'ini okur.
 
     Cihazla az önce HTTP konuşulduğu için ARP kaydı tazedir.
+
+    Windows'ta komut da çıktı da farklı: `arp -n` diye bir seçenek yok
+    (`-a` var) ve MAC tire ile yazılıyor. İkisi de karşılanmadığı için
+    Windows'ta bu işlev hep None dönüyor, MAC ile port doğrulaması
+    sessizce hiç çalışmıyordu.
     """
-    for cmd in (["arp", "-n", ip], ["ip", "neigh", "show", ip]):
-        try:
-            out = subprocess.run(cmd, capture_output=True, text=True,
-                                 timeout=3).stdout
-        except (OSError, subprocess.SubprocessError):
-            continue
-        m = re.search(r"(?:[0-9a-fA-F]{1,2}:){5}[0-9a-fA-F]{1,2}", out)
+    komutlar = ([["arp", "-a", ip]] if WINDOWS
+                else [["arp", "-n", ip], ["ip", "neigh", "show", ip]])
+    for cmd in komutlar:
+        _kod, out = komut_ciktisi(cmd)
+        m = _MAC_KALIBI.search(out)
         if m:
             return norm_mac(m.group(0))
     return None
@@ -155,17 +196,43 @@ def host_mac(ip: str) -> str | None:
 _ARP_UYARI_VERILDI = False
 
 
+def yonetici_mi() -> bool:
+    """Windows'ta yükseltilmiş (Yönetici) çalışıyor muyuz?"""
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def arp_yetki_ipucu() -> str:
+    """Yetki yoksa kullanıcının ne yapması gerektiği — platforma göre."""
+    if WINDOWS:
+        return ("uygulamayı sağ tıklayıp \"Yönetici olarak çalıştır\" ile "
+                "başlatın")
+    return "terminalde bir kez: sudo -v    (ya da uygulamayı sudo ile başlatın)"
+
+
 def arp_silebilir() -> bool:
     """ARP kaydı silme yetkimiz var mı?
 
     Doğrudan yetkiye bakılır; "sil" denemesinin çıktısına bakmak
     yanıltıyor: kaydı olmayan bir adres yetkisizken de "cannot locate"
     diyor ve mekanizma çalışıyor sanılıyordu.
+
+    Windows'ta eskiden KOŞULSUZ False dönüyordu: `os.geteuid` orada yok,
+    AttributeError yakalanıp "yetki yok" sayılıyordu. Yani Yönetici
+    olarak çalıştırılsa bile ARP önbelleği hiç temizlenmiyor, üstüne
+    kullanıcıya Windows'ta bulunmayan `sudo -v` öneriliyordu. Oradaki
+    karşılığı yükseltilmiş süreç: `arp -d` Yönetici ister.
     """
+    if WINDOWS:
+        return yonetici_mi()
     try:
         if os.geteuid() == 0:
             return True
-    except AttributeError:                 # Windows
+    except AttributeError:                 # geteuid'i olmayan platform
         return False
     try:
         # -n hiçbir zaman parola sormaz; zaman damgası tazeyse 0 döner.
@@ -189,30 +256,42 @@ def arp_unut(ips, cfg=None) -> bool:
     if not arp_silebilir():
         if not _ARP_UYARI_VERILDI:
             _ARP_UYARI_VERILDI = True
-            print("[!] ARP önbelleği temizlenemiyor (root gerekiyor). Aynı "
-                  "fabrika adresindeki cihazlar")
+            yetki = "Yönetici" if WINDOWS else "root"
+            print(f"[!] ARP önbelleği temizlenemiyor ({yetki} gerekiyor). "
+                  "Aynı fabrika adresindeki cihazlar")
             print("    eski MAC'e yazıldığı için 'cihaz bulunamadı' hatası "
                   "verir. Koşudan önce")
-            print("    terminalde bir kez: sudo -v    (ya da uygulamayı sudo "
-                  "ile başlatın)")
+            print(f"    {arp_yetki_ipucu()}")
         return False
-    kok = os.geteuid() == 0
     for ip in ips:
-        for cmd in ([["arp", "-d", ip], ["ip", "neigh", "flush", "to", ip]]
-                    if kok else
-                    [["sudo", "-n", "arp", "-d", ip],
-                     ["sudo", "-n", "ip", "neigh", "flush", "to", ip]]):
-            try:
-                r = subprocess.run(cmd, capture_output=True, text=True,
-                                   timeout=5)
-            except (OSError, subprocess.SubprocessError):
+        for cmd in _arp_sil_komutlari(ip):
+            kod, ciktilar = komut_ciktisi(cmd, timeout=5)
+            if kod is None:
                 continue
-            ciktilar = (r.stdout or "") + (r.stderr or "")
             # "cannot locate" / "no entry" = silinecek kayıt yoktu.
-            if (r.returncode == 0 or "no entry" in ciktilar
+            # Metin eşleşmesi yerel ayara bağlı (Türkçe Windows başka
+            # yazar); tutmazsa yalnız sıradaki komut da denenir, zarar yok.
+            if (kod == 0 or "no entry" in ciktilar
                     or "cannot locate" in ciktilar):
                 break
     return True
+
+
+def _arp_sil_komutlari(ip: str) -> list[list[str]]:
+    """Bir adresin ARP kaydını silmenin platforma göre yolları.
+
+    Windows'ta `ip neigh` yok, `sudo` yok; `arp -d` yükseltilmiş süreçte
+    çalışıyor. `netsh` yedek: bazı sürümlerde `arp -d` komşu önbelleğini
+    değil yalnız eski ARP tablosunu görüyor.
+    """
+    if WINDOWS:
+        return [["arp", "-d", ip],
+                ["netsh", "interface", "ipv4", "delete", "neighbors",
+                 f"address={ip}"]]
+    if os.geteuid() == 0:
+        return [["arp", "-d", ip], ["ip", "neigh", "flush", "to", ip]]
+    return [["sudo", "-n", "arp", "-d", ip],
+            ["sudo", "-n", "ip", "neigh", "flush", "to", ip]]
 
 
 def _mac_rows(data) -> list[dict]:

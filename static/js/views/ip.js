@@ -851,9 +851,15 @@ export function ciz(kok) {
         el('span', { metin: 'ARP önbelleği' }),
         el('b', {
           sinif: 'soluk',
+          // Ne yapılacağı işletim sistemine göre değişiyor ve metni
+          // sunucu gönderiyor: burada "sudo -v" yazılıydı, Windows'ta
+          // öyle bir komut yok — kullanıcıya çalıştıramayacağı bir şey
+          // öneriliyordu.
           title: 'Cihazlar aynı fabrika IP\'sinde geldiği için önbellekteki '
             + 'eski MAC koşuyu yanıltır',
-          metin: 'temizlenemiyor · sudo -v',
+          metin: plan.arpIpucu
+            ? `temizlenemiyor · ${plan.arpIpucu}`
+            : 'temizlenemiyor',
         }),
       ]) : null,
       el('div', { sinif: 'satir' }, [
