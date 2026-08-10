@@ -4,12 +4,19 @@
 //   · setInterval kullanılmaz. Her tur, bir önceki istek BİTTİKTEN sonra
 //     setTimeout ile kurulur; yavaş bir cihaz yüzünden istekler üst üste
 //     binmez.
+//   · Yenileme iki hızda çalışır ve durdurulamaz:
+//       – Keşif (tam tarama) dakikada bir. DeviceMap'teki HER adrese
+//         bakar, yani ulaşılamayan cihaz başına zaman aşımı kadar bekler;
+//         pahalı olan bu. "Güncelle" düğmesi bu turu öne çeker.
+//       – Hafif yenileme birkaç saniyede bir, YALNIZ son turda yeşile
+//         düşmüş cihazlara. Ulaşılamayana dokunmaz, o yüzden hızlıdır.
 //   · Tam tarama sürerken hafif yenileme çalışmaz.
-//   · "Duraklat" yalnız yeni turları durdurur; süren istek kendi
-//     zaman aşımı içinde düzgün biter.
+//   · IP atama / konfigürasyon / yazılım yükleme koşusu sürerken
+//     kendiliğinden tarama başlatılmaz; koşu cihazları yeniden başlatıyor.
+//     Elle istenen tarama kuyruğa girer ve koşudan sonra çalışır.
 //   · Her yanıtın bir "nesli" vardır; geç gelen eski yanıt yenisini ezmez.
 
-import { $, doldur, kaydirmayiKoru, svg } from './core/dom.js';
+import { $, kaydirmayiKoru } from './core/dom.js';
 import { api } from './core/api.js';
 import { durum, ata, abone } from './core/durum.js';
 import * as kenar from './parts/kenar.js';
@@ -28,12 +35,29 @@ import * as vPiscu from './views/piscu.js';
 import * as vMqtt from './views/mqtt.js';
 import * as vAdmin from './views/admin.js';
 
-const HAFIF_ARALIK = 5000;
+// Turlar arasındaki BOŞLUK (sürelerine değil). Hafif tur yalnız yeşil
+// cihazlara gittiği için kendi başına da hızlı biter; iki saniye, saha
+// gözünün "canlı" saydığı aralık. Sunucu turu sırayla okuduğundan bunu
+// kısaltmak istekleri üst üste bindirmez, yalnız cihazları daha sık yorar.
+const HAFIF_ARALIK = 2000;
+// Keşif turu: bu IP'de cihaz var mı? Ulaşılamayan her cihaz zaman aşımı
+// kadar beklettiği için seyrek çalışır.
+const TAM_TARAMA_ARALIK = 60000;
+// Oturum açılışında ve set değişiminde ekran boş gelir; ilk keşif tam bir
+// dakika beklemez. Kısa gecikme, ilk çizimle taramanın yarışmaması için.
+const ILK_TARAMA_GECIKME = 1500;
+// Tarama bir engel yüzünden atlandığında ne kadar sonra yeniden bakılır.
+const ENGEL_BEKLEME = 3000;
 const IS_ARALIK = 900;
+
+// Cihaza YAZAN koşular. Sürerken kendiliğinden tarama başlatılmaz
+// (sunucu tarafındaki karşılığı: panel_api.YAZAN_ISLER).
+const KOSU_TURU = new Set(['ip', 'ipfab', 'cfg', 'fw']);
 
 let durumNesli = 0;
 let hafifZaman = null;
 let isZaman = null;
+let taramaZaman = null;
 
 // ───────────────────────────────────────────────────────── veri çekme ────
 async function durumuCek() {
@@ -112,18 +136,55 @@ function isDongusu() {
 // Hafif yenilemenin hedefi: YALNIZ son taramada yeşile düşen cihazlar.
 // Ulaşılamayan cihaz her turda yeniden denenirse tur onun zaman aşımı
 // kadar uzuyor ve çalışan cihazların verisi bayatlıyor. Ulaşılamayanı
-// yeniden denemek "Güncelle"nin işi. Sunucu da aynı süzgeci uygular
-// (panel_api._hafif_yenileme); burada listelemek isteği küçültür.
+// yeniden denemek dakikalık keşif turunun işi. Sunucu da aynı süzgeci
+// uygular (panel_api._hafif_yenileme); burada listelemek isteği küçültür.
 function yenilemeHedefi() {
   return (durum.cihazlar || [])
     .filter(c => c.sonuc && c.sonuc.durum === 'yesil')
     .map(c => c.id);
 }
 
+function surenKosuVar() {
+  return (durum.isler || []).some(
+    j => KOSU_TURU.has(j.tur)
+      && (j.durum === 'calisiyor' || j.durum === 'bekliyor'));
+}
+
+// Süren tarama arayüzün kendi zamanlayıcısından mı geldi? Elle istenen
+// tarama kullanıcıyı bekletmeye değer; dakikada bir kendiliğinden çıkan
+// tur ise arayüzü kilitlememeli (bkz. setSeciciyiKur).
+function otomatikTaramaIsi() {
+  return (durum.isler || []).find(
+    j => j.tur === 'tarama' && j.otomatik
+      && (j.durum === 'calisiyor' || j.durum === 'bekliyor')) || null;
+}
+
+// Keşif turu. Ne kadar bekleneceği dışarıdan verilebiliyor: "Güncelle",
+// oturum açılışı ve set değişimi sayacı kendi süresiyle sıfırlar.
+function taramaDongusu(gecikme = TAM_TARAMA_ARALIK) {
+  clearTimeout(taramaZaman);
+  taramaZaman = setTimeout(async () => {
+    // Tur atlanınca sayaç baştan kurulmaz, kısa aralıkla tekrar bakılır:
+    // engel kalkar kalkmaz tarama çalışmalı, bir dakika daha beklememeli.
+    // Uzun bir yazılım yükleme koşusundan sonra cihazların durumu tepeden
+    // tırnağa değişmiş olur; oradaki gecikme en çok can sıkan yer. Denetim
+    // yerel durumdan yapıldığı için sık bakmanın bir maliyeti yok.
+    if (!durum.rol || durum.aktifTarama || surenKosuVar()) {
+      taramaDongusu(ENGEL_BEKLEME);
+      return;
+    }
+    try {
+      await api.tarama(durum.setNo, true);
+      await isleriCek();
+    } catch { /* servis bir tur cevap vermediyse bir sonrakinde denenir */ }
+    taramaDongusu();
+  }, gecikme);
+}
+
 function hafifDongu() {
   clearTimeout(hafifZaman);
   hafifZaman = setTimeout(async () => {
-    const uygun = durum.rol && !durum.duraklat && !durum.aktifTarama
+    const uygun = durum.rol && !durum.aktifTarama
       && !(durum.isler || []).some(j => j.durum === 'calisiyor');
     if (uygun) {
       const hedef = yenilemeHedefi();
@@ -139,6 +200,12 @@ function hafifDongu() {
           // 409 = tam tarama araya girdi; sessizce bir sonraki tura bırak
           if (e.kod && e.kod !== 409) console.warn('hafif yenileme:', e.message);
         }
+      } else {
+        // Yenilenecek yeşil cihaz yok — ama açık ekranın kendi ucu
+        // (kontrol listesi) cihaz okumasına bağlı değil. Bu dal olmadan
+        // hiçbir cihaz yeşil değilken liste ilk girişteki görüntüde
+        // donuyordu. İmza denetimi zaten değişmemişse isteği yapmıyor.
+        await acikEkraniTazele();
       }
     }
     hafifDongu();
@@ -152,7 +219,7 @@ const EKRANLAR = {
   ip: ['#v-ip', (k) => vIp.ciz(k)],
   cfg: ['#v-cfg', (k) => vCfg.ciz(k)],
   fw: ['#v-fw', (k) => vFw.ciz(k)],
-  dog: ['#v-dog', (k) => vDog.ciz(k)],
+  dog: ['#v-dog', (k) => vDog.ciz(k, guncelle)],
   piscu: ['#v-piscu', (k) => vPiscu.ciz(k)],
   mqtt: ['#v-mqtt', (k) => vMqtt.ciz(k)],
   admin: ['#v-admin', (k) => vAdmin.ciz(k, setDegistir)],
@@ -183,11 +250,8 @@ function ciz(_d, degisen) {
   }
   $('#rol-rozet').textContent = durum.rol === 'admin' ? 'Admin' : 'Kullanıcı';
   $('#rol-rozet').style.color = durum.rol === 'admin' ? 'var(--accent)' : '';
-  duraklatDugmesiniKur();
   $('#kenar-ac').setAttribute('aria-expanded', String(durum.kenarAcik));
-  $('#alt-bilgi').textContent = durum.duraklat
-    ? 'Hafif yenileme duraklatıldı'
-    : kuyruk.ozetMetni(yenilemeHedefi().length);
+  $('#alt-bilgi').textContent = kuyruk.ozetMetni(yenilemeHedefi().length);
   $('#alt-surum').textContent = `v${durum.surum}`;
 
   const guncelle = $('#guncelle-btn');
@@ -210,13 +274,28 @@ function ciz(_d, degisen) {
 
   // Aynı ekranda kalıyorsak kaydırma konumu korunur; ekran değiştiyse
   // baştan başlamak doğru davranış.
-  kaydirmayiKoru(ekranDegisti ? null : $('#icerik'), () => cizFn($(secici)));
+  //
+  // Ekran yeniden kurulunca içindeki kutular da baştan yaratılır ve
+  // yazılmakta olan değer kaybolur (alanlar onchange ile, yani odak
+  // çıkınca kaydediyor). Yenileme turu artık saniyeler arayla geldiği
+  // için bu, konfigürasyon alanına yazarken sürekli metin kaybı demekti.
+  // Odak ekranın içindeki bir kutudayken o turun çizimi atlanır; ekran
+  // değişimi kullanıcının kendi eylemidir, o atlanmaz.
+  if (ekranDegisti || !odakEkranKutusunda()) {
+    kaydirmayiKoru(ekranDegisti ? null : $('#icerik'), () => cizFn($(secici)));
+  }
 
   if (ekranDegisti) {
     sonGorunum = durum.gorunum;
     $('#icerik').scrollTop = 0;
     ekranaGirildi(durum.gorunum);
   }
+}
+
+function odakEkranKutusunda() {
+  const a = document.activeElement;
+  if (!a || !$('#icerik').contains(a)) return false;
+  return a.matches('input, textarea, select, [contenteditable="true"]');
 }
 
 // Ekran ilk açıldığında kendi verisini çeker (açılışta hepsi çekilmez).
@@ -230,48 +309,35 @@ function ekranaGirildi(ad) {
 }
 
 // ───────────────────────────────────────────────────────── eylemler ──────
+// "Güncelle" artık tarama BAŞLATMAZ, sıradakini ÖNE ÇEKER: tarama zaten
+// dakikada bir çalışıyor, düğme o turu şimdi kuyruğa alır ve sayacı
+// baştan kurar. Bir koşu (IP atama, konfigürasyon, yazılım yükleme)
+// sürüyorsa tarama kuyrukta bekler — kuyruk tek işçili olduğu için koşuyla
+// asla çakışmaz; kullanıcıya da beklediği söylenir.
+//
 // Tarama başlatmak kuyruk panelini AÇMAZ. İş kuyruğa girdiğinde haber
 // kuyruk düğmesinde belirir (rozet + kısa vurgu); paneli açmak isteyen
 // düğmeye basar. Ekranı kaplayan panel, tarama sürerken cihaz listesini
 // izlemek isteyen kullanıcıyı her seferinde kapatmaya zorluyordu.
 async function guncelle() {
+  const kosu = surenKosuVar();
   try {
     const y = await api.tarama(durum.setNo);
     ata({ acikIs: y.id, aktifTarama: true });
     if (y.yeni === false) {
-      bildir('Bu tren seti için tarama zaten sürüyor');
+      bildir('Tarama zaten kuyrukta');
     } else {
       kuyruk.isaretle();
+      if (kosu) bildir('Tarama kuyrukta — süren koşu bitince çalışacak');
     }
     await isleriCek();
   } catch (e) {
     hata(e.message);
+  } finally {
+    // Elle tarandıktan sonra dakikalık sayaç sıfırdan başlar; yoksa
+    // düğmeye basmak bir saniye sonra ikinci bir turu tetikleyebilirdi.
+    taramaDongusu();
   }
-}
-
-// Duraklat/başlat düğmesi: duraklatılmışken oynat (play) üçgeni, çalışırken
-// duraklat (||) çubukları. İki durumda aynı simgeyi göstermek "hangi
-// durumdayım" sorusunu bırakıyordu.
-function duraklatDugmesiniKur() {
-  const btn = $('#duraklat-btn');
-  if (!btn) return;
-  const durakladi = !!durum.duraklat;
-  if (btn.dataset.durum !== String(durakladi)) {
-    doldur(btn, [durakladi
-      ? svg({ fill: 'currentColor' }, [['polygon', { points: '6,4 16,10 6,16' }]])
-      : svg({ fill: 'currentColor' }, [
-          ['rect', { x: '6', y: '4.5', width: '2.6', height: '11' }],
-          ['rect', { x: '11.4', y: '4.5', width: '2.6', height: '11' }],
-        ]),
-    ]);
-    btn.dataset.durum = String(durakladi);
-  }
-  btn.setAttribute('aria-pressed', String(durakladi));
-  const etiket = durakladi
-    ? 'Hafif yenilemeyi başlat'
-    : 'Hafif yenilemeyi duraklat';
-  btn.title = etiket;
-  btn.setAttribute('aria-label', etiket);
 }
 
 // Sağdan açılan panellerin sol kenarını "Güncelle" düğmesinin sol
@@ -302,10 +368,19 @@ function setSeciciyiKur(zorla = false) {
       && secici.value !== String(durum.setNo)) {
     secici.value = String(durum.setNo);
   }
-  secici.disabled = !!durum.aktifTarama;
-  secici.title = durum.aktifTarama
+  // Yalnız ELLE başlatılan tarama alanı kilitler. Tarama dakikada bir
+  // kendiliğinden çalıştığı için otomatik turu da saymak, set numarasını
+  // değiştirmeyi her dakika birkaç saniyeliğine imkânsız kılardı; kilidin
+  // ne zaman açılacağını kestiremeyen kullanıcı alana boşuna tıklıyordu.
+  const kilitli = elleTaramaSuruyor();
+  secici.disabled = kilitli;
+  secici.title = kilitli
     ? 'Tarama sürerken tren seti değiştirilemez'
     : `Tren setini değiştir (${min}–${max})`;
+}
+
+function elleTaramaSuruyor() {
+  return !!durum.aktifTarama && !otomatikTaramaIsi();
 }
 
 // Kabul edilen aralık sunucudan gelir; meta henüz yokken de bir sınır
@@ -324,10 +399,16 @@ async function setDegistir(n) {
     return;
   }
   if (yeni === durum.setNo) return;
-  if (durum.aktifTarama) {
+  if (elleTaramaSuruyor()) {
     bildir('Tarama sürerken tren seti değiştirilemez');
     setSeciciyiKur(true);
     return;
+  }
+  // Otomatik tur eski setin cihazlarını okuyor; sonuçları yeni sette
+  // işimize yaramıyor, bitmesini beklemenin de anlamı yok.
+  const oto = otomatikTaramaIsi();
+  if (oto) {
+    try { await api.isIptal(oto.id); } catch { /* bitmiş olabilir */ }
   }
   // Görünüm seti başına tutulduğu için eski setin sonuçları taşınmaz.
   detay.kapat();
@@ -340,6 +421,8 @@ async function setDegistir(n) {
   } catch (e) {
     hata(e.message);
   }
+  // Yeni set boş gelir: keşif turu dakika beklemeden çalışsın.
+  taramaDongusu(ILK_TARAMA_GECIKME);
 }
 
 async function baslangicVerisi() {
@@ -361,6 +444,10 @@ async function rolSec(rol) {
   }
   isDongusu();
   hafifDongu();
+  // Oturum boş bir tabloyla açılıyordu ve ilk veri için kullanıcının
+  // "Güncelle"ye basması gerekiyordu; yenileme sürekli olduğuna göre
+  // ilk keşif de kendiliğinden çalışmalı.
+  taramaDongusu(ILK_TARAMA_GECIKME);
   ciz();
   $('#icerik').focus();
 }
@@ -371,6 +458,7 @@ function cikis() {
   // ekranındadır. Uygulama kapanınca hepsi zaten silinir.
   clearTimeout(hafifZaman);
   clearTimeout(isZaman);
+  clearTimeout(taramaZaman);
   detay.kapat();
   diyalog.kapat();
   ata({
@@ -429,8 +517,6 @@ async function basla() {
   });
 
   $('#guncelle-btn').addEventListener('click', guncelle);
-  $('#duraklat-btn').addEventListener('click',
-    () => ata({ duraklat: !durum.duraklat }));
   $('#kuyruk-btn').addEventListener('click', kuyruk.acKapat);
   $('#kilit-btn').addEventListener('click', kilit.kilitAcKapat);
   $('#cikis-btn').addEventListener('click', cikis);
@@ -484,6 +570,7 @@ async function basla() {
 globalThis.addEventListener('pagehide', () => {
   clearTimeout(hafifZaman);
   clearTimeout(isZaman);
+  clearTimeout(taramaZaman);
 });
 
 basla();

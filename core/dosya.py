@@ -20,7 +20,24 @@ from __future__ import annotations
 import platform
 import shutil
 import subprocess
+import time
 from pathlib import Path
+
+from . import ayar
+
+
+def gunluk_yolu(ad: str) -> Path:
+    """Uzun bir koşunun ham çıktısı için zaman damgalı dosya yolu.
+
+    Çıktı kuyruk satırı olarak tutulamayacak kadar uzun (IP atama koşusu
+    iki yüz satır yazıyor) ama atılamayacak kadar da değerli: bir port
+    neden tamamlanmadı sorusunun cevabı orada. Kuyrukta tek satırla
+    açılır (bkz. panel_api.ip_isi).
+    """
+    damga = time.strftime("%Y%m%d-%H%M%S")
+    hedef = ayar.CIKTI_DIZINI / f"{ad}-{damga}.log"
+    hedef.parent.mkdir(parents=True, exist_ok=True)
+    return hedef
 
 
 def _komut(yol: Path, klasor: bool) -> list[str]:

@@ -66,7 +66,9 @@ export const api = {
   isDosya: (id, satir, klasor = false) =>
     post('/api/is/dosya', { id, satir, klasor }),
 
-  tarama: (set) => post('/api/tarama', { set }),
+  // `otomatik`: arayüzün dakikalık keşif turu. Kuyrukta elle başlatılan
+  // taramadan ayrılır ve geçmişte birikmez (bkz. core/isler _budama).
+  tarama: (set, otomatik = false) => post('/api/tarama', { set, otomatik }),
   yenile: (set, cihazlar) => post('/api/yenile', { set, cihazlar }),
 
   // Parolanın tek geçtiği yer. Çağıran taraf, yanıt döner dönmez formu
@@ -83,6 +85,9 @@ export const api = {
   ipPlan: (set, gruplar, portlar, sw) =>
     get('/api/ip/plan', { set, gruplar, portlar, switch: sw }),
   ipPanel: (set, sw) => get('/api/ip/panel', { set, switch: sw }),
+  // Koşunun dokunmaması gereken portlar: bilgisayarın yeri ve switch'ler
+  // arası bağlantılar. Hepsi MAC tablolarından bulunur, hiçbiri sorulmaz.
+  ipKorunan: (set) => get('/api/ip/korunan', { set }),
   ipKosu: (govde) => post('/api/ip/kosu', govde),
   // Test akışı: seçili cihazlara "IP'ni fabrika adresine çevir" isteği.
   ipFabrika: (govde) => post('/api/ip/fabrika', govde),

@@ -289,6 +289,46 @@ def adb_oku(ip: str, timeout: int | None = None) -> dict:
             pass
 
 
+# ── MQTT kaynaklı cihazların "ayakta mı" denetimi ──
+#
+# Bu cihazlara (PISCU, HMI, ICU, AP, LED, Landing LCD) panel doğrudan
+# bağlanmaz; durumlarını broker'daki RETAINED mesajlardan okur. Retained
+# mesajın tek başına okunması "cihaz var" demek DEĞİLDİR: mesaj cihaz
+# gittikten sonra da broker'da durur. HMI kablosu çekildiğinde panel onu
+# yeşil "Doğrulandı" gösteriyordu — üstelik gösterdiği notun kendisi
+# "disconnected" yazıyordu.
+#
+# İki bağımsız işaret var ve ikisi de okunur:
+#
+#   ALFA/AppStatus/…  Status: "connected" | "disconnected"
+#       Cihaz düşünce son vasiyeti (LWT) "disconnected" olarak retained
+#       kalıyor; o yükte DeviceIP, HWID, Version alanlarının hiçbiri
+#       olmuyor. Panel bu kaydı bulup boş alanlarla "doğrulandı" diyordu.
+#
+#   ALFA/DeviceMap    Status.NoError
+#       PISCU her cihazı izliyor; kapalı/kopuk cihazda NoError=false ve
+#       Uptime=-1 oluyor. Bu CANLI bir işarettir, mezar taşı değil.
+#
+# `Has Network Failure` BİLEREK kullanılmaz: sahada ayakta olan PISCU'nun
+# kendi kaydında da true görünüyor, tek başına "cihaz yok" demiyor.
+BAGLI = "connected"
+
+
+def _canli_durum(cihaz: Cihaz, telemetri) -> dict:
+    return ((telemetri.kayit(cihaz.ip) if telemetri else None) or {}
+            ).get("Status") or {}
+
+
+def _canli_arizali_mi(cihaz: Cihaz, telemetri) -> bool:
+    """Canlı DeviceMap bu cihazı açıkça arızalı/kapalı bildiriyor mu?
+
+    Kayıt yoksa "hayır" döner — yokluk, arıza kanıtı değildir; o durumu
+    çağıran kendi bağlamına göre değerlendirir.
+    """
+    durum = _canli_durum(cihaz, telemetri)
+    return bool(durum) and durum.get("NoError") is not True
+
+
 def _telemetriden(cihaz: Cihaz, telemetri) -> dict:
     """MQTT DeviceMap kaydından ortak alanlar."""
     kayit = telemetri.kayit(cihaz.ip) if telemetri else None
@@ -296,9 +336,14 @@ def _telemetriden(cihaz: Cihaz, telemetri) -> dict:
         raise DogrulamaHatasi(
             "Cihaz canlı DeviceMap telemetrisinde bulunamadı")
     durum = kayit.get("Status") or {}
-    if not durum.get("NoError"):
-        raise UygulanmazHatasi(
-            "Cihaz telemetride pasif bildiriliyor — doğrudan okuma yöntemi yok")
+    if durum.get("NoError") is not True:
+        # Eskiden "uygulanmıyor" (gri) idi. Yanlıştı: gri "bu cihazda bu
+        # denetim yok" demek, oysa burada denetim yapıldı ve cihaz
+        # ARIZALI bildirildi. Kapalı bir cihazı N/A göstermek onu
+        # sorunsuzmuş gibi okutuyordu.
+        raise UlasilamadiHatasi(
+            "PISCU bu cihazı arızalı/kapalı bildiriyor "
+            "(canlı DeviceMap: NoError=false)")
     return {
         "surum": durum.get("Version") or "",
         "seri": kayit.get("SerialNumber") or "",
@@ -320,6 +365,20 @@ def _appstatusdan(cihaz: Cihaz, telemetri) -> dict:
     if not kayit:
         raise DogrulamaHatasi(
             f"{ayar.MQTT_APP_STATUS_PREFIX}/... altında {kelime} mesajı yok")
+
+    # Mesajın VARLIĞI cihazın ayakta olduğunu göstermez (bkz. BAGLI).
+    bagli = str(kayit.get("Status") or "").strip().lower()
+    if bagli and bagli != BAGLI:
+        raise UlasilamadiHatasi(
+            f"Cihaz broker'a bağlı değil — {ayar.MQTT_APP_STATUS_PREFIX} "
+            f"son durumu \"{kayit.get('Status')}\"")
+    # İkinci işaret: AppStatus hiç Status yazmayan eski bir yük olsa da
+    # PISCU'nun canlı kaydı cihazı arızalı bildiriyorsa yeşile geçilmez.
+    if _canli_arizali_mi(cihaz, telemetri):
+        raise UlasilamadiHatasi(
+            "PISCU bu cihazı arızalı/kapalı bildiriyor "
+            "(canlı DeviceMap: NoError=false)")
+
     uptime = kayit.get("Uptime")
     if uptime in (None, "", -1):
         uptime = _harita_uptime(cihaz, telemetri)

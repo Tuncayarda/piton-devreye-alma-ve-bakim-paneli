@@ -205,6 +205,89 @@ class Kuyruk(ServisTesti):
             self.cagir(taban, "/api/is/iptal", {"id": y["id"]})
             self.isi_bekle(isler.YONETICI.bul(y["id"]), sure=25)
 
+    def test_cihaza_yazan_kosu_sirasinda_hafif_yenileme_reddedilir(self):
+        """Koşu sürerken cihaz okunmaz.
+
+        Tam tarama kuyruğa girdiği için koşuyla zaten çakışamaz; hafif
+        yenileme ise isteği karşılayan iş parçacığında okuduğundan
+        kuyruğun dışında kalır. Koşu sırasında cihaz yeniden başlıyor ya
+        da PoE portu kapalı oluyor — o geçici hâl kalıcı sonuç diye
+        yazılmamalı.
+        """
+        self.kur_harita(_harita(4))
+        with sahte.sessiz() as sessiz:
+            self.switch_portu(sessiz.port)
+            from core import ayar
+            ayar.ANONS_PORT = sessiz.port
+            taban = self.servis_ac()
+
+            birak = threading.Event()
+            is_ = isler.Is("fw", "Yazılım yükleme · 2 cihaz", 1)
+            isler.YONETICI.ekle(is_, lambda j: birak.wait(20))
+            try:
+                for _ in range(100):        # işin başlamasını bekle
+                    if is_.durum == isler.CALISIYOR:
+                        break
+                    time.sleep(0.05)
+                self.assertEqual(is_.durum, isler.CALISIYOR)
+
+                kod, yenile = self.cagir(taban, "/api/yenile", {"set": 1})
+                self.assertEqual(kod, 409)
+                self.assertTrue(yenile["beklemede"])
+            finally:
+                birak.set()
+                self.isi_bekle(is_, sure=25)
+
+    def test_otomatik_taramalar_kuyruk_gecmisini_doldurmaz(self):
+        """Dakikalık tarama, kullanıcının iş kayıtlarını dışarı itmemeli.
+
+        Otomatik tarama normal geçmiş sınırına girseydi yirmi dakikada IP
+        atama / konfigürasyon / yazılım yükleme kayıtlarının hepsi
+        kuyruktan düşerdi. Bitmiş otomatik taramadan yalnız en yenisi
+        tutulur; elle başlatılan işler olduğu gibi kalır.
+        """
+        elle = isler.Is("fw", "Yazılım yükleme · 1 cihaz", 1)
+        isler.YONETICI.ekle(elle, lambda j: None)
+        self.isi_bekle(elle, sure=10)
+
+        for _ in range(5):
+            oto = isler.Is("tarama", "Otomatik tarama · Set 1", 1,
+                           anahtar="tarama:1", otomatik=True)
+            isler.YONETICI.ekle(oto, lambda j: None)
+            self.isi_bekle(oto, sure=10)
+
+        liste = isler.YONETICI.liste()
+        otomatikler = [j for j in liste if j.otomatik]
+        # Budama ekleme sırasında çalışıyor: o an eklenen iş henüz
+        # bitmediği için elenmez. Sayı bu yüzden ikiyi geçmez ve tur
+        # sayısıyla BÜYÜMEZ — asıl istenen bu.
+        self.assertLessEqual(len(otomatikler), 2, "otomatik taramalar birikmiş")
+        self.assertIn(elle.id, [j.id for j in liste],
+                      "elle başlatılan iş geçmişte durmalı")
+
+    def test_otomatik_tarama_isareti_yanitta_gelir(self):
+        """Arayüz otomatik turu elle başlatılandan ayırabilmeli."""
+        self.kur_harita(_harita(2))
+        with sahte.sessiz() as sessiz:
+            self.switch_portu(sessiz.port)
+            from core import ayar
+            ayar.ANONS_PORT = sessiz.port
+            taban = self.servis_ac()
+
+            kod, y = self.cagir(taban, "/api/tarama",
+                                {"set": 1, "otomatik": True})
+            self.assertEqual(kod, 200)
+            self.assertTrue(y["otomatik"])
+            self.assertIn("Otomatik tarama", y["baslik"])
+            self.cagir(taban, "/api/is/iptal", {"id": y["id"]})
+            self.isi_bekle(isler.YONETICI.bul(y["id"]), sure=25)
+
+            kod, y2 = self.cagir(taban, "/api/tarama", {"set": 1})
+            self.assertFalse(y2["otomatik"])
+            self.assertIn("Tam tarama", y2["baslik"])
+            self.cagir(taban, "/api/is/iptal", {"id": y2["id"]})
+            self.isi_bekle(isler.YONETICI.bul(y2["id"]), sure=25)
+
     def test_is_satirlari_bastan_olusur(self):
         """Satırlar tarama başlamadan önce hazır olmalı."""
         self.kur_harita(_harita(4))

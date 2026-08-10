@@ -21,13 +21,15 @@ from __future__ import annotations
 
 import contextlib
 import io
+import re
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
-from . import ayar, betik, kimlik as kimlik_deposu, switch_okuma
+from . import ayar, betik, kimlik as kimlik_deposu, switch_okuma, yerel_ag
 from .device_map import Envanter, coz
-from .hata import KimlikHatasi
+from .hata import KimlikHatasi, UlasilamadiHatasi
 
 # main() süreç genelindeki sys.stdout/sys.argv'ye dokunduğu için aynı anda
 # tek koşu. İş kuyruğu zaten tek iş çalıştırıyor; bu ikinci emniyet.
@@ -352,6 +354,504 @@ def onpanel(env: Envanter, switch_id: str,
             "guc": canli[n].get("guc") if n in canli else None,
         } for n in numaralar],
     }
+
+
+def _switch_verisi(env: Envanter, kimlik_al=None) -> tuple[list, list]:
+    """Her switch için MAC öğrenme tablosu ve switch'in kendi MAC'i.
+
+    Paralel okunur: ayakta olmayan switch kendi zaman aşımıyla düşer,
+    diğerlerini bekletmez. Döner: ([(sw, tablo, kendi_mac, sorun)], denenen)
+    """
+    switchler = env.switchler()
+    if not switchler:
+        return [], []
+
+    # Kısa tutulur: bu arama kullanıcı ekrana bakarken çalışıyor ve
+    # ayakta olmayan switch'in zaman aşımını bekletiyor.
+    sure = min(ayar.OKUMA_TIMEOUT, 2.5)
+
+    def oku(sw):
+        kimlik = kimlik_al(sw) if kimlik_al else None
+        try:
+            tablo = switch_okuma.mac_tablosu(sw.ip, kimlik, timeout=sure)
+        except KimlikHatasi:
+            return sw, {}, "", "kullanıcı adı/parola istiyor"
+        except UlasilamadiHatasi:
+            return sw, {}, "", "ulaşılamadı"
+        except Exception:
+            return sw, {}, "", "okunamadı"
+        # Switch'in KENDİ MAC'i: komşu switch'in tablosunda bunu aramak,
+        # iki switch'i birbirine bağlayan portu veriyor.
+        try:
+            kendi = yerel_ag.normalle(
+                switch_okuma.oku(sw.ip, kimlik, timeout=sure).get("mac", ""))
+        except Exception:
+            kendi = ""
+        return sw, tablo, kendi, ""
+
+    havuz = ThreadPoolExecutor(max_workers=min(8, len(switchler)))
+    try:
+        sonuclar = list(havuz.map(oku, switchler))
+    finally:
+        havuz.shutdown(wait=True)
+
+    denenen = [{"switchId": sw.id, "ad": sw.ad, "ip": sw.ip,
+                "durum": sorun or ("MAC tablosu boş" if not tablo else "okundu")}
+               for sw, tablo, _kendi, sorun in sonuclar]
+    return sonuclar, denenen
+
+
+def _port_mac_sayisi(tablo: dict, port: int) -> int:
+    return sum(1 for p in tablo.values() if p == port)
+
+
+def korunan_portlar(env: Envanter, kimlik_al=None) -> dict:
+    """Koşunun dokunmaması gereken portların TAMAMI — hiçbiri sorulmaz.
+
+    İki fiziksel gerçek var ve ikisi de elle giriliyordu:
+
+      · Bilgisayar bir switch'in bir portunda.
+      · Switch'ler birbirine birer portla bağlı.
+
+    İkisi de switch'lerin MAC öğrenme tablosundan çıkıyor; kullanıcıya
+    sormanın gereği yoktu. Yanlış girilen cevap üstelik iki kere zarar
+    veriyordu: korunması gereken port korunmuyor, korunmaması gereken
+    port koşudan düşüyordu.
+
+    Kural tek ve her switch için aynı: **bilgisayarın MAC'i bir switch'in
+    hangi portunda öğrenilmişse, o port o switch'e giden yoldur.**
+    Bilgisayarın doğrudan takılı olduğu switch'te bu, bilgisayarın kendi
+    portu; diğer switch'lerde ise o switch'e ulaşmak için kullanılan
+    uplink. İkisini de kesmek koşunun kendi yolunu kesmek demek, o yüzden
+    ikisi de korunur.
+
+    Hangi switch'in bilgisayarı DOĞRUDAN taşıdığı, portta öğrenilmiş MAC
+    sayısından anlaşılır: erişim portunda tek cihaz vardır, uplink'te
+    switch'in arkasındaki her şey. Sıraya bakmak yanlış olurdu — komşu
+    switch de bilgisayarın MAC'ini kendi uplink'inde görüyor.
+
+    Buna ek olarak komşu switch'in KENDİ MAC'i de aranır: bilgisayarın
+    yolu üstünde olmayan switch-switch bağlantıları da böyle bulunur.
+
+    Döner:
+      {"zaman", "bilgisayar": {...}, "portlar": [...], "denenen": [...],
+       "not": ""}
+    `portlar` korunacak her portu taşır:
+      {"switchId", "switchAd", "port", "tur", "sebep"}
+      `tur`: "bilgisayar" | "baglanti"
+    Bulunamayan hiçbir şey tahmin edilmez.
+    """
+    bos_pc = {"switchId": "", "switchAd": "", "port": None, "mac": "",
+              "arayuz": "", "yerelIp": "", "kaynak": "yok", "not": ""}
+    sonuc = {"zaman": time.time(), "bilgisayar": dict(bos_pc),
+             "portlar": [], "denenen": [], "not": ""}
+
+    if not env.switchler():
+        return {**sonuc, "not": "Projede switch tanımlı değil"}
+    # Arayüz dökümü bir kez okunur; switch başına komut çalıştırmanın
+    # anlamı yok.
+    arayuzler = yerel_ag.arayuzler()
+    if not arayuzler:
+        return {**sonuc, "not": "Bilgisayarın ağ arayüzleri okunamadı"}
+
+    sonuclar, denenen = _switch_verisi(env, kimlik_al)
+    sonuc["denenen"] = denenen
+    okunan = [(sw, t, k) for sw, t, k, sorun in sonuclar if t and not sorun]
+    if not okunan:
+        sebepler = ", ".join(f"{d['ad']} {d['durum']}" for d in denenen)
+        return {**sonuc,
+                "not": f"Hiçbir switch'in MAC tablosu okunamadı ({sebepler})"}
+
+    # ── bilgisayarın MAC'i hangi switch'te hangi portta? ──
+    bulgular = []
+    for sw, tablo, _kendi in okunan:
+        yerel = yerel_ag.hedefe_giden_mac(sw.ip, arayuzler)
+        # Yönlendirmenin gösterdiği arayüz önce; sonra diğerleri.
+        sirali = ([yerel["mac"]] if yerel["mac"] else []) + [
+            m for m in yerel["adaylar"] if m != yerel["mac"]]
+        mac = next((m for m in sirali if m in tablo), "")
+        if not mac:
+            continue
+        port = int(tablo[mac])
+        bulgular.append({"sw": sw, "port": port, "mac": mac,
+                         "arayuz": yerel["ad"], "yerelIp": yerel["yerelIp"],
+                         "komsu": _port_mac_sayisi(tablo, port)})
+
+    portlar: dict[tuple[str, int], dict] = {}
+
+    def ekle(sw, port, tur, sebep):
+        anahtar = (sw.id, int(port))
+        # "bilgisayar" daha açıklayıcı; bir port iki sebeple de gelirse o kalır.
+        if anahtar in portlar and portlar[anahtar]["tur"] == "bilgisayar":
+            return
+        portlar[anahtar] = {"switchId": sw.id, "switchAd": sw.ad,
+                            "port": int(port), "tur": tur, "sebep": sebep}
+
+    if bulgular:
+        # En az MAC öğrenilmiş port = bilgisayarın doğrudan takılı olduğu yer.
+        dogrudan = min(bulgular, key=lambda b: b["komsu"])
+        sonuc["bilgisayar"] = {
+            "switchId": dogrudan["sw"].id, "switchAd": dogrudan["sw"].ad,
+            "port": dogrudan["port"], "mac": dogrudan["mac"],
+            "arayuz": dogrudan["arayuz"], "yerelIp": dogrudan["yerelIp"],
+            "kaynak": "mac", "not": "",
+        }
+        for b in bulgular:
+            if b is dogrudan:
+                ekle(b["sw"], b["port"], "bilgisayar", "bilgisayar bu portta")
+            else:
+                ekle(b["sw"], b["port"], "baglanti",
+                     f"{dogrudan['sw'].ad} yönüne giden bağlantı")
+    else:
+        sonuc["bilgisayar"] = {
+            **bos_pc,
+            "not": "Bilgisayarın MAC'i okunan switch'lerin hiçbirinde yok — "
+                   "kablosu takılı mı?"}
+
+    # ── switch'ler birbirine hangi porttan bağlı? ──
+    # Komşunun kendi MAC'i bizim tablomuzda hangi porttaysa, o port o
+    # komşuya giden bağlantıdır. Bilgisayarın yolu üstünde olmayan
+    # bağlantılar ancak böyle bulunuyor.
+    kendi_mac = {sw.id: kendi for sw, _t, kendi in okunan if kendi}
+    for sw, tablo, _kendi in okunan:
+        for komsu_id, komsu_mac in kendi_mac.items():
+            if komsu_id == sw.id or komsu_mac not in tablo:
+                continue
+            komsu = env.bul(komsu_id)
+            ekle(sw, tablo[komsu_mac], "baglanti",
+                 f"{komsu.ad if komsu else komsu_id} bağlantısı")
+
+    sonuc["portlar"] = sorted(portlar.values(),
+                              key=lambda p: (p["switchAd"], p["port"]))
+    return sonuc
+
+
+def bilgisayar_portu(env: Envanter, kimlik_al=None) -> dict:
+    """Yalnız bilgisayarın yeri — `korunan_portlar`ın kısa yolu."""
+    return korunan_portlar(env, kimlik_al)["bilgisayar"]
+
+
+# ──────────────────────────────────────────────────────── ilerleme ────────
+# Betik satır satır yazıyor ve o satırların hepsi kuyruğa birer "adım"
+# olarak giriyordu: iki yüz satırlık bir yığın, yüzde hep %0 (adım
+# satırları sayaçlara girmiyor) ve kullanıcı hangi aşamada olduğunu
+# göremiyor.
+#
+# Betik YENİDEN YAZILMADI. Sahada denenmiş akış bu ve kardeş projeyle
+# ortak (bkz. modül başlığı, docs/MIMARI §3); onu ilerleme raporlamak
+# için değiştirmek, panelin uğruna sahadaki davranışı riske atmak
+# demekti. Bunun yerine çıktısı burada yapıya çevriliyor: koşunun gerçek
+# iş birimi PORT, o yüzden her hedef port bir satır ve yüzde
+# "biten port / toplam port".
+#
+# Ham çıktı kaybolmuyor; bir günlük dosyasına yazılıp kuyrukta tek
+# satırla açılabiliyor (bkz. panel_api.ip_isi).
+
+# ── betiğin işaretleri ──
+# "[OK] Port 11 -> 10.1.1.21". Betik varsayılan olarak doğrulamayı sona
+# bıraktığı (--no-defer-verify verilmedikçe) için bu satır çoğu koşuda HİÇ
+# yazılmaz; portun bittiğini asıl söyleyen işaret _R_YAZILDI.
+_R_PORT_BITTI = re.compile(r"\[OK\]\s*Port\s+(\d+)")
+# "[!] Port 11: switch hatası" — iki nokta ŞART: betikte bir de
+# "[!] Port 45 sn'de bağlanmadı" var ve oradaki sayı port değil, saniye.
+_R_PORT_HATA = re.compile(r"\[!\]\s*Port\s+(\d+):\s*(.*)")
+# Başlangıç satırı: "[1/12] Port 11 -> 10.1.1.10 (10011001)".
+# Baştaki sayaç ŞART. Betik koşunun en başında planı da yazıyor
+# ("   port 11  ->  10.1.1.10") ve sayacı aramayan bir kalıp o on iki
+# satırı birer "port başladı" sanıp bütün portları aynı anda
+# "çalışıyor"a çeviriyordu.
+_R_PORT_BASLADI = re.compile(r"^\s*\[\d+/\d+\]\s*Port\s+(\d+)\s*->\s*(\S+)")
+_R_TUR = re.compile(r"===\s*Tur\s+(\d+)")
+# Son özet tablosu: "   11  10.1.1.21     OK" / "... EKSİK — cevap yok"
+_R_OZET = re.compile(r"^\s*(\d+)\s+(\S+)\s+(OK|EKSİK)\s*(?:—\s*(.*))?$")
+
+
+# ── aşamalar ──
+# Koşunun tamamı ve her aşamanın çubuktaki payı. Paylar süreye göre
+# değil, sahadaki ölçüme göre: on iki portluk bir koşuda port turu
+# dakikalar sürüyor, son doğrulama on beş saniye. Toplam 1.00 olmalı.
+#
+# Aşamaların açıkça sayılmasının sebebi: yüzde eskiden yalnız "biten
+# port / toplam port" idi ve portlar koşunun ortasında değil, sondaki
+# özet tablosunda kapandığı için çubuk baştan sona %0, son saniyede %100
+# oluyordu.
+ASAMALAR = (
+    ("hazirlik",  "Hazırlık — plan okunuyor, switch'e bağlanılıyor", 0.05),
+    ("temel",     "Temel tarama — aralık dışındaki cihazlar",        0.07),
+    ("atama",     "Port atama",                                      0.70),
+    ("geri",      "PoE portları geri açılıyor",                      0.04),
+    ("dogrulama", "Son doğrulama — cihazlar yeni adreslerinde mi",   0.14),
+)
+_ASAMA_SIRA = [a for a, _e, _p in ASAMALAR]
+_ASAMA_ETIKET = {a: e for a, e, _p in ASAMALAR}
+_ASAMA_PAY = {a: p for a, _e, p in ASAMALAR}
+_ASAMA_BAS = {}
+_toplam = 0.0
+for _ad, _etiket, _pay in ASAMALAR:
+    _ASAMA_BAS[_ad] = _toplam
+    _toplam += _pay
+del _ad, _etiket, _pay, _toplam
+
+# Hangi çıktı satırı hangi aşamayı başlatıyor.
+_ASAMA_ISARETI = (
+    ("Temel tarama", "temel"),
+    ("Aralıktaki tüm portlar tekrar açılıyor", "geri"),
+    ("Son doğrulama", "dogrulama"),
+    ("Kalıcılık kontrolü", "dogrulama"),
+)
+
+# Bir portun kendi içindeki adımlar: hangi çıktı satırı hangi adımı
+# bildiriyor, o adıma gelindiğinde portun ne kadarı bitmiş sayılıyor ve
+# kullanıcıya ne yazılıyor. Port turu çubuğun %70'i; tek bir port bir
+# dakika sürebildiği için çubuk port içinde de ilerlemeli.
+PORT_ADIMLARI = (
+    ("aralıktaki portlar kapatılıyor", 0.10, "PoE portu açılıyor"),
+    ("cihaz aranıyor",                 0.35, "Cihaz aranıyor"),
+    ("cihaz bulundu",                  0.60, "Cihaz bulundu"),
+    ("IP yazılıyor",                   0.80, "IP yazılıyor"),
+    ("doğrulama:",                     0.92, "Doğrulanıyor"),
+)
+
+# Portun bittiğini söyleyen satırlar. "yazıldı (reset doğrulandı)" koşunun
+# olağan bitiş işareti: betik doğrulamayı sona bıraktığı için port turu
+# bittiğinde IP yazılmış ama henüz teyit edilmemiştir (bkz. YAZILDI).
+_R_YAZILDI = re.compile(r"yazıldı \(reset doğrulandı\)")
+_R_ZATEN_DOGRU = re.compile(r"IP zaten doğru")
+
+# Yazıldı ama son doğrulamada teyit edilmedi. Bilerek "tamam" değil:
+# cihaz reset attı, yeni adresinde cevap verdiği ise son doğrulama
+# turunda anlaşılıyor. Sayaçlarda "başarılı" görünmez.
+YAZILDI = "yazildi"
+
+
+def port_anahtari(port: int) -> str:
+    return f"p{int(port)}"
+
+
+class Ilerleme:
+    """Betiğin satır çıktısını iş kuyruğunun ilerlemesine çevirir.
+
+    Üç şey üretir:
+
+      · Her hedef port için bir SATIR (bekliyor → çalışıyor → yazıldı →
+        tamam/hata).
+      · O satırın altında, portun kendi ADIM geçmişi: "PoE portu
+        açılıyor", "cihaz bulundu: 10.1.1.12", "IP yazılıyor". Arayüz
+        bunu satıra basınca açılan kapalı bir akordiyonda gösterir.
+      · İşin AŞAMASI ve yüzdesi (bkz. ASAMALAR).
+
+    Tanımadığı satırları sessizce yutar — kuyrukta yalnız anlamı olan şey
+    görünsün. `gunluk(satir)` verilirse ham çıktı oraya da gider.
+    """
+
+    def __init__(self, is_, plan_satirlari, gunluk=None):
+        self._is = is_
+        self._gunluk = gunluk
+        self._suren: int | None = None
+        self._hata_sayisi = 0
+        self._portlar = []
+        self._durum: dict[int, str] = {}
+        self._kesir = 0.0            # süren portun kendi içindeki ilerlemesi
+        self._adim_etiketi = "Başlıyor"
+        self._asama = "hazirlik"
+        self._ozet = 0               # özet tablosunda okunan satır sayısı
+        self._tur = 1
+        for s in plan_satirlari:
+            if not s.get("uygulanabilir"):
+                continue
+            port = int(s["port"])
+            self._portlar.append(port)
+            self._durum[port] = "bekliyor"
+            is_.ozel_satir(
+                port_anahtari(port), f"Port {port} · {s['ad']}",
+                durum="bekliyor", not_=f"hedef {s['hedefIp']}",
+                sayilir=True)
+        self._asama_gec("hazirlik")
+
+    @property
+    def hata_sayisi(self) -> int:
+        return self._hata_sayisi
+
+    # ---- aşama ve yüzde ----
+    def _asama_gec(self, ad: str) -> None:
+        """Aşamayı ilerletir. Geri gitmez: 'Tur 2' koşuyu başa almaz."""
+        if _ASAMA_SIRA.index(ad) >= _ASAMA_SIRA.index(self._asama):
+            if ad != self._asama:
+                self._asama = ad
+                self._kesir = 0.0
+        self._bildir()
+
+    def _biten_port(self) -> int:
+        """Port turu açısından kapanmış portlar.
+
+        Hata alan port kapanmış sayılmaz: bir sonraki turda yeniden
+        denenecek. Sayı hiç azalmadığı için çubuk da geri gitmez.
+        """
+        return sum(1 for p in self._portlar
+                   if self._durum.get(p) in (YAZILDI, "tamam"))
+
+    def _ic_oran(self) -> float:
+        if self._asama == "atama":
+            if not self._portlar:
+                return 1.0
+            return (self._biten_port() + self._kesir) / len(self._portlar)
+        if self._asama == "dogrulama":
+            if not self._portlar:
+                return 1.0
+            return self._ozet / len(self._portlar)
+        return 0.0
+
+    def _asama_metni(self) -> str:
+        toplam = len(self._portlar)
+        if self._asama == "atama":
+            tur = f"{self._tur}. tur · " if self._tur > 1 else ""
+            if self._suren is None:
+                return f"{tur}Port atama ({self._biten_port()}/{toplam})"
+            adim = self._adim_etiketi
+            return (f"{tur}Port {self._suren} · {adim} "
+                    f"({self._biten_port()}/{toplam})")
+        if self._asama == "dogrulama" and self._ozet:
+            return f"{_ASAMA_ETIKET[self._asama]} ({self._ozet}/{toplam})"
+        return _ASAMA_ETIKET[self._asama]
+
+    def _bildir(self) -> None:
+        oran = _ASAMA_BAS[self._asama] + _ASAMA_PAY[self._asama] * min(
+            1.0, max(0.0, self._ic_oran()))
+        self._is.ilerleme_yaz(oran)
+        self._is.asama_yaz(self._asama_metni())
+
+    # ---- satır ----
+    def _yaz(self, port: int, durum: str, not_: str = "",
+             adim: str = "") -> None:
+        if port not in self._portlar:
+            return
+        self._durum[port] = durum
+        self._is.satir_guncelle(port_anahtari(port), durum, not_)
+        if adim:
+            self._is.adim_ekle(port_anahtari(port), adim, durum)
+
+    def _adim(self, port: int, metin: str, durum: str = "bilgi") -> None:
+        if port in self._portlar:
+            self._is.adim_ekle(port_anahtari(port), metin, durum)
+
+    def satir(self, metin: str) -> None:
+        ham = metin.rstrip()
+        if self._gunluk:
+            self._gunluk(ham)
+        if not ham.strip():
+            return
+
+        for anahtar, asama in _ASAMA_ISARETI:
+            if anahtar in ham:
+                self._suren = None
+                self._asama_gec(asama)
+                break
+
+        # Başlangıç: "[1/12] Port 11 -> 10.1.1.10 (10011001)"
+        m = _R_PORT_BASLADI.match(ham)
+        if m:
+            port = int(m.group(1))
+            if port in self._portlar:
+                self._suren = port
+                self._kesir = 0.0
+                self._adim_etiketi = "Başlıyor"
+                self._yaz(port, "calisiyor", f"{m.group(2)} yazılacak",
+                          adim=f"{m.group(2)} yazılacak")
+                self._asama_gec("atama")
+            return
+
+        m = _R_TUR.search(ham)
+        if m:
+            self._tur = int(m.group(1))
+            self._suren = None
+            self._asama_gec("atama")
+            return
+
+        m = _R_PORT_BITTI.search(ham)        # "[OK] Port 11 -> ..."
+        if m:
+            self._bitti(int(m.group(1)), "tamam", "IP yazıldı ve doğrulandı")
+            return
+
+        m = _R_PORT_HATA.search(ham)
+        if m:
+            port, sebep = int(m.group(1)), m.group(2).strip()
+            self._hata_sayisi += 1
+            self._bitti(port, "hata", sebep or "tamamlanamadı")
+            return
+
+        m = _R_OZET.match(ham)
+        if m:
+            # Son tablo son sözü söyler: tur içinde "hata" görünen bir port
+            # sonraki turda tamamlanmış, "yazıldı" görünen bir port ise
+            # yeni adresinde cevap vermemiş olabilir.
+            port, hedef, durum, sebep = (
+                int(m.group(1)), m.group(2), m.group(3), (m.group(4) or ""))
+            if port in self._portlar:
+                self._ozet += 1
+            if durum == "OK":
+                self._yaz(port, "tamam", f"{hedef} doğrulandı",
+                          adim=f"{hedef} doğrulandı")
+            else:
+                self._yaz(port, "hata", sebep.strip() or "cevap yok",
+                          adim=f"Son doğrulama: {sebep.strip() or 'cevap yok'}")
+            self._bildir()
+            return
+
+        if self._suren is None or not ham.startswith("    "):
+            return
+
+        # ── süren portun altındaki ayrıntı satırları ──
+        ayrinti = ham.strip()
+        port = self._suren
+
+        if _R_YAZILDI.search(ayrinti):
+            # Koşunun olağan bitiş işareti: IP yazıldı, cihaz reset attı.
+            # Teyit son doğrulama turunda gelecek.
+            self._bitti(port, YAZILDI,
+                        "IP yazıldı, son doğrulama bekleniyor")
+            return
+        if _R_ZATEN_DOGRU.search(ayrinti):
+            self._bitti(port, YAZILDI, "IP zaten doğruydu")
+            return
+
+        for anahtar, kesir, etiket in PORT_ADIMLARI:
+            if anahtar in ayrinti:
+                self._kesir = max(self._kesir, kesir)
+                self._adim_etiketi = etiket
+                self._is.satir_guncelle(port_anahtari(port), "calisiyor",
+                                        ayrinti[:160])
+                break
+
+        # "[!] 10.1.1.12 bu portta değil (...) — eleniyor" gibi satırlar
+        # portu düşürmez ama sebebi anlatan tek kayıttır.
+        self._adim(port, ayrinti, "uyari" if ayrinti.startswith("[!]") else "bilgi")
+        self._bildir()
+
+    def _bitti(self, port: int, durum: str, not_: str) -> None:
+        self._yaz(port, durum, not_, adim=not_)
+        if port == self._suren:
+            self._suren = None
+            self._kesir = 0.0
+        self._bildir()
+
+    def bitir(self) -> None:
+        """Kalan satırları kapatır ve aşamayı temizler."""
+        for port in self._portlar:
+            d = self._durum.get(port, "bekliyor")
+            if d in ("bekliyor", "calisiyor"):
+                self._yaz(port, "atlandi", "Koşu bu porta ulaşmadan bitti",
+                          adim="Koşu bu porta ulaşmadan bitti")
+            elif d == YAZILDI:
+                # Koşu son doğrulamaya varmadan bitti (iptal, çökme):
+                # IP yazıldı ama teyit edilmedi — "tamam" demek yanlış olur.
+                self._yaz(port, "uyari",
+                          "IP yazıldı ama son doğrulama yapılamadı",
+                          adim="Son doğrulama yapılamadı")
+        # Yüzde ancak koşu kendi sonuna vardıysa doluyor: iptal edilen bir
+        # koşuyu %100 göstermek, yarıda kalan işi bitmiş gibi okutur.
+        if not self._portlar or self._ozet >= len(self._portlar):
+            self._is.ilerleme_yaz(1.0)
+        self._is.asama_yaz("")
 
 
 # ─────────────────────────────────────────────────────────────── koşu ─────

@@ -20,6 +20,23 @@ const IS_RENK = {
 // yeniden yaratılıyordu.
 let sonImza = null;
 
+// Adımları açılmış satırlar — `${isId}:${satirId}`. VARSAYILAN KAPALI:
+// IP atama koşusunda on iki port var, her birinin altında sekiz on adım;
+// hepsi açık başlasa kuyruk yüz satırlık bir döküme dönerdi. Kullanıcı
+// hangi portun nerede olduğunu merak ettiğinde o satıra basar.
+const acikSatir = new Set();
+
+function satirAcKapat(anahtar) {
+  if (acikSatir.has(anahtar)) acikSatir.delete(anahtar);
+  else acikSatir.add(anahtar);
+  ciz();
+  // Liste baştan kuruluyor: basılan düğme yok olup yerine yenisi geliyor
+  // ve odak gövdeye düşüyordu. Klavyeyle gezen kişi bir satırı açtıktan
+  // sonra Tab'a bastığında listenin başına dönüyordu.
+  const yeni = $(`[data-anahtar="${CSS.escape(anahtar)}"]`);
+  if (yeni) yeni.focus();
+}
+
 export function ciz() {
   const liste = $('#kuyruk-liste');
   if (!liste) return;
@@ -38,7 +55,8 @@ export function ciz() {
   // Panel kapalıyken liste hiç kurulmaz; açılınca kurulur.
   if (!durum.kuyrukAcik) { sonImza = null; return; }
 
-  const imza = `${durum.acikIs || ''}|${JSON.stringify(isler)}`;
+  const imza = `${durum.acikIs || ''}|${[...acikSatir].sort().join(',')}`
+    + `|${JSON.stringify(isler)}`;
   if (imza === sonImza) return;
   sonImza = imza;
 
@@ -60,7 +78,7 @@ function isKart(j) {
     : `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`;
 
   return el('div', { sinif: 'is-kart', veri: { durum: j.durum } }, [
-    el('div', { stil: 'display:flex;align-items:stretch' }, [
+    el('div', { sinif: 'is-kart-basi' }, [
       el('button', {
         type: 'button', sinif: 'is-basi',
         'aria-expanded': String(acik),
@@ -77,10 +95,14 @@ function isKart(j) {
             stil: 'color:var(--durum-renk)',
             metin: etiket,
           }),
+          // Aşama: yüzde tek başına "neredeyim" sorusunu cevaplamıyor.
+          // "Port 14 işleniyor (3/6)" ile "%50" bir arada okununca koşu
+          // izlenebilir hale geliyor.
+          surüyor && j.asama
+            ? el('span', { sinif: 'is-asama', metin: j.asama })
+            : null,
         ]),
-        el('span', {
-          stil: 'display:flex;gap:7px;flex:none;font-family:var(--f-mono);font-size:10px',
-        }, [
+        el('span', { sinif: 'is-sayac' }, [
           el('span', { stil: 'color:var(--yesil)', metin: String(s.basarili ?? 0) }),
           el('span', { stil: 'color:var(--turuncu)', metin: String(s.erisimBekleyen ?? 0) }),
           el('span', { stil: 'color:var(--kirmizi)', metin: String(s.hatali ?? 0) }),
@@ -89,7 +111,6 @@ function isKart(j) {
       surüyor
         ? el('button', {
             type: 'button', sinif: 'btn btn-x',
-            stil: 'align-self:center;margin-right:9px',
             disabled: duruyor,
             title: duruyor ? 'Durduruluyor…' : 'İşi durdur',
             'aria-label': duruyor
@@ -103,7 +124,6 @@ function isKart(j) {
           }, ['⏹'])
         : el('button', {
             type: 'button', sinif: 'btn btn-x',
-            stil: 'align-self:center;margin-right:9px',
             title: 'Kuyruktan kaldır',
             'aria-label': `${j.baslik} işini kuyruktan kaldır`,
             onclick: async () => {
@@ -111,6 +131,11 @@ function isKart(j) {
             },
           }, ['×']),
     ]),
+
+    // İlerleme çubuğu: sayı okumadan "ne kadar kaldı" görünsün.
+    surüyor ? el('div', { sinif: 'is-cubuk' }, [
+      el('i', { stil: `width:${oran}%`, veri: { durum: renk } }),
+    ]) : null,
 
     j.hata ? el('div', {
       sinif: 'uyari', stil: 'margin:8px 11px', metin: j.hata,
@@ -123,6 +148,10 @@ function isKart(j) {
 
 function satirCiz(q, isId) {
   const renk = SATIR_RENK[q.durum] || 'gri';
+  const adimlar = q.adimlar || [];
+  const anahtar = `${isId}:${q.cihazId}`;
+  const acik = adimlar.length > 0 && acikSatir.has(anahtar);
+
   // Alt satırda yalnız IP var. Hata sebebi ("zaman aşımı", "adb connect
   // reddedildi" gibi) kuyruğu okunmaz hale getiriyordu; ayrıntı cihaz
   // detayında ve satırın title'ında duruyor.
@@ -130,10 +159,7 @@ function satirCiz(q, isId) {
   // Dosya satırında (üretilen Excel) alt satır IP değil, dosyayı açan iki
   // düğmedir: dosyayı üreten ekranda bırakıp kullanıcıyı Finder/Gezgin'de
   // dosya aramaya göndermenin bir gerekçesi yok.
-  return el('div', {
-    sinif: 'is-satir', veri: { islem: q.durum },
-    title: q.not || '',
-  }, [
+  const govde = [
     el('span', { sinif: 'nokta', veri: { durum: renk }, 'aria-hidden': 'true' }),
     el('span', { sinif: 'is-govde' }, [
       el('span', { sinif: 'ad', metin: q.ad }),
@@ -148,6 +174,47 @@ function satirCiz(q, isId) {
       sinif: 'durum', veri: { durum: renk }, stil: 'color:var(--durum-renk)',
       metin: SATIR_DURUM_ETIKET[q.durum] || q.durum,
     }),
+  ];
+
+  // Adımı olmayan satır (dosya satırı, cihaz taraması) eskisi gibi düz
+  // kalır: içinde düğme olan bir satırı düğmeye çevirmek geçersiz HTML
+  // üretirdi, hem de açacak bir şey yok.
+  if (!adimlar.length) {
+    return el('div', {
+      sinif: 'is-satir', veri: { islem: q.durum }, title: q.not || '',
+    }, govde);
+  }
+
+  return el('div', { sinif: 'is-satir-kutu' }, [
+    el('button', {
+      type: 'button', sinif: 'is-satir is-satir-btn',
+      veri: { islem: q.durum, acik: String(acik), anahtar },
+      title: q.not || '',
+      'aria-expanded': String(acik),
+      // Düğmenin kendi metnini ezdiği için durum da tekrarlanır: yoksa
+      // ekran okuyucu satırı "Port 11 · 8 adım" diye okuyup satırın
+      // hangi durumda olduğunu hiç söylemezdi.
+      'aria-label': `${q.ad} · ${SATIR_DURUM_ETIKET[q.durum] || q.durum}`
+        + ` — ${adimlar.length} adım`,
+      onclick: () => satirAcKapat(anahtar),
+    }, [...govde, el('span', { sinif: 'is-ok', 'aria-hidden': 'true' })]),
+    acik
+      ? el('div', { sinif: 'is-adimlar' }, adimlar.map(adimCiz))
+      : null,
+  ]);
+}
+
+// Satırın altındaki tek adım: "cihaz bulundu: 10.1.1.12", "IP yazılıyor".
+// Saat de yazılır — bir portun nerede takıldığı çoğu zaman iki adım
+// arasında geçen süreden anlaşılıyor.
+function adimCiz(a) {
+  return el('div', { sinif: 'is-adim', veri: { islem: a.durum || 'bilgi' } }, [
+    el('span', {
+      sinif: 'nokta', veri: { durum: SATIR_RENK[a.durum] || 'gri' },
+      'aria-hidden': 'true',
+    }),
+    el('span', { sinif: 'is-adim-metin', metin: a.metin }),
+    el('span', { sinif: 'is-adim-saat', metin: saat(a.zaman) }),
   ]);
 }
 
@@ -205,7 +272,9 @@ export function ozetMetni(yenilenen = 0) {
     x => x.durum === 'calisiyor' || x.durum === 'bekliyor');
   if (j && j.iptalIstendi) return `${j.baslik} · durduruluyor…`;
   if (!j) {
-    if (!durum.sonTarama) return 'Henüz tarama yapılmadı';
+    // "Henüz tarama yapılmadı" artık bir eksiklik değil, birkaç saniyelik
+    // bir ara durum: tarama açılışta kendiliğinden başlıyor.
+    if (!durum.sonTarama) return 'İlk tarama bekleniyor…';
     const taze = `Son tarama ${saat(durum.sonTarama)}`;
     return yenilenen
       ? `${taze} · yenileme ${yenilenen} doğrulanmış cihazda`

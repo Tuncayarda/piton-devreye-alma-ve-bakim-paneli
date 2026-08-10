@@ -42,20 +42,6 @@
 .btn-simge:hover:not(:disabled) { color: var(--metin); border-color: var(--cizgi-kuvvetli); }
 .btn-simge[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
-/* Hafif yenileme düğmesi tersine okunur: aria-pressed="true" "duraklatıldı"
-   demektir. Mavi olan hep yenilemenin AÇIK olduğu durumdur — düğmeye
-   bakan biri "şu an yeniliyor mu?" sorusunu renkten cevaplayabilmeli. */
-#duraklat-btn[aria-pressed="false"] {
-  background: var(--accent-zayif);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-#duraklat-btn[aria-pressed="true"] {
-  background: transparent;
-  border-color: var(--cizgi);
-  color: var(--orta);
-}
-
 .btn-x {
   width: 24px; height: 24px; padding: 0; flex: none;
   border-color: var(--cizgi); color: var(--orta);
@@ -116,6 +102,20 @@
   margin-top: 5px;
   font-family: var(--f-mono); font-size: 10.5px; color: var(--soluk);
 }
+/* Kontrol listesi kendiliğinden tazeleniyor. Veri bayatladığında bu satır
+   dikkat çeker: o görüntüden Excel üretmek yanlış bir belge demek. */
+.dog-tazelik[data-bayat="1"] { color: var(--turuncu); }
+
+/* Excel onayında verinin yaşı ve sayaçlar. */
+.diyalog .ozet-kutu {
+  margin-top: 12px;
+  padding: 2px 12px;
+  border: 1px solid var(--cizgi-hafif);
+  background: var(--derin);
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+}
+.diyalog .ozet-kutu .ozet-satir:last-child { border-bottom: 0; }
 .ust-etiket {
   font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em;
   color: var(--soluk); text-transform: uppercase;
@@ -307,11 +307,11 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   background: var(--panel-2);
 }
 
-/* Çalışan satır ince bir çerçeveyle ayrılır. Satırın üstünden geçen
-   ışık, aynı anda on iki satır çalışırken kuyruğu kaynatıyordu; duran
-   ince çerçeve hem sakin hem de satırın sınırını net gösteriyor.
-   Negatif kenar boşluğu, çerçeve yüzünden metnin diğer satırlara göre
-   kaymasını engeller. */
+/* Çalışan satır ince bir çerçeveyle ayrılır: koşu portları sırayla
+   işlediği için bu çerçeve aynı anda tek satırda olur ve "şu an burada"
+   demenin en sakin yolu. Satırın üstünden geçen ışık denenmiş, kuyruğu
+   kaynatıyordu. Negatif kenar boşluğu, çerçeve yüzünden metnin diğer
+   satırlara göre kaymasını engeller. */
 .is-satir[data-islem="calisiyor"] {
   border: 1px solid var(--accent-cizgi);
   background: rgba(66, 148, 224, .06);
@@ -331,9 +331,15 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 @media (prefers-reduced-motion: reduce) {
   .is-satir[data-islem="calisiyor"] .nokta { animation: none; }
 }
+/* Başlık düğmesi ile durdurma düğmesi tek satırda. `width:100%` vardı ve
+   başlık düğmesi bütün genişliği isteyince durdurma düğmesi kartın
+   dışına taşıyordu (kuyruk paneli dar). Şimdi başlık esner, durdurma
+   düğmesi sabit genişlikte yerinde kalır. */
+.is-kart-basi { display: flex; align-items: stretch; min-width: 0; }
+.is-kart-basi > .btn-x { align-self: center; margin-right: 9px; flex: none; }
 .is-basi {
   display: flex; align-items: center; gap: 9px;
-  padding: 10px 11px; width: 100%;
+  padding: 10px 11px; flex: 1; min-width: 0;
   background: transparent; border: 0; cursor: pointer; text-align: left;
 }
 .is-basi .ad {
@@ -345,6 +351,24 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 .is-basi .alt {
   display: block; margin-top: 3px;
   font-family: var(--f-mono); font-size: 10px;
+}
+/* Aşama metni ("Port 14 işleniyor (3/6)"). Tek satır: uzun bir aşama
+   kartı büyütüp kuyruktaki diğer işleri aşağı itmemeli. */
+.is-asama {
+  display: block; margin-top: 2px;
+  font-family: var(--f-mono); font-size: 9.5px; color: var(--soluk);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.is-sayac {
+  display: flex; gap: 7px; flex: none;
+  font-family: var(--f-mono); font-size: 10px;
+}
+/* İnce ilerleme çubuğu — kartın altına yapışık, yalnız süren işte. */
+.is-cubuk { height: 2px; background: var(--cizgi-hafif); overflow: hidden; }
+.is-cubuk i {
+  display: block; height: 100%;
+  background: var(--durum-renk, var(--accent));
+  transition: width .3s ease;
 }
 .is-satirlar { padding: 4px 11px 10px; }
 .is-satir {
@@ -371,6 +395,53 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   flex: none; align-self: flex-start;
   font-family: var(--f-baslik); font-weight: 600; font-size: 11px;
   letter-spacing: .08em; text-transform: uppercase;
+}
+
+/* ---- satır altındaki adım akordiyonu ----
+   Bir portun koşu içinde nerede olduğu ("cihaz aranıyor", "IP yazılıyor")
+   tek satırlık nota sığmıyordu: her yeni adım bir öncekini siliyor, port
+   hata verince neyin ne zaman olduğu kayboluyordu. Adımı olan satır bir
+   düğmeye dönüşür; düğmenin kendi görünümü sıfırlanır, satır görünümü
+   .is-satir'dan gelir. */
+.is-satir-btn {
+  width: 100%; color: inherit; font: inherit;
+  background: transparent;
+  border-top: 0; border-left: 0; border-right: 0;
+  text-align: left; cursor: pointer;
+}
+.is-satir-btn:hover { background: rgba(255, 255, 255, .02); }
+/* Açılabilir olduğunu gösteren tek işaret; açıkken aşağı döner. */
+.is-ok {
+  flex: none; align-self: center; width: 6px; height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid var(--soluk);
+  border-bottom: 1.5px solid var(--soluk);
+  transform: rotate(-45deg);
+  transition: transform .18s ease;
+}
+.is-satir-btn[data-acik="true"] .is-ok {
+  transform: rotate(45deg); margin-top: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-ok { transition: none; }
+}
+
+.is-adimlar {
+  margin: 0 0 6px 3px; padding: 4px 0 4px 13px;
+  border-left: 1px solid var(--cizgi-hafif);
+}
+.is-adim { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+.is-adim .nokta { width: 5px; height: 5px; margin-top: 0; }
+.is-adim-metin {
+  flex: 1; min-width: 0;
+  font-family: var(--f-mono); font-size: 10px; color: var(--orta);
+  overflow-wrap: anywhere;
+}
+.is-adim[data-islem="uyari"] .is-adim-metin { color: var(--turuncu); }
+.is-adim[data-islem="hata"] .is-adim-metin { color: var(--kirmizi); }
+.is-adim-saat {
+  flex: none; align-self: flex-start;
+  font-family: var(--f-mono); font-size: 9px; color: var(--soluk);
 }
 
 /* Üretilen dosyanın altındaki iki düğme: aç / klasörde göster. */

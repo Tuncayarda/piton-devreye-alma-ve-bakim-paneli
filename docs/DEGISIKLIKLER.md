@@ -1,104 +1,177 @@
-# Değişiklik günlüğü — Devreye Alma Paneli
+# Değişiklik Günlüğü — Devreye Alma Paneli
 
-Release sayfası bilerek sade tutuluyor (yalnız indirme ve kurulum).
-Sürümlerde ne değiştiği burada.
+Bu belge, Devreye Alma Paneli'nin sürümler arasındaki kullanıcıya dönük
+değişikliklerini kaydeder. İndirme ve kurulum bilgileri
+[GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
+[mimari belgede](MIMARI.md) yer alır.
 
-## v0.9.1-dev
+## v0.9.2 — Yayımlanmamış
 
-**Ön sürüm (dev)**: sahada denenmesi için çıkarıldı, kararlı sayılmaz.
+Bu sürüm için hazırlanan değişiklikler `dap-v0.9.1-dev` etiketinden sonra
+eklenmiştir. `dap-v0.9.2` etiketi henüz oluşturulmadığı için bunlar bir GitHub
+sürümünde yayımlanmamıştır.
 
-`dap-v0.9.0-dev`'den beri eklenenler: **yazılım yükleme** ekranı (aşağıda),
-konfigürasyon yazımındaki düzeltmeler ve deponun yeniden yapılandırılması —
-uygulama artık `main` branch'inin kökünde, çalışma anında yüklediği betikler
-`betikler/` altında.
+### Tarama ve canlı yenileme
 
-Aşağısı, uygulamanın bu sürümdeki bütün yeteneklerinin listesidir.
-(`dap-v0.9.0-dev` etiketi atıldıktan sonra bu dosyaya eklemeler yapılmıştı;
-o yüzden iki sürümün notları burada birleşik duruyor.)
+- Yenileme akışı sürekli çalışacak biçimde yeniden düzenlendi; üst bardaki
+  duraklatma düğmesi kaldırıldı.
+- Tam keşif taraması 60 saniyede bir çalışır ve `DeviceMap.json` içindeki tüm
+  hedefleri denetler. Oturum açıldığında veya tren seti değiştirildiğinde ilk
+  tarama kısa bir gecikmeyle otomatik olarak başlar.
+- Son taramada doğrulanmış cihazların verileri yaklaşık iki saniyede bir
+  hafif yenilemeyle güncellenir. Ulaşılamayan cihazların zaman aşımı,
+  çalışan cihazların verisini geciktirmez.
+- **Güncelle** düğmesi yeni ve yinelenen bir tarama oluşturmak yerine sıradaki
+  keşif turunu öne alır ve 60 saniyelik sayacı yeniden başlatır.
+- IP atama, yapılandırma veya yazılım yükleme işlemi sürerken otomatik keşif
+  başlatılmaz. Elle istenen tarama kuyrukta bekler; hafif yenileme de yazma
+  işlemi tamamlanana kadar durur. Böylece yeniden başlatılan veya PoE gücü
+  geçici olarak kesilen cihazların ara durumu kalıcı sonuç olarak yazılmaz.
+- Hafif yenileme cihazları paralel okur ve MQTT verisini her turda yeniden
+  toplamak yerine son keşif görüntüsünü kullanır. Sahada ölçülen 17 cihazlık
+  örnekte tur süresi yaklaşık 9 saniyeden 0,6 saniyeye düştü.
+- Otomatik taramalar işlem geçmişini doldurmaz; tamamlanan otomatik
+  taramalardan yalnızca en yenisi saklanır. Elle başlatılan işlemler korunur.
 
-**Ne yapar**
+### MQTT durum doğrulaması
 
-- Tren setinin tamamını tek DeviceMap'ten okur: switch, anons ekipmanları
-  (Amplifier / Handset / Intercom / UIC), kamera ve NVR, ekranlar ve LED,
-  PISCU / HMI / ICU.
-- Her cihaz için hangi yöntemin kullanıldığını açıkça gösterir (KYLAND HTTP,
-  ISAPI, `/api/v1`, ADB, MQTT). Okunamayan alan boş kalır — varsayılan bir
-  değer uydurulmaz.
-- Kontrol listesi ekranı, Excel çıktısının birebir ön izlemesidir; sütunlar
-  şablon dosyasından okunur.
+- MQTT'deki *retained* `AppStatus` kaydının tek başına cihazın çevrim içi
+  olduğunu kanıtlamadığı dikkate alındı. Panel artık uygulama bağlantı
+  durumunu (`connected`) ve PISCU'nun canlı sağlık kaydını (`NoError`)
+  birlikte değerlendirir.
+- Bağlantısı kesilmiş bir HMI veya yalnızca eski MQTT kaydı kalan başka bir
+  cihaz artık yeşil **Doğrulandı** olarak gösterilmez. Son bağlantı durumu ve
+  başarısızlık nedeni cihaz satırında açıklanır.
+- Sağlık denetiminden geçen fakat arızalı bildirilen MQTT cihazları gri
+  **Uygulanmıyor** yerine kırmızı **Doğrulanamadı** durumuna alınır. Gri durum
+  yalnızca ilgili denetimin o cihaz için geçerli olmadığı anlamına gelir.
 
-**Konfigürasyon**
+### Kontrol listesi ve Excel
 
-- Anons cihazlarının **bütün yazılabilir ayarları** panelden yapılır: SIP
-  (PBX IP, dahili no, dış arama, çalma süresi), ses seviyeleri ve gain'ler,
-  günlük seviyesi, Handset çalışma modları (PTT, cevaplama, arama, kapatma),
-  UIC TC/TL gain'leri, gerilim eşikleri ve çağrı yönlendirme hedefleri.
-- Alanlar cihaz tipine göre listelenir ve her ayar cihazın kendi kabul ettiği
-  uca gönderilir. Ana ayar ucu yazmaya kapalı olduğu için ses, mod, UIC gain
-  ve SIP ayrı uçlara gider.
-- **Yalnız cihazdakinden farklı olan alan yazılır.** SIP yazımı cihazı
-  yeniden başlattığı için, zaten uyuşan bir ayar uğruna cihaz karartılmaz.
-- Yazımdan sonra ayarlar tekrar okunup doğrulanır: HTTP 200 tek başına
-  başarı sayılmaz, cihaz tanımadığı alanı sessizce yok sayabiliyor.
-- Hedef değerler DeviceMap'ten gelir ve kutularda hazır durur; kullanıcı
-  dokunmazsa cihaza yazılan da o değerdir. Girilen değerler kaydedilir,
-  uygulama açılışında geri yüklenir.
-- **SIP parolası dahili numaranın aynısıdır.** DeviceMap'te `PBXPassword`
-  yazmayan cihazlarda (Amplifier, UIC) parola bulunamıyordu; SIP ucu onu
-  zorunlu istediği için o cihazlarda dahili numara da yazılamıyordu.
-  Projede açıkça yazılmış bir parola varsa yine o kullanılır.
+- Kontrol listesi, cihaz sonuçları değiştiğinde otomatik olarak yenilenir.
+- Başlığın altında son tarama saati ve verinin yaşı gösterilir; yaş bilgisi
+  saniyede bir güncellenir ve iki dakikayı aştığında uyarı rengine döner.
+- **Excel Üret** işlemi öncesinde son tarama saati, veri yaşı ve sonuç
+  sayaçlarını gösteren bir onay penceresi açılır. Veri bayatsa kullanıcı
+  uyarılır ve **Önce Güncelle** seçeneğiyle keşif turu öne alınabilir.
 
-**IP atama**
+### IP atama ve korunan bağlantılar
 
-- Switch ön panelinden port seçilir, PoE ile cihazlar sırayla açılıp adres
-  yazılır. Koşu iptal edilebilir; iptal edilse de PoE portları geri açılır.
-- **Fabrika IP'si sete göre değişmez**: yapılandırılmamış cihaz hangi
-  sette çalışacağını bilmeden hep aynı adresle (10.1.1.12) geliyor.
-  Önceden şablon set numarasıyla çözülüyordu ve set 8'de cihaz
-  10.8.1.12'de aranıp bulunamıyordu. Alan yine ekrandan değiştirilebilir.
-  Koşu ikisini de dener: sabit adres ve setin kendi 10.n.1.12'si — daha
-  önce atanmış cihazlar hâlâ orada olabiliyor.
-- Fabrika adresinde bulunamayan cihazlar için ağ + maske yerine **açık
-  adres aralığı** da verilebilir (10.1.1.10 – 10.1.1.60 gibi). Ağ maskesi
-  geniş olduğunda aranacak yeri daraltmanın yolu budur; her iki yolda da
-  en fazla 512 adres denenir.
+- Elle doldurulan **Korunan bağlantılar** formu kaldırıldı. Bilgisayarın bağlı
+  olduğu portlar ile switchler arası bağlantı portları artık switchlerin MAC
+  öğrenme tablolarından otomatik olarak belirlenir.
+- Yerel ağ arayüzlerinin MAC adresleri tüm switchlerde paralel aranır. Erişim
+  portu ile uplink portu, ilgili portta öğrenilen MAC sayısı kullanılarak
+  birbirinden ayrılır.
+- Komşu switchin kendi MAC adresi diğer switchin tablosunda aranarak switchler
+  arası bağlantı portları belirlenir.
+- Yanıt vermeyen bir switch, diğer switchlerin incelenmesini engellemez.
+  **Switch ulaşılamıyor** ve **MAC tablosu okunamıyor** durumları ayrı
+  açıklanır. Gerekli koruma portları bulunamazsa tahmin yapılmaz ve IP atama
+  işlemi başlatılmaz.
+- Korunan portlar 30 saniyede bir yeniden doğrulanır. Koşu başlatılırken
+  sunucu da bulguları yeniden denetler; böylece son anda değişen kablo
+  bağlantıları dikkate alınır.
+- Korunan portlar switch ön panelinde turuncu, işlem özetinde ise kaynak MAC
+  adresi ve doğrulama zamanı ile birlikte gösterilir.
+- Switch kimlik bilgileri sonradan girildiğinde korunan port aramasının
+  yinelenmemesine ve ekranın yeniden çizilmesi sırasında doğrulama
+  zamanlayıcılarının sıfırlanmasına neden olan sorunlar giderildi.
 
-**Yazılım yükleme**
+### İşlem kuyruğu ve performans
 
-- Dosya **cihaz başına** seçilir: her satırın kendi dosyası ve hedef
-  sürümü var. Bir cihaz farklı bir revizyondan olduğunda grubun geri
-  kalanıyla aynı dosyayı almak zorunda değil.
-- Dosya, satırdaki **"Seç"** düğmesiyle bilgisayarın kendi dosya
-  penceresinden seçilir; yol elle yazılmaz.
-- Hepsine aynı dosya gidecekse üstteki düğme tek seçimle bütün gruba yazar.
-- Dosyası seçilmemiş cihaz kuyruğa hiç girmez; yol girildiği anda
-  doğrulanır (var mı, boş mu, 32 MB sınırı).
-- Yükleme sonrası sürüm tekrar okunur. "İstek kabul edildi" tek başına
-  başarı sayılmaz; hedef sürüm girilmişse cihazın bildirdiği sürümle
-  karşılaştırılır. Kuyruk satırında hangi dosyanın gittiği yazar.
-- **Anons ekipmanları** imaj (.bin) alır; istek cihazın kendi arayüzüyle
-  birebir aynı: `POST /api/v1/system/firmware`.
-- **Compartment LCD** uygulama paketi (.apk) alır: `adb install -r` ile
-  kurulur, sürüm `dumpsys package` ile doğrulanır. Cihazdaki sürüm daha
-  yeniyse düşürme bir kez `-d` ile denenir; `adb` hata kodları
-  anlaşılır mesaja çevrilir.
-- Dosya seçicinin süzgeci cihaza göre: APK bekleyen cihaza .bin
-  seçtirilmez.
-- **Yükleme paralel yürür**: aynı anda en fazla 4 cihaz (ayarlanabilir:
-  `FIRMWARE_WORKER`). 12 cihazlık bir sette bekleme süreleri artık uç uca
-  eklenmiyor.
+- IP atama ilerlemesinin iş birimi çıktı satırı yerine hedef port olarak
+  değiştirildi. İş kartı artık etkin portu, aşamayı ve toplam ilerlemeyi
+  gösterir.
+- Koşunun başındaki plan satırlarının etkin port sanılması düzeltildi; aynı
+  anda yalnızca gerçekten işlenen port **Çalışıyor** durumunda görünür.
+- Ertelenmiş doğrulama akışı için **Yazıldı** ara durumu eklendi. İlerleme;
+  hazırlık (%5), temel tarama (%7), port atama (%70), PoE portlarını geri
+  açma (%4) ve son doğrulama (%14) aşamalarına göre hesaplanır. Yüzde geriye
+  gitmez ve yarıda kesilen işlem %100 olarak gösterilmez.
+- Port bulunamadığında hata işlem sürerken görünür. Son doğrulama turu her
+  port için nihai durumu belirler.
+- Her port satırına, saat bilgisi içeren ve varsayılan olarak kapalı duran bir
+  adım geçmişi eklendi. İkinci turdaki adımlar önceki turun ayrıntılarını
+  silmez.
+- IP atama betiğinin ham çıktısı işletim sisteminin Belgeler klasörüne zaman
+  damgalı günlük dosyası olarak yazılır ve işlem kuyruğundan açılabilir.
+- İş kartına ilerleme çubuğu eklendi; durdurma düğmesinin kart dışına taşması
+  giderildi ve gereksiz uzun IP atama başlığı kısaltıldı.
+- Yapılandırma yazımı aynı anda en fazla dört cihazda çalışacak biçimde
+  paralelleştirildi. Eşzamanlı işlem sayısı `KONFIG_WORKER` ile ayarlanabilir.
 
-**Kimlik ve gizlilik**
+## v0.9.1-dev — 7 Ağustos 2026
 
-- Kullanıcı adı / parola **hiçbir dosyaya yazılmaz**, yalnız oturum boyunca
-  bellekte durur. SIP parolası da kaydedilmez.
-- Servis yalnız `127.0.0.1` dinler. Arayüz hiçbir zaman bir IP göndererek
-  hedef seçemez; hedef her zaman DeviceMap'ten cihaz kimliğiyle bulunur.
+> **Geliştirme sürümü:** Saha denemeleri için yayımlanmıştır; kararlı sürüm
+> olarak değerlendirilmemelidir.
 
-**Bilinen sınırlar**
+### Eklendi
 
-- Paketler **imzasızdır**. Windows'ta SmartScreen, macOS'ta Gatekeeper
-  uyarısı çıkar (kurulum belgesindeki adımlar).
-- Compartment LCD okuması `adb` gerektirir; sistemde yoksa o cihazlar
-  "uygulanmıyor" olarak görünür.
-- Cihaz seri numarası anons cihazlarında bulunmuyor; o sütun boş kalır.
+- Cihaz başına dosya ve hedef sürüm seçilebilen **Yazılım Yükleme** ekranı
+  eklendi. Aynı dosya, istenirse tek seçimle grubun tamamına atanabilir.
+- Anons ekipmanları için `.bin` imajları
+  `POST /api/v1/system/firmware` üzerinden yüklenir; cihaz yeniden döndüğünde
+  bildirdiği sürüm doğrulanır.
+- Compartment LCD cihazlarına `.apk` paketleri `adb install -r` ile yüklenir.
+  Daha eski bir sürüme dönülmesi gerektiğinde kurulum bir kez `-d` seçeneğiyle
+  yinelenir ve sonuç `dumpsys package` çıktısıyla doğrulanır.
+- Seçilen dosyanın varlığı, boyutu ve cihaz türüne uygun uzantısı kuyruğa
+  eklenmeden önce denetlenir. Dosyası seçilmeyen cihazlar işleme alınmaz.
+- Yazılım yüklemeleri aynı anda en fazla dört cihazda çalışacak biçimde
+  paralelleştirildi (`FIRMWARE_WORKER`).
+
+### Yapılandırma
+
+- Intercom, Handset, Amplifier ve UIC cihazlarının yazılabilir SIP, ses,
+  çalışma modu, kazanç, gerilim eşiği ve çağrı yönlendirme alanları cihaz
+  türüne göre listelenir.
+- Her ayar, cihazın kabul ettiği uç noktaya gönderilir. Yalnızca mevcut
+  değerden farklı alanlar yazılır; yazma sonrasında değerler yeniden okunarak
+  doğrulanır. HTTP 200 yanıtı tek başına başarı sayılmaz.
+- Hedef değerler `DeviceMap.json` içinden yüklenir. Kullanıcının değiştirdiği
+  hedefler uygulamanın veri dizinine kaydedilir ve sonraki açılışta geri
+  yüklenir.
+- `PBXPassword` tanımı bulunmayan Amplifier ve UIC cihazlarında SIP parolası
+  için dahili numarayı kullanan geri dönüş kuralı eklendi. Projede açıkça
+  tanımlanmış bir parola varsa öncelik bu değerdedir.
+
+### IP atama
+
+- Switch ön panelinden seçilen cihazlar PoE portları sırayla açılarak
+  adreslenir. İşlem iptal edilse bile kapatılan PoE portları yeniden açılır.
+- Fabrika IP adresi, tren setinden bağımsız olarak `10.1.1.12` kabul edildi.
+  İşlem hem bu sabit adresi hem de daha önce atanmış olabilecek `10.n.1.12`
+  adresini dener.
+- Fabrika adresinde bulunamayan cihazlar için ağ/maskeye alternatif olarak
+  açık bir IP aralığı girilebilir. Her iki yöntemde de en fazla 512 adres
+  denenir.
+
+### Depo düzeni
+
+- Devreye Alma Paneli `main` dalının köküne taşındı.
+- Çalışma anında yüklenen saha betikleri `betikler/` dizininde toplandı.
+- Devreye Alma Paneli ve Switch Yönetim Paneli için etiket ve yayın akışları
+  birbirinden ayrıldı.
+
+### Güvenlik ve bilinen sınırlar
+
+- Arayüzde girilen cihaz erişim kimlikleri süreç belleğinde tutulur ve
+  uygulama kapandığında silinir. Kullanıcının arayüzde girdiği SIP parolası
+  kalıcı ayar dosyasına yazılmaz. Proje envanterinde önceden bulunan tanım
+  alanları bu kuralın kapsamı dışındadır.
+- Yerel servis yalnızca `127.0.0.1` adresini dinler. İstemci doğrudan IP
+  göndererek hedef seçemez; hedef, cihaz kimliği üzerinden envanterden
+  çözülür.
+- Dağıtım paketleri kod imzalı değildir. Windows SmartScreen ve macOS
+  Gatekeeper ilk açılışta uyarı gösterebilir.
+- Compartment LCD okuması ve yazılım yüklemesi için sistemde `adb` bulunması
+  gerekir; bulunmadığında ilgili denetimler **Uygulanmıyor** olarak görünür.
+- Anons cihazlarında seri numarası veri kaynağından sağlanmadığı için ilgili
+  kontrol listesi hücresi boş bırakılır.
+
+## v0.9.0-dev — 6 Ağustos 2026
+
+İlk etiketli geliştirme sürümüdür. Cihaz doğrulama, kontrol listesi,
+yapılandırma ve IP atama akışlarının saha denemelerine açıldığı temel sürümü
+oluşturur.

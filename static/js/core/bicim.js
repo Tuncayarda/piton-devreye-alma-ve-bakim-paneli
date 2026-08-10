@@ -37,6 +37,10 @@ export const IS_DURUM_ETIKET = {
 export const SATIR_DURUM_ETIKET = {
   bekliyor: 'Bekliyor',
   calisiyor: 'Çalışıyor',
+  // IP atama koşusunda ara durum: cihaza yazıldı, cihaz reset attı ama
+  // yeni adresinde cevap verdiği son doğrulama turunda anlaşılıyor.
+  // "Tamam" demek yanlış olurdu (bkz. core/ip_atama.YAZILDI).
+  yazildi: 'Yazıldı',
   tamam: 'Tamam',
   kimlik: 'Kimlik',
   // Betik çıktısındaki "[!]" satırları: koşu sürüyor ama bir şey ters
@@ -50,6 +54,13 @@ export const SATIR_DURUM_ETIKET = {
 export const SATIR_RENK = {
   bekliyor: 'gri',
   calisiyor: 'mavi',
+  // Çalışıyorla aynı renk ama nabız atmaz: iş o satırda bitti, teyidi
+  // bekliyor. Turuncu kullanılmadı — turuncu bu panelde "bir şey ters
+  // gitti" demek ve yazılmış bir port ters giden bir şey değil.
+  yazildi: 'mavi',
+  // Satır altındaki adımların çoğu ne başarı ne hata: ne yapıldığını
+  // anlatan kayıtlar.
+  bilgi: 'gri',
   tamam: 'yesil',
   kimlik: 'turuncu',
   uyari: 'turuncu',

@@ -12,6 +12,11 @@
 // Projede birden çok switch varsa hepsinin paneli gösterilir. Koşu tek
 // switch üzerinde yürüdüğü için bir tanesi "etkin"dir; başka bir switch'in
 // portuna tıklamak koşuyu o switch'e taşır.
+//
+// Bilgisayarın takılı olduğu port ELLE GİRİLMEZ: yerel ağ arayüzünün MAC
+// adresi switch'in öğrenme tablosunda aranır (bkz. pcPortuBul ve
+// core/ip_atama.bilgisayar_portu). Elle giriş yalnız arama sonuç
+// vermediğinde ya da kullanıcı bulguyu açıkça geçersiz kıldığında açılır.
 
 import { el, doldur } from '../core/dom.js';
 import { api } from '../core/api.js';
@@ -20,7 +25,7 @@ import * as serit from '../parts/serit.js';
 import * as diyalog from '../parts/diyalog.js';
 import { kimlikDiyalogu } from '../parts/kilit.js';
 import { hata, basari, bildir } from '../parts/bildirim.js';
-import { deger, YOK } from '../core/bicim.js';
+import { deger, tazelik, YOK } from '../core/bicim.js';
 
 const KOLON = '68px minmax(150px,1.25fr) minmax(104px,.85fr) 112px 112px '
   + 'minmax(150px,1fr)';
@@ -34,9 +39,12 @@ const yerel = {
   aramaMaskesi: null,
   aramaBas: null,          // açık adres aralığı — verilirse ağ/maske yerine
   aramaSon: null,
-  pcPort: '24',
-  pcSwitchId: null,        // null = ilk switch
-  baglanti: {},            // switchId -> diğer switch'e giden port (metin)
+  // Korunan portlar (bilgisayarın yeri + switch'ler arası bağlantılar)
+  // elle girilmez, MAC tablolarından bulunur ve düzenli aralıkla yeniden
+  // doğrulanır (bkz. korunanTuru). Ekranda ayrı bir form yok; bulgu ön
+  // panelde turuncu port olarak ve koşu özetinde görünür.
+  korunan: null,           // {zaman, bilgisayar, portlar[], denenen[], not}
+  korunanAraniyor: false,
   switchId: null,          // null = planın kendi seçtiği switch
   hataMetni: '',
 };
@@ -55,13 +63,15 @@ const canli = {
   acik: true,
   zaman: null,          // yenileme turu zamanlayıcısı
   sayac: null,          // "kaç sn önce" yazısını tazeleyen saniyelik tik
+  korunan: null,        // korunan portların yeniden doğrulama turu
   yigin: null,          // panel kartlarının kabı
 };
 
 function panelleriDurdur() {
   clearTimeout(canli.zaman);
   clearTimeout(canli.sayac);
-  canli.zaman = canli.sayac = null;
+  clearTimeout(canli.korunan);
+  canli.zaman = canli.sayac = canli.korunan = null;
 }
 
 function ekrandaMi() {
@@ -112,6 +122,7 @@ function tazelikYaz() {
 // sonraki tur onu beklemeden başlamaz, istekler üst üste binmez.
 function tazelikTiki() {
   clearTimeout(canli.sayac);
+  canli.sayac = null;
   if (!ekrandaMi()) return;
   tazelikYaz();
   canli.sayac = setTimeout(tazelikTiki, 1000);
@@ -119,6 +130,7 @@ function tazelikTiki() {
 
 async function yenilemeTuru() {
   clearTimeout(canli.zaman);
+  canli.zaman = null;
   if (!ekrandaMi() || !canli.acik) return;
   try {
     await panelleriTazele();
@@ -127,10 +139,36 @@ async function yenilemeTuru() {
   canli.zaman = setTimeout(yenilemeTuru, YENILEME_ARALIK);
 }
 
+// Korunan portların yeniden doğrulanması. Ön panel turundan ayrı ve daha
+// seyrek: bu tur switch'in MAC tablosunu okuyor, kablo da her beş
+// saniyede bir yer değiştirmiyor. Ama bir kere bulup bırakmak da olmaz —
+// koşu başlamadan önce kablo başka porta taşınmış olabilir.
+async function korunanTuru() {
+  clearTimeout(canli.korunan);
+  canli.korunan = null;
+  if (!ekrandaMi() || !canli.acik) return;
+  try {
+    await korunanTazele();
+  } catch { /* bir sonraki turda denenir */ }
+  if (!ekrandaMi() || !canli.acik) return;
+  canli.korunan = setTimeout(korunanTuru, KORUNAN_ARALIK);
+}
+
+// Kurulmuş bir tur YERİNDE BIRAKILIR, yeniden kurulmaz.
+//
+// `ciz` her cihaz yenilemesinde çalışıyor — hafif yenileme birkaç
+// saniyede bir bütün ekranı çiziyor. Zamanlayıcıları her çizimde yıkıp
+// yeniden kurmak, hiçbirinin dolmaması demekti: ne 5 sn'lik panel turu
+// ne 30 sn'lik doğrulama turu bir daha çalışıyordu. Turlar ekrandan
+// çıkılınca kendileri duruyor (bkz. ekrandaMi), burada durdurmaya gerek
+// yok.
 function yenilemeyiKur() {
-  panelleriDurdur();
-  tazelikTiki();
-  if (canli.acik) canli.zaman = setTimeout(yenilemeTuru, YENILEME_ARALIK);
+  if (!canli.sayac) tazelikTiki();
+  if (!canli.acik) return;
+  if (!canli.zaman) canli.zaman = setTimeout(yenilemeTuru, YENILEME_ARALIK);
+  if (!canli.korunan) {
+    canli.korunan = setTimeout(korunanTuru, KORUNAN_ARALIK);
+  }
 }
 
 // Birden çok cihaz grubu aynı koşuda seçilebilir; her grubun atama betiği
@@ -164,27 +202,63 @@ function grupSec(ad) {
   tazele();
 }
 
-// Bilgisayarın bağlı olduğu switch. Seçilmediyse ilk switch varsayılır;
-// tek switch'li projede zaten tek seçenek var.
-function pcSwitchId(plan) {
-  const liste = plan.switchler || [];
-  if (yerel.pcSwitchId && liste.some(s => s.id === yerel.pcSwitchId)) {
-    return yerel.pcSwitchId;
+// ── korunan portların keşfi ─────────────────────────────────────────────
+// Koşunun dokunmaması gereken portlar (bilgisayarın takılı olduğu port ve
+// switch'ler arası bağlantılar) elle giriliyordu. İkisi de switch'lerin
+// MAC öğrenme tablosunda zaten yazılı; sormanın gereği yoktu ve yanlış
+// girilen cevap iki kere zarar veriyordu — korunması gereken port
+// korunmuyor, korunmaması gereken port koşudan düşüyordu.
+//
+// Bulgu bir kere alınıp bırakılmaz: kablo koşu başlamadan önce başka
+// porta taşınmış olabilir. Ekran açıkken düzenli aralıkla yeniden
+// doğrulanır; koşu başlarken sunucu da kendi tarafında yeniden bulur
+// (bkz. panel_api /api/ip/kosu).
+const KORUNAN_ARALIK = 30000;
+
+let bulguSeti = null;         // bulgunun ait olduğu tren seti
+
+// Elde işe yarar bir bulgu var mı? Cevabı gelmiş ama bilgisayarı
+// bulamamış bir arama "yok" sayılır: koşu onsuz başlayamıyor.
+function korunanBulundu() {
+  const k = yerel.korunan;
+  return !!(k && k.bilgisayar && k.bilgisayar.port);
+}
+
+async function korunanBul() {
+  const setNo = durum.setNo;
+  yerel.korunanAraniyor = true;
+  try {
+    const b = await api.ipKorunan(setNo);
+    if (setNo !== durum.setNo) return;
+    yerel.korunan = b;
+  } catch (e) {
+    if (setNo !== durum.setNo) return;
+    yerel.korunan = {
+      zaman: Date.now() / 1000, bilgisayar: { port: null, kaynak: 'yok' },
+      portlar: [], denenen: [], not: e.message,
+    };
+  } finally {
+    yerel.korunanAraniyor = false;
   }
-  return liste.length ? liste[0].id : null;
+}
+
+// Aramayı yapar ve ekranı yeniden çizer. `ata` yeni bir nesne referansı
+// ile çağrılır: durum içeriği değişmese de çizim tetiklensin.
+async function korunanTazele() {
+  await korunanBul();
+  if (durum.gorunum === 'ip' && durum.ipDurum) {
+    ata({ ipDurum: { ...durum.ipDurum } });
+  }
 }
 
 // Hedef switch'te koşunun dokunmaması gereken portlar: [[no, sebep], …]
-// Bilgisayar başka switch'teyse onun portu bu koşuyu bağlamaz.
+// Başka switch'e ait olanlar bu koşuyu bağlamaz.
 function korumaliPortlar(plan) {
-  const cikan = new Map();
-  const pc = Number(yerel.pcPort);
-  if (Number.isInteger(pc) && pcSwitchId(plan) === plan.switchId) {
-    cikan.set(pc, 'bilgisayar bu portta');
-  }
-  const bag = Number(yerel.baglanti[plan.switchId]);
-  if (Number.isInteger(bag)) cikan.set(bag, 'diğer switch bağlantısı');
-  return [...cikan.entries()].sort((a, b) => a[0] - b[0]);
+  const liste = (yerel.korunan && yerel.korunan.portlar) || [];
+  return liste
+    .filter(p => p.switchId === plan.switchId)
+    .map(p => [Number(p.port), p.sebep])
+    .sort((a, b) => a[0] - b[0]);
 }
 
 // ── port metni: "11-14, 18-19, 21" ──
@@ -323,21 +397,6 @@ function portDenetle(metin, izinli, plan) {
   return '';
 }
 
-// Bilgisayar / switch bağlantısı için girilen fiziksel portu denetler.
-// Panel okunabildiyse portun gerçekten o switch'in yüzünde olması da şarttır.
-function fizikselPortDenetle(metin, panel, etiket, zorunlu = false) {
-  const ham = String(metin || '').trim();
-  if (!ham) return zorunlu ? `${etiket} gerekli` : '';
-  const no = Number(ham);
-  if (!/^\d+$/.test(ham) || !Number.isSafeInteger(no) || no < 1) {
-    return `${etiket} pozitif bir port numarası olmalı`;
-  }
-  if (panel && !(panel.portlar || []).some(p => p.no === no)) {
-    return `${etiket}: bu switch'te ${no} numaralı port yok`;
-  }
-  return '';
-}
-
 // Ekrandaki bütün ayarların tek geçerlilik kaynağı. Üstteki durum metni,
 // başlat düğmesi ve alan uyarıları aynı sonucu kullanır.
 function kosuDenetle(veri) {
@@ -351,17 +410,11 @@ function kosuDenetle(veri) {
   const planaDahil = satirlar.filter(s => s.uygulanabilir).length;
   const planDisi = satirlar.length - planaDahil;
   const panelIle = new Map(paneller.map(p => [p.switchId, p]));
-  const pcPanel = panelIle.get(pcSwitchId(plan));
-  const pcPortHatasi = fizikselPortDenetle(
-    yerel.pcPort, pcPanel, 'Bilgisayar portu', true);
-  const baglantiHatalari = new Map();
-  for (const s of plan.switchler || []) {
-    const h = fizikselPortDenetle(
-      yerel.baglanti[s.id], panelIle.get(s.id), `${s.ad} bağlantı portu`);
-    if (h) baglantiHatalari.set(s.id, h);
-  }
+  // Korunan portlar bulunmadan koşu başlatılmaz: hangi portun bizim
+  // bağlantımızı taşıdığını bilmeden PoE kapatmak, kendi yolunu kesme
+  // riski demek. Arama sürerken bu bir "hata" değil, bekleme durumu.
+  const korunanHatasi = korunanBeklemeMetni();
   const portHatasi = ayrisma.hata || portDenetle(seciliMetin, izinli, plan);
-  const ilkBaglantiHatasi = baglantiHatalari.values().next().value || '';
   const kapsamHatasi = !seciliPortSayisi
     ? 'Koşu için en az bir hedef port seçin'
     : !planaDahil ? 'Seçili portlarda hedef gruptan cihaz bulunmuyor' : '';
@@ -387,26 +440,69 @@ function kosuDenetle(veri) {
                    yerel.aramaMaskesi ?? plan.aramaMaskesi,
                    yerel.aramaBas, yerel.aramaSon)
     : '';
-  const hataMetni = grupHatasi || fabrikaHatasi || aramaHatasi || pcPortHatasi
-    || ilkBaglantiHatasi || portHatasi || kapsamHatasi || kimlikHatasi;
+  const hataMetni = grupHatasi || fabrikaHatasi || aramaHatasi
+    || korunanHatasi || portHatasi || kapsamHatasi || kimlikHatasi;
   return {
     grupHatasi,
     fabrika,
     fabrikaHatasi,
     aramaHatasi,
     kimlikHatasi,
+    korunanHatasi,
     izinli,
     seciliMetin,
     seciliPortSayisi,
     planaDahil,
     planDisi,
     panelIle,
-    pcPortHatasi,
-    baglantiHatalari,
     portHatasi: portHatasi || (!seciliPortSayisi ? kapsamHatasi : ''),
     hata: hataMetni,
     hazir: !hataMetni,
   };
+}
+
+// Koşu özetindeki tek satırlık bilgisayar bilgisi: nerede bulundu ve
+// bulgunun ne kadar tazelendiği. Ayrıntı (MAC, arayüz, hangi switch'e
+// neden bakılamadığı) ipucu metninde durur — özet satırı kalabalıklaşmasın.
+function pcOzeti() {
+  const k = yerel.korunan;
+  if (!k) {
+    return { tamam: false, metin: yerel.korunanAraniyor ? 'aranıyor…' : '—',
+      ipucu: 'Switch MAC tablolarından bulunuyor' };
+  }
+  const b = k.bilgisayar || {};
+  if (!b.port) {
+    const denenen = (k.denenen || []).map(d => `${d.ad}: ${d.durum}`).join(' · ');
+    return { tamam: false, metin: 'bulunamadı',
+      ipucu: [b.not || k.not, denenen].filter(Boolean).join(' — ') };
+  }
+  const yas = k.zaman ? ` · ${tazelik(k.zaman)} önce doğrulandı` : '';
+  return {
+    tamam: true,
+    metin: `${b.switchAd} · p${b.port}`,
+    ipucu: `MAC ${b.mac}${b.arayuz ? ` · ${b.arayuz}` : ''}${yas}`,
+  };
+}
+
+// Korunan portlar henüz bilinmiyorsa koşu neden bekliyor?
+//
+// Hedef switch'te korunacak port bulunamamış olması tek başına hata
+// değil: bilgisayar başka bir switch'te olabilir ve o switch'e giden
+// bağlantı bu switch'in yüzünde görünmeyebilir. Asıl engel keşfin hiç
+// çalışmamış olması — o zaman hangi portun bizim yolumuz olduğu
+// bilinmiyor demektir.
+function korunanBeklemeMetni() {
+  if (yerel.korunanAraniyor && !yerel.korunan) {
+    return 'Korunacak portlar switch MAC tablolarından bulunuyor…';
+  }
+  const k = yerel.korunan;
+  if (!k) return 'Korunacak portlar henüz bulunmadı';
+  const pcVar = !!(k.bilgisayar && k.bilgisayar.port);
+  if (!pcVar) {
+    return k.not || 'Bilgisayarın bağlı olduğu port bulunamadı — '
+      + 'switch MAC tablosu okunamıyor';
+  }
+  return '';
 }
 
 export async function tazele() {
@@ -427,6 +523,22 @@ export async function tazele() {
     if (surum !== tazeleSurumu || setNo !== durum.setNo) return;
     yerel.hataMetni = '';
     ata({ ipDurum: { plan, paneller: paneller.filter(Boolean) } });
+    // Bulgu set başına geçerli: başka bir tren setinde bambaşka
+    // switch'ler var.
+    if (bulguSeti !== setNo) {
+      bulguSeti = setNo;
+      yerel.korunan = null;
+    }
+    // Arama switch'lere gider ve saniyeler sürebilir; ekran onu beklemesin
+    // diye plan çizildikten SONRA başlatılır.
+    //
+    // BULUNAMAMIŞ bir bulgu da yeniden denenir. Sahadaki sıra şu: uygulama
+    // açılıyor, tarama sürerken IP atama ekranına giriliyor, switch'in
+    // kimliği henüz girilmediği için MAC tablosu okunamıyor. Kullanıcı
+    // sonra şifreyi giriyor — `kilit.baglaYenile` bu ekranı tazeliyor ama
+    // "bulgu zaten var" diye yeniden aranmıyor ve port hiç bulunamıyordu.
+    // Başarılı bulgu yenilenmez; tazeliğinden KORUNAN_ARALIK turu sorumlu.
+    if (!korunanBulundu()) korunanTazele();
   } catch (e) {
     if (surum !== tazeleSurumu || setNo !== durum.setNo) return;
     yerel.hataMetni = e.message;
@@ -573,77 +685,11 @@ export function ciz(kok) {
     },
   });
 
-  function enYuksekPort(panel) {
-    const numaralar = (panel && panel.portlar || []).map(p => p.no);
-    return numaralar.length ? Math.max(...numaralar) : null;
-  }
-
   function alanUyarisiGoster(giris, uyari, h) {
     giris.setAttribute('aria-invalid', String(!!h));
     uyari.textContent = h;
     uyari.hidden = !h;
   }
-
-  const pcPortUyari = el('p', {
-    id: 'ip-pc-port-hata', sinif: 'ip-alan-hata', role: 'alert',
-    metin: denetim.pcPortHatasi, hidden: !denetim.pcPortHatasi,
-  });
-  const pcPanel = denetim.panelIle.get(pcSwitchId(plan));
-  const pcPortGiris = el('input', {
-    id: 'ip-pc-port', type: 'number', min: '1', step: '1',
-    max: enYuksekPort(pcPanel), required: true,
-    sinif: 'alan ip-kisa-alan', value: yerel.pcPort,
-    inputmode: 'numeric', placeholder: '24',
-    'aria-invalid': String(!!denetim.pcPortHatasi),
-    'aria-describedby': 'ip-pc-port-hata',
-    oninput: (e) => {
-      yerel.pcPort = e.target.value.trim();
-      const yeniDenetim = kosuDenetle(veri);
-      alanUyarisiGoster(e.target, pcPortUyari, yeniDenetim.pcPortHatasi);
-      eylemDurumuGoster(
-        yeniDenetim, yeniDenetim.hata ? '' : 'Değişikliği uygulayın');
-    },
-    onchange: () => {
-      ata({ ipDurum: { ...veri } });  // panelde turuncu port taşınır
-    },
-  });
-
-  const baglantiSatirlari = (plan.switchler || []).flatMap((s, i) => {
-    const id = `ip-baglanti-port-${i}`;
-    const uyariId = `${id}-hata`;
-    const ilkHata = denetim.baglantiHatalari.get(s.id) || '';
-    const uyari = el('p', {
-      id: uyariId, sinif: 'ip-alan-hata', role: 'alert',
-      metin: ilkHata, hidden: !ilkHata,
-    });
-    const panel = denetim.panelIle.get(s.id);
-    const giris = el('input', {
-      id, type: 'number', min: '1', step: '1', max: enYuksekPort(panel),
-      sinif: 'alan ip-kisa-alan', value: yerel.baglanti[s.id] || '',
-      // Alan dar; "örn. 25" kırpılıp "örn. 2" görünüyor ve 2. portu
-      // öneriyormuş gibi okunuyordu.
-      inputmode: 'numeric', placeholder: '25',
-      'aria-invalid': String(!!ilkHata), 'aria-describedby': uyariId,
-      oninput: (e) => {
-        const v = e.target.value.trim();
-        if (v) yerel.baglanti[s.id] = v;
-        else delete yerel.baglanti[s.id];
-        const yeniDenetim = kosuDenetle(veri);
-        alanUyarisiGoster(
-          e.target, uyari, yeniDenetim.baglantiHatalari.get(s.id) || '');
-        eylemDurumuGoster(
-          yeniDenetim, yeniDenetim.hata ? '' : 'Değişikliği uygulayın');
-      },
-      onchange: () => { ata({ ipDurum: { ...veri } }); },
-    });
-    return [
-      el('label', { sinif: 'ayar-satir', for: id }, [
-        el('span', { sinif: 'etiket', metin: `${s.ad} · bağlantı portu` }),
-        giris,
-      ]),
-      uyari,
-    ];
-  });
 
   // ── adresleme alanları ──
   // Fabrika IP: cihazların kutudan çıktığı adres (sahada hepsi aynı
@@ -760,39 +806,6 @@ export function ciz(kok) {
       ] : []),
     ]),
 
-    // ── kurulumun fiziksel gerçeği ──
-    // İki switch birbirine bir portla bağlı, bilgisayar da birinin bir
-    // portunda. Koşu PoE'yi sırayla kapatıp açtığı için bu portlara
-    // dokunursa kendi yolunu keser; ikisi de burada bildirilir.
-    el('fieldset', { sinif: 'ayar-bolum' }, [
-      el('legend', { sinif: 'gizli-metin', metin: 'Korunan bağlantılar' }),
-      el('div', { sinif: 'ip-alt-baslik' }, [
-        el('span', { sinif: 'ust-etiket', metin: 'Korunan bağlantılar' }),
-        el('p', {
-          metin: 'Bilgisayar ve switch bağlantı portları koşu dışında tutulur.',
-        }),
-      ]),
-      el('label', { sinif: 'ayar-satir' }, [
-        el('span', { sinif: 'etiket', metin: 'Bilgisayarın switch\'i' }),
-        el('select', {
-          sinif: 'alan',
-          onchange: (e) => {
-            yerel.pcSwitchId = e.target.value;
-            ata({ ipDurum: { ...veri } });
-          },
-        }, (plan.switchler || []).map(s => el('option', {
-          value: s.id, metin: s.ad,
-          selected: s.id === pcSwitchId(plan) ? '' : null,
-        }))),
-      ]),
-      el('label', { sinif: 'ayar-satir', for: 'ip-pc-port' }, [
-        el('span', { sinif: 'etiket', metin: 'Bilgisayarın portu' }),
-        pcPortGiris,
-      ]),
-      pcPortUyari,
-      ...baglantiSatirlari,
-    ]),
-
     // ── özet: hangi switch'te ne yapılacak ──
     el('div', { sinif: 'ayar-ozet' }, [
       el('div', { sinif: 'ip-ozet-basi' }, [
@@ -856,6 +869,17 @@ export function ciz(kok) {
             : (s.grupCihaz ? `${s.grupCihaz} cihaz · seçilmedi` : 'bu grupta cihaz yok'),
         }),
       ])),
+      // Korunan portların ekrandaki tek yeri burası ve ön panel: form
+      // kaldırıldı, hepsi kendiliğinden bulunuyor. Ne bulunduğu yine de
+      // görünmeli — koşu bir portu atlıyorsa sebebi okunabilsin.
+      el('div', { sinif: 'satir' }, [
+        el('span', { metin: 'Bilgisayar' }),
+        el('b', {
+          sinif: pcOzeti().tamam ? '' : 'soluk',
+          title: pcOzeti().ipucu,
+          metin: pcOzeti().metin,
+        }),
+      ]),
       ...korumaliPortlar(plan).map(([no, sebep]) => el('div', {
         sinif: 'satir korunan',
       }, [
@@ -881,7 +905,10 @@ export function ciz(kok) {
       e.currentTarget.textContent = canli.acik ? 'Yenileme açık' : 'Duraklatıldı';
       panelleriDurdur();
       tazelikTiki();
-      if (canli.acik) yenilemeTuru();     // sürdürülünce hemen bir okuma
+      if (canli.acik) {
+        yenilemeTuru();                   // sürdürülünce hemen bir okuma
+        korunanTuru();                    // korunan portlar da doğrulansın
+      }
     },
     metin: canli.acik ? 'Yenileme açık' : 'Duraklatıldı',
   });
@@ -1068,20 +1095,26 @@ function panelKarti(panel, plan) {
   const grupCihaz = bilgi ? bilgi.grupCihaz : null;
   const hedef = new Set(
     aktif ? plan.satirlar.filter(s => s.uygulanabilir).map(s => s.port) : []);
-  // Bilgisayarın portu yalnız bağlı olduğu switch'te işaretlenir; bağlantı
-  // portu ise her switch'in kendi tarafında durur.
+  // Korunan portlar keşiften gelir (bkz. korunanBul). Bilgisayarın portu
+  // yalnız bağlı olduğu switch'te "bilgisayar" rengiyle işaretlenir;
+  // diğer switch'lerde aynı MAC'in göründüğü port o switch'e giden
+  // bağlantıdır ve o renkle çizilir. Ekranda ayrı bir form yok — bu
+  // panel, keşfin ne bulduğunu gösteren tek yer.
   const koruma = new Map();
-  const bag = Number(yerel.baglanti[panel.switchId]);
-  if (Number.isInteger(bag)) koruma.set(bag, 'diğer switch bağlantısı');
-  const pc = Number(yerel.pcPort);
+  for (const p of (yerel.korunan && yerel.korunan.portlar) || []) {
+    if (p.switchId === panel.switchId && p.tur !== 'bilgisayar') {
+      koruma.set(Number(p.port), p.sebep);
+    }
+  }
+  const pcBilgi = (yerel.korunan && yerel.korunan.bilgisayar) || null;
   const ctx = {
     hedef,
     aktif,
     koruma,
     switchId: panel.switchId,
     switchAd: panel.switchAd,
-    pcPort: (pcSwitchId(plan) === panel.switchId && Number.isInteger(pc))
-      ? pc : null,
+    pcPort: (pcBilgi && pcBilgi.switchId === panel.switchId && pcBilgi.port)
+      ? Number(pcBilgi.port) : null,
   };
 
   const idIle = {};
@@ -1306,9 +1339,9 @@ async function baslat() {
         ? (yerel.aramaMaskesi ?? plan.aramaMaskesi) : '',
       aramaBas: yerel.aramaAcik ? (yerel.aramaBas || '') : '',
       aramaSon: yerel.aramaAcik ? (yerel.aramaSon || '') : '',
-      pcSwitch: pcSwitchId(plan),
-      pcPort: yerel.pcPort,
-      baglanti: yerel.baglanti,
+      // Sunucu korunan portları koşu başlarken KENDİSİ bulur; bu liste
+      // yalnız o an switch cevap vermezse kullanılacak son bilgidir.
+      korunan: (yerel.korunan && yerel.korunan.portlar) || [],
     });
     ata({ kuyrukAcik: true, acikIs: y.id });
     if (y.yeni === false) bildir('Bu switch için zaten bir koşu var');

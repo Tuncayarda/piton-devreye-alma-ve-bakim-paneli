@@ -191,5 +191,55 @@ def portlar(ip: str, kimlik: tuple[str, str] | None = None,
     return cikan
 
 
-__all__ = ["oku", "portlar", "dogrula", "modul",
+def mac_tablosu(ip: str, kimlik: tuple[str, str] | None = None,
+                timeout: float | None = None) -> dict[str, int]:
+    """Switch'in MAC öğrenme tablosu: {mac: port}.
+
+    Uçlar ve ayrıştırma IP atama betiğinden gelir; koşu bu tabloyu zaten
+    okuyup portu doğruluyor (bkz. betikler/intercom_ip_assign.py). İkinci
+    bir ayrıştırıcı yazmak, KYLAND cevabının biçimi değiştiğinde ikisinin
+    ayrışması demekti — betik sahada, bu panel laboratuvarda kırılırdı.
+    HTTP yolu ise panelin kendi yolu: kimlik core/kimlik.py'de duruyor,
+    betiğin modül içi deposuna hiç bakılmıyor.
+
+    Switch cevap veriyor ama MAC uçlarının hiçbirini tanımıyorsa boş
+    sözlük döner — bu bir hata değil, o modelde tablo yok demek.
+    Switch'e HİÇ ulaşılamıyorsa UlasilamadiHatasi fırlatır: "kapalı" ile
+    "tabloyu vermiyor" çağıran taraf için bambaşka iki durum (biri
+    switch'e, öteki kabloya bakmayı gerektiriyor).
+    """
+    api = _yukle()
+    kosu = betik.intercom_ip_assign()
+    sure = timeout if timeout is not None else ayar.OKUMA_TIMEOUT
+    # Betiğin özel adları: kasten kullanılıyor, gerekçesi yukarıda.
+    uclar = getattr(kosu, "MAC_ENDPOINTS", ["stat/macQuery"])
+    ayristir = getattr(kosu, "_parse_mac_table", None)
+    if ayristir is None:
+        return {}
+
+    son_hata = None
+    for uc in uclar:
+        try:
+            veri = api.sw_get(ip, uc, timeout=sure, kimlik=kimlik)
+        except api.YetkiHatasi as exc:
+            raise KimlikHatasi(str(exc) or "Switch kullanıcı adı/parola istiyor")
+        except Exception as exc:
+            hata = sinifla(exc)
+            # Ulaşılamayan switch'te kalan uçları denemenin anlamı yok:
+            # üç uç × zaman aşımı, arayüzü açan kişiyi yarım dakika
+            # bekletiyordu. 404 böyle değil — o uç yok, öteki olabilir.
+            if isinstance(hata, UlasilamadiHatasi):
+                raise hata
+            son_hata = hata
+            continue
+        son_hata = None                  # switch konuştu; sorun uçta
+        tablo = ayristir(veri)
+        if tablo:
+            return {str(m).lower(): int(p) for m, p in tablo.items()}
+    if son_hata is not None:
+        raise son_hata
+    return {}
+
+
+__all__ = ["oku", "portlar", "mac_tablosu", "dogrula", "modul",
            "KimlikHatasi", "UlasilamadiHatasi", "DogrulamaHatasi"]

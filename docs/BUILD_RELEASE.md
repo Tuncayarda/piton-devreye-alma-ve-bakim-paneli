@@ -1,28 +1,28 @@
 # Derleme, Test ve Yayınlama
 
-Devreye Alma Paneli'nin taşınabilir paketlerini üretme ve GitHub Release
-çıkarma rehberi.
+Devreye Alma Paneli'nin taşınabilir paketlerini üretme ve GitHub'da sürüm
+yayımlama rehberi.
 
-> Windows için **kurulum paketi** (Inno Setup) ve tüm platformlar için
-> **taşınabilir** paketler üretilir. macOS/Linux installer'ları (DMG/PKG,
-> DEB/RPM), kod imzalama ve Apple notarization **ileride** ele alınacaktır;
-> şu anki çıktılar imzasızdır.
+> Windows için **kurulum paketi** (Inno Setup) ve desteklenen tüm işletim
+> sistemleri için **taşınabilir** paketler üretilir. macOS ve Linux kurulum
+> paketleri (DMG/PKG, DEB/RPM), kod imzalama ve Apple noter onayı
+> (notarization) **ileride** ele alınacaktır; şu anki çıktılar imzasızdır.
 
 ---
 
 ## 0. Depo yapısı
 
-Depoda **iki** uygulama var; her biri kendi branch'inin kökünde durur ve
-ayrı ayrı derlenip ayrı Release alır. Bu ağaç (`main`) Devreye Alma
-Paneli'dir; Switch Yönetim Paneli `syp` branch'indedir.
+Depoda **iki** uygulama bulunur. Her uygulama kendi dalının kökünde durur,
+ayrı ayrı derlenir ve yayımlanır. Bu ağaç (`main`) Devreye Alma Paneli'dir;
+Switch Yönetim Paneli `syp` dalındadır.
 
 ```
 .
 ├── README.md
 ├── .github/workflows/
-│   ├── ci.yml                          kurulum + self-test + testler
-│   ├── build-app.yml                   ortak derleme motoru (workflow_call)
-│   └── build-devreye.yml               bu uygulama            (dap-v*)
+│   ├── ci.yml                          bağımlılık + self-test + testler
+│   ├── build-app.yml                   ortak derleme akışı (workflow_call)
+│   └── build-devreye.yml               bu uygulamanın yayını   (dap-v*)
 ├── app.py                              giriş noktası, pencere, self-test
 ├── panel_api.py                        yerel HTTP servisi (127.0.0.1)
 ├── core/                               iş mantığı (ayar, okuma, konfig, …)
@@ -41,10 +41,10 @@ Paneli'dir; Switch Yönetim Paneli `syp` branch'indedir.
 └── docs/                               belgeler ve bağımlılık listeleri
     ├── MIMARI.md                       mimari ve ekranlar
     ├── BUILD_RELEASE.md                bu dosya
-    ├── RELEASE_NOTES.md                Release gövdesi (CI kullanır)
+    ├── RELEASE_NOTES.md                GitHub sürümü açıklaması
     ├── CIHAZ_ENDPOINTLERI.md           cihaz uçları
     ├── CIHAZ_VERI_ALANLARI.md          okunan veri alanları
-    └── requirements*.txt               platform + build bağımlılıkları
+    └── requirements*.txt               işletim sistemi ve derleme bağımlılıkları
 ```
 
 ### Pakete giren veri dosyaları
@@ -63,8 +63,9 @@ depodaki yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 
 Yol çözümü `core/ayar.py` → `veri_dosyasi()` içindedir: paketlenmiş durumda
 paketin kökü, kaynaktan çalışırken depodaki göreli yol. Beşinden biri
-eksikse **spec build'i durdurur** ve `--self-test` ayrıca tek tek arar;
-yarım paket üretip sahada "DeviceMap bulunamadı" ile karşılaşmak istemiyoruz.
+eksikse `DevreyeAlmaPaneli.spec` derlemeyi durdurur; `--self-test` de bu
+dosyaları tek tek arar. Böylece eksik paket üretilmesi ve sahada
+"DeviceMap bulunamadı" hatasıyla karşılaşılması önlenir.
 
 ---
 
@@ -81,7 +82,7 @@ python3 app.py
 | `--port 8790` | Yerel servisin portunu sabitler |
 | `--admin-parolasi …` | Admin ekranı için parola sorar (verilmezse sorulmaz) |
 | `--self-test` | Pencere açmadan paketi doğrular, çıkış kodu döner |
-| `--version` | Yalnız sürümü yazar (CI etiket kontrolü bunu kullanır) |
+| `--version` | Yalnız sürümü yazar (etiket denetimi bunu kullanır) |
 
 ---
 
@@ -92,108 +93,160 @@ python3 app.py --self-test                    # varlıklar + servis + arayüz
 python3 -m unittest discover -s tests -t .    # birim testler
 ```
 
-Self-test ne yapar: veri dosyalarını ve kardeş betikleri arar, DeviceMap'i
+**Self-test kapsamı:** Veri dosyalarını ve kardeş betikleri arar, DeviceMap'i
 okur, `127.0.0.1` üzerinde servisi açar, `/api/surum`, `/api/proje`,
 `/api/durum` uçlarını ve arayüzün sunulduğunu sınar. **Cihaza bağlanmaz.**
 
 Birim testler sahte cihaz sunucuları kullanır (`tests/sahte.py`): KYLAND
 switch, ISAPI kamera ve `/api/v1` anons cihazı taklit edilir; gerçek ağa
-çıkılmaz. `tests/test_arayuz.py` içindeki JS lint adımı `deno` kuruluysa
-çalışır, değilse atlanır (`brew install deno`).
+çıkılmaz. `tests/test_arayuz.py` içindeki JavaScript denetimi, `deno`
+kuruluysa çalışır; değilse atlanır (`brew install deno`).
 
 Testler kalıcı dosyalara dokunmaz: konfigürasyon varsayılanları geçici bir
 dizine yazılır (`PANEL_VERI_DIZINI`).
 
 ---
 
-## 3. Yerel build
+## 3. Yerel derleme
+
+Önce kullanılan işletim sisteminin bağımlılıklarını kurun:
+
+| İşletim sistemi | Komut |
+|---|---|
+| macOS | `python3 -m pip install -r docs/requirements-macos.txt` |
+| Linux | `python3 -m pip install -r docs/requirements-linux.txt` |
+| Windows | `python -m pip install -r docs/requirements-windows.txt` |
+
+Ardından derleme bağımlılıklarını kurup temiz derlemeyi başlatın. macOS ve
+Linux için:
 
 ```bash
-pip install -r docs/requirements-build.txt
+python3 -m pip install -r docs/requirements-build.txt
 rm -rf build dist
 python3 -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
 ```
 
-Build **Python 3.12** ile alınır (bilerek başka sürüm kullanılacaksa
-`DAP_PYTHON_SERBEST=1`). Tek dosya (portable) için `DAP_ONEFILE=1`.
+Windows PowerShell için:
 
-Paketlenmiş uygulamada self-test:
+```powershell
+python -m pip install -r docs/requirements-build.txt
+python -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
+```
+
+Derleme **Python 3.12** ile yapılır. Bilerek başka bir Python sürümü
+kullanılacaksa `DAP_PYTHON_SERBEST=1`, tek dosyalı taşınabilir paket
+üretilecekse `DAP_ONEFILE=1` ayarlanır.
+
+Paketlenmiş uygulamayı macOS ve Linux'ta doğrulama:
 
 ```bash
 # macOS
 "dist/Devreye Alma Paneli.app/Contents/MacOS/DevreyeAlmaPaneli" --self-test
 # Linux
 ./dist/DevreyeAlmaPaneli/DevreyeAlmaPaneli --self-test
-# Windows (PowerShell)
-dist\DevreyeAlmaPaneli\DevreyeAlmaPaneli.exe --self-test
+```
+
+Windows uygulaması GUI alt sistemiyle derlendiği için PowerShell doğrudan
+çalıştırıldığında sürecin bitmesini beklemeyebilir. Gerçek çıkış kodunu almak
+için `Start-Process -Wait -PassThru` kullanın:
+
+```powershell
+$exe = (Resolve-Path '.\dist\DevreyeAlmaPaneli\DevreyeAlmaPaneli.exe').Path
+$islem = Start-Process -FilePath $exe -ArgumentList '--self-test' `
+  -Wait -PassThru -NoNewWindow
+if ($islem.ExitCode -ne 0) {
+  throw "self-test başarısız: çıkış kodu $($islem.ExitCode)"
+}
 ```
 
 ### Windows kurulum paketi
 
 ```powershell
+$surum = "0.9.2"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  "/DMyAppVersion=0.9.0-dev" `
+  "/DMyAppVersion=$surum" `
   "/DSourceDir=..\..\dist\DevreyeAlmaPaneli" `
   "/DOutputDir=..\..\release" `
   "packaging\windows\DevreyeAlmaPaneli.iss"
 ```
 
-Installer'ın AppId GUID'i Switch Yönetim Paneli'nden **ayrıdır**: iki
-uygulama aynı makinede yan yana kurulur, biri diğerinin üzerine gelmez.
+Kurulum paketinin AppId GUID'i Switch Yönetim Paneli'nden **ayrıdır**. Bu
+sayede iki uygulama aynı makinede yan yana kurulabilir; biri diğerinin
+üzerine yazılmaz.
 
 ### Linux AppImage
 
 ```bash
+SURUM="$(python3 app.py --version)"
 ./packaging/appimage.sh dist/DevreyeAlmaPaneli \
-  release/DevreyeAlmaPaneli-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
+  "release/DevreyeAlmaPaneli-${SURUM}-linux-x86_64.AppImage" "$SURUM"
 ```
 
 ---
 
 ## 4. GitHub Actions
 
-### `ci.yml` — yayın öncesi kontrol
+### `ci.yml` — yayın öncesi doğrulama
 
-Tetikleyici: `v*`, `syp-v*`, `dap-v*` etiketi push'u, elle çalıştırma.
-Maliyet nedeniyle **her commit'te çalışmaz**.
+`main` dalındaki bu iş akışının gerçek tetikleyicileri şunlardır:
 
-**İki uygulama için** Windows / Ubuntu / macOS üzerinde: Python 3.12 kurar,
-platform requirements'ını yükler, `compileall` ile derleme kontrolü yapar,
-bu panelin **birim testlerini** koşar ve kaynaktan `--self-test` çalıştırır.
-Ayrı iki job: etiket ↔ `APP_VERSION` kontrolü ve depo kontrolleri (izlenen
-hassas dosya, çalışma ağacı temizliği).
+- **`dap-v*` etiketi gönderimi:** Etikete alınan kaynak kodu doğrular.
+- **Elle çalıştırma (`workflow_dispatch`):** Seçilen `main` sürümünü doğrular.
 
-### `build-app.yml` — ortak derleme motoru
+Dal gönderimleri ve çekme istekleri (`pull_request`) bu iş akışını otomatik
+başlatmaz. Maliyet nedeniyle **her değişiklik kaydında çalıştırılmaz**. `v*`
+ve `syp-v*` etiketleri de `main` dalındaki `ci.yml` dosyasının kapsamında
+değildir.
 
-Kendi başına çalışmaz (`workflow_call`). Hangi uygulamanın derleneceğini
-çağıran workflow söyler; ortak adımlar tek yerde durur.
+`self-test` işi yalnız Devreye Alma Paneli'ni Windows, Ubuntu ve macOS
+üzerinde doğrular. Her hedefte Python 3.12 ve işletim sistemine özgü
+bağımlılıklar kurulur; `compileall`, birim testler, kaynak koddan
+`--self-test` ve `--version` çalıştırılır.
 
-| Matrix | Runner | Çıktı |
+Etiket gönderimlerinde `surum-kontrol` işi, `dap-v*` etiketindeki değer ile
+`core/ayar.py` içindeki `APP_VERSION` değerini karşılaştırır. `repo-kontrol`
+işi ise izlenen hassas dosya adlarını ve temiz depo durumunu denetler.
+
+### `build-app.yml` — ortak derleme akışı
+
+Bu iş akışı kendi başına çalışmaz; `workflow_call` aracılığıyla çağrılır.
+Çağıran iş akışı, hangi uygulamanın derleneceğini girdilerle belirtir.
+
+| Hedef | GitHub çalıştırıcısı | Üretilen çıktı |
 |---|---|---|
-| windows-x64 | `windows-2025` | onedir ZIP + Inno Setup kurulum paketi |
-| linux-x86_64 | `ubuntu-22.04` | AppImage → ZIP |
-| macos-arm64 | `macos-15` | `.app` → `ditto` ZIP |
-| macos-x64 | `macos-15-intel` | `.app` → `ditto` ZIP |
+| windows-x64 | `windows-2025` | Klasör tabanlı ZIP + Inno Setup kurulum paketi |
+| linux-x86_64 | `ubuntu-22.04` | AppImage içeren ZIP |
+| macos-arm64 | `macos-15` | `.app` içeren `ditto` ZIP'i |
+| macos-x64 | `macos-15-intel` | `.app` içeren `ditto` ZIP'i |
 
-Her job: checkout → Python 3.12 (pip cache) → bağımlılıklar → sürüm
-belirleme → **birim testler** (varsa) → kaynak self-test → temiz PyInstaller
-build → **paketlenmiş** self-test → paketleme → çıktı doğrulaması → artifact.
+Her derleme işi sırasıyla depoyu alır, Python 3.12 ile bağımlılıkları kurar,
+sürümü belirler, varsa birim testleri ve kaynak `--self-test` denetimini
+çalıştırır. Ardından temiz bir PyInstaller derlemesi yapar, paketlenmiş
+uygulamada `--self-test` çalıştırır, çıktıyı paketleyip doğrular ve GitHub
+Actions çıktı arşivi olarak yükler.
 
-Ubuntu 22.04 üzerinde build alınır; daha yeni dağıtımlarda çalışma ihtimali
-bu sayede artar (glibc geriye dönük uyumlu değildir).
+Linux paketi Ubuntu 22.04 üzerinde derlenir. Daha yeni bir sistemde derlenen
+ikili eski bir `glibc` sürümünde çalışmayabileceğinden, bu seçim desteklenen
+dağıtım aralığını genişletir.
 
 ### `build-devreye.yml` — bu uygulamanın paketleri
 
-Tetikleyici: elle çalıştırma (`workflow_dispatch`) veya **`dap-v*`** etiketi.
-Switch Yönetim Paneli `syp` branch'inde kendi `build-switch.yml`'i ile ayrı
-derlenir; ikisi birbirini beklemez, birbirinin Release'ine dokunmaz.
+- **Elle çalıştırma (`workflow_dispatch`):** Dört hedef için paket ve GitHub
+  Actions çıktı arşivi üretir; GitHub sürümü yayımlamaz.
+- **`dap-v*` etiketi gönderimi:** Paketleri üretir ve bütün derleme hedefleri
+  başarıyla tamamlanırsa GitHub sürümünü yayımlar.
+
+Switch Yönetim Paneli, `syp` dalındaki kendi `build-switch.yml` dosyasıyla
+ayrı derlenir. İki uygulamanın akışları birbirini beklemez ve birbirinin
+GitHub sürümüne dokunmaz.
 
 ### Sürüm etiketiyle yayınlama
 
 ```bash
-# core/ayar.py içindeki APP_VERSION ile aynı olmalı
-git tag dap-v0.9.0-dev
-git push origin dap-v0.9.0-dev
+# Önce core/ayar.py içindeki APP_VERSION değerini yeni sürüme yükseltin.
+SURUM="$(python3 app.py --version)"
+git tag "dap-v${SURUM}"
+git push origin "dap-v${SURUM}"
 ```
 
 | Etiket | Uygulama |
@@ -203,43 +256,57 @@ git push origin dap-v0.9.0-dev
 | `v…` | Switch Yönetim Paneli (depoda tek uygulama varken kullanılan eski biçim) |
 
 Etiketteki sürüm ile `core/ayar.py` içindeki `APP_VERSION` **aynı olmalıdır**;
-değilse build açık bir hatayla durur. Bütün build'ler geçmeden Release
-oluşturulmaz. Ön sürüm ekleri (`-dev`, `-alpha`, `-beta`, `-rc`) Release'i
-**pre-release** olarak işaretler.
+değilse derleme açık bir hatayla durur. Bütün derleme hedefleri başarıyla
+tamamlanmadan GitHub sürümü oluşturulmaz. Ön sürüm ekleri (`-dev`, `-alpha`,
+`-beta`, `-rc`) sürümü GitHub'da **ön sürüm** (pre-release) olarak işaretler.
 
-Release job'ı artifact'leri indirir, dosyaların var ve boş olmadığını
-doğrular, `SHA256SUMS.txt` üretir ve `gh` CLI ile Release'i oluşturur. Aynı
-etiket için tekrar çalıştırılırsa varlıklar `--clobber` ile güncellenir.
+Daha önce yayımlanmış bir etiket taşınmamalı veya yeni değişiklikler eski
+sürüm başlığına eklenmemelidir. Yayımlanmamış değişiklikler önce
+`docs/DEGISIKLIKLER.md` içinde `Yayımlanmamış` ibaresi bulunan bölümde
+tutulmalı; yayın
+hazırlığında yeni `APP_VERSION`, değişiklik günlüğü başlığı ve `dap-v*`
+etiketi birlikte oluşturulmalıdır.
+
+Yayın işi, GitHub Actions çıktı arşivlerini indirir; dosyaların var ve boş
+olmadığını doğrular, `SHA256SUMS.txt` üretir ve `gh` komut satırı aracıyla
+GitHub sürümünü oluşturur. Aynı etiketin akışı yeniden çalıştırılırsa aynı
+adlı varlıklar `--clobber` ile güncellenir ve artık beklenmeyen varlıklar
+silinir.
+
+GitHub sürümü açıklaması, **etiketin işaret ettiği kaynak kodu kaydındaki**
+`docs/RELEASE_NOTES.md` dosyasından alınır. Bu dosyayı daha sonra `main`
+dalında değiştirmek, yayımlanmış bir sürümün açıklamasını geriye dönük
+olarak güncellemez.
 
 ### İki uygulama, tek Releases sayfası
 
-GitHub'da Releases **depo başınadır**, branch başına ayrı sayfa yoktur. İki
-uygulamanın release'leri aynı listede görünür; ayrım şöyle kurulur:
+GitHub'da Releases sayfası **depo başınadır**; dal başına ayrı bir sayfa
+yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrılır:
 
 | Ne | Nasıl |
 |---|---|
-| Başlık | `Devreye Alma Paneli v0.9.0-dev` — ham etiket değil, uygulama adı + sürüm |
+| Başlık | `Devreye Alma Paneli v0.9.2` — ham etiket değil, uygulama adı + sürüm |
 | Etiket | `dap-v*` / `syp-v*` · `v*` |
 | Dosya adları | `DevreyeAlmaPaneli-…` / `SwitchYonetimPaneli-…` |
-| Release gövdesi | O uygulamanın kendi `docs/RELEASE_NOTES.md` dosyası |
-| Süzülmüş bağlantı | `…/releases?q=dap-v` (README'de bu kullanılıyor) |
+| Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |
+| README bağlantısı | `../../releases?q=dap-v`; yalnız Devreye Alma Paneli sürümlerini gösterir |
 
 İki ayrıntı bilerek böyle:
 
-- **`--latest=false`.** "Latest" rozeti depo başına tektir. Serbest
-  bırakılsaydı hangi uygulama sonra yayınlanırsa ötekinin rozetini alırdı;
-  bu yüzden hiçbirine verilmiyor.
-- **`--generate-notes` kullanılmıyor.** Release gövdesi yalnız
-  `docs/RELEASE_NOTES.md`: amaç sayfaya bakan kişinin doğru dosyayı indirip
-  kurabilmesi. GitHub'ın ürettiği commit listesi hem sayfayı uzatıyor hem de
-  iki etiket serisi iç içe olduğu için öteki uygulamanın commit'lerini
-  karıştırabiliyordu. Sürüm geçmişi `docs/DEGISIKLIKLER.md` dosyasında.
+- **`--latest=false`.** "Latest" rozeti depo başına tektir. Bu seçenek
+  kullanılmasaydı son yayımlanan uygulama diğerinin rozetini alabilirdi; bu
+  yüzden iki uygulama da bilerek bu rozetin dışında tutulur.
+- **`--generate-notes` kullanılmıyor.** Sürüm açıklaması yalnızca
+  `docs/RELEASE_NOTES.md` içeriğidir. GitHub'ın ürettiği değişiklik listesi,
+  birbirine karışan iki etiket dizisi nedeniyle diğer uygulamanın
+  değişikliklerini de içerebilirdi. Ayrıntılı sürüm geçmişi
+  `docs/DEGISIKLIKLER.md` dosyasında tutulur.
 
 ### İzinler
 
-Workflow'lar en düşük izinle çalışır: build job'larında `contents: read`,
-yalnızca Release job'ında `contents: write`. `pull_request_target`
-kullanılmaz, secret istenmez.
+İş akışları en düşük izinle çalışır: derleme işlerinde `contents: read`,
+yalnızca yayın işinde `contents: write` kullanılır. `pull_request_target`
+kullanılmaz ve gizli değer istenmez.
 
 ---
 
@@ -254,32 +321,61 @@ DevreyeAlmaPaneli-<sürüm>-macos-x64.zip
 SHA256SUMS.txt
 ```
 
-Doğrulama:
+`SHA256SUMS.txt`, beş paketin tamamının özetini içerir. Bütün paketler ve
+özet dosyası aynı klasördeyse toplu denetim yapılabilir:
 
 ```bash
+# Linux
 sha256sum -c SHA256SUMS.txt
+
+# macOS
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+Yalnızca bir paket indirildiyse tüm listeyi `-c` ile denetlemek, indirilmeyen
+dosyalar için hata üretir. Bu durumda ilgili dosyanın özetini hesaplayıp
+`SHA256SUMS.txt` içindeki aynı satırla karşılaştırın:
+
+```powershell
+# Windows PowerShell
+Get-FileHash -Algorithm SHA256 '.\DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe'
+```
+
+```bash
+# macOS
+shasum -a 256 'DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip'
+
+# Linux
+sha256sum 'DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip'
 ```
 
 ---
 
 ## 6. Kullanıcı notları
 
-- **Windows**: WebView2 Runtime gerekir; kurulum paketi yoksa kendisi kurar.
-  ZIP'i kullanacaksan Runtime'ı elle kurmak gerekebilir. SmartScreen uyarısı
-  imzasız paket olduğu içindir.
-- **macOS**: Gatekeeper "geliştirici doğrulanamadı" der. Sağ tık → Aç ya da
-  Sistem Ayarları → Gizlilik ve Güvenlik → "Yine de aç".
-- **Linux**: AppImage ZIP'ten çıkarılınca çalıştırma izni korunur.
+- **Windows:** WebView2 Runtime gerekir. Önerilen kurulum paketi, bu bileşen
+  bulunmuyorsa yükler; taşınabilir ZIP paketinde bileşeni ayrıca kurmak
+  gerekebilir. SmartScreen uyarısı, paketin kod imzası taşımamasından
+  kaynaklanır.
+- **macOS:** Gatekeeper "geliştirici doğrulanamadı" uyarısı verebilir.
+  Finder'da uygulamaya sağ tıklayıp *Aç* seçeneğini kullanın ya da Sistem
+  Ayarları → Gizlilik ve Güvenlik bölümünden *Yine de aç* seçeneğini seçin.
+- **Linux:** ZIP arşivi normalde AppImage dosyasının çalıştırma iznini korur.
+  Arşiv yöneticisi bu izni korumadıysa `chmod +x` ile yeniden verin. Yazılım
+  dosyası seçimi için sistemde `zenity` veya `kdialog` bulunmalıdır.
 - Kullanıcının kendi verisi (konfigürasyon varsayılanları) kurulum dizinine
   değil işletim sisteminin uygulama verisi dizinine yazılır; kaldırma bunu
-  silmez. Parola hiçbir koşulda yazılmaz.
+  silmez. Arayüzde girilen cihaz erişim kimlikleri (kullanıcı adı ve parola)
+  ile SIP parolası kalıcı depoya yazılmaz; yalnızca geçerli oturum süresince
+  bellekte tutulur.
 
 ---
 
 ## 7. Kapsam dışı / bilinen sınırlar
 
-- Kod imzalama, notarization, DMG/PKG/DEB/RPM üretimi.
-- `macos-x64` runner'ı Intel Mac'ler için; Apple Silicon `arm64` paketini
-  kullanır.
-- Simge dosyaları (`icons/app.icns`, `app.ico`, `app.png`) henüz yok;
-  eklendiğinde spec ve paketleme betikleri kendiliğinden kullanır.
+- Kod imzalama, Apple noter onayı (notarization) ve DMG/PKG/DEB/RPM üretimi.
+- `macos-x64` çalıştırıcısı Intel Mac'ler içindir; Apple Silicon sistemler
+  `macos-arm64` paketini kullanır.
+- Simge dosyaları (`icons/app.icns`, `icons/app.ico`, `icons/app.png`) henüz
+  yoktur; eklendiklerinde `.spec` dosyası ve paketleme betikleri bunları
+  kendiliğinden kullanır.

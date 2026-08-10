@@ -7,7 +7,7 @@
 const ANAHTARLAR = new Set([
   'rol', 'setNo', 'proje', 'gorunum', 'kategori', 'altTip', 'filtre',
   'cihazlar', 'sayilar', 'kilit', 'isler', 'acikIs', 'kuyrukAcik',
-  'kilitAcik', 'duraklat', 'detayId', 'hedefGrup', 'surum', 'sonTarama',
+  'kilitAcik', 'detayId', 'hedefGrup', 'surum', 'sonTarama',
   'aktifTarama', 'kenarAcik', 'piscuIp', 'yukleniyor', 'ipDurum',
   'cfgDurum', 'fwDurum', 'mqttDurum', 'piscuDurum', 'meta',
   'kontrolDurum', 'kontrolKategori',
@@ -31,7 +31,6 @@ export const durum = {
   acikIs: null,
   kuyrukAcik: false,
   kilitAcik: false,
-  duraklat: false,
   detayId: null,
   hedefGrup: 'Intercom',
   surum: '',

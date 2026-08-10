@@ -104,9 +104,11 @@ class Arayuz(unittest.TestCase):
     def test_index_html_gerekli_ogeleri_icerir(self):
         html = (ayar.STATIC_DIR / "index.html").read_text(encoding="utf-8")
         for kimlik_ in ("rol-ekrani", "uygulama", "kilit-btn", "kuyruk-btn",
-                        "guncelle-btn", "duraklat-btn", "kilit-panel",
+                        "guncelle-btn", "kilit-panel",
                         "kuyruk-panel", "bildirim", "set-secici"):
             self.assertIn(f'id="{kimlik_}"', html, kimlik_)
+        # Yenileme durdurulamaz: duraklat düğmesi bilerek yok.
+        self.assertNotIn('id="duraklat-btn"', html)
         # Erişilebilirlik: ikon düğmelerinin metinsiz kalmaması
         self.assertIn('aria-label="İşlem kuyruğu"', html)
         self.assertIn('lang="tr"', html)

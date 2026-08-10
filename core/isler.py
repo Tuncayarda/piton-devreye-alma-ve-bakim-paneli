@@ -33,6 +33,11 @@ from .hata import CihazHatasi
 BEKLIYOR, CALISIYOR, TAMAM, IPTAL, HATA = (
     "bekliyor", "calisiyor", "tamam", "iptal", "hata")
 
+# Bir satırın altında tutulan adım sayısının üst sınırı. Adımlar açık işin
+# her yoklamasında arayüze gidiyor; sınırsız büyürse uzun bir koşuda cevap
+# şişer. En yenileri değerli olduğu için baştan atılır.
+ADIM_SINIRI = 40
+
 # Okuma nesli — süreç boyunca artan tek sayaç.
 _NESIL = itertools.count(1)
 
@@ -112,18 +117,30 @@ class Is:
     """Tek bir arka plan işi."""
 
     def __init__(self, tur: str, baslik: str, set_no: int,
-                 anahtar: str | None = None):
+                 anahtar: str | None = None, otomatik: bool = False):
         self.id = f"j{uuid.uuid4().hex[:10]}"
         self.tur = tur
         self.baslik = baslik
         self.set_no = int(set_no)
         self.anahtar = anahtar or f"{tur}:{set_no}"
+        # Kullanıcının değil, arayüzün kendi zamanlayıcısının başlattığı iş.
+        # Yalnız geçmiş budamasını ilgilendirir (bkz. Yonetici._budama).
+        self.otomatik = bool(otomatik)
         self.durum = BEKLIYOR
+        # İşin o anki aşaması — başlıktan ayrı, çünkü başlık sabit
+        # ("IP atama · Yatakli_2") ama iş "portlar açılıyor"dan "son
+        # doğrulama"ya geçiyor. Yüzde tek başına nerede olunduğunu
+        # söylemiyordu.
+        self.asama = ""
         self.olusturma = time.time()
         self.baslama: float | None = None
         self.bitis: float | None = None
         self.hata: str | None = None          # worker hatası (cihaz hatası değil)
         self.iptal = threading.Event()
+        # İşin kendi hesapladığı ilerleme oranı. Varsayılan hesap
+        # "biten satır / toplam satır"; bu bazı işlerde yanlış cevap
+        # veriyor (bkz. ilerleme). Yazılırsa o hesabın yerini alır.
+        self._oran: float | None = None
         self._satir: dict[str, dict] = {}
         self._sira: list[str] = []
         self._bilgi: set[str] = set()      # sayaçlara girmeyen satırlar
@@ -144,11 +161,16 @@ class Is:
             self._sira.append(cihaz.id)
 
     def ozel_satir(self, anahtar: str, ad: str, durum: str = TAMAM,
-                   not_: str = "", ip: str = "", yol: str = "") -> None:
+                   not_: str = "", ip: str = "", yol: str = "",
+                   sayilir: bool = False) -> None:
         """Cihaza bağlı olmayan satır (betik çıktısı, üretilen dosya...).
 
-        Bu satırlar sayaçlara girmez: "42 cihazdan 7'si başarılı" derken
-        araya bir ilerleme satırı karışmamalı.
+        Bu satırlar varsayılan olarak sayaçlara girmez: "42 cihazdan 7'si
+        başarılı" derken araya bir ilerleme satırı karışmamalı.
+
+        `sayilir=True` bunun istisnası: işin gerçek iş birimi cihaz
+        değilse (IP atama koşusunda birim PORT) ilerleme o satırlardan
+        hesaplanmalı, yoksa yüzde baştan sona %0 kalıyor.
 
         `yol` verilirse satır bir dosyayı gösteriyor demektir; arayüz onu
         açabilir. Yolu arayüz göndermez, buradan okunur (bkz. core/dosya).
@@ -156,12 +178,46 @@ class Is:
         with self._kilit:
             if anahtar not in self._satir:
                 self._sira.append(anahtar)
-            self._bilgi.add(anahtar)
+            if sayilir:
+                self._bilgi.discard(anahtar)
+            else:
+                self._bilgi.add(anahtar)
+            # Satır yeniden kurulsa da adımları durur: IP atama koşusunda
+            # bir port ikinci turda baştan başlıyor ve o portun ilk turda
+            # ne yaşadığı ("cihaz bulunamadı") tam da aranan bilgi.
+            eski = self._satir.get(anahtar) or {}
             self._satir[anahtar] = {
                 "cihazId": anahtar, "ad": ad[:200], "ip": ip,
                 "yontem": "", "durum": durum, "not": not_[:200],
                 "dosya": bool(yol), "yol": yol,
+                "adimlar": eski.get("adimlar", []),
             }
+
+    def adim_ekle(self, anahtar: str, metin: str, durum: str = TAMAM) -> None:
+        """Bir satırın altına adım yazar — satırın kendi küçük geçmişi.
+
+        Koşu satır satır ilerliyor ("port açılıyor", "cihaz aranıyor", "IP
+        yazılıyor") ve bu ayrıntı tek bir `not` alanına sığmıyordu: her
+        yeni satır bir öncekini siliyor, port hata verince neyin ne zaman
+        olduğu kayboluyordu. Arayüz bunları satırın altında kapalı bir
+        akordiyonda gösterir.
+        """
+        with self._kilit:
+            satir = self._satir.get(anahtar)
+            if satir is None:
+                return
+            adimlar = satir.setdefault("adimlar", [])
+            metin = str(metin).strip()[:160]
+            if adimlar and adimlar[-1]["metin"] == metin:
+                return                       # aynı adım iki kez yazılmaz
+            adimlar.append({"metin": metin, "durum": durum,
+                            "zaman": time.time()})
+            if len(adimlar) > ADIM_SINIRI:
+                del adimlar[:len(adimlar) - ADIM_SINIRI]
+
+    def asama_yaz(self, metin: str) -> None:
+        with self._kilit:
+            self.asama = str(metin)[:120]
 
     def satir_guncelle(self, cihaz_id: str, durum: str, not_: str = "") -> None:
         with self._kilit:
@@ -176,9 +232,19 @@ class Is:
         # Dosya yolu arayüze gönderilmez: arayüzün dosyayı açmak için
         # bilmesi gereken tek şey satırın bir dosya olduğu. Yolu, isteği
         # karşılayan uç buradan okur (dosya_yolu).
+        #
+        # Adım listesi KOPYALANIR: bu liste kilit dışında JSON'a
+        # çevriliyor ve çevirme sırasında koşu yeni bir adım ekleyebilir.
         with self._kilit:
-            return [{k: v for k, v in self._satir[a].items() if k != "yol"}
-                    for a in self._sira if a in self._satir]
+            cikan = []
+            for a in self._sira:
+                s = self._satir.get(a)
+                if s is None:
+                    continue
+                kopya = {k: v for k, v in s.items() if k != "yol"}
+                kopya["adimlar"] = list(s.get("adimlar", ()))
+                cikan.append(kopya)
+            return cikan
 
     def dosya_yolu(self, anahtar: str) -> str:
         with self._kilit:
@@ -207,7 +273,32 @@ class Is:
                 say["bekleyen"] += 1
         return say
 
+    def ilerleme_yaz(self, oran: float) -> None:
+        """İşin kendi hesapladığı oranı yazar (0..1) — geri gitmez.
+
+        "Biten satır / toplam satır" her iş için doğru cevap değil: IP
+        atama koşusunda portlar koşunun ortasında değil, sonundaki tek
+        doğrulama turunda kapanıyor; o yüzden çubuk baştan sona %0
+        duruyor, son saniyede %100 oluyordu. O iş kendi aşamalarını
+        biliyor ve oranı buradan yazıyor (bkz. ip_atama.Ilerleme).
+
+        Geri gitmemesi kurala bağlı: kullanıcı çubuğun geri gittiğini
+        gördüğünde okuduğu bütün sayılara güvenmeyi bırakıyor.
+        """
+        try:
+            deger = float(oran)
+        except (TypeError, ValueError):
+            return
+        deger = min(1.0, max(0.0, deger))
+        with self._kilit:
+            if self._oran is None or deger > self._oran:
+                self._oran = deger
+
     def ilerleme(self) -> float:
+        with self._kilit:
+            oran = self._oran
+        if oran is not None:
+            return round(oran, 4)
         say = self.sayilar()
         if not say["toplam"]:
             return 1.0 if self.durum in (TAMAM, IPTAL, HATA) else 0.0
@@ -218,6 +309,7 @@ class Is:
         say = self.sayilar()
         veri = {
             "id": self.id, "tur": self.tur, "baslik": self.baslik,
+            "otomatik": self.otomatik, "asama": self.asama,
             "setNo": self.set_no, "durum": self.durum,
             "olusturma": self.olusturma, "baslama": self.baslama,
             "bitis": self.bitis, "ilerleme": self.ilerleme(),
@@ -340,7 +432,18 @@ class Yonetici:
             return True
 
     def _budama(self) -> None:
-        """Bitmiş işlerin en eskilerini atar; kuyruk sınırsız büyümesin."""
+        """Bitmiş işlerin en eskilerini atar; kuyruk sınırsız büyümesin.
+
+        Otomatik taramalar ayrıca budanır. Arayüz dakikada bir tarama
+        kuyrukladığı için normal sınıra girselerdi yirmi dakikada bütün
+        geçmişi -- IP atama, konfigürasyon, yazılım yükleme kayıtlarını --
+        dışarı iterlerdi. Bitmiş otomatik taramadan yalnız en yenisi kalır;
+        kullanıcının kendi başlattığı işler olduğu gibi durur.
+        """
+        for j in [j for j in self._isler
+                  if j.otomatik and j.durum in (TAMAM, IPTAL, HATA)][:-1]:
+            self._isler.remove(j)
+            self._is_govde.pop(j.id, None)
         bitmis = [j for j in self._isler if j.durum in (TAMAM, IPTAL, HATA)]
         fazla = len(bitmis) - self.gecmis_siniri
         for j in bitmis[:max(0, fazla)]:

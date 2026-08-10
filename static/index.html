@@ -92,19 +92,18 @@
 
     <span class="esne"></span>
 
-    <!-- İki etiket üst üste durur: görünen olan duruma göre değişir,
+    <!-- Tarama zaten dakikada bir kendiliğinden çalışır; bu düğme o turu
+         öne çeker (bkz. js/app.js). Ayrı bir "yenileme" düğmesi yok:
+         yenileme artık durdurulabilir bir şey değil.
+
+         İki etiket üst üste durur: görünen olan duruma göre değişir,
          genişliği ise her zaman uzun olan belirler. Yoksa "Güncelle" ->
          "Taranıyor…" geçişinde düğme büyüyüp üst barı kaydırıyordu. -->
-    <button type="button" class="btn" id="guncelle-btn">
+    <button type="button" class="btn" id="guncelle-btn"
+            title="Sıradaki taramayı şimdi çalıştır">
       <span class="etiket-oynak">Güncelle</span>
       <span class="etiket-olcu" aria-hidden="true">Taranıyor…</span>
     </button>
-
-    <!-- İkon duruma göre değişir: çalışırken duraklat (||), duraklatılmışken
-         başlat (play). Simge app.js içinde kurulur. -->
-    <button type="button" class="btn btn-simge" id="duraklat-btn"
-            aria-pressed="false" title="Hafif yenilemeyi duraklat"
-            aria-label="Hafif yenilemeyi duraklat"></button>
 
     <!-- Kilit: kimlik bekleyen cihazlar. Tasarımda olmayan ama gereken
          kutucuk; rozet bekleyen cihaz sayısını gösterir. -->

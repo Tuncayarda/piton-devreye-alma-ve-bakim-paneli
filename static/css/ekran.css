@@ -388,6 +388,10 @@
   line-height: 1.45;
 }
 
+/* Kanıt satırı: bulunduysa sakin, bulunamadıysa dikkat çeker. */
+.ip-alan-yardim[data-durum="tamam"] { color: var(--yesil); }
+.ip-alan-yardim[data-durum="uyari"] { color: var(--turuncu); }
+
 .ayar-ozet {
   margin: 0;
   padding: 17px 19px 19px;

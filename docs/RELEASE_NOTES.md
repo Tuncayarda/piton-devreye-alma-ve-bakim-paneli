@@ -1,40 +1,108 @@
-Tren setinin tamamını (switch, anons, video, ekran, kontrol) doğrulayan,
-IP atayan ve konfigüre eden masaüstü uygulaması.
+Bu masaüstü uygulaması, tren setindeki ağ anahtarlarını (switch), anons,
+video, ekran ve kontrol sistemlerini doğrular; desteklenen cihazlara IP
+adresi atar ve bu cihazların yapılandırma işlemlerini yürütür.
 
-> **Ön sürüm (dev).** Sahada denenmesi için çıkarıldı, kararlı sayılmaz.
+> **Ön sürümler.** Dosya adında `-dev`, `-alpha`, `-beta` veya `-rc` eki
+> bulunan paketler saha denemesi içindir ve kararlı sürüm sayılmaz.
 
-## İndir
+## İndirme ve çalıştırma
 
-| Sistem | Dosya | Ne yapılır |
+Dosya adlarındaki `<sürüm>` bölümü, sayfanın başlığında görünen sürüm
+numarasıdır; örneğin `0.9.2`.
+
+| Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
-| **Windows x64** | `...-windows-x64-Setup.exe` | **Önerilen** — çalıştır, kurulur |
-| Windows x64 | `...-windows-x64.zip` | Taşınabilir — aşağıdaki nota bak |
-| macOS (Apple Silicon) | `...-macos-arm64.zip` | Aç, `.app`'i çalıştır |
-| macOS (Intel) | `...-macos-x64.zip` | Aç, `.app`'i çalıştır |
-| Linux x86_64 | `...-linux-x86_64.zip` | Aç, `.AppImage`'i çalıştır |
+| **Windows x64** | `DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
+| Windows x64 | `DevreyeAlmaPaneli-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
+| macOS (Apple Silicon) | `DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| macOS (Intel) | `DevreyeAlmaPaneli-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| Linux x86_64 | `DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
 
-## Bilinmesi gerekenler
+## İşletim sistemi notları
 
-**Windows'ta ZIP yerine Setup.exe kullanın.** ZIP'ten çıkan dosyalara Windows
-"internetten indirildi" damgası koyuyor ve uygulama açılmıyor. Mecburen ZIP
-kullanacaksanız PowerShell'de:
+### Windows
+
+Windows 10 21H2 veya sonrası ya da Windows 11 gerekir. Uygulama, Microsoft
+Edge WebView2 Runtime kullanır; önerilen `Setup.exe` paketi bu bileşen kurulu
+değilse yükler.
+
+**Mümkünse ZIP yerine `Setup.exe` paketini kullanın.** Windows, internetten
+indirilen ZIP arşivindeki dosyalara güvenlik işareti ekleyebilir; bu işaret
+uygulamanın açılmasını engelleyebilir. Taşınabilir ZIP paketini kullanmanız
+gerekiyorsa arşivi çıkardıktan sonra, üst klasörde açtığınız PowerShell'de şu
+komutu çalıştırın:
 
 ```powershell
-Get-ChildItem -LiteralPath 'DevreyeAlmaPaneli' -Recurse -File | Unblock-File
+Get-ChildItem -LiteralPath '.\DevreyeAlmaPaneli' -Recurse -File | Unblock-File
 ```
 
-**Paketler imzasızdır.** Windows'ta SmartScreen uyarısı → *Daha fazla bilgi* →
-*Yine de çalıştır*. macOS'ta uygulamaya sağ tık → *Aç*.
+Paketler kod imzası taşımaz. SmartScreen uyarısı görünürse *Daha fazla bilgi*
+seçeneğini, ardından *Yine de çalıştır* düğmesini kullanın.
 
-**Gereksinimler.** Windows 10 21H2+ / 11: Edge WebView2 Runtime (Setup.exe
-kurar). macOS 11+: ilk açılışta yerel ağ izni sorulur, cihazlara ulaşmak için
-gerekli. Linux: eksikse `sudo apt install libxcb-cursor0 libegl1 libgl1`.
-Compartment LCD okuması ve yazılım yüklemesi için sistemde `adb` gerekir;
-yoksa o cihazlar "uygulanmıyor" görünür.
+### macOS
 
-**Doğrulama.** `SHA256SUMS.txt` eklidir:
-`shasum -a 256 -c SHA256SUMS.txt` (macOS) · `sha256sum -c SHA256SUMS.txt` (Linux)
+macOS 11 veya sonrası gerekir. Paketler kod imzası taşımaz. Gatekeeper
+uyarısı görünürse Finder'da uygulamaya sağ tıklayın ve *Aç* seçeneğini
+kullanın. İlk çalıştırmada istenen yerel ağ izni, saha cihazlarına erişmek
+için gereklidir.
+
+### Linux
+
+Ubuntu ve Debian tabanlı dağıtımlarda eksik sistem kitaplıklarını ve yazılım
+dosyası seçimi için gereken `zenity` aracını şu komutla kurabilirsiniz. Bunun
+yerine `kdialog` da kullanılabilir; diğer dağıtımlarda paket adları farklı
+olabilir:
+
+```bash
+sudo apt install libxcb-cursor0 libegl1 libgl1 zenity
+```
+
+Arşiv yöneticiniz çalıştırma iznini korumadıysa izni yeniden verin:
+
+```bash
+chmod +x DevreyeAlmaPaneli-*-linux-x86_64.AppImage
+```
+
+### Compartment LCD
+
+Compartment LCD okuması ve bu cihazlara yazılım yüklenmesi için Android
+Platform Tools içindeki `adb` komutu gerekir. `adb` bulunamazsa ilgili
+cihazlar bu denetimler için "uygulanmıyor" olarak görünür.
+
+## Dosya bütünlüğünü doğrulama
+
+`SHA256SUMS.txt`, bu sayfadaki bütün paketlerin SHA-256 özetlerini içerir.
+Yalnızca bir paket indirdiyseniz önce o dosyanın özetini hesaplayın ve sonucu
+`SHA256SUMS.txt` içindeki aynı dosya satırıyla karşılaştırın. Aşağıdaki
+örneklerde `<sürüm>` bölümünü indirdiğiniz paketin sürümüyle değiştirin.
+
+```powershell
+# Windows PowerShell
+Get-FileHash -Algorithm SHA256 '.\DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe'
+```
+
+```bash
+# macOS
+shasum -a 256 'DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip'
+
+# Linux
+sha256sum 'DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip'
+```
+
+Bütün paketleri ve `SHA256SUMS.txt` dosyasını aynı klasöre indirdiyseniz tüm
+dosyaları tek komutla denetleyebilirsiniz:
+
+```bash
+# macOS
+shasum -a 256 -c SHA256SUMS.txt
+
+# Linux
+sha256sum -c SHA256SUMS.txt
+```
+
+Özetlerden biri eşleşmiyorsa ilgili paketi çalıştırmayın ve yeniden indirin.
 
 ---
 
-Sürümlerde ne değiştiği: **[docs/DEGISIKLIKLER.md](../../blob/main/docs/DEGISIKLIKLER.md)**
+Tüm sürümlerin değişiklik günlüğü:
+**[docs/DEGISIKLIKLER.md](https://github.com/Tuncayarda/DevreyeAlmaPaneli/blob/main/docs/DEGISIKLIKLER.md)**

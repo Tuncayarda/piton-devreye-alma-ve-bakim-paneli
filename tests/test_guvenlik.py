@@ -91,11 +91,18 @@ class Guvenlik(ServisTesti):
                 # "dosya" yalnız bir bayrak: satırın açılabilir bir dosyayı
                 # gösterip göstermediği. Dosyanın yolu ("yol") arayüze hiç
                 # gitmez — dosyayı sunucu, iş kaydından okuyarak açar.
+                #
+                # "adimlar" satırın altındaki akordiyonu besler; içindeki
+                # metinler de kullanıcıya gösterilebilir olmalı, çünkü aynı
+                # yerden — betiğin çıktısından — geliyorlar.
                 self.assertEqual(
                     set(satir) - {"cihazId", "ad", "ip", "yontem", "durum",
-                                  "not", "dosya"},
+                                  "not", "dosya", "adimlar"},
                     set(), "kuyruk satırında beklenmeyen alan")
                 self.assertNotIn("yol", satir)
+                for adim in satir.get("adimlar", []):
+                    self.assertEqual(set(adim), {"metin", "durum", "zaman"})
+                    self.assertNotIn(PAROLA, adim["metin"])
 
     def test_10c_kimlik_ozeti_kullanici_adini_maskeler(self):
         kimlik.ver("d1", "127.0.0.1", "administrator", PAROLA)

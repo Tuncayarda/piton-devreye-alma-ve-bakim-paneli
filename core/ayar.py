@@ -13,7 +13,7 @@ from pathlib import Path
 
 APP_ADI = "Devreye Alma Paneli"
 KISA_AD = "DevreyeAlmaPaneli"
-APP_VERSION = "0.9.1-dev"
+APP_VERSION = "0.9.2"
 
 # Kaynaktan çalışırken bu dosyanın bir üstü; PyInstaller ile paketlenince
 # veriler geçici klasöre açılır ve yolu sys._MEIPASS ile verilir.
@@ -161,6 +161,13 @@ TARAMA_WORKER = int(os.environ.get("TARAMA_WORKER", 12))
 # Dördü, 12 intercomluk bir seti sırayla yapmanın dörtte birine indiriyor.
 FIRMWARE_WORKER = int(os.environ.get("FIRMWARE_WORKER", 4))
 
+# Aynı anda kaç cihaza konfigürasyon yazılır. Sırayla yürüdüğünde her
+# cihazın okuma + yazma + doğrulama beklemesi uç uca ekleniyordu; SIP
+# yazılan cihaz bir de yeniden başlıyor. Firmware ile aynı genişlikte
+# tutuluyor: yazma cihazı yeniden başlatabildiği için tarama kadar
+# geniş olmamalı.
+KONFIG_WORKER = int(os.environ.get("KONFIG_WORKER", FIRMWARE_WORKER))
+
 # ──────────────────────────────────────────────────────────── doğrulama ────
 BEKLENEN_TZ = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")
 BEKLENEN_MASKE = os.environ.get("EXPECTED_SUBNET_MASK", "255.255.0.0")
@@ -185,3 +192,9 @@ GOVDE_SINIRI = 64 * 1024
 
 # Hafif yenilemede aynı turda okunacak en fazla cihaz sayısı.
 HAFIF_SINIR = 64
+# Hafif yenileme kaç cihazı aynı anda okur. Sırayla okumak, arayüzün birkaç
+# saniyede bir yenileme isteğini anlamsız kılıyordu: 17 doğrulanmış cihazlık
+# bir sette tek turun kendisi yedi saniye sürüyordu. Bu tur yalnız YEŞİL
+# cihazlara gider — hepsi cevap veriyor, zaman aşımı beklenmiyor — o yüzden
+# taramayla aynı genişlikte olması cihazları taramadan fazla yormaz.
+HAFIF_WORKER = int(os.environ.get("HAFIF_WORKER", TARAMA_WORKER))

@@ -42,6 +42,10 @@ from core.hata import CihazHatasi, KimlikHatasi, kullanici_mesaji
 # admin ekranı şifresiz açılır. Hiçbir yere yazılmaz, yalnız bellekte.
 _ADMIN_PAROLA: str | None = None
 
+# Cihaza YAZAN iş türleri — okuyan (tarama, hafif yenileme) türlerden ayrı
+# tutulur, çünkü bunlar sürerken cihazdan okunan şey geçicidir.
+YAZAN_ISLER = ("ip", "ipfab", "cfg", "fw")
+
 
 def admin_parolasi_ayarla(parola: str | None) -> None:
     global _ADMIN_PAROLA
@@ -80,6 +84,40 @@ def _kimlik(cihaz):
 
 def _telemetri(env: device_map.Envanter) -> piscu.Telemetri:
     return piscu.Telemetri(env.piscu_ip()).topla(beklenen_set=env.set_no)
+
+
+# Telemetri önbelleği (set başına).
+#
+# `Telemetri.topla()` üç ayrı MQTT bağlantısı açıp retained mesaj bekliyor;
+# sahada ölçülen süresi ~9 saniye. Hafif yenileme bunu her turda yeniden
+# topladığı için turun KENDİSİ dokuz saniye sürüyordu — cihazlar
+# milisaniyeler içinde cevap verirken. Arayüzün birkaç saniyede bir
+# yenilemesinin bu yüzden bir karşılığı yoktu.
+#
+# Değerler broker'da retained duruyor ve dakikalık keşif turu zaten
+# topluyor; hafif turlar için o görüntü yeterince tazedir. TTL keşif
+# aralığından uzun tutulur, böylece normal çalışan bir panelde hafif tur
+# önbelleği hep dolu bulur ve MQTT'ye hiç gitmez.
+TELEMETRI_TTL = 90.0
+_telemetri_onbellek: dict[int, tuple[float, piscu.Telemetri]] = {}
+_telemetri_kilit = threading.Lock()
+
+
+def _telemetri_yaz(set_no: int, tel: piscu.Telemetri) -> None:
+    # Hatalı görüntü de saklanır: MQTT gerçekten ulaşılamıyorsa hafif turun
+    # her seferinde dokuz saniye harcayıp aynı hatayı bulmasının anlamı yok.
+    # Telemetriye bağlı cihazlar zaten yeşil olmadıkları için hafif turun
+    # hedefine girmezler.
+    with _telemetri_kilit:
+        _telemetri_onbellek[int(set_no)] = (time.monotonic(), tel)
+
+
+def _telemetri_onbellekten(set_no: int) -> piscu.Telemetri | None:
+    with _telemetri_kilit:
+        kayit = _telemetri_onbellek.get(int(set_no))
+    if kayit is None or time.monotonic() - kayit[0] > TELEMETRI_TTL:
+        return None
+    return kayit[1]
 
 
 def _mevcut_surum(sonuc) -> str:
@@ -132,6 +170,8 @@ def tarama_isi(env: device_map.Envanter):
         except Exception:
             telemetri = piscu.Telemetri(env.piscu_ip())
             telemetri.hata = "MQTT telemetrisi alınamadı"
+        # Hafif yenileme turları bu görüntüyü kullanır; kendileri toplamaz.
+        _telemetri_yaz(env.set_no, telemetri)
         is_.ozel_satir(
             "telemetri", "Canlı MQTT telemetrisi",
             durum="hata" if telemetri.hata else "tamam",
@@ -186,25 +226,46 @@ def _ip_satir_durumu(metin: str) -> str:
 
 
 def ip_isi(env, switch_id, portlar, korumali, gruplar, ayarlar):
+    """IP atama koşusu — ilerleme PORT başına raporlanır.
+
+    Betiğin her çıktı satırı kuyruğa bir "adım" olarak giriyordu: iki yüz
+    satırlık okunmaz bir yığın, üstelik o satırlar sayaçlara girmediği
+    için yüzde baştan sona %0. Artık koşunun gerçek iş birimi olan port
+    başına bir satır var (bkz. ip_atama.Ilerleme) ve ham çıktı, kuyrukta
+    tek satırla açılabilen bir günlük dosyasına yazılıyor.
+    """
     def govde(is_: isler.Is):
-        adim = {"n": 0}
         # Betik portları geri açamazsa cihazlar sahada kapalı kalır. Bu,
         # kuyruk satırları arasında kaybolacak bir uyarı değil; işin
         # hatasına çıkar ki kullanıcı elle açması gerektiğini görsün.
         acik_kalmadi = {"var": False}
+        plan = ip_atama.plan(env, gruplar, portlar, switch_id)
+        gunluk_yolu = dosya.gunluk_yolu(f"ip-atama-set{env.set_no}")
+        gunluk = gunluk_yolu.open("w", encoding="utf-8")
+
+        ilerleme = ip_atama.Ilerleme(
+            is_, plan["satirlar"],
+            gunluk=lambda s: (gunluk.write(s + "\n"), gunluk.flush()))
 
         def satir(metin: str):
-            adim["n"] += 1
             if "PORTLAR KAPALI KALMIŞ" in metin:
                 acik_kalmadi["var"] = True
-            is_.ozel_satir(f"adim{adim['n']}", metin,
-                           durum=_ip_satir_durumu(metin))
+            ilerleme.satir(metin)
 
-        # İptal bayrağı betiğe kadar gider: kullanıcı durdurunca betik
-        # kendi Ctrl-C yolundan geçip PoE portlarını geri açar.
-        kod = ip_atama.kosu(env, switch_id, portlar, satir,
-                            korumali=korumali, gruplar=gruplar,
-                            ayarlar=ayarlar, iptal=is_.iptal.is_set)
+        try:
+            # İptal bayrağı betiğe kadar gider: kullanıcı durdurunca betik
+            # kendi Ctrl-C yolundan geçip PoE portlarını geri açar.
+            kod = ip_atama.kosu(env, switch_id, portlar, satir,
+                                korumali=korumali, gruplar=gruplar,
+                                ayarlar=ayarlar, iptal=is_.iptal.is_set)
+        finally:
+            ilerleme.bitir()
+            gunluk.close()
+            # Ham çıktı kaybolmuyor, yalnız yolundan çekiliyor: satır
+            # olarak değil, açılabilir bir dosya olarak duruyor.
+            is_.ozel_satir("gunluk", gunluk_yolu.name, durum="tamam",
+                           not_="Koşunun ham çıktısı", yol=str(gunluk_yolu))
+
         sw = env.bul(switch_id)
         if acik_kalmadi["var"]:
             is_.hata = (
@@ -245,13 +306,26 @@ def _konfig_alanlari(env, c, grup: str) -> dict:
 
 
 def konfig_isi(env, cihazlar, grup=""):
+    """Konfigürasyon yazımı — cihazlar PARALEL işlenir.
+
+    Sırayla yürüyordu ve bekleme süreleri uç uca ekleniyordu: her cihazda
+    okuma + yazma + doğrulama okuması var, SIP yazılan cihazda bir de
+    yeniden başlatma bekleniyor. On iki intercomluk bir sette bu, tek
+    başına dakikalar demekti — üstelik beklemenin çoğu ağ cevabı,
+    panelin işi değil.
+
+    Genişlik firmware ile aynı (`ayar.KONFIG_WORKER`), taramadan dar:
+    yazma cihazı yeniden başlatabiliyor ve aynı anda bir switch'in
+    arkasındaki her şeyi karartmak sahadaki kişinin görüşünü de zorlar.
+    """
     def govde(is_: isler.Is):
         for c in cihazlar:
             is_.satir_kur(c)
-        for c in cihazlar:
+
+        def tek(c):
             if is_.iptal.is_set():
                 is_.satir_guncelle(c.id, "atlandi", "İptal edildi")
-                continue
+                return
             is_.satir_guncelle(c.id, isler.CALISIYOR, "Uygulanıyor")
             try:
                 sonuc = konfig.uygula(c, env, _kimlik(c), grup)
@@ -268,6 +342,15 @@ def konfig_isi(env, cihazlar, grup=""):
                 is_.satir_guncelle(c.id, "kimlik", kullanici_mesaji(exc))
             except Exception as exc:
                 is_.satir_guncelle(c.id, "hata", kullanici_mesaji(exc))
+
+        if not cihazlar:
+            return
+        havuz = ThreadPoolExecutor(
+            max_workers=min(ayar.KONFIG_WORKER, len(cihazlar)))
+        try:
+            list(havuz.map(tek, cihazlar))
+        finally:
+            havuz.shutdown(wait=True)
 
     return govde
 
@@ -534,6 +617,15 @@ class Handler(BaseHTTPRequestHandler):
             sw = _cihaz(env, sw_id)
             return self._gonder(200, ip_atama.onpanel(env, sw.id, _kimlik(sw)))
 
+        if yol == "/api/ip/korunan":
+            # Koşunun dokunmaması gereken portların tamamı. İstemci hiçbir
+            # şey seçmez: bilgisayarın yeri de switch'ler arası bağlantılar
+            # da MAC öğrenme tablolarından çıkar. Ayakta olmayan switch
+            # kendi zaman aşımıyla düşer, diğerlerini bekletmez.
+            env = _env(tek("set", 1))
+            return self._gonder(
+                200, ip_atama.korunan_portlar(env, kimlik_al=_kimlik))
+
         if yol == "/api/konfig/alanlar":
             # Cihaza HİÇ gitmeyen hızlı uç: alan listesi, hedefler ve
             # DeviceMap değerleri. Grup değiştirilince ekran bunu bekler,
@@ -684,8 +776,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if yol == "/api/tarama":
             env = _env(g.get("set"))
-            is_ = isler.Is("tarama", f"Tam tarama · Set {env.set_no}",
-                           env.set_no, anahtar=f"tarama:{env.set_no}")
+            # `otomatik`: arayüzün dakikalık keşif turu. Ne yaptığı aynı;
+            # yalnız kuyruk geçmişinde birikmemesi ve elle başlatılan
+            # taramadan ayırt edilebilmesi için işaretlenir.
+            oto = g.get("otomatik") is True
+            baslik = "Otomatik tarama" if oto else "Tam tarama"
+            is_ = isler.Is("tarama", f"{baslik} · Set {env.set_no}",
+                           env.set_no, anahtar=f"tarama:{env.set_no}",
+                           otomatik=oto)
             for c in env.cihazlar:
                 is_.satir_kur(c)
             is_, yeni = isler.YONETICI.ekle(is_, tarama_isi(env))
@@ -751,17 +849,29 @@ class Handler(BaseHTTPRequestHandler):
             izinli = set(ip_atama.izinli_portlar(env, sw.id))
             portlar = ip_atama.portlar_ayristir(str(g.get("portlar", "")), izinli)
             # Koşunun dokunmaması gereken portlar. İkisi de fiziksel
-            # gerçek: bilgisayar bir switch'in bir portunda, iki switch de
-            # birbirine bir portla bağlı. Yalnız hedef switch'e ait olanlar
-            # bu koşuyu ilgilendirir.
+            # gerçek: bilgisayar bir switch'in bir portunda, switch'ler de
+            # birbirine birer portla bağlı. Yalnız hedef switch'e ait
+            # olanlar bu koşuyu ilgilendirir.
+            #
+            # Liste İSTEMCİDEN ALINMAZ, koşu başlarken YENİDEN bulunur:
+            # arayüzdeki bulgu dakikalarca eski olabilir, bu arada kablo
+            # başka porta takılmış olabilir. Yanılma payı burada PoE'yi
+            # kendi bağlantımızın üstünde kapatmak demek.
             korumali: dict[int, str] = {}
-            pc_sw = str(g.get("pcSwitch") or "")
-            pc = g.get("pcPort")
-            if (not pc_sw or pc_sw == sw.id) and str(pc).isdigit():
-                korumali[int(pc)] = "bilgisayar bu porta bağlı"
-            bag = g.get("baglanti")
-            if isinstance(bag, dict) and str(bag.get(sw.id, "")).isdigit():
-                korumali[int(bag[sw.id])] = "diğer switch'e giden bağlantı"
+            try:
+                for p in ip_atama.korunan_portlar(env, kimlik_al=_kimlik)["portlar"]:
+                    if p["switchId"] == sw.id:
+                        korumali[int(p["port"])] = p["sebep"]
+            except Exception:
+                pass
+            # Keşif çalışmadıysa (switch o an cevap vermedi) arayüzün son
+            # bulgusuna düşülür — hiç korumamaktan iyidir.
+            if not korumali:
+                for p in (g.get("korunan") or []):
+                    if (isinstance(p, dict) and p.get("switchId") == sw.id
+                            and str(p.get("port", "")).isdigit()):
+                        korumali[int(p["port"])] = str(
+                            p.get("sebep") or "korunan bağlantı")[:80]
             # Kuyruğa girmeden burada da denetlenir: kullanıcı hatayı
             # düğmeye bastığı anda görsün, bir de kuyrukta ölü iş kalmasın.
             ip_atama.korumali_denetle(portlar, korumali)
@@ -799,10 +909,11 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as exc:
                 return self._gonder(400, {"hata": str(exc)})
 
-            baslik = gruplar[0] if len(gruplar) == 1 else f"{len(gruplar)} grup"
-            is_ = isler.Is("ip",
-                           f"IP atama · {sw.ad} · {baslik} · "
-                           f"{ip_atama.metin_yap(portlar)}",
+            # Başlık kısa tutulur: kuyruk kartında tek satıra sığmayınca
+            # üç noktayla kırpılıyor ve "IP ATAMA · YATAKLI_2 · ..."
+            # dışında hiçbir şey okunmuyordu. Grup ve port bilgisi zaten
+            # satırlarda ve aşama metninde duruyor.
+            is_ = isler.Is("ip", f"IP atama · {sw.ad}",
                            env.set_no, anahtar=f"ip:{env.set_no}:{sw.id}")
             is_, yeni = isler.YONETICI.ekle(
                 is_, ip_isi(env, sw.id, portlar, korumali, gruplar, ayarlar))
@@ -1025,11 +1136,25 @@ class Handler(BaseHTTPRequestHandler):
 
         Tam tarama sürerken çalışmaz: aynı cihaza iki taraftan istek
         gitmesi hem cihazı yorar hem sonuçları karıştırır.
+
+        Cihaza YAZAN bir koşu (IP atama, konfigürasyon, yazılım yükleme)
+        sürerken de çalışmaz. Kuyruk tek işçili olduğu için tam tarama bu
+        koşularla asla çakışmaz; hafif yenileme ise kuyruğa girmeden,
+        isteği karşılayan iş parçacığında okuma yapar — tek çakışabilen
+        yol burasıdır. Koşu sırasında cihaz yeniden başlıyor ya da PoE
+        portu kapalı oluyor; araya giren okuma o geçici hâli kalıcı sonuç
+        diye yazardı.
         """
         env = _env(g.get("set"))
         if isler.YONETICI.aktif(f"tarama:{env.set_no}"):
             return self._gonder(409, {
                 "hata": "Tam tarama sürüyor", "beklemede": True})
+        kosu = next((j for j in isler.YONETICI.liste()
+                     if j.tur in YAZAN_ISLER and j.set_no == env.set_no
+                     and j.durum == isler.CALISIYOR), None)
+        if kosu is not None:
+            return self._gonder(409, {"hata": f"{kosu.baslik} sürüyor",
+                                      "beklemede": True})
 
         gor = isler.gorunum(env.set_no)
         istenen = g.get("cihazlar")
@@ -1051,19 +1176,39 @@ class Handler(BaseHTTPRequestHandler):
         # panel de SIP dahili numarasını her zaman veremiyor; ikisi de
         # telemetriden tamamlanıyor (bkz. okuma.cihaz_oku).
         if any(c.yontem in ("mqtt", "app", "kyland", "adb") for c in hedefler):
-            try:
-                telemetri = _telemetri(env)
-            except Exception:
-                telemetri = None
+            telemetri = _telemetri_onbellekten(env.set_no)
+            if telemetri is None:
+                # Önbellek boş — keşif turu henüz çalışmamış olmalı. Bir kez
+                # toplanır, sonraki turlar oradan okur.
+                try:
+                    telemetri = _telemetri(env)
+                    _telemetri_yaz(env.set_no, telemetri)
+                except Exception:
+                    telemetri = None
 
         ntp = env.piscu_ip()
-        for c in hedefler:
+
+        # Paralel okunur. Sırayla okunduğunda turun KENDİSİ cihaz sayısıyla
+        # birlikte uzuyordu (17 cihazda ~7 sn); arayüzün iki saniyede bir
+        # yenilemesinin bir anlamı kalmıyor, "canlı" görünen veri yedi
+        # saniye eskimiş oluyordu.
+        def tek(c):
+            # Nesil okumadan HEMEN önce alınır: paralel turda cihaz başına
+            # sıra numarası gerekiyor, tur başına değil (bkz. isler.cihaz_turu).
             nesil = isler.sonraki_nesil()
             sonuc = okuma.cihaz_oku(c, kimlik=_kimlik(c), telemetri=telemetri,
                                     timeout=min(ayar.OKUMA_TIMEOUT, 3.0),
                                     beklenen_ntp=ntp, pbx_ip=env.piscu_ip())
             sonuc.nesil = nesil
             gor.yaz(c.id, sonuc)
+
+        if hedefler:
+            havuz = ThreadPoolExecutor(
+                max_workers=min(ayar.HAFIF_WORKER, len(hedefler)))
+            try:
+                list(havuz.map(tek, hedefler))
+            finally:
+                havuz.shutdown(wait=True)
 
         return self._gonder(200, {**_durum_govdesi(env),
                                   "yenilenen": [c.id for c in hedefler]})
@@ -1141,6 +1286,8 @@ def temizle() -> None:
         piscu.DINLEYICI.dur()
     except Exception:
         pass
+    with _telemetri_kilit:
+        _telemetri_onbellek.clear()
     konfig.hedefleri_unut()
     firmware.temizle()
     kimlik_deposu.hepsini_unut()

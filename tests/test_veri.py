@@ -213,6 +213,119 @@ class TelemetriEslesmesi(PanelTesti):
         self.assertEqual(sonuc.alanlar["calisma"], "")
 
 
+class RetainedMesajCihazVarligiDegildir(PanelTesti):
+    """Broker'daki retained mesaj cihaz gittikten sonra da orada durur.
+
+    Sahada görülen: HMI kablosu takılı değilken panel onu yeşil
+    "Doğrulandı" gösteriyordu. Cihazın IP'si hiç cevap vermiyordu; panel
+    ise broker'da kalan mesajı okuyup ayakta sanıyordu. Üstelik gösterdiği
+    notun kendisi "disconnected" yazıyordu.
+
+    Buradaki yükler sahadaki broker'dan birebir alınmıştır.
+    """
+
+    HMI = {
+        "Name": "Hmi", "IP": "10.n.1.4", "IsActive": True,
+        "Type": "HMI", "SubType": "", "Port": "6", "Status": {},
+    }
+    ICU = {
+        "Name": "Icu", "IP": "10.n.1.2", "IsActive": True,
+        "Type": "ICU", "SubType": "", "Port": "5", "Status": {},
+    }
+
+    def _oku(self, canli, uygulama, tanim=None):
+        """Verilen broker görüntüsüyle tek cihazı okur.
+
+        `canli`   ALFA/DeviceMap kaydı (None: kayıt hiç yok)
+        `uygulama` ALFA/AppStatus mesajları {ClientId: yük}
+        """
+        from core import piscu
+
+        tanim = tanim or self.HMI
+        env = self.kur_harita(sahte.device_map([tanim],
+                                               switch_ip="10.n.1.100"))
+        t = piscu.Telemetri("10.1.1.1")
+        t.harita.clear()
+        if canli is not None:
+            t._ekle(tanim["IP"], canli, 1)
+        t.uygulama = uygulama
+        return okuma.cihaz_oku(env.tip_ile(tanim["Type"])[0], telemetri=t)
+
+    # ── AppStatus: son vasiyet (LWT) ──
+    def test_disconnected_lwt_yesile_gecmez(self):
+        """Sahadaki yük: {"ClientId": "...MCP...", "Status": "disconnected"}
+
+        DeviceIP, HWID, Version alanlarının hiçbiri yok. Panel bu kaydı
+        ClientId'ye bakarak buluyor ve boş alanlarla "doğrulandı" diyordu.
+        """
+        sonuc = self._oku(
+            {"IP": "10.n.1.4", "Status": {"NoError": False, "Uptime": -1}},
+            {"ClientManager_MCP_YATAKLI_1": {
+                "ClientId": "ClientManager_MCP_YATAKLI_1",
+                "Status": "disconnected"}})
+        self.assertEqual(sonuc.durum, dogrulama.KIRMIZI)
+        self.assertIn("bağlı değil", sonuc.aciklama)
+        self.assertIn("disconnected", sonuc.aciklama)
+
+    def test_bagli_cihaz_yesil_kalir(self):
+        """Düzeltme çalışan cihazı bozmamalı."""
+        sonuc = self._oku(
+            {"IP": "10.n.1.4", "Status": {"NoError": True, "Uptime": 27241}},
+            {"ClientManager_MCP_YATAKLI_1": {
+                "ClientId": "ClientManager_MCP_YATAKLI_1",
+                "DeviceIP": "10.1.1.4", "HWID": "34DA8534",
+                "Status": "connected", "Version": "1.2.5"}})
+        self.assertEqual(sonuc.durum, dogrulama.YESIL)
+        self.assertEqual(sonuc.alanlar["surum"], "1.2.5")
+
+    def test_appstatus_connected_dese_de_canli_kayit_arizali_ise_yesil_olmaz(self):
+        """İki işaret çelişirse ayakta sayılmaz.
+
+        AppStatus mesajı cihaz gittikten sonra "connected" kalmış olabilir
+        (vasiyet yayınlanamadan güç kesilirse). PISCU'nun canlı kaydı ise
+        cihazı o an izliyor.
+        """
+        sonuc = self._oku(
+            {"IP": "10.n.1.4", "Status": {"NoError": False, "Uptime": -1}},
+            {"ClientManager_MCP_YATAKLI_1": {
+                "ClientId": "ClientManager_MCP_YATAKLI_1",
+                "DeviceIP": "10.1.1.4", "HWID": "34DA8534",
+                "Status": "connected", "Version": "1.2.5"}})
+        self.assertEqual(sonuc.durum, dogrulama.KIRMIZI)
+        self.assertIn("NoError=false", sonuc.aciklama)
+
+    def test_status_yazmayan_eski_yuk_canli_kayitla_degerlendirilir(self):
+        """AppStatus'ta Status alanı yoksa tek işaret canlı kayıttır."""
+        sonuc = self._oku(
+            {"IP": "10.n.1.4", "Status": {"NoError": True, "Uptime": 100}},
+            {"ClientManager_MCP_YATAKLI_1": {
+                "ClientId": "ClientManager_MCP_YATAKLI_1",
+                "DeviceIP": "10.1.1.4", "Version": "1.2.5"}})
+        self.assertEqual(sonuc.durum, dogrulama.YESIL)
+
+    # ── canlı DeviceMap kaynaklı cihazlar (ICU, AP, LED, Landing LCD) ──
+    def test_arizali_cihaz_uygulanmiyor_degil_hata_olur(self):
+        """Kapalı cihaz "N/A" (gri) gösteriliyordu.
+
+        Gri "bu cihazda bu denetim yok" demek. Burada denetim yapıldı ve
+        cihaz arızalı bildirildi — bu bir sonuçtur, yokluk değil.
+        """
+        sonuc = self._oku(
+            {"IP": "10.n.1.2", "Status": {"NoError": False, "Uptime": -1}},
+            {}, tanim=self.ICU)
+        self.assertEqual(sonuc.durum, dogrulama.KIRMIZI)
+        self.assertEqual(sonuc.dogrulama, dogrulama.DOGRULANAMADI)
+        self.assertIn("arızalı/kapalı", sonuc.aciklama)
+
+    def test_saglam_mqtt_cihazi_yesil_kalir(self):
+        sonuc = self._oku(
+            {"IP": "10.n.1.2", "SerialNumber": "ICU-9",
+             "Status": {"NoError": True, "Uptime": 500, "Version": "2.0"}},
+            {}, tanim=self.ICU)
+        self.assertEqual(sonuc.durum, dogrulama.YESIL)
+        self.assertEqual(sonuc.alanlar["seri"], "ICU-9")
+
+
 # ── Compartment LCD / ADB ───────────────────────────────────────────────
 DUMPSYS = """Packages:
   Package [com.piton.train_lcd_panel] (5b3a8c0):

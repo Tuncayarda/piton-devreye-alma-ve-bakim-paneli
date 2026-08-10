@@ -111,11 +111,19 @@ def _yaz(self, kod: int, govde: bytes, ctype: str, ek: dict | None = None):
 
 
 # ─────────────────────────────────────────────────────── KYLAND switch ────
-def kyland(kullanici="admin", parola="123", giris_sayfasi=False):
+def kyland(kullanici="admin", parola="123", giris_sayfasi=False,
+           mac_tablosu=None, mac=None):
     """Basic Auth isteyen KYLAND switch taklidi.
 
     `giris_sayfasi=True` ise DOĞRU kimlikle bile JSON yerine oturum açma
     HTML'ini 200 ile döndürür — panel bunu başarı saymamalıdır.
+
+    `mac_tablosu` {mac: port} verilirse `stat/macQuery` cevabı üretilir;
+    verilmezse uç 404 döner (MAC tablosunu vermeyen switch).
+
+    `mac` switch'in KENDİ MAC'ini değiştirir: komşunun tablosunda bunu
+    aramak switch'ler arası bağlantı portunu veriyor, o yüzden iki sahte
+    switch'in aynı MAC'i taşımaması gerekiyor.
     """
     beklenen = "Basic " + base64.b64encode(
         f"{kullanici}:{parola}".encode()).decode()
@@ -130,10 +138,20 @@ def kyland(kullanici="admin", parola="123", giris_sayfasi=False):
             return self.yaz(200, GIRIS_HTML, "text/html")
         yol = self.path.split("?")[0]
         if yol == "/stat/basicInfo":
-            return self.yaz(200, json.dumps(BASIC_INFO).encode(),
+            govde = BASIC_INFO
+            if mac:
+                govde = {"basicInfo": {**BASIC_INFO["basicInfo"],
+                                       "macAddress": mac}}
+            return self.yaz(200, json.dumps(govde).encode(),
                             "application/json")
         if yol == "/stat/portMode":
             return self.yaz(200, json.dumps(PORT_MODE).encode(),
+                            "application/json")
+        if yol == "/stat/macQuery" and mac_tablosu:
+            # Sahadaki biçim: port üst seviyede değil, portList içinde.
+            govde = {"macQuery": [{"mac": m, "portList": [{"pid": p}]}
+                                  for m, p in mac_tablosu.items()]}
+            return self.yaz(200, json.dumps(govde).encode(),
                             "application/json")
         return self.yaz(404, b'{"error":"yok"}', "application/json")
 
