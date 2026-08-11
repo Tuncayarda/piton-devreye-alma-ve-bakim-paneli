@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Devreye Alma Paneli — yerel HTTP servisi.
+"""Devreye Alma Paneli — ortak servis ve isteğe bağlı HTTP adaptörü.
 
-Tarayıcı ya da uygulama penceresi burayla konuşur; cihazlara yalnızca bu
-süreç bağlanır.
+Masaüstü penceresi ``PanelService`` işlemlerini pywebview köprüsü üzerinden
+doğrudan çağırır; varsayılan kipte HTTP sunucusu ve TCP portu açılmaz.
+``Handler`` yalnız açıkça seçilen tarayıcı/tanı kipinin adaptörüdür.
+Cihazlara her iki kipte de yalnızca bu süreç bağlanır.
 
 Güvenlik kabulleri:
-  · Yalnız 127.0.0.1 dinlenir. Dış ağ arayüzlerine açılmaz, CORS açılmaz.
+  · HTTP adaptörü yalnız 127.0.0.1 dinler. Dış arayüze açılmaz, CORS açılmaz.
   · İstemci hiçbir zaman bir IP ya da cihaz türü göndererek hedef
     seçemez. Yalnızca cihaz kimliği (id) gönderir; hedef DeviceMap'ten
     bulunur. Böylece arayüzdeki bir açık, panelin rastgele bir adrese
@@ -29,6 +31,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -45,6 +48,26 @@ _ADMIN_PAROLA: str | None = None
 # Cihaza YAZAN iş türleri — okuyan (tarama, hafif yenileme) türlerden ayrı
 # tutulur, çünkü bunlar sürerken cihazdan okunan şey geçicidir.
 YAZAN_ISLER = ("ip", "ipfab", "cfg", "fw")
+
+# Uygulama servisinin başlangıcı HTTP sunucusuna bağlı değildir. Masaüstü
+# köprüsü de aynı yolu kullanır; birden fazla adaptör kurulsa bile kalıcı
+# varsayılanlar yalnız bir kez yüklenir.
+_BASLATMA_KILIT = threading.Lock()
+_BASLATILDI = False
+_BASLATMA_SONUCU = 0
+
+
+def baslat() -> int:
+    """Panel durumunu kullanıma hazırlar; tekrar çağrılması güvenlidir."""
+    global _BASLATILDI, _BASLATMA_SONUCU
+    with _BASLATMA_KILIT:
+        if not _BASLATILDI:
+            _BASLATMA_SONUCU = konfig.varsayilanlari_yukle()
+            _BASLATILDI = True
+        # `temizle()` kuyruğu kapatır. Aynı süreçte yeniden servis kurulursa
+        # iş yöneticisinin açık olduğundan emin ol.
+        isler.YONETICI.ac()
+        return _BASLATMA_SONUCU
 
 
 def admin_parolasi_ayarla(parola: str | None) -> None:
@@ -434,90 +457,104 @@ def excel_isi(env):
     return govde
 
 
-# ────────────────────────────────────────────────────────────── HTTP ──────
-class Handler(BaseHTTPRequestHandler):
-    server_version = "DevreyeAlmaPaneli/1.0"
-    protocol_version = "HTTP/1.1"
+# ─────────────────────────────────────────────────── uygulama servisi ─────
+@dataclass(frozen=True)
+class ApiYanit:
+    """Taşıma katmanından bağımsız API sonucu."""
 
-    # ---- alt yapı ----
-    def _gonder(self, kod: int, yuk, ctype="application/json; charset=utf-8"):
-        govde = (json.dumps(yuk, ensure_ascii=False).encode("utf-8")
-                 if not isinstance(yuk, (bytes, bytearray)) else yuk)
-        self.send_response(kod)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(govde)))
-        self.send_header("Cache-Control", "no-store, must-revalidate")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        try:
-            self.wfile.write(govde)
-        except (BrokenPipeError, ConnectionResetError):
-            pass
+    kod: int
+    govde: object
 
-    def _govde(self) -> dict:
-        """POST gövdesini okur; tip ve boyut denetiminden geçirir."""
-        try:
-            n = int(self.headers.get("Content-Length", 0))
-        except ValueError:
-            raise ValueError("Content-Length geçersiz")
-        if n < 0 or n > ayar.GOVDE_SINIRI:
-            raise ValueError("İstek gövdesi çok büyük")
-        if not n:
+
+class PanelService:
+    """Panel kullanım senaryoları; HTTP ve pywebview bilmez."""
+
+    @staticmethod
+    def baslat() -> int:
+        return baslat()
+
+    @staticmethod
+    def _gonder(kod: int, yuk) -> ApiYanit:
+        return ApiYanit(int(kod), yuk)
+
+    @staticmethod
+    def _tek(q: dict, ad: str, vars=None):
+        deger = q.get(ad, vars)
+        if isinstance(deger, (list, tuple)):
+            return deger[0] if deger else vars
+        return deger
+
+    @staticmethod
+    def _govde_dogrula(govde) -> dict:
+        if govde is None:
             return {}
-        try:
-            veri = json.loads(self.rfile.read(n))
-        except ValueError:
-            raise ValueError("Gövde geçerli JSON değil")
-        if not isinstance(veri, dict):
+        if not isinstance(govde, dict):
             raise ValueError("Gövde bir nesne olmalı")
-        return veri
-
-    def _dosya(self, gorece: str):
-        """static/ altındaki dosyayı gönderir; dizin dışına çıkılamaz.
-
-        Yol çözüldükten (`resolve`) sonra static kökünün altında olduğu
-        denetlenir: '..', sembolik bağ ya da yüzde kodlaması ile dışarı
-        çıkma denemesi bu denetimde takılır.
-        """
-        temel = ayar.STATIC_DIR.resolve()
+        # HTTP adaptöründeki byte sınırının doğrudan bridge çağrısıyla
+        # aşılmasına izin verme. Parola bu geçici JSON dışında saklanmaz.
         try:
-            yol = (temel / unquote(gorece).lstrip("/")).resolve()
-            yol.relative_to(temel)
-        except (OSError, ValueError):
-            return self._gonder(404, {"hata": "yok"})
-        if not yol.is_file():
-            return self._gonder(404, {"hata": "yok"})
-        tur, _ = mimetypes.guess_type(yol.name)
-        if yol.suffix == ".js":
-            tur = "text/javascript; charset=utf-8"
-        elif yol.suffix == ".css":
-            tur = "text/css; charset=utf-8"
-        elif yol.suffix == ".html":
-            tur = "text/html; charset=utf-8"
-        return self._gonder(200, yol.read_bytes(), tur or "application/octet-stream")
+            ham = json.dumps(govde, ensure_ascii=False).encode("utf-8")
+        except (TypeError, ValueError):
+            raise ValueError("Gövde JSON uyumlu olmalı")
+        if len(ham) > ayar.GOVDE_SINIRI:
+            raise ValueError("İstek gövdesi çok büyük")
+        return govde
 
-    def log_message(self, fmt, *args):
-        pass
-
-    # ---- GET ----
-    def do_GET(self):
-        u = urlparse(self.path)
-        q = parse_qs(u.query)
-        yol = u.path
+    def cagir(self, method: str, yol: str, query=None, body=None) -> ApiYanit:
+        """Bir API yolunu çağır; beklenen hataları durum koduna dönüştür."""
         try:
-            if yol in ("/", "/index.html"):
-                return self._dosya("index.html")
-            if yol.startswith(("/css/", "/js/")) or yol in (
-                    "/piton-logo.svg", "/piton-favicon.png"):
-                return self._dosya(yol)
-            if yol.startswith("/api/"):
-                return self._api_get(yol, q)
-            return self._gonder(404, {"hata": "bilinmeyen yol"})
+            self.baslat()
+            if not isinstance(yol, str):
+                raise ValueError("API yolu metin olmalı")
+            u = urlparse(yol)
+            # Bridge'e tam URL verilemez; yalnız uygulamanın kendi API yolu.
+            if u.scheme or u.netloc or not u.path.startswith("/api/"):
+                return self._gonder(404, {"hata": "bilinmeyen yol"})
+            q = query if query is not None else parse_qs(u.query)
+            if not isinstance(q, dict):
+                raise ValueError("Sorgu bir nesne olmalı")
+            yontem = str(method or "").upper()
+            if yontem == "GET":
+                return self._api_get(u.path, q)
+            if yontem == "POST":
+                return self._api_post(u.path, self._govde_dogrula(body))
+            return self._gonder(405, {"hata": "desteklenmeyen yöntem"})
+        except LookupError as exc:
+            return self._gonder(404, {"hata": str(exc)})
+        except ValueError as exc:
+            return self._gonder(400, {"hata": str(exc)})
+        except KimlikHatasi as exc:
+            return self._gonder(401, {
+                "hata": kullanici_mesaji(exc), "kimlik": True})
+        except CihazHatasi as exc:
+            return self._gonder(502, {"hata": kullanici_mesaji(exc)})
         except Exception:
-            self._hata_yanit()
+            # Ham iz yalnız stderr'e gider; bridge/HTTP gövdesine girmez.
+            sys.stderr.write(traceback.format_exc())
+            return self._gonder(
+                500, {"hata": "Panelde beklenmeyen bir sorun oluştu"})
+
+    def zarfli_cagir(self, method: str, yol: str,
+                     query=None, body=None) -> dict:
+        """Masaüstü köprüsü için yalnız JSON türlerinden güvenli zarf."""
+        yanit = self.cagir(method, yol, query=query, body=body)
+        try:
+            # HTTP'nin JSON dönüşümüyle aynı normalizasyonu yap; Path,
+            # bytes veya özel nesne yanlışlıkla köprüye sızmasın.
+            govde = json.loads(json.dumps(yanit.govde, ensure_ascii=False))
+        except Exception:
+            sys.stderr.write(traceback.format_exc())
+            yanit = ApiYanit(
+                500, {"hata": "Panelde beklenmeyen bir sorun oluştu"})
+            govde = yanit.govde
+        return {
+            "ok": 200 <= yanit.kod < 400,
+            "status": yanit.kod,
+            "body": govde,
+        }
 
     def _api_get(self, yol: str, q: dict):
-        tek = lambda ad, vars=None: (q.get(ad) or [vars])[0]     # noqa: E731
+        tek = lambda ad, vars=None: self._tek(q, ad, vars)       # noqa: E731
 
         if yol == "/api/surum":
             return self._gonder(200, {
@@ -773,26 +810,6 @@ class Handler(BaseHTTPRequestHandler):
                     "için PBX'ten değil, cihazların kendi bildirdiği "
                     "değerlerden gösteriliyor."),
         }
-
-    # ---- POST ----
-    def do_POST(self):
-        u = urlparse(self.path)
-        try:
-            govde = self._govde()
-        except ValueError as exc:
-            return self._gonder(400, {"hata": str(exc)})
-        try:
-            return self._api_post(u.path, govde)
-        except LookupError as exc:
-            self._gonder(404, {"hata": str(exc)})
-        except ValueError as exc:
-            self._gonder(400, {"hata": str(exc)})
-        except KimlikHatasi as exc:
-            self._gonder(401, {"hata": kullanici_mesaji(exc), "kimlik": True})
-        except CihazHatasi as exc:
-            self._gonder(502, {"hata": kullanici_mesaji(exc)})
-        except Exception:
-            self._hata_yanit()
 
     def _api_post(self, yol: str, g: dict):
         if yol == "/api/admin/giris":
@@ -1298,16 +1315,116 @@ class Handler(BaseHTTPRequestHandler):
             "cihaz": _cihaz_dto(c, gor.al(c.id)),
         })
 
+
+SERVIS = PanelService()
+
+
+def api_cagir(method: str, yol: str, query=None, body=None) -> ApiYanit:
+    """HTTP dışındaki adaptörler için ortak API çağrısı."""
+    return SERVIS.cagir(method, yol, query=query, body=body)
+
+
+def api_zarfi(method: str, yol: str, query=None, body=None) -> dict:
+    """Pywebview köprüsünün doğrudan döndürebileceği güvenli JSON zarfı."""
+    return SERVIS.zarfli_cagir(method, yol, query=query, body=body)
+
+
+# ─────────────────────────────────────────────────────── HTTP adaptörü ─────
+class Handler(BaseHTTPRequestHandler):
+    server_version = "DevreyeAlmaPaneli/1.0"
+    protocol_version = "HTTP/1.1"
+
+    def _gonder(self, kod: int, yuk, ctype="application/json; charset=utf-8"):
+        govde = (json.dumps(yuk, ensure_ascii=False).encode("utf-8")
+                 if not isinstance(yuk, (bytes, bytearray)) else yuk)
+        self.send_response(kod)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(govde)))
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        try:
+            self.wfile.write(govde)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _govde(self) -> dict:
+        """POST gövdesini okur; tip ve boyut denetiminden geçirir."""
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+        except ValueError:
+            raise ValueError("Content-Length geçersiz")
+        if n < 0 or n > ayar.GOVDE_SINIRI:
+            raise ValueError("İstek gövdesi çok büyük")
+        if not n:
+            return {}
+        try:
+            veri = json.loads(self.rfile.read(n))
+        except ValueError:
+            raise ValueError("Gövde geçerli JSON değil")
+        if not isinstance(veri, dict):
+            raise ValueError("Gövde bir nesne olmalı")
+        return veri
+
+    def _dosya(self, gorece: str):
+        """static/ altındaki dosyayı gönderir; dizin dışına çıkılamaz."""
+        temel = ayar.STATIC_DIR.resolve()
+        try:
+            yol = (temel / unquote(gorece).lstrip("/")).resolve()
+            yol.relative_to(temel)
+        except (OSError, ValueError):
+            return self._gonder(404, {"hata": "yok"})
+        if not yol.is_file():
+            return self._gonder(404, {"hata": "yok"})
+        tur, _ = mimetypes.guess_type(yol.name)
+        if yol.suffix == ".js":
+            tur = "text/javascript; charset=utf-8"
+        elif yol.suffix == ".css":
+            tur = "text/css; charset=utf-8"
+        elif yol.suffix == ".html":
+            tur = "text/html; charset=utf-8"
+        return self._gonder(200, yol.read_bytes(), tur or "application/octet-stream")
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        try:
+            if u.path in ("/", "/index.html"):
+                return self._dosya("index.html")
+            if u.path.startswith(("/css/", "/js/")) or u.path in (
+                    "/piton-logo.svg", "/piton-favicon.png"):
+                return self._dosya(u.path)
+            if not u.path.startswith("/api/"):
+                return self._gonder(404, {"hata": "bilinmeyen yol"})
+            yanit = SERVIS.cagir("GET", u.path, query=parse_qs(u.query))
+            return self._gonder(yanit.kod, yanit.govde)
+        except Exception:
+            self._hata_yanit()
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        try:
+            govde = self._govde()
+        except ValueError as exc:
+            return self._gonder(400, {"hata": str(exc)})
+        try:
+            yanit = SERVIS.cagir("POST", u.path, body=govde)
+            return self._gonder(yanit.kod, yanit.govde)
+        except Exception:
+            self._hata_yanit()
+
     def _hata_yanit(self):
-        """Beklenmeyen hata: kullanıcıya sade metin, loga ayrıntı."""
-        iz = traceback.format_exc()
-        sys.stderr.write(iz)
+        """HTTP adaptörü hatası: sade yanıt, ayrıntı yalnız stderr."""
+        sys.stderr.write(traceback.format_exc())
         self._gonder(500, {"hata": "Panelde beklenmeyen bir sorun oluştu"})
 
 
 # ─────────────────────────────────────────────────────────── kapanış ──────
 def temizle() -> None:
     """Uygulama kapanırken: kuyruk, dinleyici ve bellekteki kimlikler."""
+    global _BASLATILDI, _BASLATMA_SONUCU
     try:
         isler.YONETICI.kapat()
     except Exception:
@@ -1321,16 +1438,16 @@ def temizle() -> None:
     konfig.hedefleri_unut()
     firmware.temizle()
     kimlik_deposu.hepsini_unut()
+    with _BASLATMA_KILIT:
+        _BASLATILDI = False
+        _BASLATMA_SONUCU = 0
 
 
 def sunucu(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
     """Yalnız yerel arayüzde dinleyen sunucu."""
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        raise ValueError("Bu servis yalnızca localhost üzerinde çalışır")
-    # Konfigürasyon varsayılanları açılışta dosyadan gelir (parola hariç;
-    # o hiç yazılmaz). İki giriş noktası da (app.py ve main) buradan
-    # geçtiği için yükleme tek yerde duruyor.
-    konfig.varsayilanlari_yukle()
+    if host != "127.0.0.1":
+        raise ValueError("Bu servis yalnızca 127.0.0.1 üzerinde çalışır")
+    baslat()
     return ThreadingHTTPServer((host, port), Handler)
 
 
@@ -1356,7 +1473,8 @@ def main() -> int:
         print(f"[HATA] {a.port} portu açılamadı: {exc}")
         return 1
 
-    print(f"API: http://127.0.0.1:{a.port}   (durdurmak için Ctrl-C)")
+    gercek_port = int(srv.server_address[1])
+    print(f"API: http://127.0.0.1:{gercek_port}   (durdurmak için Ctrl-C)")
     print(f"DeviceMap: {ayar.DEVICE_MAP}")
     print("Kimlik bilgileri arayüzden istenir, hiçbir yere yazılmaz.")
     t = threading.Thread(target=srv.serve_forever, daemon=True)

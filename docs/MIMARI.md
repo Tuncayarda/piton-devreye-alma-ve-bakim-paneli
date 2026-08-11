@@ -38,30 +38,32 @@ Bağımlılıklar kurulduktan sonra doğrudan açılış: `python3 app.py`
 
 | Komut | Ne yapar |
 |---|---|
-| `python3 app.py` | Masaüstü penceresini açar (pywebview) |
-| `python3 app.py --tarayici` | Pencere yerine varsayılan tarayıcıda açar |
-| `python3 app.py --port 8790` | Yerel servisi belirtilen portta açar |
+| `python3 app.py` | HTTP/loopback kullanmadan pywebview penceresini açar |
+| `python3 app.py --tarayici` | HTTP tabanlı geliştirme/tanı kipini varsayılan tarayıcıda açar |
+| `python3 app.py --tarayici --port 8790` | Tanı servisinin portunu sabitler |
 | `python3 app.py --admin-parolasi ****` | Admin rolü seçim ekranına parola denetimi ekler; uygulama bu değeri kalıcılaştırmaz |
-| `python3 app.py --self-test` | Pencere açmadan paketi ve yalnız `127.0.0.1` üzerindeki yerel servisi doğrular; cihaz ağına bağlanmaz |
+| `python3 app.py --self-test` | Pencere/soket açmadan tek HTML paketini ve üretim köprüsünü doğrular; cihaz ağına bağlanmaz |
 | `python3 app.py --version` | Uygulama sürümünü yazdırır |
 | `python3 panel_api.py --port 8790` | Yalnız API (hata ayıklama) |
 | `python3 -m unittest discover -s tests -t .` | Bütün testler |
 
 Admin şifresi verilmezse admin ekranı şifresiz açılır. Şifre yalnız
 bellekte tutulur ve `secrets.compare_digest` ile karşılaştırılır. Bu denetim,
-yerel arayüzde Admin rolüne geçiş kapısıdır; sunucu uçları için oturum veya
-yetkilendirme belirteci üretmez. Sunucunun güvenlik sınırı, yalnız geri döngü
-arayüzünde (`127.0.0.1`) dinlemesidir. Komut satırına yazılan bir değer kabuk
-geçmişinde ya da süreç listesinde görünebileceğinden işletim sistemi düzeyindeki
-komut geçmişi ayrıca dikkate alınmalıdır.
+yerel arayüzde Admin rolüne geçiş kapısıdır; servis işlemleri için oturum veya
+yetkilendirme belirteci üretmez. Normal masaüstü kipinde dinleyen bir sunucu
+yoktur ve köprü yalnız paket içindeki WebView'a açılır. İsteğe bağlı tarayıcı
+kipi ise yalnız geri döngü arayüzünde (`127.0.0.1`) dinler. Komut satırına
+yazılan bir değer kabuk geçmişinde ya da süreç listesinde görünebileceğinden
+işletim sistemi düzeyindeki komut geçmişi ayrıca dikkate alınmalıdır.
 
 ---
 
 ## 2. Katmanlar
 
 ```
-app.py            pywebview penceresi + yerel servisin ömrü
-panel_api.py      ThreadingHTTPServer, REST uçları, iş gövdeleri
+app.py            pywebview penceresi + uygulama ömrü (soket açmaz)
+masaustu.py       tek public invoke() içeren pywebview köprüsü
+panel_api.py      ortak PanelService + isteğe bağlı HTTP adaptörü
 core/
   ayar.py         sabitler, yollar, portlar, süreler
   betik.py        kardeş projelerdeki çalışan betikleri içe aktarma
@@ -81,12 +83,37 @@ core/
   firmware.py     yazılım yükleme (anons: HTTP imaj, LCD: adb APK)
   excel.py        kontrol listesi Excel çıktısı
   kontrol.py      Excel şablonunun ekran önizlemesi
-static/           index.html + css/ + js/ (vanilla ES modules, build yok)
+static/           modüler kaynaklar + üretilmiş tek parça masaustu.html
+tools/            Deno tabanlı deterministik masaüstü paketleyicisi
 tests/            unittest paketi + sahte cihazlar
 ```
 
-Arayüz tarafında Node.js, paketleyici ya da derleme adımı yoktur;
-`static/js` doğrudan tarayıcıya ES module olarak servis edilir.
+Tarayıcı tanı kipinde `static/js` doğrudan ES module olarak servis edilir.
+Üretim masaüstü kipinde aynı modül grafiği Deno 2.9.4 ile IIFE'ye paketlenir;
+CSS, logo ve favicon ile birlikte `static/masaustu.html` içine gömülür.
+`app.py` bu dosyayı belleğe okuyup `create_window(html=...)` ile açar ve
+yalnız `PanelKoprusu.invoke` metodunu `Window.expose(...)` izin listesine
+ekler. Köprü nesnesinin kendisi `js_api` olarak verilmez; gizli Python üyeleri
+WebView'ın çağrı ağacına girmez. Pywebview'a yerel dosya yolu verilmediği için
+pywebview'un dahili HTTP sunucusu da başlamaz.
+
+Tek HTML'in CSP'si `default-src 'none'` ve `connect-src 'none'` ile bütün ağ
+yüklemelerini kapatır; iki inline script yalnız SHA-256 özetleriyle açılır.
+Pywebview 6.2.1 köprü dönüşlerini sayfa bağlamına aktarırken kontrollü
+JavaScript değerlendirmesi kullandığı için `script-src` ayrıca
+`'unsafe-eval'` içerir. Bu izin kaldırıldığında köprü de çalışmaz; dış
+kaynaklara ve ağ bağlantılarına izin vermez.
+
+Görünümler taşıma ayrıntısını bilmez. `static/js/core/api.js` mevcut semantik
+metotları korur; tarayıcıda `fetch`, masaüstünde
+`window.pywebview.api.invoke(capability, method, path, body)` kullanır.
+`capability`, her pencere açılışında üretilen 256 bitlik ve 43 karakterlik
+oturum anahtarıdır; tek HTML'deki doğrulanmış meta alanına çalışma anında
+yerleştirilir. Yanlış anahtar 403 alır. Böylece WebView başka bir belgeye
+yönlense bile yeni belge yalnız açık fonksiyonun adını bilerek servisi
+çağıramaz.
+Köprü yanıtları `{ok, status, body}` zarfındadır. `panel_api.PanelService`
+aynı çağrıyı işler; HTTP Handler yalnız ayrıştırma/serileştirme adaptörüdür.
 
 ---
 
@@ -175,10 +202,13 @@ da yazılır ve o gruptaki diğer cihazlar için kullanılır.
 
 ### Kapanış
 
-`panel_api.temizle()` — pencere kapanınca `app.py`'nin `finally` bloğundan
-çağrılır: iş kuyruğu durdurulur, MQTT dinleyicisi kapatılır, konfigürasyon
-hedefleri ve firmware seçimi silinir, **bütün kimlikler unutulur**. Yeni
-açılışta şifre isteyen her cihaz için bilgi yeniden istenir.
+Pencere kapanınca önce yeni köprü çağrıları reddedilir ve o anda çalışan
+senkron çağrıların bitmesi süre sınırı olmadan beklenir. Ardından
+`panel_api.temizle()` iş kuyruğunu iptal eder; IP atama işinin PoE portlarını
+geri açan `finally` temizliği dâhil çalışan kuyruk işi tamamlanmadan süreç
+sonlandırılmaz. Son olarak MQTT dinleyicisi kapatılır, konfigürasyon hedefleri
+ve firmware seçimi silinir, **bütün kimlikler unutulur**. Yeni açılışta şifre
+isteyen her cihaz için bilgi yeniden istenir.
 
 ---
 
@@ -355,8 +385,12 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
 
 ## 8. API güvenliği
 
-- Yalnız `127.0.0.1` dinlenir; `panel_api.sunucu()` başka bir arayüz
-  isteğini reddeder. CORS başlığı gönderilmez.
+- Varsayılan masaüstü kipinde dinleyen TCP/HTTP soketi yoktur. Pywebview'a
+  tek public `invoke()` metodu açılır; oturum anahtarı, yöntem, yol, gövde
+  tipi ve boyutu doğrulanır. Dosya URL'leri, indirmeler ve uzaktan hata
+  ayıklama kapalıdır.
+- Yalnız açıkça seçilen tarayıcı/tanı kipinde `127.0.0.1` dinlenir;
+  `panel_api.sunucu()` başka bir arayüz isteğini reddeder ve CORS açılmaz.
 - Okuma, kimlik doğrulama, konfigürasyon ve yazılım yükleme uçlarında
   **istemci keyfî bağlantı hedefi seçemez**. Gövdeye `ip` ya da `type`
   eklemek hedefi değiştirmez; cihaz, DeviceMap'ten `cihazId` ile bulunur.
@@ -488,7 +522,7 @@ birleşir, sonraki öncekini ezer:
   doğrulama o alanı atlar: okunamaması "cihaz yazmadı" demek değildir.
 - Girilen değerler **kalıcıdır**: her değişiklikte kullanıcının veri
   dizinine (`ayar.veri_dizini()`, macOS'ta *Application Support*) yazılır ve
-  `panel_api.sunucu()` açılışta geri yükler. Gizli alan (SIP parolası)
+  `panel_api.baslat()` açılışta geri yükler. Gizli alan (SIP parolası)
   dosyaya HİÇ girmez; bozuk dosya, tanınmayan alan ya da geçersiz değer
   sessizce atlanır — eski bir dosya yüzünden panel açılmaz olmamalı, cihaza
   da tanımsız değer gitmemeli. "Kayıtlı Değerleri Sıfırla" dosyayı siler,
@@ -917,8 +951,8 @@ N/A ile "okunmadı"nın ayrı kaldığını, önizleme ile Excel çıktısının
 değeri verdiğini ve tarama sırasındaki canlı işlem durumunu doğrular.
 
 Test 19 `deno lint` + `deno check` kullanır. Deno kurulu değilse test
-atlanır (`brew install deno`); Python söz dizimi denetimi her koşulda
-çalışır.
+atlanır; masaüstü artefaktını üretmek ve güncelliğini doğrulamak için tam
+Deno 2.9.4 gerekir. Python söz dizimi denetimi her koşulda çalışır.
 
 ---
 

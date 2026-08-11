@@ -6,10 +6,10 @@ alma işlemlerini yönetmek için geliştirilmiş masaüstü uygulamasıdır. Pa
 anons ekipmanlarında yapılandırma, uygun cihazlarda yazılım yükleme ve Excel
 kontrol listesi üretme işlemlerini yürütür.
 
-> **Proje durumu:** Kaynak kod `0.9.4` sürümünü bildirir. Bu sürüm henüz
+> **Proje durumu:** Kaynak kod `0.9.5` sürümünü bildirir. Bu sürüm henüz
 > etiketlenip yayımlanmamıştır; hazırlanan değişiklikler
 > [değişiklik günlüğünde](docs/DEGISIKLIKLER.md) yer alır. Yayın için
-> `dap-v0.9.4` etiketi oluşturulmalıdır. `dap-v0.9.2` ve `dap-v0.9.3`
+> `dap-v0.9.5` etiketi oluşturulmalıdır. `dap-v0.9.2` ve `dap-v0.9.3`
 > etiketleri hiç oluşturulmadığından o sürümlerin değişiklikleri de bu
 > yayına girer.
 
@@ -30,7 +30,8 @@ kontrol listesi üretme işlemlerini yürütür.
   sisteminin Belgeler klasörüne aktarır.
 - Uzun işlemleri kuyrukta yürütür; aşama, ilerleme, cihaz/port sonucu ve ham
   günlük dosyasını ayrı ayrı gösterir.
-- Yerel API'yi yalnızca `127.0.0.1` üzerinde sunar. Arayüzde girilen erişim
+- Masaüstü arayüzünü HTTP ve loopback portu açmadan, pywebview'un doğrudan
+  Python–JavaScript köprüsü üzerinden çalıştırır. Arayüzde girilen erişim
   kimlikleri süreç belleğinde tutulur ve uygulama kapandığında silinir.
 
 ## Hızlı başlangıç
@@ -56,14 +57,14 @@ python -m pip install -r docs\requirements-windows.txt
 python app.py
 ```
 
-Masaüstü penceresi yerine varsayılan tarayıcıyı kullanmak için
+HTTP tabanlı geliştirme/tanı kipini varsayılan tarayıcıda kullanmak için
 `python app.py --tarayici` komutunu çalıştırın. Diğer seçenekler:
 
 | Seçenek | Açıklama |
 |---|---|
-| `--port 8790` | Yerel servisi belirtilen portta açar; varsayılan olarak boş bir port seçilir. |
+| `--port 8790` | Yalnız `--tarayici` ile birlikte HTTP portunu sabitler; `0` doğrudan işletim sistemine port seçtirir. |
 | `--admin-parolasi …` | Admin ekranını parola ile korur; değer kalıcı depoya yazılmaz. |
-| `--self-test` | Pencereyi açmadan paket ve yerel servis denetimlerini çalıştırır. |
+| `--self-test` | Pencere ve soket açmadan tek HTML paketini ve üretim köprüsünü doğrular. |
 | `--version` | Yalnızca uygulama sürümünü yazdırır. |
 
 ## Doğrulama
@@ -73,10 +74,12 @@ Aşağıdaki komutlar pencere açmaz ve gerçek cihazlara bağlanmaz:
 ```bash
 python app.py --self-test
 python -m unittest discover -s tests -t .
+python tools/masaustu_paketi.py --check
 ```
 
-Testler sahte cihaz sunucuları kullanır. JavaScript söz dizimi denetimleri,
-sistemde Deno kuruluysa test paketine dâhil edilir.
+Testler sahte cihaz sunucuları kullanır. Masaüstü HTML'i CSS, görsel ve
+JavaScript'i tek dosyada taşır; kaynak arayüz değiştirildiğinde Deno 2.9.4 ile
+`python tools/masaustu_paketi.py` çalıştırılarak yenilenir.
 
 ## Belgeler
 
@@ -93,11 +96,13 @@ sistemde Deno kuruluysa test paketine dâhil edilir.
 
 | Yol | İçerik |
 |---|---|
-| `app.py` | Uygulama penceresi, komut satırı seçenekleri ve açılış akışı |
-| `panel_api.py` | Panelin yerel HTTP API'si |
+| `app.py` | Soketsiz uygulama penceresi, komut satırı seçenekleri ve açılış akışı |
+| `masaustu.py` | Dar pywebview köprüsü ve tek HTML yükleyicisi |
+| `panel_api.py` | Ortak API servis katmanı ve isteğe bağlı HTTP adaptörü |
 | `core/` | Envanter, okuma, doğrulama, kuyruk ve işlem mantığı |
 | `betikler/` | Çalışma anında yüklenen, sahada doğrulanmış yardımcı motorlar |
-| `static/` | Derleme adımı gerektirmeyen HTML, CSS ve JavaScript arayüzü |
+| `static/` | Modüler tarayıcı kaynakları ve üretilmiş `masaustu.html` |
+| `tools/masaustu_paketi.py` | Masaüstü HTML'ini üretir ve güncelliğini doğrular |
 | `tests/` | Birim ve arayüz testleri ile sahte cihaz sunucuları |
 | `docs/` | Mimari, cihaz, paketleme ve sürüm belgeleri |
 | `DeviceMap.json` | Ağ topolojisi ve hedef değerler için temel envanter |
@@ -128,7 +133,7 @@ Depoda iki uygulama bulunur ve her biri kendi dalında geliştirilir:
 | `syp` | Switch Yönetim Paneli | `syp-v*`, eski sürümlerde `v*` |
 
 Etiket sürümü, `core/ayar.py` içindeki `APP_VERSION` değeriyle birebir aynı
-olmalıdır. Örneğin `APP_VERSION = "0.9.4"` için etiket `dap-v0.9.4` olur;
+olmalıdır. Örneğin `APP_VERSION = "0.9.5"` için etiket `dap-v0.9.5` olur;
 uyuşmazlıkta yayın derlemesi durur.
 
 Hazır paketler [Devreye Alma Paneli sürümleri](../../releases?q=dap-v)

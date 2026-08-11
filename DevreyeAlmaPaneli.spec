@@ -168,7 +168,7 @@ analiz = Analysis(
     pathex=[str(KOK)],
     binaries=ekstra_ikili,
     datas=veri + ekstra_veri,
-    hiddenimports=["panel_api"] + ekstra_gizli,
+    hiddenimports=["panel_api", "masaustu", "tools.masaustu_paketi"] + ekstra_gizli,
     hookspath=[],
     runtime_hooks=[],
     # tests/ pakete girmez: sahaya giden uygulamada test altyapısı ve
@@ -224,8 +224,8 @@ if sys.platform == "darwin" and not ONEFILE:
             "NSLocalNetworkUsageDescription":
                 "Uygulama, tren setindeki cihazları (switch, intercom, kamera, "
                 "PISCU) doğrulamak için yerel ağ erişimini kullanır.",
-            # Arayüz 127.0.0.1 üzerinden servis ediliyor; cihazlara da düz
-            # HTTP ile bağlanılıyor (cihazlar HTTPS sunmuyor).
+            # Arayüz soketsiz pywebview köprüsünü kullanır. Bu izin, tren
+            # cihazlarının HTTPS sunmayan yerel HTTP uçları içindir.
             "NSAppTransportSecurity": {
                 "NSAllowsLocalNetworking": True,
                 "NSAllowsArbitraryLoads": True,

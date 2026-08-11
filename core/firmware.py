@@ -129,8 +129,9 @@ def _dto(kayit: dict | None) -> dict:
         "secili": True,
         "ad": kayit["yol"].name,
         # Tam yol da gider: satırda dosya adı görünür, ipucu metninde
-        # nereden geldiği yazar. Servis yalnız 127.0.0.1 dinliyor ve yol
-        # kullanıcının kendi seçtiği yol.
+        # nereden geldiği yazar. Masaüstünde veri yalnız yerel pywebview
+        # köprüsünden, tarayıcı tanı kipinde yalnız 127.0.0.1'den gelir;
+        # yol kullanıcının kendi seçtiği yoldur.
         "yol": str(kayit["yol"]),
         "boyut": kayit["boyut"],
         "surum": kayit["surum"],

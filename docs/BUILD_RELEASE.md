@@ -24,7 +24,8 @@ Switch Yönetim Paneli `syp` dalındadır.
 │   ├── build-app.yml                   ortak derleme akışı (workflow_call)
 │   └── build-devreye.yml               bu uygulamanın yayını   (dap-v*)
 ├── app.py                              giriş noktası, pencere, self-test
-├── panel_api.py                        yerel HTTP servisi (127.0.0.1)
+├── masaustu.py                         soketsiz pywebview köprüsü
+├── panel_api.py                        ortak servis + tarayıcı HTTP adaptörü
 ├── core/                               iş mantığı (ayar, okuma, konfig, …)
 ├── betikler/                           çalışma anında yüklenen motorlar
 │   ├── switch_api.py                   Switch Yönetim Paneli'nden kopya
@@ -33,7 +34,8 @@ Switch Yönetim Paneli `syp` dalındadır.
 ├── DevreyeAlmaPaneli.spec              PyInstaller yapılandırması
 ├── DeviceMap.json                      topoloji envanteri (pakete girer)
 ├── Yatakli_Saha_Cihaz_Dogrulama.xlsx   Excel şablonu (pakete girer)
-├── static/                             arayüz (html, css, js, görseller)
+├── static/                             kaynak arayüz + üretilmiş masaustu.html
+├── tools/masaustu_paketi.py            Deno 2.9.4 paketleme/doğrulama aracı
 ├── tests/                              birim testler (pakete GİRMEZ)
 ├── packaging/
 │   ├── appimage.sh                     Linux AppImage
@@ -78,8 +80,8 @@ python3 app.py
 
 | Bayrak | İşlevi |
 |---|---|
-| `--tarayici` | Pencere açmaz, sistem tarayıcısında açar |
-| `--port 8790` | Yerel servisin portunu sabitler |
+| `--tarayici` | HTTP tabanlı geliştirme/tanı kipini sistem tarayıcısında açar |
+| `--tarayici --port 8790` | Tanı servisinin portunu sabitler |
 | `--admin-parolasi …` | Admin ekranı için parola sorar (verilmezse sorulmaz) |
 | `--self-test` | Pencere açmadan paketi doğrular, çıkış kodu döner |
 | `--version` | Yalnız sürümü yazar (etiket denetimi bunu kullanır) |
@@ -89,18 +91,23 @@ python3 app.py
 ## 2. Doğrulama
 
 ```bash
-python3 app.py --self-test                    # varlıklar + servis + arayüz
+python3 app.py --self-test                    # varlıklar + soketsiz köprü
 python3 -m unittest discover -s tests -t .    # birim testler
+python3 tools/masaustu_paketi.py --check      # tek HTML güncel mi
 ```
 
 **Self-test kapsamı:** Veri dosyalarını ve kardeş betikleri arar, DeviceMap'i
-okur, `127.0.0.1` üzerinde servisi açar, `/api/surum`, `/api/proje`,
-`/api/durum` uçlarını ve arayüzün sunulduğunu sınar. **Cihaza bağlanmaz.**
+okur, tek parça masaüstü HTML'ini yükler ve `/api/surum`, `/api/proje`,
+`/api/durum` işlemlerini doğrudan pywebview köprüsü sözleşmesiyle sınar.
+Pencere veya dinleyen soket açmaz; **cihaza bağlanmaz.**
 
 Birim testler sahte cihaz sunucuları kullanır (`tests/sahte.py`): KYLAND
 switch, ISAPI kamera ve `/api/v1` anons cihazı taklit edilir; gerçek ağa
 çıkılmaz. `tests/test_arayuz.py` içindeki JavaScript denetimi, `deno`
-kuruluysa çalışır; değilse atlanır (`brew install deno`).
+kuruluysa çalışır; değilse yalnız ilgili test atlanır. Yayın/CI akışındaki
+artefakt güncellik kontrolü için tam Deno 2.9.4 zorunludur. Kurulu sürümü
+`deno --version` ile doğrulayın; farklı bir Deno 2 sürümü de bilinçli olarak
+reddedilir.
 
 Testler kalıcı dosyalara dokunmaz: konfigürasyon varsayılanları geçici bir
 dizine yazılır (`PANEL_VERI_DIZINI`).
@@ -122,6 +129,7 @@ Linux için:
 
 ```bash
 python3 -m pip install -r docs/requirements-build.txt
+python3 tools/masaustu_paketi.py --check
 rm -rf build dist
 python3 -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
 ```
@@ -130,6 +138,7 @@ Windows PowerShell için:
 
 ```powershell
 python -m pip install -r docs/requirements-build.txt
+python tools/masaustu_paketi.py --check
 python -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
 ```
 
@@ -162,7 +171,7 @@ if ($islem.ExitCode -ne 0) {
 ### Windows kurulum paketi
 
 ```powershell
-$surum = "0.9.4"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
+$surum = "0.9.5"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   "/DMyAppVersion=$surum" `
   "/DSourceDir=..\..\dist\DevreyeAlmaPaneli" `
@@ -285,7 +294,7 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 
 | Ne | Nasıl |
 |---|---|
-| Başlık | `Devreye Alma Paneli v0.9.4` — ham etiket değil, uygulama adı + sürüm |
+| Başlık | `Devreye Alma Paneli v0.9.5` — ham etiket değil, uygulama adı + sürüm |
 | Etiket | `dap-v*` / `syp-v*` · `v*` |
 | Dosya adları | `DevreyeAlmaPaneli-…` / `SwitchYonetimPaneli-…` |
 | Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |

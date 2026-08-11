@@ -8,7 +8,7 @@ adresi atar ve bu cihazların yapılandırma işlemlerini yürütür.
 ## İndirme ve çalıştırma
 
 Dosya adlarındaki `<sürüm>` bölümü, sayfanın başlığında görünen sürüm
-numarasıdır; örneğin `0.9.4`.
+numarasıdır; örneğin `0.9.5`.
 
 | Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
@@ -25,6 +25,10 @@ numarasıdır; örneğin `0.9.4`.
 Windows 10 21H2 veya sonrası ya da Windows 11 gerekir. Uygulama, Microsoft
 Edge WebView2 Runtime kullanır; önerilen `Setup.exe` paketi bu bileşen kurulu
 değilse yükler.
+
+Uygulamanın masaüstü arayüzü yerel HTTP portu kullanmaz. Bu nedenle Nmap,
+Wireshark veya Npcap kurulu bilgisayarlarda loopback bağdaştırıcısı/süzgeci
+panelin açılışını etkilemez; Npcap'i kaldırmanız gerekmez.
 
 **Mümkünse ZIP yerine `Setup.exe` paketini kullanın.** Windows, internetten
 indirilen ZIP arşivindeki dosyalara güvenlik işareti ekleyebilir; bu işaret

@@ -1,8 +1,8 @@
 name: CI
 
 # Devreye Alma Paneli için üç platformda kurulum + self-test + birim
-# testler. Gerçek cihaza ya da yerel ağa hiç dokunmaz: self-test yalnızca
-# 127.0.0.1'de kendi servisini sınar, testler sahte cihaz sunucuları
+# testler. Gerçek cihaza ya da yerel ağa hiç dokunmaz: self-test üretimdeki
+# soketsiz Python–JavaScript köprüsünü sınar, testler sahte cihaz sunucuları
 # kullanır.
 #
 # Switch Yönetim Paneli bu branch'te değil — o uygulamanın CI'ı `syp`
@@ -58,6 +58,11 @@ jobs:
           cache: pip
           cache-dependency-path: docs/requirements*.txt
 
+      - name: Deno 2.9.4
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.4
+
       - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -72,7 +77,10 @@ jobs:
           python -m pip install -r "docs/${{ matrix.req }}"
 
       - name: Söz dizimi / derleme kontrolü
-        run: python -m compileall -q app.py panel_api.py core betikler
+        run: python -m compileall -q app.py masaustu.py panel_api.py core betikler tools
+
+      - name: Soketsiz masaüstü arayüzü güncel mi
+        run: python tools/masaustu_paketi.py --check
 
       - name: Birim testler
         run: python -m unittest discover -s tests -t .

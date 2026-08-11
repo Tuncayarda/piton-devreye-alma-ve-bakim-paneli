@@ -506,12 +506,14 @@ class Yonetici:
                 with self._kilit:
                     self._calisan = None
 
-    def kapat(self, sure: float = 3.0) -> None:
+    def kapat(self, sure: float | None = None) -> bool:
         """Kuyruğu durdurur: yeni iş alınmaz, süren işler iptal edilir.
 
         Uygulama kapanışında çağrılır. Yeniden kullanılacaksa `ac()`
         çağrılmalıdır — aksi halde eklenen işler sonsuza kadar "bekliyor"
-        kalırdı.
+        kalırdı. Üretim kapanışı süre sınırı kullanmaz: IP atama işinin
+        ``finally`` bloğu PoE portlarını geri açmadan süreç sonlandırılamaz.
+        ``sure`` yalnız kontrollü tanı/test çağrıları için verilebilir.
         """
         self._kapanis.set()
         with self._uyandir:
@@ -521,6 +523,7 @@ class Yonetici:
         surucu = self._surucu
         if surucu is not None and surucu.is_alive():
             surucu.join(timeout=sure)
+        return surucu is None or not surucu.is_alive()
 
 
 YONETICI = Yonetici()

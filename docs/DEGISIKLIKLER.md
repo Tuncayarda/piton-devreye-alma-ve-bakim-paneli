@@ -5,7 +5,23 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
-## v0.9.4 — Yayımlanmamış
+## v0.9.5 — Yayımlanmamış
+
+### Soketsiz masaüstü arayüzü
+
+- Masaüstü uygulamasının kendi arayüz iletişimi yerel HTTP'den pywebview'un
+  doğrudan Python–JavaScript köprüsüne taşındı. Normal açılışta loopback
+  adresine bağlanılmaz ve dinleyen TCP portu oluşturulmaz; Nmap ile gelen
+  Npcap/WFP sürücüsü gibi geri döngü süzgeçleri artık panelin açılışını
+  etkileyemez.
+- HTML, CSS, görseller ve JavaScript üretim için tek bir gömülü HTML
+  artefaktında paketlenir. Dosya URL'leri, indirmeler ve dış bağlantılar
+  kapalıdır; içerik güvenlik politikası ağ erişimini reddeder.
+- Ortak servis katmanı HTTP'den ayrıldı. Aynı işlem sözleşmesi masaüstünde
+  köprü, yalnız geliştirme/tanı amacıyla seçilen `--tarayici` kipinde HTTP
+  adaptörü üzerinden çalışır.
+- `--self-test` artık pencere veya soket açmadan gerçek üretim köprüsünü ve
+  tek parça arayüz paketini doğrular.
 
 ### İşlem kuyruğu dayanıklılığı
 
@@ -64,7 +80,7 @@ Bu sürüm için hazırlanan değişiklikler `dap-v0.9.1-dev` etiketinden sonra
 eklenmiştir.
 
 > `dap-v0.9.2` ve `dap-v0.9.3` etiketleri hiç oluşturulmadı. Bu iki
-> sürümün değişiklikleri de ilk kez `dap-v0.9.4` ile yayımlanacaktır;
+> sürümün değişiklikleri de ilk kez `dap-v0.9.5` ile yayımlanacaktır;
 > bölümler yalnız neyin ne zaman eklendiğini göstermek için ayrı duruyor.
 
 ### Tarama ve canlı yenileme

@@ -41,6 +41,11 @@ on:
         required: false
         type: string
         default: ""
+      frontend_paket:
+        description: Tek parça masaüstü arayüzü doğrulama aracı — boşsa atlanır
+        required: false
+        type: string
+        default: ""
       python_surumu:
         required: false
         type: string
@@ -95,6 +100,12 @@ jobs:
           cache: pip
           cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/docs/requirements*.txt
 
+      - name: Deno 2.9.4
+        if: inputs.frontend_paket != ''
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.4
+
       - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -133,6 +144,11 @@ jobs:
           fi
           echo "surum=$SURUM" >> "$GITHUB_OUTPUT"
           echo "Kullanılacak sürüm: $SURUM"
+
+      - name: Soketsiz masaüstü arayüzü güncel mi
+        if: inputs.frontend_paket != ''
+        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        run: python "${{ inputs.frontend_paket }}" --check
 
       - name: Birim testler
         if: inputs.testler != ''

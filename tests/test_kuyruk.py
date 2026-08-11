@@ -338,6 +338,44 @@ class Kuyruk(ServisTesti):
         finally:
             yonetici.kapat()
 
+    def test_kapanis_calisan_is_guvenlik_temizligini_bitirene_dek_bekler(self):
+        """Daemon iş, kapanışta donanımı güvenli bırakmadan kesilmemeli."""
+        yonetici = isler.Yonetici()
+        basladi = threading.Event()
+        temizlige_girdi = threading.Event()
+        temizligi_bitir = threading.Event()
+        kapandi = threading.Event()
+        kapanis_sonucu = []
+
+        def govde(is_):
+            basladi.set()
+            is_.iptal.wait(2)
+            temizlige_girdi.set()
+            temizligi_bitir.wait(2)
+
+        try:
+            yonetici.ekle(
+                isler.Is("ip", "PoE güvenlik denemesi", 1, anahtar="ip:1"),
+                govde,
+            )
+            self.assertTrue(basladi.wait(1))
+
+            def kapat():
+                kapanis_sonucu.append(yonetici.kapat())
+                kapandi.set()
+
+            kapanis = threading.Thread(target=kapat)
+            kapanis.start()
+            self.assertTrue(temizlige_girdi.wait(1))
+            self.assertFalse(kapandi.is_set())
+            temizligi_bitir.set()
+            kapanis.join(1)
+            self.assertTrue(kapandi.is_set())
+            self.assertEqual(kapanis_sonucu, [True])
+        finally:
+            temizligi_bitir.set()
+            yonetici.kapat()
+
     def test_eski_is_sonucu_yeni_gorunumu_ezmez(self):
         """İş kaydı ile cihaz görünümü ayrı yerlerde tutulur."""
         gor = isler.gorunum(7)

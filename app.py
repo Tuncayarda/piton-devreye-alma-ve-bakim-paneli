@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Devreye Alma Paneli — masaüstü uygulaması.
 
-Yerel HTTP servisini arka planda başlatır ve arayüzü pywebview
-penceresinde açar. Adres çubuğu, sekme ya da tarayıcıya düşme yoktur.
+Normal masaüstü kipinde arayüz tek parça HTML olarak belleğe yüklenir ve
+Python ile JavaScript pywebview'un doğrudan köprüsü üzerinden konuşur. Yerel
+HTTP sunucusu, TCP portu veya loopback bağlantısı açılmaz. Npcap/WFP gibi ağ
+süzgeçleri bu nedenle uygulamanın kendi arayüz iletişimine etki edemez.
 
-Kapanışta yalnız pencere değil, servisin arkasındaki her şey de temizlenir:
-iş kuyruğu durdurulur, MQTT dinleyicisi kapatılır ve bellekteki bütün
-cihaz kimlikleri unutulur (bkz. panel_api.temizle).
+HTTP yalnız açıkça ``--tarayici`` istendiğinde geliştirme/tanı amacıyla
+başlatılır. Kapanışta iş kuyruğu durdurulur, MQTT dinleyicisi kapatılır ve
+bellekteki bütün cihaz kimlikleri unutulur (bkz. panel_api.temizle).
 
 Çalıştırma:
     python3 app.py
@@ -19,12 +21,8 @@ from __future__ import annotations
 import argparse
 import os
 import platform
-import socket
 import sys
-import threading
-import time
 import traceback
-import webbrowser
 from pathlib import Path
 
 BURASI = Path(__file__).resolve().parent
@@ -49,19 +47,22 @@ def yaz(mesaj: str) -> None:
         pass
 
 
-def bos_port() -> int:
-    """İşletim sisteminin verdiği boş bir yerel port."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+def http_hazir(url: str, saniye: float = 5.0) -> bool:
+    """Tarayıcı kipindeki HTTP adaptörünün gerçekten yanıtını doğrular."""
+    import json
+    import time
+    import urllib.request
 
-
-def sunucu_bekle(port: int, saniye: float = 5.0) -> bool:
-    for _ in range(int(saniye / 0.05)):
+    acici = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    son = time.monotonic() + saniye
+    while time.monotonic() < son:
         try:
-            with socket.create_connection(("127.0.0.1", port), 0.2):
+            with acici.open(f"{url}/api/surum", timeout=0.5) as yanit:
+                veri = json.loads(yanit.read())
+            if (yanit.status == 200 and isinstance(veri, dict)
+                    and isinstance(veri.get("surum"), str)):
                 return True
-        except OSError:
+        except (OSError, ValueError):
             time.sleep(0.05)
     return False
 
@@ -82,11 +83,9 @@ def macos_kimlik(ad: str) -> None:
 
 
 def self_test() -> int:
-    """Pencere açmadan paketi doğrular. Ağa çıkmaz, cihaza bağlanmaz."""
-    import json
-    import urllib.request
-
+    """Pencere ve soket açmadan üretim masaüstü yolunu doğrular."""
     from core import ayar, device_map
+    from masaustu import PanelKoprusu, html_yukle
     import panel_api
 
     sonuc = []
@@ -100,7 +99,7 @@ def self_test() -> int:
 
     kontrol("DeviceMap bulundu", ayar.DEVICE_MAP.exists(), str(ayar.DEVICE_MAP))
     kontrol("Excel şablonu bulundu", ayar.EXCEL_SABLON.exists())
-    for varlik in ("index.html", "css/temel.css", "js/app.js",
+    for varlik in ("index.html", "masaustu.html", "css/temel.css", "js/app.js",
                    "piton-logo.svg", "piton-favicon.png"):
         kontrol(f"static/{varlik}", (ayar.STATIC_DIR / varlik).exists())
     # Kardeş projelerdeki üç betik (bkz. core/betik.py). Paketlenmiş
@@ -119,33 +118,69 @@ def self_test() -> int:
     except Exception as exc:
         kontrol("DeviceMap okundu", False, str(exc))
 
-    port = bos_port()
-    srv = panel_api.sunucu("127.0.0.1", port)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
+    kopru = None
     try:
-        kontrol("Yerel servis açıldı", sunucu_bekle(port))
+        kopru = PanelKoprusu()
+        html = html_yukle(kopru._yetenek)
+        kontrol("Masaüstü arayüzü tek parça", "dap-transport" in html)
+        panel_api.baslat()
         for yol in ("/api/surum", "/api/proje?set=1", "/api/durum?set=1"):
-            try:
-                with urllib.request.urlopen(
-                        f"http://127.0.0.1:{port}{yol}", timeout=3) as y:
-                    veri = json.loads(y.read())
-                kontrol(f"GET {yol}", isinstance(veri, dict))
-            except Exception as exc:
-                kontrol(f"GET {yol}", False, str(exc))
-        try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=3) as y:
-                kontrol("Arayüz sunuluyor", b"<!DOCTYPE html>" in y.read(200))
-        except Exception as exc:
-            kontrol("Arayüz sunuluyor", False, str(exc))
+            zarf = kopru.invoke(kopru._yetenek, "GET", yol, {})
+            kontrol(f"Köprü GET {yol}",
+                    zarf.get("ok") is True and isinstance(zarf.get("body"), dict),
+                    str(zarf.get("body", {}).get("hata", "")))
+    except Exception as exc:
+        kontrol("Soketsiz masaüstü köprüsü", False, str(exc))
     finally:
-        srv.shutdown()
-        srv.server_close()
+        if kopru is not None:
+            kopru._kapat()
         panel_api.temizle()
 
     basarili = all(sonuc)
     yaz("SONUÇ: " + ("başarılı" if basarili else "başarısız"))
     return 0 if basarili else 1
+
+
+def tarayici_kipi(port: int) -> int:
+    """İsteğe bağlı geliştirme/tanı sunucusunu çalıştırır."""
+    import threading
+    import time
+    import webbrowser
+
+    from core import ayar
+    import panel_api
+
+    try:
+        # Port 0 doğrudan gerçek dinleyiciye verilir. Ayrı bir sokette port
+        # seçip kapatmak Windows'ta başka süreçlerle yarış oluşturuyordu.
+        srv = panel_api.sunucu("127.0.0.1", port)
+    except (OSError, ValueError, OverflowError) as exc:
+        yaz(f"[HATA] Tarayıcı servisi açılamadı: {exc}")
+        return 1
+
+    gercek_port = int(srv.server_address[1])
+    url = f"http://127.0.0.1:{gercek_port}"
+    t = threading.Thread(target=srv.serve_forever, daemon=True,
+                         name="panel-http")
+    t.start()
+    try:
+        if not http_hazir(url):
+            yaz("[HATA] Tarayıcı servisi HTTP yanıtı vermedi.")
+            return 1
+        yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — tarayıcı tanı kipi")
+        yaz(f"Adres: {url}")
+        yaz("Durdurmak için Ctrl-C")
+        webbrowser.open(url)
+        try:
+            while t.is_alive():
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            yaz("\nKapatılıyor.")
+        return 0
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        panel_api.temizle()
 
 
 def main() -> int:
@@ -161,9 +196,9 @@ def main() -> int:
 
     ap = argparse.ArgumentParser(description="Devreye Alma Paneli")
     ap.add_argument("--tarayici", action="store_true",
-                    help="pencere yerine varsayılan tarayıcıda aç")
-    ap.add_argument("--port", type=int, default=0,
-                    help="yerel servis portu (0 = boş port seç)")
+                    help="HTTP tabanlı geliştirme/tanı kipini tarayıcıda aç")
+    ap.add_argument("--port", type=int, default=None,
+                    help="yalnız --tarayici kipindeki port (0 = otomatik)")
     ap.add_argument("--admin-parolasi", default=None,
                     help="admin ekranı bu şifreyi sorar; hiçbir yere yazılmaz")
     ap.add_argument("--self-test", action="store_true",
@@ -182,54 +217,68 @@ def main() -> int:
     panel_api.admin_parolasi_ayarla(
         a.admin_parolasi or os.environ.get("PANEL_ADMIN_PAROLASI"))
 
-    port = a.port or bos_port()
+    if a.tarayici:
+        return tarayici_kipi(0 if a.port is None else a.port)
+    if a.port is not None:
+        yaz("[HATA] --port yalnız --tarayici ile kullanılabilir.")
+        return 2
+
+    kopru = None
     try:
-        srv = panel_api.sunucu("127.0.0.1", port)
-    except OSError as exc:
-        yaz(f"[HATA] Yerel servis açılamadı: {exc}")
-        return 1
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    if not sunucu_bekle(port):
-        srv.shutdown()
-        yaz("[HATA] Yerel servis yanıt vermedi.")
-        return 1
-
-    url = f"http://127.0.0.1:{port}"
-    yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — {url}")
-    yaz(f"DeviceMap: {ayar.DEVICE_MAP}")
-    yaz("Kimlik bilgileri arayüzden istenir, hiçbir yere yazılmaz.")
-
-    try:
-        if a.tarayici:
-            webbrowser.open(url)
-            yaz("Tarayıcı kipi — durdurmak için Ctrl-C")
-            try:
-                while True:
-                    time.sleep(0.5)
-            except KeyboardInterrupt:
-                yaz("\nKapatılıyor.")
-            return 0
-
         try:
             import webview
         except ImportError:
             yaz("[HATA] " + PYWEBVIEW_YOK)
             return 1
 
+        from masaustu import PanelKoprusu, html_yukle
+
+        panel_api.baslat()
+        kopru = PanelKoprusu()
+        html = html_yukle(kopru._yetenek)
         macos_kimlik(ayar.APP_ADI)
-        webview.create_window(ayar.APP_ADI, url,
-                              width=GENISLIK, height=YUKSEKLIK,
-                              min_size=(980, 620))
-        webview.start()
+        # Pywebview 6.x'te dosya URL'leri kimi platformlarda varsayılan
+        # olarak açık olabilir. Arayüz bellekte olduğu için ikisine de gerek
+        # yoktur; açıkça kapatmak yanlış paketlemenin sessizce çalışmasını da
+        # önler.
+        webview.settings["ALLOW_FILE_URLS"] = False
+        webview.settings["ALLOW_DOWNLOADS"] = False
+        # Gelecekte arayüze target=_blank bağlantı eklenirse ayrıcalıklı
+        # WebView içinde gezinmesin; işletim sisteminin tarayıcısına çıksın.
+        webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
+        webview.settings["REMOTE_DEBUGGING_PORT"] = None
+
+        pencere = webview.create_window(
+            ayar.APP_ADI, html=html,
+            width=GENISLIK, height=YUKSEKLIK,
+            min_size=(980, 620),
+            background_color="#101820",
+        )
+        # js_api=nesne kullanılmaz: pywebview'un düşük seviyeli çağrı
+        # dağıtıcısında nesnenin gizli üyelerine adla erişim yüzeyi kalır.
+        # Exact-name allowlist'e yalnız oturum anahtarı denetleyen bu tek
+        # fonksiyon eklenir; köprünün durumu WebView'a aktarılmaz.
+        pencere.expose(kopru.invoke)
+        yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — soketsiz masaüstü kipi")
+        yaz(f"DeviceMap: {ayar.DEVICE_MAP}")
+        yaz("Kimlik bilgileri arayüzden istenir, hiçbir yere yazılmaz.")
+        if platform.system() == "Windows":
+            # Eski MSHTML motoruna sessiz geri dönüş yok: modern modül ve
+            # güvenlik davranışı için WebView2 zorunludur.
+            webview.start(gui="edgechromium", http_server=False)
+        else:
+            webview.start(http_server=False)
         return 0
     except Exception:
         yaz("[HATA] Pencere açılamadı:\n" + traceback.format_exc(limit=4))
         return 1
     finally:
-        # Pencere kapandı: servis, kuyruk ve bellekteki kimlikler gider.
-        yaz("Pencere kapandı, yerel servis durduruluyor.")
-        srv.shutdown()
-        srv.server_close()
+        # Pencere kapandı: yeni köprü çağrıları kesilir; kuyruk, MQTT ve
+        # bellekteki kimlikler temizlenir. Burada kapatılacak HTTP sunucusu
+        # yoktur.
+        if kopru is not None:
+            kopru._kapat()
+        yaz("Arka plan işlemleri durduruluyor.")
         panel_api.temizle()
 
 

@@ -38,3 +38,4 @@ jobs:
       iss: packaging/windows/DevreyeAlmaPaneli.iss
       # Bu panelin birim testleri var; paket üretilmeden önce koşar.
       testler: python -m unittest discover -s tests -t .
+      frontend_paket: tools/masaustu_paketi.py
