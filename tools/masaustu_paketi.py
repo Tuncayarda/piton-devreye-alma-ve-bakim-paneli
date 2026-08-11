@@ -171,8 +171,11 @@ def deno_bul() -> str:
 def javascript_paketle(deno: str) -> str:
     """app.js grafiğini denetler ve dış bağımlılıksız bir IIFE döndürür."""
     ortak = ["--no-config", "--no-lock", "--no-remote"]
+    # WindowsPath.__str__ ters eğik çizgi üretir. Deno'nun bundle içindeki
+    # modül yolu yorumları işletim sistemine göre değişmesin.
+    giris = GIRIS_JS.relative_to(KOK).as_posix()
     _komut(
-        [deno, "check", *ortak, str(GIRIS_JS.relative_to(KOK))],
+        [deno, "check", *ortak, giris],
         hata_basligi="JavaScript tip/söz dizimi denetimi başarısız",
     )
     sonuc = _komut(
@@ -184,7 +187,7 @@ def javascript_paketle(deno: str) -> str:
             "--format",
             "iife",
             *ortak,
-            str(GIRIS_JS.relative_to(KOK)),
+            giris,
         ],
         hata_basligi="JavaScript paketi üretilemedi",
     )
@@ -194,8 +197,20 @@ def javascript_paketle(deno: str) -> str:
     return paket
 
 
+def _varlik_baytlari(yol: Path, mime: str) -> bytes:
+    """Gömülü metin varlıklarını platformdan bağımsız baytlara çevirir."""
+    if mime == "image/svg+xml":
+        # Git'in Windows CRLF checkout ayarı görselin anlamını değiştirmez,
+        # fakat ham Base64'ü ve dolayısıyla bütün HTML/CSP karşılaştırmasını
+        # değiştirirdi. Kanonik gömülü biçim daima UTF-8 + LF'dir.
+        metin = yol.read_text(encoding="utf-8")
+        metin = metin.replace("\r\n", "\n").replace("\r", "\n")
+        return metin.encode("utf-8")
+    return yol.read_bytes()
+
+
 def _veri_uri(yol: Path, mime: str) -> str:
-    kod = base64.b64encode(yol.read_bytes()).decode("ascii")
+    kod = base64.b64encode(_varlik_baytlari(yol, mime)).decode("ascii")
     return f"data:{mime};base64,{kod}"
 
 
@@ -253,10 +268,10 @@ def _csp_uret(scriptler: list[str]) -> str:
     # sabittir. Validator kümelerle karşılaştırdığı için semantik sıralama
     # farklılıkları güvenlik sözleşmesini gevşetmez.
     script_hashleri = [f"'sha256-{_script_ozeti(kod)}'" for kod in scriptler]
-    tokenler = {
-        **beklenen,
-        "script-src": (*script_hashleri, "'unsafe-eval'"),
-    }
+    # frozenset yinelemesi hash seed'e bağlı olabilir. Bugünkü tek tokenli
+    # direktifler ileride genişletilse de artefakt sırası değişmesin.
+    tokenler = {ad: tuple(sorted(deger)) for ad, deger in beklenen.items()}
+    tokenler["script-src"] = (*script_hashleri, "'unsafe-eval'")
     return "; ".join(
         f"{ad} {' '.join(tokenler[ad])}"
         for ad in beklenen
@@ -419,7 +434,8 @@ def html_dogrula(html: str) -> None:
     if _data_uri_coz(faviconlar[0][0], "image/png") != FAVICON.read_bytes():
         raise PaketHatasi("Gömülü favicon kaynak PNG ile eşleşmiyor.")
     for logo in logolar:
-        if _data_uri_coz(logo, "image/svg+xml") != LOGO.read_bytes():
+        if (_data_uri_coz(logo, "image/svg+xml")
+                != _varlik_baytlari(LOGO, "image/svg+xml")):
             raise PaketHatasi("Gömülü logo kaynak SVG ile eşleşmiyor.")
 
     scriptler = _scriptleri_ayir(html)
@@ -500,6 +516,11 @@ def _atomik_yaz(yol: Path, metin: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for akis in (sys.stdout, sys.stderr):
+        try:
+            akis.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     ap = argparse.ArgumentParser(
         description="HTTP'siz pywebview arayüzünü tek HTML olarak üretir."
     )
@@ -517,8 +538,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"{CIKTI.relative_to(KOK)} yok; önce "
                     "`python3 tools/masaustu_paketi.py` çalıştırın."
                 )
-            mevcut = CIKTI.read_text(encoding="utf-8")
-            if mevcut != beklenen:
+            mevcut = CIKTI.read_bytes()
+            if mevcut != beklenen.encode("utf-8"):
                 raise PaketHatasi(
                     f"{CIKTI.relative_to(KOK)} güncel değil; "
                     "`python3 tools/masaustu_paketi.py` ile yeniden üretin."

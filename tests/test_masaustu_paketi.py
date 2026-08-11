@@ -2,11 +2,14 @@
 """HTTP'siz tek HTML masaüstü artefaktının üretim denetimleri."""
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -74,8 +77,33 @@ class MasaustuPaketi(unittest.TestCase):
                         mock.patch.object(masaustu_paketi, "_komut",
                                           return_value=sonuc(surum)):
                     with self.assertRaisesRegex(
-                            masaustu_paketi.PaketHatasi, r"2\.9\.4 gerekli"):
+                        masaustu_paketi.PaketHatasi, r"2\.9\.4 gerekli"):
                         masaustu_paketi.deno_bul()
+
+    def test_svg_crlf_ve_lf_checkout_ayni_artefakti_uretir(self):
+        icerik = '<svg xmlns="http://www.w3.org/2000/svg">\n<path/>\n</svg>\n'
+        with tempfile.TemporaryDirectory() as dizin:
+            lf = Path(dizin) / "lf.svg"
+            crlf = Path(dizin) / "crlf.svg"
+            lf.write_bytes(icerik.encode("utf-8"))
+            crlf.write_bytes(icerik.replace("\n", "\r\n").encode("utf-8"))
+            self.assertEqual(
+                masaustu_paketi._veri_uri(lf, "image/svg+xml"),
+                masaustu_paketi._veri_uri(crlf, "image/svg+xml"),
+            )
+
+    def test_check_crlf_artefakti_bayt_duzeyinde_reddeder(self):
+        with tempfile.TemporaryDirectory() as dizin:
+            cikti = Path(dizin) / "masaustu.html"
+            cikti.write_bytes(b"satir\r\n")
+            hata = StringIO()
+            with (mock.patch.object(masaustu_paketi, "CIKTI", cikti),
+                  mock.patch.object(masaustu_paketi, "KOK", Path(dizin)),
+                  mock.patch.object(masaustu_paketi, "artefakt_uret",
+                                    return_value="satir\n"),
+                  redirect_stderr(hata)):
+                self.assertEqual(masaustu_paketi.main(["--check"]), 1)
+            self.assertIn("güncel değil", hata.getvalue())
 
     def test_csp_direktif_ve_token_kumesi_tamdir(self):
         html = self._html()
@@ -158,8 +186,8 @@ class MasaustuPaketi(unittest.TestCase):
         ikinci = masaustu_paketi.artefakt_uret()
         self.assertEqual(birinci, ikinci)
         self.assertEqual(
-            masaustu_paketi.CIKTI.read_text(encoding="utf-8"),
-            birinci,
+            masaustu_paketi.CIKTI.read_bytes(),
+            birinci.encode("utf-8"),
             "static/masaustu.html güncel değil",
         )
 
