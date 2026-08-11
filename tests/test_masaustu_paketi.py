@@ -196,6 +196,11 @@ class MasaustuPaketi(unittest.TestCase):
             cwd=KOK,
             capture_output=True,
             text=True,
+            # Alt süreç çıktısını UTF-8 yazıyor (masaustu_paketi.main içinde
+            # reconfigure). Kodlama verilmezse Python, Windows'ta ANSI kod
+            # sayfasını (cp1252/cp1254) varsayıp Türkçe harfleri bozuyor.
+            encoding="utf-8",
+            errors="replace",
             timeout=180,
         )
         self.assertEqual(sonuc.returncode, 0, sonuc.stderr or sonuc.stdout)
