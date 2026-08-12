@@ -169,8 +169,13 @@ def bos_json_switch():
 
 
 # ───────────────────────────────────────────────────────── ISAPI kamera ───
-def kamera(kullanici="admin", parola="sahte-parola"):
-    """Digest Auth isteyen Hikvision ISAPI taklidi."""
+def kamera(kullanici="admin", parola="sahte-kamera-parolasi"):
+    """Digest Auth isteyen Hikvision ISAPI taklidi.
+
+    Varsayılan parola BİLEREK uydurma: sahte sunucunun varsayılanı gerçek
+    saha parolası olamaz. Testler kendi değerini zaten veriyor
+    (bkz. test_kimlik.PAROLA).
+    """
     realm, nonce = "IP Camera", "abc123nonce"
 
     def dogru_mu(auth: str, yontem: str) -> bool:

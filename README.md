@@ -124,6 +124,21 @@ JavaScript'i tek dosyada taşır; kaynak arayüz değiştirildiğinde Deno 2.9.4
 | `DeviceMap.json` | Ağ topolojisi ve hedef değerler için temel envanter |
 | `Yatakli_Saha_Cihaz_Dogrulama.xlsx` | Kontrol listesi şablonu |
 
+### `DeviceMap.json` kimlik bilgisi taşımaz
+
+Envanterdeki `Username`, `Password` ve `PBXPassword` alanları **boştur** ve
+öyle kalmalıdır:
+
+- Switch ve kamera kimlikleri panelin kendisinden istenir, yalnız bellekte
+  tutulur ve hiçbir dosyaya yazılmaz (bkz. `core/kimlik.py`).
+- SIP parolası ayrıca yazılmaz; sahadaki kural gereği dahili numaranın
+  aynısıdır ve panel onu dahiliden türetir (bkz. `core/konfig.hedef_of`).
+- Cihaz seri numaraları da envanterde tutulmaz; tarama sırasında cihazın
+  kendisinden okunur.
+
+Sürekli bütünleştirme bunu denetler: envanterde dolu bir kimlik alanı
+bulunursa iş başarısız olur.
+
 ### `betikler/` dizini neden ayrı?
 
 Panel, sahada denenmiş üç betiğin iş mantığını yeniden yazmak yerine bunları

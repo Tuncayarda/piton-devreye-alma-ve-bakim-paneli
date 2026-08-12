@@ -146,6 +146,30 @@ jobs:
             echo "İzlenen hassas dosya yok."
           fi
 
+      - name: Envanterde kimlik bilgisi var mı
+        run: |
+          set -euo pipefail
+          # Dosya ADI denetimi (yukarıdaki adım) bunu yakalayamıyordu:
+          # kimlikler sıradan bir JSON'un içinde duruyordu. Panel bu
+          # alanları kullanmıyor (kimlik kullanıcıdan alınır, bkz.
+          # core/device_map.py) ve SIP parolası dahili numaradan
+          # türetiliyor; bu yüzden hepsinin BOŞ olması gerekir.
+          #
+          # Değerler yazdırılmaz: bir sırrı bulup onu koşu günlüğüne
+          # basmak, sızıntıyı düzeltmek değil çoğaltmaktır.
+          DOSYALAR=$(git ls-files '*DeviceMap*.json' || true)
+          [ -n "$DOSYALAR" ] || { echo "DeviceMap dosyası yok."; exit 0; }
+          KOTU=0
+          for f in $DOSYALAR; do
+            SAYI=$(grep -Eoc '"(Password|Username|PBXPassword)"[[:space:]]*:[[:space:]]*"[^"]+"' "$f" || true)
+            if [ "${SAYI:-0}" -gt 0 ]; then
+              echo "::error::$f içinde $SAYI adet dolu kimlik alanı var"
+              KOTU=1
+            fi
+          done
+          [ "$KOTU" -eq 0 ] || exit 1
+          echo "Envanterde dolu kimlik alanı yok."
+
       - name: Çalışma ağacı temiz mi (üretilen dosya izleniyor mu)
         run: |
           set -euo pipefail
