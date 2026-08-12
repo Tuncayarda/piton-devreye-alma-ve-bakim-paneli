@@ -1,0 +1,58 @@
+Devreye Alma ve Bakım Paneli
+Telif Hakkı (c) 2026 Piton Technology. Tüm hakları saklıdır.
+
+TESCİLLİ YAZILIM — TÜM HAKLARI SAKLIDIR
+
+Bu depodaki kaynak kod, belgeler ve diğer içerikler Piton Technology'nin
+mülkiyetindedir ve ticari sır niteliği taşıyabilir. Kaynağın herkese açık
+görünür olması, üzerinde herhangi bir kullanım hakkı verildiği anlamına
+GELMEZ.
+
+Piton Technology'nin önceden verilmiş yazılı izni olmadan bu yazılımın
+tamamı veya bir bölümü:
+
+  · kullanılamaz, çalıştırılamaz veya dağıtılamaz,
+  · kopyalanamaz, çoğaltılamaz veya yayımlanamaz,
+  · değiştirilemez, ondan türev çalışma üretilemez,
+  · başka bir ürünün içine alınamaz, satılamaz veya kiralanamaz,
+  · tersine mühendislikle çözülemez.
+
+GitHub üzerinde depoyu görüntülemek ve GitHub'ın kendi hizmet koşullarının
+izin verdiği ölçüde çatallamak (fork) bu kısıtlamanın dışındadır; söz konusu
+izinler GitHub'ın hizmet koşullarından doğar ve buradan bir hak devri
+yaratmaz.
+
+ÜÇÜNCÜ TARAF BİLEŞENLER
+
+Bu yazılım, kendi lisanslarıyla dağıtılan üçüncü taraf kütüphaneleri
+kullanır (bkz. docs/requirements*.txt). O bileşenler bu lisansın kapsamı
+dışındadır ve kendi koşullarına tabidir.
+
+GARANTİ REDDİ
+
+YAZILIM "OLDUĞU GİBİ" SUNULUR; AÇIK YA DA ÖRTÜLÜ HİÇBİR GARANTİ VERİLMEZ.
+SATILABİLİRLİK, BELİRLİ BİR AMACA UYGUNLUK VE İHLAL ETMEME GARANTİLERİ DE
+BUNA DAHİLDİR. TELİF HAKKI SAHİBİ, YAZILIMDAN VEYA YAZILIMIN KULLANIMINDAN
+DOĞAN HİÇBİR TALEP, ZARAR VEYA SORUMLULUKTAN MESUL TUTULAMAZ.
+
+İletişim ve izin talepleri: Piton Technology
+
+--------------------------------------------------------------------------
+
+PROPRIETARY SOFTWARE — ALL RIGHTS RESERVED
+
+Copyright (c) 2026 Piton Technology. All rights reserved.
+
+This source code is the property of Piton Technology. Public visibility of
+this repository does not grant any license or right to use it. No part of
+this software may be used, executed, copied, modified, distributed, or
+incorporated into another product without the prior written permission of
+Piton Technology. Viewing and forking within GitHub are permitted only to
+the extent required by the GitHub Terms of Service.
+
+Third-party dependencies (see docs/requirements*.txt) remain subject to
+their own licenses.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.

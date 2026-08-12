@@ -176,3 +176,17 @@ her sürümün indirme sayfasında yer alır.
 > Uygulamalar başlık, etiket öneki ve paket adlarıyla ayrılır. “Latest”
 > rozeti de depo düzeyinde tek olduğu için yayınlar bilinçli olarak
 > `--latest=false` seçeneğiyle oluşturulur.
+
+## Lisans
+
+Telif Hakkı © 2026 **Piton Technology**. Tüm hakları saklıdır.
+
+Bu depo **tescillidir**: kaynağın görünür olması kullanım hakkı vermez.
+Yazılı izin olmadan kullanılamaz, kopyalanamaz, değiştirilemez ve
+dağıtılamaz. Koşulların tamamı [LICENSE](LICENSE) dosyasındadır.
+
+Üçüncü taraf kütüphaneler kendi lisanslarıyla gelir (bkz.
+`docs/requirements*.txt`). Linux masaüstü paketi **PyQt6** kullanır; PyQt6
+GPL/ticari çift lisanslıdır ve bu paketin dağıtımı Riverbank'tan ticari
+lisans gerektirebilir. macOS (PyObjC) ve Windows (pythonnet) bağımlılıkları
+izin verici lisanslıdır.
