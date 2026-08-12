@@ -1,53 +1,84 @@
 /* Ekrana özgü yerleşimler. Ortak parçalar bilesen.css içindedir. */
 
-/* ─────────────────────────────────────────────────────── kenar menü ─── */
-.kenar .baslik {
-  font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em;
-  color: var(--soluk); text-transform: uppercase;
-  padding: 16px 14px 7px;
+/* ───────────────────────────────────────────────────────── ikon rayı ─── */
+/* Beş (yönetimde sekiz) alan için 56 piksel. Ad, daralmış rayda ikonun
+   yanında balon olarak belirir; ray genişletilince aynı öğe satır içi
+   metne döner. Tek işaretleyici: seçili alanın sol kenarındaki şerit. */
+.kenar-liste {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 0; flex: 1; min-height: 0;
 }
-.kenar .baslik:first-of-type { padding-top: 0; }
-
-.kenar-genel {
-  display: flex; align-items: center; gap: 9px;
-  margin: 0 12px 12px; padding: 9px 11px;
-  background: transparent; border: 1px solid var(--cizgi);
-  color: var(--metin); cursor: pointer;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 14px;
-  letter-spacing: .08em; text-transform: uppercase;
-}
-.kenar-genel[aria-current="page"] {
-  background: var(--accent-zayif); border-color: var(--accent);
-}
-
 .kenar-oge {
-  width: 100%;
-  display: flex; align-items: center; gap: 9px;
-  padding: 8px 14px;
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  flex: none; height: 40px; padding: 0 12px 0 18px;
   background: transparent;
   border: 0; border-left: 2px solid transparent;
-  color: var(--metin); cursor: pointer; text-align: left;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 14.5px;
-  letter-spacing: .05em; text-transform: uppercase;
+  color: var(--orta); cursor: pointer; text-align: left;
+  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
+  transition: background .14s ease, color .14s ease;
 }
-.kenar-oge:hover { background: rgba(214, 235, 255, .04); }
+.kenar-oge:hover { background: rgba(214, 235, 255, .05); color: var(--metin); }
 .kenar-oge[aria-current="page"] {
-  background: var(--accent-zayif); border-left-color: var(--accent);
+  background: var(--accent-zayif);
+  border-left-color: var(--accent);
+  color: var(--metin);
+  padding-left: 16px;
 }
-.kenar-oge .n { font-family: var(--f-mono); font-size: 10.5px; }
+.kenar-ikon { display: inline-flex; flex: none; }
+.kenar-oge[aria-current="page"] .kenar-ikon { color: var(--accent); }
+.kenar-oge[data-yonetim="1"] .kenar-ikon { opacity: .8; }
 
-.kenar-alt {
-  width: 100%;
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 14px 5px 26px;
-  background: transparent;
-  border: 0; border-left: 2px solid var(--cizgi);
-  color: var(--acik); cursor: pointer; text-align: left;
-  font-family: var(--f-mono); font-size: 11px;
+/* Saha alanları ile yönetim araçlarını ayıran çizgi. */
+.kenar-ayrac {
+  height: 1px; margin: 8px 14px;
+  background: var(--cizgi); flex: none;
 }
-.kenar-alt:hover { background: rgba(214, 235, 255, .04); }
-.kenar-alt[aria-pressed="true"] {
-  background: rgba(66, 148, 224, .08); color: var(--accent);
+
+/* Genişletilmiş rayda ad satır içi metindir. */
+.kenar-ad {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Daralmış rayda aynı öğe, ikonun sağında beliren balon olur. Ray
+   dar olduğu için balon rayın dışına taşar — bu yüzden kap taşmayı
+   kesmez ve balon üstte kalır. */
+.kenar[data-genis="0"] .kenar-ad {
+  position: absolute; left: calc(100% + 9px); top: 50%;
+  z-index: 40;
+  padding: 5px 10px;
+  background: var(--panel);
+  border: 1px solid var(--cizgi-kuvvetli);
+  box-shadow: 0 8px 24px rgba(6, 10, 13, .45);
+  color: var(--metin); font-size: 12.5px;
+  opacity: 0; pointer-events: none;
+  transform: translateY(-50%) translateX(-5px);
+  transition: opacity .13s ease, transform .13s ease;
+}
+.kenar[data-genis="0"] .kenar-oge:hover .kenar-ad,
+.kenar[data-genis="0"] .kenar-oge:focus-visible .kenar-ad {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+/* Rayı genişletip daraltan düğme en altta: kullanılan bir şey değil,
+   bir kez ayarlanan bir tercih. */
+.kenar-genislet {
+  display: flex; align-items: center; justify-content: center;
+  flex: none; height: 34px;
+  background: transparent;
+  border: 0; border-top: 1px solid var(--cizgi);
+  color: var(--soluk); cursor: pointer;
+}
+.kenar-genislet:hover { color: var(--metin); background: rgba(214, 235, 255, .05); }
+.kenar-genislet-ikon {
+  display: inline-flex;
+  transition: transform .18s ease;
+}
+.kenar[data-genis="1"] .kenar-genislet-ikon { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kenar-ad, .kenar-genislet-ikon { transition: none; }
 }
 
 /* ────────────────────────────────────────────────────── genel bakış ─── */
@@ -71,8 +102,8 @@
 .kpi:hover { border-color: var(--cizgi-kuvvetli); background: rgba(214, 235, 255, .03); }
 .kpi:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .kpi .ad {
-  font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .1em;
-  color: var(--soluk); text-transform: uppercase;
+  font-family: var(--f-govde); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .01em; color: var(--orta); text-transform: none;
 }
 .kpi .deger-sar {
   margin-top: 9px; display: flex; align-items: baseline; gap: 7px;
@@ -108,7 +139,7 @@
 .kat-satir:hover { background: rgba(214, 235, 255, .04); }
 .kat-satir .ad {
   font-family: var(--f-baslik); font-weight: 600; font-size: 15px;
-  letter-spacing: .05em; text-transform: uppercase;
+  letter-spacing: 0; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .kat-satir .bar { height: 6px; background: rgba(214, 235, 255, .1); display: block; }
@@ -149,42 +180,14 @@
 /* ────────────────────────────────────────────────────── IP / ön panel ── */
 #v-ip { max-width: 1580px; margin: 0 auto; }
 
+/* Başlık ile sağdaki eylem yığını üstten hizalanır. `flex-end` ile başlık
+   iki satırlık eylem sütununun altına düşüyor, diğer işlem ekranlarındaki
+   başlıkla aynı çizgide durmuyordu. */
 .ip-sayfa-basi {
-  align-items: flex-end;
+  align-items: flex-start;
   margin-bottom: 0;
   padding-top: 2px;
 }
-.ip-baslik { max-width: 720px; }
-.ip-baslik > .ust-etiket {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--accent);
-}
-.ip-aciklama {
-  max-width: 680px;
-  margin: 8px 0 0;
-  color: var(--orta);
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-.ip-hizli-ozet {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 13px;
-  color: var(--orta);
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-}
-.ip-hizli-ozet span { display: inline-flex; align-items: center; gap: 4px; }
-.ip-hizli-ozet span + span::before {
-  content: "";
-  width: 3px; height: 3px;
-  margin-right: 6px;
-  background: var(--cok-soluk);
-}
-.ip-hizli-ozet b { color: var(--metin); font-weight: 500; }
 
 .ip-ust-eylem {
   display: flex;
@@ -219,8 +222,6 @@
   padding: 9px 19px;
   box-shadow: 0 8px 22px rgba(6, 10, 13, .24);
 }
-.ip-serit { margin-top: 20px; }
-
 .ip-bos-durum {
   min-height: 88px;
   margin-top: 18px;
@@ -809,8 +810,6 @@
 }
 
 @media (max-width: 540px) {
-  .ip-hizli-ozet { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .ip-hizli-ozet span + span::before { display: none; }
   .ip-kart-basi,
   .ip-port-alani,
   .ayar-bolum,
@@ -838,30 +837,40 @@
 }
 
 /* ─────────────────────────────────────────────────── konfigürasyon ── */
-/* Solda gruba bir kez girilen değerler, sağda seçili cihazın tablosu. */
+/* Ortak ayarlar tam genişlikte, alanlar çok sütunlu; seçili cihazın tablosu
+   altında. Eski dar yan panel alanları gereksiz yere uzun bir liste yapıyor,
+   dar ekranda da sağında büyük bir boşluk bırakıyordu. */
 .cfg-izgara {
   display: grid;
-  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px; margin-top: 18px; align-items: start;
 }
-@media (max-width: 1000px) {
-  .cfg-izgara { grid-template-columns: minmax(0, 1fr); }
-  .cfg-grup-kart { max-width: 420px; }
+.cfg-grup-kart {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(210px, 1fr));
+  gap: 9px 12px;
 }
-.cfg-grup-kart .ayar-satir { margin-top: 9px; }
-.cfg-aciklama {
-  margin: 7px 0 4px;
-  font-family: var(--f-mono); font-size: 10px; line-height: 1.6;
-  color: var(--soluk);
-}
+.cfg-grup-kart > h3,
+.cfg-grup-kart > .cfg-bolum,
+.cfg-grup-kart > .cfg-varsayilan,
+.cfg-grup-kart > p { grid-column: 1 / -1; }
+.cfg-grup-kart .ayar-satir { margin: 0; }
 .cfg-alan { width: 132px; }
 /* Devralınan değer: kutuda duruyor ama kullanıcı yazmadı — DeviceMap ya da
    grup değeri. Girilen değerden ayırt edilebilmeli, yoksa kullanıcı kendi
    yazdığı sanır. */
 /* Kart ayağı: kayıt durumu ve sıfırlama. */
 .cfg-varsayilan {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap;
   margin-top: 16px; padding-top: 12px;
   border-top: 1px solid var(--cizgi);
+}
+.cfg-kayit-notu {
+  color: var(--soluk);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  line-height: 1.45;
 }
 .cfg-devralinan { color: var(--orta); font-style: italic; }
 .cfg-devralinan:focus { color: var(--metin); font-style: normal; }
@@ -877,6 +886,45 @@
 .cfg-cihaz-basi {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 12px; flex-wrap: wrap;
+}
+
+/* Cihazlar seçilmez, listelenir: satıra tıklamak o cihazın ayar
+   penceresini açar (bkz. konfig.cihazAc). */
+.cfg-cihaz-listesi { display: flex; flex-direction: column; }
+.cfg-cihaz-oge {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 12px;
+  align-items: center; gap: 10px;
+  width: 100%; padding: 10px 12px;
+  background: transparent;
+  border: 1px solid var(--cizgi); border-bottom: 0;
+  color: var(--metin); cursor: pointer; text-align: left;
+  transition: background .14s ease, border-color .14s ease;
+}
+.cfg-cihaz-oge:last-child { border-bottom: 1px solid var(--cizgi); }
+.cfg-cihaz-oge:hover { background: rgba(214, 235, 255, .04); }
+.cfg-cihaz-oge[data-acik="1"] {
+  background: var(--accent-zayif); border-color: var(--accent-cizgi);
+}
+.cfg-oge-ad { font-size: 12.5px; }
+.cfg-oge-ip { font-size: 11px; }
+.cfg-oge-ok { color: var(--soluk); font-size: 15px; line-height: 1; }
+
+/* Cihaz penceresi: ayarlar ortada açılan diyalogda düzenlenir ve yalnız
+   o cihaza uygulanır. */
+.cfg-pencere-govde { display: flex; flex-direction: column; gap: 10px; }
+.cfg-pencere-not {
+  font-family: var(--f-mono); font-size: 11px; color: var(--orta);
+}
+.cfg-pencere-govde .tablo-sar { margin-top: 0; }
+
+@media (max-width: 900px) {
+  .cfg-grup-kart { grid-template-columns: repeat(2, minmax(210px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .cfg-grup-kart { grid-template-columns: minmax(0, 1fr); }
+  .cfg-cihaz-oge { grid-template-columns: auto minmax(0, 1fr) 12px; }
+  .cfg-oge-ip { display: none; }
 }
 
 /* ───────────────────────────────────────────────────────── MQTT akış ── */
@@ -980,4 +1028,249 @@
    çerçeve kalınlaşmadığı için başlık satırıyla hizası kaymıyor. */
 #v-dog .tablo-satir[data-durum] {
   box-shadow: inset 3px 0 0 var(--durum-renk);
+}
+
+/* ───────────────────────────────────────── ortak yerel gezinme ────── */
+/* Ana menü bağlamı seçer; bu sekmeler yalnız açık alanın görünümünü
+   değiştirir. Alt çizgi, adım sırası izlenimi oluşturmadan seçimi gösterir. */
+.yerel-sekmeler,
+.islem-sekme-listesi {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  min-width: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--cizgi);
+}
+.yerel-sekmeler { margin: 4px 0 16px; }
+.islem-sekmeleri { margin: 2px 0 18px; }
+.yerel-sekme,
+.islem-sekmesi {
+  position: relative;
+  flex: none;
+  min-height: 39px;
+  padding: 7px 1px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--orta);
+  cursor: pointer;
+  font-family: var(--f-govde);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: color .16s ease, border-bottom-color .2s ease;
+}
+.yerel-sekme:hover,
+.islem-sekmesi:hover { color: var(--metin); }
+.yerel-sekme[aria-selected="true"],
+.yerel-sekme[aria-pressed="true"],
+.islem-sekmesi.aktif,
+.islem-sekmesi[data-aktif="1"] {
+  border-bottom-color: var(--accent);
+  color: var(--metin);
+}
+
+/* Sekme geçişi: yeni ekran tek karede yer değiştirmesin. Başlık ve sekme
+   şeridi aynı yerde durduğu için geçiş bu olmadan fark edilmiyordu.
+   Animasyon her ekran değişiminde app.js tarafından baştan tetiklenir. */
+@keyframes ekran-gecisi {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+.ekran.ekran-gecis { animation: ekran-gecisi .2s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .ekran.ekran-gecis { animation: none; }
+  .yerel-sekme, .islem-sekmesi { transition: none; }
+}
+
+/* ─────────────────────────────────────── açıklamalar ve boş durumlar ─ */
+.bos-durum {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 92px;
+  margin-top: 14px;
+  padding: 22px;
+  border: 1px dashed var(--cizgi-kuvvetli);
+  background: rgba(214, 235, 255, .015);
+  color: var(--orta);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.bos-durum strong { color: var(--metin); font-size: 14px; }
+.bos-durum-basarili {
+  border-color: var(--yesil-zayif);
+  background: rgba(63, 185, 80, .035);
+}
+.bos-durum-basarili strong { color: var(--yesil); }
+
+.bolum-basi {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+}
+.bolum-basi p {
+  max-width: 720px;
+  margin: 5px 0 0;
+  color: var(--orta);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* Cihaz ayrıntısındaki ham kaynak metni günlük bilgiden ayrı tutulur. */
+.teknik-detay {
+  margin-top: 20px;
+  border-top: 1px solid var(--cizgi);
+  color: var(--orta);
+}
+.teknik-detay > summary {
+  padding: 12px 0;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.teknik-detay[open] > summary { color: var(--metin); }
+
+/* ───────────────────────────────────────── doğrulama ve raporlar ──── */
+.rapor-sekmeleri { margin-top: 2px; }
+.dog-olcut {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+  color: var(--acik);
+  font-size: 12.5px;
+}
+.dog-olcut .etiket {
+  padding-right: 10px;
+  border-right: 1px solid var(--cizgi-kuvvetli);
+}
+.dog-ozet-izgara {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(155px, 1fr));
+  gap: 10px;
+}
+.dog-ozet-kart {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 5px;
+  min-height: 108px;
+  padding: 13px 15px;
+  border: 1px solid var(--cizgi);
+  background: var(--panel);
+}
+.dog-ozet-kart .ad {
+  color: var(--acik);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.dog-ozet-kart strong {
+  font-family: var(--f-baslik);
+  font-size: 27px;
+  line-height: 1;
+}
+.dog-ozet-kart .not {
+  align-self: end;
+  color: var(--soluk);
+  font-size: 11.5px;
+}
+.dog-sapma-satir { min-height: 48px; }
+.cihaz-ozet {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sapma-metin {
+  color: var(--acik);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dog-excel-notu { margin: 14px 0 0; }
+
+/* ─────────────────────────────────── IP bakım görünümü / disclosure ─ */
+.ip-acilir-bolum > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.ip-acilir-bolum > summary::-webkit-details-marker { display: none; }
+.ip-acilir-ozet::after,
+.ip-teknik-ozet::after {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  flex: none;
+  margin-left: auto;
+  border: 1px solid var(--cizgi);
+  color: var(--orta);
+  font-family: var(--f-mono);
+  font-size: 14px;
+  font-weight: 400;
+}
+.ip-acilir-bolum[open] > .ip-acilir-ozet::after,
+.ip-acilir-bolum[open] > .ip-teknik-ozet::after { content: "−"; }
+.ip-acilir-ozet:hover::after,
+.ip-teknik-ozet:hover::after { border-color: var(--accent); color: var(--accent); }
+.ip-panel-araclari {
+  justify-content: flex-end;
+  padding: 0 0 10px;
+}
+.ip-teknik-ayrintilar {
+  margin-top: 18px;
+  padding: 0;
+}
+.ip-teknik-ozet {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 17px;
+  color: var(--acik);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.ip-teknik-ozet .soluk {
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.ip-teknik-icerik {
+  padding: 5px 17px 16px;
+  border-top: 1px solid var(--cizgi-hafif);
+}
+.ip-teknik-icerik > .satir {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--cizgi-hafif);
+  color: var(--orta);
+  font-size: 12px;
+}
+.ip-teknik-icerik > .satir b {
+  max-width: 65%;
+  color: var(--acik);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.ip-teknik-icerik > .satir.korunan { color: var(--turuncu); }
+
+@media (max-width: 900px) {
+  .dog-ozet-izgara { grid-template-columns: repeat(2, minmax(155px, 1fr)); }
+}
+@media (max-width: 560px) {
+  .yerel-sekmeler,
+  .islem-sekme-listesi { gap: 16px; }
+  .dog-ozet-izgara { grid-template-columns: minmax(0, 1fr); }
+  .dog-ozet-kart { min-height: 94px; }
+  .bolum-basi { align-items: flex-start; }
+  .ip-teknik-ozet .soluk { display: none; }
 }

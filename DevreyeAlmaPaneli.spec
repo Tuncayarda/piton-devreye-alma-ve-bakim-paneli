@@ -184,6 +184,14 @@ ORTAK = dict(
     strip=False,
     upx=False,
     console=False,                 # Windows: konsol penceresi açılmasın
+    # Windows'ta uygulama manifestine yönetici isteği gömülür: çift
+    # tıklandığında UAC penceresi ÖNCE çıkar, panel doğrudan yükseltilmiş
+    # açılır. Panel ARP önbelleğini temizliyor ve cihazlara IP yazıyor;
+    # bunlar sıradan kullanıcı yetkisiyle sessizce yarım çalışıyordu.
+    # Yine de tek güvence bu değil: yetkisiz başlatılan her yolda (betikten
+    # çalıştırma, eski kısayol) app.py kullanıcıya pencere çıkarıp
+    # yükseltme sunuyor (bkz. yetki.py). Windows dışında yok sayılır.
+    uac_admin=True,
     disable_windowed_traceback=False,
     icon=exe_ikon,
     version=str(version_dosyasi) if version_dosyasi else None,

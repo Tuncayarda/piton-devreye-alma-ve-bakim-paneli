@@ -72,6 +72,33 @@ class Arayuz(unittest.TestCase):
                 self.assertTrue(cozulen.is_file(),
                                 f"{yol.name} -> {hedef} bulunamadı")
 
+    def test_19c_ulasilmayan_modul_kalmaz(self):
+        """Her modül `app.js`ten başlayan içe aktarım ağacında olmalı.
+
+        Ağaçta olmayan dosya ölü koddur: okuyanın zamanını yer ve
+        "bu hâlâ kullanılıyor mu?" sorusu her seferinde elle grep'lemeyi
+        gerektirir. Bir kez yanlış cevaplandı; bu yüzden denetim burada.
+        """
+        giris = JS_DIZIN / "app.js"
+        kalan, gorulen = [giris], set()
+        while kalan:
+            yol = kalan.pop()
+            if yol in gorulen:
+                continue
+            gorulen.add(yol)
+            for satir in yol.read_text(encoding="utf-8").splitlines():
+                s = satir.strip()
+                if not s.startswith("import ") or " from " not in s:
+                    continue
+                hedef = s.split(" from ")[1].strip().strip("';\"")
+                if hedef.startswith("."):
+                    kalan.append((yol.parent / hedef).resolve())
+
+        ulasilmayan = sorted(y.relative_to(JS_DIZIN).as_posix()
+                             for y in _js_dosyalari() if y not in gorulen)
+        self.assertEqual(ulasilmayan, [],
+                         f"hiçbir yerden içe aktarılmayan modül: {ulasilmayan}")
+
     def test_cihaz_verisi_innerhtml_ile_basilmaz(self):
         """innerHTML / outerHTML / document.write hiçbir modülde olmamalı."""
         self._yasakli_cagri(("innerHTML", "outerHTML", "insertAdjacentHTML",

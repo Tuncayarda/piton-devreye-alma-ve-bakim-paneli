@@ -5,7 +5,9 @@
 
 import { el, doldur } from '../core/dom.js';
 import { durum, ata, gorunenCihazlar } from '../core/durum.js';
-import { deger, DURUM_ETIKET, surumOf, calismaOf } from '../core/bicim.js';
+import {
+  deger, DURUM_ETIKET, surumOf, calismaOf, tipEtiketi,
+} from '../core/bicim.js';
 import * as detay from '../parts/detay.js';
 
 // "Switch · Port" sütunu switch adının tamamını taşıyor (Yataklı_1 · p11);
@@ -15,37 +17,64 @@ const KOLON = 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(150px,1fr) '
 
 const FILTRELER = [
   { id: 'tumu', ad: 'Tümü' },
-  { id: 'aktif', ad: 'Doğrulanan' },
-  { id: 'sorunlu', ad: 'Sorunlu' },
+  { id: 'aktif', ad: 'Erişilebilir' },
+  { id: 'sorunlu', ad: 'İncelenecek' },
 ];
 
 export function ciz(kok) {
-  const kat = (durum.meta ? durum.meta.kategoriler : [])
+  const kategoriler = durum.meta ? durum.meta.kategoriler : [];
+  const kat = kategoriler
     .find(k => k.id === durum.kategori);
   const liste = gorunenCihazlar();
+  const kategoriToplami = durum.kategori === 'tum'
+    ? durum.cihazlar.length
+    : durum.cihazlar.filter(c => c.kategori === durum.kategori).length;
 
   const parcalar = [];
 
   parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    el('div', {}, [el('h2', { metin: kat ? kat.ad : 'Cihazlar' })]),
+    el('div', {}, [
+      el('h2', { metin: 'Cihazlar' }),
+      el('div', {
+        sinif: 'sayfa-alt',
+        metin: `${kat ? kat.ad : 'Tüm cihazlar'} · ${kategoriToplami} cihaz`,
+      }),
+    ]),
     el('div', {
-      stil: 'display:flex;gap:2px;border:1px solid var(--cizgi-kuvvetli)',
+      sinif: 'yerel-sekmeler',
       role: 'group', 'aria-label': 'Durum filtresi',
     }, FILTRELER.map(f => el('button', {
       type: 'button',
-      sinif: 'btn btn-kucuk',
-      stil: 'border:0;letter-spacing:.02em;text-transform:none;'
-        + 'font-family:var(--f-govde);font-size:12.5px'
-        + (durum.filtre === f.id
-          ? ';background:var(--accent);color:var(--derin)' : ''),
+      sinif: 'yerel-sekme',
       'aria-pressed': String(durum.filtre === f.id),
       metin: f.ad,
       onclick: () => ata({ filtre: f.id }),
     }))),
   ]));
 
-  const basliklar = ['Cihaz', 'Tip / Alt Tip', 'Switch · Port', 'IP',
-    'Versiyon', 'Durum', 'Çalışma'];
+  // Kategoriler birer ana ekran değil, cihaz listesinin süzgecidir.
+  parcalar.push(el('div', {
+    sinif: 'serit cihaz-kategori-seridi', role: 'group',
+    'aria-label': 'Cihaz kategorisi',
+  }, [
+    el('span', { sinif: 'etiket', metin: 'Kategori' }),
+    ...kategoriler.map(k => {
+      const sayi = k.id === 'tum'
+        ? durum.cihazlar.length
+        : durum.cihazlar.filter(c => c.kategori === k.id).length;
+      return el('button', {
+        type: 'button', sinif: 'cip', title: k.tipler,
+        'aria-pressed': String(durum.kategori === k.id),
+        onclick: () => ata({ kategori: k.id, altTip: null }),
+      }, [
+        el('span', { metin: k.ad }),
+        el('span', { sinif: 'n', metin: String(sayi) }),
+      ]);
+    }),
+  ]));
+
+  const basliklar = ['Cihaz', 'Tür / Alt tür', 'Switch · Port', 'IP',
+    'Sürüm', 'Erişim durumu', 'Çalışma süresi'];
 
   const satirlar = liste.map(c => {
     const s = c.sonuc || {};
@@ -60,7 +89,10 @@ export function ciz(kok) {
         el('span', { sinif: 'nokta', veri: { durum: s.durum }, 'aria-hidden': 'true' }),
         el('span', { sinif: 'mono kirp', stil: 'font-size:12.5px', metin: c.ad }),
       ]),
-      el('span', { sinif: 'acik kirp', stil: 'font-size:12.5px', metin: c.tipEtiket }),
+      el('span', {
+        sinif: 'acik kirp', stil: 'font-size:12.5px',
+        metin: tipEtiketi(c.tipEtiket),
+      }),
       el('span', {
         sinif: 'mono orta kirp', stil: 'font-size:11px',
         title: c.portEtiket, metin: c.portEtiket,
@@ -87,7 +119,9 @@ export function ciz(kok) {
         sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}`, role: 'row',
       }, basliklar.map(b => el('span', { metin: b }))),
       ...(satirlar.length ? satirlar
-        : [el('div', { sinif: 'tablo-bos', metin: 'Bu filtreye uyan cihaz yok' })]),
+        : [el('div', {
+          sinif: 'tablo-bos', metin: 'Bu ölçütlere uyan cihaz bulunamadı.',
+        })]),
     ]),
   ]));
 

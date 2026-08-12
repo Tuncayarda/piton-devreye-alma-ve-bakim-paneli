@@ -278,6 +278,26 @@ class KonfigYazma(PanelTesti):
         for kume in (amp, ic, hs, uic):
             self.assertIn("surum", kume)
 
+    def test_proje_ses_varsayilanlari(self):
+        """Desteklenen anons türleri istenen ortak ses tabanını kullanır."""
+        veri = json.loads((ayar.KOK / "DeviceMap.json").read_text(
+            encoding="utf-8"))["Config"]
+        amp = veri["Announcement/Amplifier"]
+        intercom = veri["Announcement/Intercom"]
+        handset = veri["Announcement/Handset"]
+        uic = veri["Announcement/UIC"]
+
+        self.assertEqual(intercom["MicVolume"], 100)
+        self.assertEqual(handset["MicVolume"], 100)
+        self.assertEqual(uic["MicVolume"], 100)
+        self.assertEqual(amp["SpeakerGain"], 1)
+        self.assertEqual(intercom["SpeakerGain"], 1)
+        self.assertEqual(handset["SpeakerGain"], 1)
+        self.assertEqual(uic["TcSpeakerGain"], 1)
+        self.assertEqual(uic["TlSpeakerGain"], 1)
+        for ayarlar_ in (amp, intercom, handset, uic):
+            self.assertEqual(ayarlar_["LogLevel"], 1)
+
     def test_sip_kaydi_satiri_salt_okunur_gosterilir(self):
         """Dahili no yazıldıktan sonra kaydın tuttuğu buradan görülür.
 
@@ -460,6 +480,38 @@ class KaliciVarsayilanlar(PanelTesti):
         self.assertEqual(konfig.hedef_of(c, env, "hoparlor", "Intercom"),
                          ("85", "grup"))
 
+    def test_ayni_cihaz_ve_grup_farkli_setlerde_ayri_tutulur(self):
+        _env, c = self.kur()
+        konfig.grup_hedef_yaz("Intercom", "hoparlor", "85", "Intercom",
+                              set_no=1)
+        konfig.grup_hedef_yaz("Intercom", "hoparlor", "42", "Intercom",
+                              set_no=2)
+        konfig.hedef_yaz(c.id, "sipArama", "5001", "Intercom", set_no=1)
+        konfig.hedef_yaz(c.id, "sipArama", "5002", "Intercom", set_no=2)
+
+        self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=1),
+                         {"hoparlor": "85"})
+        self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=2),
+                         {"hoparlor": "42"})
+        self.assertEqual(konfig.hedef_al(c.id, set_no=1),
+                         {"sipArama": "5001"})
+        self.assertEqual(konfig.hedef_al(c.id, set_no=2),
+                         {"sipArama": "5002"})
+
+        # Kalıcı biçim de seti anahtarın dışında açıkça taşır.
+        govde = json.loads(ayar.konfig_varsayilan_dosyasi().read_text(
+            encoding="utf-8"))
+        self.assertEqual(govde["bicim"], 2)
+        self.assertEqual(govde["setler"]["1"]["gruplar"]["Intercom"]
+                         ["hoparlor"], "85")
+        self.assertEqual(govde["setler"]["2"]["gruplar"]["Intercom"]
+                         ["hoparlor"], "42")
+
+        konfig.hedefleri_unut()
+        self.assertEqual(konfig.varsayilanlari_yukle(), 4)
+        self.assertEqual(konfig.hedef_al(c.id, set_no=1)["sipArama"], "5001")
+        self.assertEqual(konfig.hedef_al(c.id, set_no=2)["sipArama"], "5002")
+
     def test_parola_dosyaya_yazilmaz(self):
         _env, c = self.kur()
         konfig.grup_hedef_yaz("Intercom", "sipParola", self.PAROLA, "Intercom")
@@ -493,14 +545,60 @@ class KaliciVarsayilanlar(PanelTesti):
         self.kur()
         yol = ayar.konfig_varsayilan_dosyasi()
         yol.parent.mkdir(parents=True, exist_ok=True)
-        yol.write_text(json.dumps({"bicim": 1, "gruplar": {"Intercom": {
-            "hoparlor": "150",        # aralık dışı
-            "hoparlorGain": "3",      # tanımsız seçim
-            "olmayanAlan": "1",       # artık bulunmayan alan
-            "mikrofon": "44",         # geçerli
-        }}}), encoding="utf-8")
+        yol.write_text(json.dumps({"bicim": 2, "setler": {"1": {
+            "gruplar": {"Intercom": {
+                "hoparlor": "150",        # aralık dışı
+                "hoparlorGain": "3",      # tanımsız seçim
+                "olmayanAlan": "1",       # artık bulunmayan alan
+                "mikrofon": "44",         # geçerli
+            }}}}}), encoding="utf-8")
         self.assertEqual(konfig.varsayilanlari_yukle(), 1)
         self.assertEqual(konfig.grup_hedef_al("Intercom"), {"mikrofon": "44"})
+
+    def test_eski_set_belirsiz_kayit_korunur_ama_uygulanmaz(self):
+        """Biçim 1 değeri Set 1'e tahminle bağlanıp başka sete sızmamalı."""
+        _env, c = self.kur()
+        yol = ayar.konfig_varsayilan_dosyasi()
+        yol.parent.mkdir(parents=True, exist_ok=True)
+        yol.write_text(json.dumps({
+            "bicim": 1,
+            "gruplar": {"Intercom": {"hoparlor": "85"}},
+            "cihazlar": {c.id: {"sipArama": "5009",
+                                  "sipParola": self.PAROLA}},
+        }), encoding="utf-8")
+
+        self.assertEqual(konfig.varsayilanlari_yukle(), 0)
+        for set_no in (1, 2):
+            self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=set_no), {})
+            self.assertEqual(konfig.hedef_al(c.id, set_no=set_no), {})
+
+        # Veri kaybedilmez: set-belirsiz olarak yeni biçime taşınır. Gizli
+        # parola ise geçiş dosyasına dahi yazılmaz.
+        gecis = json.loads(yol.read_text(encoding="utf-8"))
+        self.assertEqual(gecis["bicim"], 2)
+        self.assertEqual(gecis["setBelirsiz"]["gruplar"]["Intercom"]
+                         ["hoparlor"], "85")
+        self.assertEqual(gecis["setBelirsiz"]["cihazlar"][c.id]
+                         ["sipArama"], "5009")
+        self.assertNotIn(self.PAROLA, yol.read_text(encoding="utf-8"))
+        self.assertEqual(konfig.varsayilan_ozeti(1)["setBelirsizDeger"], 2)
+
+    def test_bir_seti_sifirlamak_diger_seti_korur(self):
+        _env, _c = self.kur()
+        konfig.grup_hedef_yaz("Intercom", "hoparlor", "85", "Intercom",
+                              set_no=1)
+        konfig.grup_hedef_yaz("Intercom", "hoparlor", "42", "Intercom",
+                              set_no=2)
+
+        konfig.varsayilanlari_sil(1)
+
+        self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=1), {})
+        self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=2),
+                         {"hoparlor": "42"})
+        konfig.hedefleri_unut()
+        self.assertEqual(konfig.varsayilanlari_yukle(), 1)
+        self.assertEqual(konfig.grup_hedef_al("Intercom", set_no=2),
+                         {"hoparlor": "42"})
 
     def test_sifirlama_dosyayi_da_siler(self):
         _env, c = self.kur()
@@ -544,6 +642,27 @@ class HizliAlanUcu(ServisTesti):
         adlar = {a["alan"] for a in y["alanlar"]}
         self.assertIn("tcYuksek", adlar)
         self.assertEqual(y["projeHedef"].get("sipDahili"), "4001")
+
+    def test_api_set_parametresi_grup_hedefini_ayirir(self):
+        _env, c = self.kur()
+        with sahte.anons() as an:
+            ayar.ANONS_PORT = an.port
+            taban = self.servis_ac()
+            for set_no, deger in ((1, "85"), (2, "42")):
+                kod, _y = self.cagir(taban, "/api/konfig/hedef", {
+                    "set": set_no, "cihazId": c.id, "alan": "hoparlor",
+                    "deger": deger, "grup": "UIC", "kapsam": "grup"})
+                self.assertEqual(kod, 200)
+
+            _kod1, set1 = self.cagir(
+                taban, f"/api/konfig/alanlar?set=1&id={c.id}&grup=UIC")
+            _kod2, set2 = self.cagir(
+                taban, f"/api/konfig/alanlar?set=2&id={c.id}&grup=UIC")
+
+        self.assertEqual(set1["grupHedef"]["hoparlor"], "85")
+        self.assertEqual(set2["grupHedef"]["hoparlor"], "42")
+        self.assertEqual(set1["varsayilan"]["setNo"], 1)
+        self.assertEqual(set2["varsayilan"]["setNo"], 2)
 
     def test_konfig_okumasi_gereksiz_uc_denemez(self):
         """Cihaz okuması tek istekle biter; Handset'te iki (mod ucu)."""

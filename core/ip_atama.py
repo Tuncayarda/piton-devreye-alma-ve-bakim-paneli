@@ -104,13 +104,19 @@ def izinli_portlar(env: Envanter, switch_id: str) -> list[int]:
 
 
 def gruplari_coz(adlar) -> list[dict]:
-    """Ad listesini grup tanımlarına çevirir; bilinmeyen ad atılır."""
+    """IP atamayı destekleyen adları grup tanımlarına çevirir.
+
+    Bu modülün çalışan motoru yalnız Intercom için tanımlı. Arayüzdeki
+    sınır tek başına yeterli değildir; doğrudan API çağrısı da başka bir
+    cihaz türünü Intercom yazma yordamına sokamaz.
+    """
     from .kategori import grup_bul
 
     cikan, gorulen = [], set()
     for ad in adlar or []:
         g = grup_bul(str(ad).strip())
-        if g and g["ad"] not in gorulen:
+        destekli = g and "ip" in str(g.get("ops", "")).split()
+        if destekli and g["ad"] not in gorulen:
             gorulen.add(g["ad"])
             cikan.append(g)
     return cikan
@@ -198,17 +204,11 @@ ARAMA_SINIRI = 512
 
 
 # ARP önbelleğini temizleme yetkisi koşunun tek turda bitmesinin şartı
-# (bkz. intercom_ip_assign.arp_unut). Yetki sorgusu `sudo -n` çalıştırdığı
-# için her plan isteğinde yeniden sorulmaz.
+# (bkz. intercom_ip_assign.arp_unut). Uygulama yükseltilmiş yetkiyle
+# açıldığı için (bkz. app.yonetici_mi) beklenen cevap "evet"; sorgu yine de
+# yapılıyor, çünkü yetkinin ne dediğini varsaymak yerine ölçmek gerekiyor.
+# Sorgu bir alt süreç çalıştırdığından her plan isteğinde tekrarlanmaz.
 _ARP_YETKI = {"zaman": 0.0, "deger": False}
-
-
-def arp_ipucu() -> str:
-    """Yetki yoksa kullanıcının ne yapması gerektiği (platforma göre)."""
-    try:
-        return str(betik.intercom_ip_assign().arp_yetki_ipucu())
-    except Exception:
-        return ""
 
 
 def arp_yetkisi(ttl: float = 10.0) -> bool:
@@ -590,15 +590,23 @@ ASAMALAR = (
     ("geri",      "PoE portları geri açılıyor",                      0.04),
     ("dogrulama", "Son doğrulama — cihazlar yeni adreslerinde mi",   0.14),
 )
-_ASAMA_SIRA = [a for a, _e, _p in ASAMALAR]
-_ASAMA_ETIKET = {a: e for a, e, _p in ASAMALAR}
-_ASAMA_PAY = {a: p for a, _e, p in ASAMALAR}
-_ASAMA_BAS = {}
-_toplam = 0.0
-for _ad, _etiket, _pay in ASAMALAR:
-    _ASAMA_BAS[_ad] = _toplam
-    _toplam += _pay
-del _ad, _etiket, _pay, _toplam
+def _asama_tablosu(asamalar):
+    """Aşama listesinden çubuğun aritmetiğini çıkarır.
+
+    Döner: (sıra, etiket, pay, başlangıç). "Başlangıç" bir aşamanın
+    çubukta nerede başladığı — kendinden öncekilerin payları toplamı.
+    """
+    sira = [a for a, _e, _p in asamalar]
+    etiket = {a: e for a, e, _p in asamalar}
+    pay = {a: p for a, _e, p in asamalar}
+    bas, toplam = {}, 0.0
+    for ad, _etiket, p in asamalar:
+        bas[ad] = toplam
+        toplam += p
+    return sira, etiket, pay, bas
+
+
+_ASAMA_SIRA, _ASAMA_ETIKET, _ASAMA_PAY, _ASAMA_BAS = _asama_tablosu(ASAMALAR)
 
 # Hangi çıktı satırı hangi aşamayı başlatıyor.
 _ASAMA_ISARETI = (
@@ -938,13 +946,22 @@ def _intercom_kosu(env: Envanter, sw, portlar: list[int], hesap,
         "--kyland-user", hesap[0],
         "--kyland-pass", hesap[1],
         "--arduino-port", str(ayar.ANONS_PORT),
-        # Kalıcılık kontrolü kapalı: betik sonda bütün portların gücünü
-        # bir kez kesip açarak ayarın flash'a indiğini doğruluyordu. Sahada
-        # bu, işi biten cihazları yeniden karartıyor ve koşuyu uzatıyor.
-        # Doğrulama zaten yazma sonrası hedef IP'den cevap alınarak
-        # yapılıyor; ikinci bir güç çevrimi istenmiyor.
-        "--no-persist-check",
     ]
+    # Kalıcılık kontrolü VARSAYILAN OLARAK KAPALI: betik sonda bütün
+    # portların gücünü bir kez kesip açarak ayarın flash'a indiğini
+    # doğruluyor. Sahada bu, işi biten cihazları yeniden karartıyor ve
+    # koşuyu uzatıyor; olağan doğrulama zaten yazma sonrası hedef IP'den
+    # cevap alınarak yapılıyor.
+    #
+    # Ama "yazıldı" ile "kalıcı yazıldı" aynı şey değil: cihaz ayarı
+    # yalnız belleğine almış olabilir ve ilk güç kesintisinde eski adresine
+    # döner. Devreye alma bittiğinde bunu bir kez görmek isteyen kullanıcı
+    # için açılabiliyor (arayüzdeki "Kalıcılığı doğrula" kutusu).
+    if not ayarlar.get("kalicilik"):
+        argv.append("--no-persist-check")
+    else:
+        satir_geri("[Intercom] Kalıcılık kontrolü açık: koşunun sonunda "
+                   "portların gücü bir kez kesilip açılacak")
     # Fabrika adresi her zaman açıkça verilir: betiğin kendi varsayılanı
     # şablon (10.n.1.12) ve set numarasıyla çözülüyor; cihazlar ise sete
     # bakmadan hep aynı adresle geliyor.
@@ -979,7 +996,7 @@ def _intercom_kosu(env: Envanter, sw, portlar: list[int], hesap,
 
 
 def _betik_cfg(fabrika_ip: str, sw_ip: str):
-    """Betiğin read_settings/write_ip işlevleri için asgari ayar nesnesi.
+    """Betiğin read_settings/write_ip/wait_gone işlevleri için ayar nesnesi.
 
     Alan adları ve varsayılanlar betiğin argparse'ıyla aynı; yazma gövdesi
     ve uçlar orada nasılsa öyle kalsın diye ikinci bir istemci yazılmaz.
@@ -989,29 +1006,48 @@ def _betik_cfg(fabrika_ip: str, sw_ip: str):
     return SimpleNamespace(
         arduino_port=ayar.ANONS_PORT,
         write_endpoint="api/v1/network/ip",
-        probe_timeout=2.0,
+        # Çözülmemiş bir adres için 2 sn dar kalıyor: ARP kaydı yeni
+        # silindiğinde çözümleme buna sığmayabiliyor (bkz. _yokla).
+        probe_timeout=3.0,
         timeout=8.0,
         netmask=ayar.BEKLENEN_MASKE,
         gateway=sw_ip,
         ntp_ip=None,
+        factory_ip=fabrika_ip,
         full_net_payload=False,
         dry_run=False,
+        # wait_gone/probe döngülerinin nabzı ve ARP temizliği: betikte bu
+        # alanlar argparse'tan geliyor, burada elle verilir.
+        poll_interval=1.0,
+        arp_flush=True,
     )
 
 
-def fabrikaya_dondur(env: Envanter, switch_id: str, portlar: list[int],
-                     gruplar, satir_geri, ayarlar: dict | None = None,
-                     iptal=None) -> int:
-    """Seçili cihazlara "IP'ni fabrika adresine çevir" isteği gönderir.
+# ─────────────────────────────────────────────── adres haritası ──────────
+# "Hangi adreste hangi cihaz var?" — sahada en çok sorulan soru bu ve
+# cevabı ancak `arp-scan` gibi dış araçlarla, o da yalnız MAC düzeyinde
+# alınabiliyordu. Oysa cihaz kendi dahilisini söylüyor (bkz. dahili_no) ve
+# DeviceMap o dahilinin hangi porta ait olduğunu biliyor: ikisi birleşince
+# "10.1.1.13'te oturan cihaz aslında port 22'nin cihazı" gibi bir cümle
+# kurulabiliyor.
+#
+# Çakışma (aynı adreste birden çok cihaz) tek yoklamayla görülmez: adres
+# her seferinde tek cihaz cevaplar. Birkaç tur yoklanır ve aradaki ARP
+# temizliğiyle sıranın değişmesi sağlanır; bir adreste FARKLI dahililer
+# görülmüşse orada birden çok cihaz var demektir.
+HARITA_TUR = 3
+HARITA_TUR_ARASI = 1.0
 
-    Geliştirme/test akışı: koşuyu baştan denemek için cihazları yeniden
-    aynı fabrika adresinde toplar. Yalnızca cihaza IP yazma isteği
-    gönderilir — PoE'ye, switch'e, DeviceMap'e dokunulmaz.
 
-    Cihazlar bu işlemden sonra AYNI adreste olur; bu, koşunun beklediği
-    başlangıç durumudur ama o ana kadar hepsi birbiriyle çakışır.
+def adres_haritasi(env: Envanter, switch_id: str, gruplar,
+                   ayarlar: dict | None = None, tur: int = HARITA_TUR) -> dict:
+    """Aday adreslerde kim var — salt okuma, hiçbir şey yazılmaz.
 
-    Dönüş: yazılamayan cihaz sayısı.
+    Döner: {"fabrika", "zaman", "arpTemizlik", "satirlar": [...], "sayilar"}
+    Her satır bir ADRES:
+      {"ip", "fabrikaMi", "beklenenPort", "beklenenAd", "bulunan": [
+          {"dahili", "port", "ad"}], "durum"}
+    `durum`: bos | yerinde | yabanci | cakisma | taninmiyor
     """
     mod = betik.intercom_ip_assign()
     sw = env.bul(switch_id)
@@ -1019,46 +1055,764 @@ def fabrikaya_dondur(env: Envanter, switch_id: str, portlar: list[int],
         raise ValueError("Switch bulunamadı")
     secili = gruplari_coz(gruplar)
     if not secili:
-        raise ValueError("Cihaz grubu seçilmedi")
+        raise ValueError("IP atama yalnızca Intercom cihazlarında kullanılabilir")
 
-    fabrika = str((ayarlar or {}).get("fabrikaIp") or "").strip() \
-        or fabrika_ip(env)
+    ayarlar = ayarlar or {}
+    fabrika = str(ayarlar.get("fabrikaIp") or "").strip() or fabrika_ip(env)
+    port_ile = grup_cihazlari(env, secili, sw.id)
+    cfg = _betik_cfg(fabrika, sw.ip)
+
+    adres_port, dahili_ad = {}, {}
+    for port, (cihaz, _g) in sorted(port_ile.items()):
+        ip = str(cihaz.ip or "").strip()
+        if ipv4_mi(ip):
+            adres_port.setdefault(ip, (port, cihaz.ad))
+        if getattr(cihaz, "pbx_extension", None):
+            dahili_ad[cihaz.pbx_extension] = (port, cihaz.ad)
+
+    ek = arama_adaylari(ayarlar.get("aramaAgi"), ayarlar.get("aramaMaskesi"),
+                        bas=ayarlar.get("aramaBas") or "",
+                        son=ayarlar.get("aramaSon") or "")
+    adaylar = list(dict.fromkeys([fabrika] + list(adres_port) + ek))
+
+    # Tur tur yoklanır; her adreste GÖRÜLEN dahililer biriktirilir.
+    gorulen: dict[str, dict[str, dict]] = {ip: {} for ip in adaylar}
+    for sira in range(max(1, tur)):
+        if sira:
+            mod.arp_unut(adaylar)
+            time.sleep(HARITA_TUR_ARASI)
+        for ip, ayar_ in mod.probe_all(adaylar, cfg).items():
+            dahili = dahili_no(ayar_)
+            port, ad = dahili_ad.get(dahili, (None, ""))
+            gorulen.setdefault(ip, {})[dahili or f"?{len(gorulen[ip])}"] = {
+                "dahili": dahili, "port": port, "ad": ad}
+
+    satirlar = []
+    for ip in adaylar:
+        bulunan = sorted(gorulen.get(ip, {}).values(),
+                         key=lambda b: (b["port"] is None, b["port"] or 0))
+        beklenen_port, beklenen_ad = adres_port.get(ip, (None, ""))
+        if not bulunan:
+            durum = "bos"
+        elif len(bulunan) > 1:
+            durum = "cakisma"
+        elif ip == fabrika:
+            durum = "yerinde"          # fabrika adresi: kim olduğu önemli değil
+        elif bulunan[0]["port"] is None:
+            durum = "taninmiyor"       # dahilisi DeviceMap'te yok
+        elif bulunan[0]["port"] == beklenen_port:
+            durum = "yerinde"
+        else:
+            durum = "yabanci"
+        satirlar.append({
+            "ip": ip, "fabrikaMi": ip == fabrika,
+            "beklenenPort": beklenen_port, "beklenenAd": beklenen_ad,
+            "bulunan": bulunan, "durum": durum,
+        })
+
+    sayilar = {"toplam": len(satirlar), "cihaz": sum(len(s["bulunan"])
+                                                    for s in satirlar)}
+    for d in ("bos", "yerinde", "yabanci", "cakisma", "taninmiyor"):
+        sayilar[d] = sum(1 for s in satirlar if s["durum"] == d)
+    return {"fabrika": fabrika, "zaman": time.time(),
+            "arpTemizlik": arp_yetkisi(), "switchAd": sw.ad,
+            "satirlar": satirlar, "sayilar": sayilar}
+
+
+def kimlik_dogrula(env: Envanter, switch_id: str, portlar: list[int],
+                   gruplar, ayarlar: dict | None = None,
+                   tur: int = 2) -> dict:
+    """Koşudan sonra: her portun hedef adresinde DOĞRU cihaz mı var?
+
+    Koşu cihazı uptime tahminiyle seçiyor (bkz. betikteki `find_device`) ve
+    bulduğu cihazın KİM olduğuna bakmıyor — aynı adreste iki cihaz varken
+    yanlış olana yazmak bu yüzden mümkün. Sahada sonucu şöyle görüldü: üç
+    cihaz tek bir hedef adreste toplandı ve bir cihaz başka bir portun
+    adresine yazılmıştı.
+
+    Betik değiştirilmiyor (bkz. docs/MIMARI §3); denetim koşudan SONRA,
+    burada yapılıyor: cihaz kendi dahilisini bildiriyor, DeviceMap de o
+    dahilinin hangi porta ait olduğunu biliyor. İkisi tutmuyorsa koşu
+    yanlış cihaza yazmış demektir.
+
+    Döner: {"satirlar": [{"port", "ad", "hedefIp", "beklenenDahili",
+            "bulunan": [...], "durum"}], "sayilar"}
+    `durum`: dogru | yanlis | cakisma | cevapsiz | bilinmiyor
+    """
+    mod = betik.intercom_ip_assign()
+    sw = env.bul(switch_id)
+    if sw is None:
+        raise ValueError("Switch bulunamadı")
+    secili = gruplari_coz(gruplar)
+    if not secili:
+        raise ValueError("IP atama yalnızca Intercom cihazlarında kullanılabilir")
+
+    ayarlar = ayarlar or {}
+    fabrika = str(ayarlar.get("fabrikaIp") or "").strip() or fabrika_ip(env)
+    cfg = _betik_cfg(fabrika, sw.ip)
+    port_ile = grup_cihazlari(env, secili, sw.id)
+    hedefler = [(p, port_ile[p][0]) for p in sorted(portlar) if p in port_ile]
+    dahili_ad = {c.pbx_extension: (p, c.ad) for p, (c, _g) in port_ile.items()
+                 if getattr(c, "pbx_extension", None)}
+
+    adresler = [c.ip for _p, c in hedefler if ipv4_mi(str(c.ip or ""))]
+    gorulen: dict[str, dict[str, dict]] = {}
+    for sira in range(max(1, tur)):
+        if sira:
+            # Aynı adreste ikinci bir cihaz varsa ancak kayıt dönünce
+            # görünür (bkz. adres_haritasi).
+            mod.arp_unut(adresler)
+            time.sleep(HARITA_TUR_ARASI)
+        for ip, ayar_ in mod.probe_all(adresler, cfg).items():
+            dahili = dahili_no(ayar_)
+            port, ad = dahili_ad.get(dahili, (None, ""))
+            gorulen.setdefault(ip, {})[dahili or "?"] = {
+                "dahili": dahili, "port": port, "ad": ad}
+
+    satirlar = []
+    for port, cihaz in hedefler:
+        bulunan = list(gorulen.get(str(cihaz.ip or ""), {}).values())
+        beklenen = getattr(cihaz, "pbx_extension", None) or ""
+        if not bulunan:
+            durum = "cevapsiz"
+        elif len(bulunan) > 1:
+            durum = "cakisma"
+        elif not beklenen or not bulunan[0]["dahili"]:
+            durum = "bilinmiyor"
+        elif bulunan[0]["dahili"] == beklenen:
+            durum = "dogru"
+        else:
+            durum = "yanlis"
+        satirlar.append({
+            "port": port, "ad": cihaz.ad, "hedefIp": cihaz.ip,
+            "beklenenDahili": beklenen, "bulunan": bulunan, "durum": durum,
+        })
+
+    sayilar = {"toplam": len(satirlar)}
+    for d in ("dogru", "yanlis", "cakisma", "cevapsiz", "bilinmiyor"):
+        sayilar[d] = sum(1 for s in satirlar if s["durum"] == d)
+    return {"satirlar": satirlar, "sayilar": sayilar}
+
+
+# ──────────────────────────────────── fabrika adresine döndürme ──────────
+# Bu, koşunun tersi değil: koşuyu baştan denemek için gereken başlangıç
+# durumunu kurar — seçili intercomların hepsi aynı fabrika adresine yazılır.
+#
+# İlk sürüm her cihaza YALNIZ DeviceMap'teki adresinden ulaşmayı deniyor ve
+# tek tur yürüyordu. Sahada tutmadığı iki durum var, ikisi de arp-scan
+# çıktısında görünüyor:
+#
+#   · Cihaz DeviceMap'teki adresinde değil. İşlem bir kez çalıştıktan sonra
+#     cihazların çoğu zaten fabrika adresinde duruyor; ikinci çalıştırmada
+#     bütün satırlar "cevap vermedi" uyarısı veriyordu.
+#   · İKİ cihaz aynı adreste (arp-scan'de "DUP: 2"). O adrese giden tek
+#     istek yalnız birine ulaşır; ikinci cihaz aynı adreste kalır ve işlem
+#     kaç kez tekrarlanırsa tekrarlansın orada takılı kalırdı — kullanıcının
+#     gördüğü tam olarak buydu (iki cihaz 10.1.1.14'te kaldı).
+#
+# Bu yüzden akış TUR TUR yürür: her turda bütün aday adresler yoklanır,
+# cevap veren her cihaz fabrika adresine yazılır ve adresin gerçekten
+# boşaldığı doğrulanır. Adres boşalınca arkasındaki ikinci cihaz görünür
+# olur; hiçbir adres cevap vermeyene kadar tur tekrarlanır. PoE'ye hâlâ
+# dokunulmuyor: cihazları birbirinden ayıran şey PoE değil, adresin
+# boşalması ve MAC.
+FABRIKA_TUR_SINIRI = 10
+# Turlar arası bekleme. ARP önbelleği temizlenemediğinde (yönetici/root
+# yoksa) tek çare bu: aynı adresteki cihazlar birbirinin üstüne kendi ARP
+# duyurularını yazıyor, işletim sisteminin kaydı saniyeler içinde başka bir
+# cihaza dönüyor. Sahada ölçüldü — 10.1.1.13'ün kaydı ~20 saniyede iki
+# cihaz arasında gidip geldi. Yani beklemek, ulaşılamayan cihazı
+# ulaşılabilir yapıyor.
+FABRIKA_TUR_ARASI = 12.0
+# ARP temizlenebiliyorken beklenecek süre: kaydın dönmesini beklemeye gerek
+# yok, yalnız adreslerin yeniden çözülmesine pay bırakılır.
+FABRIKA_TUR_ARASI_YETKILI = 2.0
+# Hiçbir adresin cevap vermediği tur "kimse kalmadı" demek DEĞİL. ARP
+# temizlenemiyorken kayıt taşınmış bir cihazı gösteriyor olabilir;
+# temizlenebiliyorken de kayıt YENİ silinmiştir ve adresin baştan
+# çözülmesi gerekir. İkisinde de bir tur daha bakılır, yalnız bekleme
+# süresi ve tekrar sayısı değişir.
+# Yetki varken bir kez daha bakmak yeter: temizlik gerçekten çalıştığı için
+# ikinci yoklama zaten taze bir çözümlemeyle yapılıyor. Yetki yokken kaydın
+# kendiliğinden dönmesi beklendiğinden birkaç tekrar gerekiyor.
+FABRIKA_BOS_TUR = 3
+FABRIKA_BOS_TUR_YETKILI = 1
+
+# Tur içindeki yoklama tekrarı. TEK yoklama yetmiyor: koşu her turda ARP
+# kaydını siliyor (yetki varsa) ve silinmiş kaydın yeniden çözülmesi,
+# yoklamanın kendi zaman aşımından (probe_timeout) uzun sürebiliyor —
+# sahada ölçüldü: çözülmüş adres 0.01 sn'de cevap veriyor, çözülmemiş
+# adres 2 sn'lik zaman aşımına kadar sessiz kalıyor. Atama betiği de aynı
+# sebeple tek yoklamaya güvenmez, find_device'ı saniyelerce döndürür.
+# İki deneme yeter ve ikisi FARKLI şeyi ölçer: birincisi işletim sisteminin
+# elindeki kayıtla (geçerliyse cevap milisaniyelerde), ikincisi kayıt
+# temizlendikten sonra (bayat kayıt ihtimali için). Üçüncüsü aynı ölçümü
+# tekrarlayıp koşuyu uzatmaktan başka bir şey yapmıyordu.
+FABRIKA_YOKLAMA_DENEME = 2
+FABRIKA_YOKLAMA_ARASI = 1.0
+# Yazma sonrası adresin boşalması için beklenecek süre (betikteki
+# --reset-wait karşılığı). Cihaz cevap vermeyi bırakır bırakmaz devam
+# edilir; bu yalnız üst sınır.
+FABRIKA_RESET_BEKLEME = 15.0
+# Aynı adres kaç kez boşalmazsa vazgeçilir. Kimliği okunabilen bir cihaz
+# adresinde kaldıysa tek deneme yeter (aşağıda ikinci puanı da o yazar);
+# kim cevap verdiği okunamıyorsa bir kez daha denenir — çünkü adresin
+# cevap vermeye devam etmesi, arkada İKİNCİ bir cihaz olduğu anlamına da
+# gelebilir.
+FABRIKA_TAKILMA_SINIRI = 2
+
+FABRIKA_ASAMALARI = (
+    ("hazirlik",  "Hazırlık — eski adresler yoklanıyor", 0.08),
+    ("dondurme",  "Fabrika adresine döndürülüyor",       0.77),
+    ("dogrulama", "Son kontrol — adresler boşaldı mı",   0.15),
+)
+_FAB_SIRA, _FAB_ETIKET, _FAB_PAY, _FAB_BAS = _asama_tablosu(FABRIKA_ASAMALARI)
+
+
+class FabrikaIlerleme:
+    """`fabrikaya_dondur` işinin kuyruk görüntüsü.
+
+    Koşuyla aynı biçim (bkz. Ilerleme): her hedef cihaz bir SATIR, satırın
+    altında kendi adımları, üstte aşama ve yüzde. Eskiden bu işin her çıktı
+    satırı kuyruğa ayrı bir bilgi satırı olarak giriyordu; bilgi satırları
+    sayaçlara girmediği için yüzde baştan sona %0 kalıyordu (bkz.
+    Is.ozel_satir `sayilir`).
+    """
+
+    def __init__(self, is_, hedefler):
+        self._is = is_
+        self._asama = "hazirlik"
+        self._tur = 1
+        self._not = ""
+        self._bilgi_no = 0
+        self._durum: dict[str, str] = {}
+        self._ek: dict[str, str] = {}     # adres -> satır anahtarı
+        for port, cihaz in hedefler:
+            anahtar = port_anahtari(port)
+            self._durum[anahtar] = "bekliyor"
+            is_.ozel_satir(anahtar, f"Port {port} · {cihaz.ad}",
+                           durum="bekliyor", not_=f"{cihaz.ip} → fabrika",
+                           ip=cihaz.ip, sayilir=True)
+        self._bildir()
+
+    # ---- satırlar ----
+    def bilgi(self, metin: str, durum: str = "tamam") -> None:
+        """Cihaza bağlı olmayan satır; sayaçlara ve yüzdeye girmez."""
+        self._bilgi_no += 1
+        self._is.ozel_satir(f"bilgi{self._bilgi_no}", metin, durum=durum)
+
+    def ek_satir(self, ip: str) -> str:
+        """Hiçbir hedef satırına bağlanamayan adres için satır açar.
+
+        Adreste cevap veren cihazın hangi porta ait olduğu çözülemediğinde
+        (switch kimliği yok ya da MAC tabloda değil) bulgu yutulmaz, ayrı
+        bir satıra yazılır. Sayaçlara girmez: hedef sayısı DeviceMap'ten
+        gelir, bulunan adres sayısından değil.
+        """
+        anahtar = self._ek.get(ip)
+        if anahtar is None:
+            anahtar = f"ek:{ip}"
+            self._ek[ip] = anahtar
+            self._is.ozel_satir(anahtar, f"{ip} · port çözülemedi",
+                                durum="calisiyor", not_="cihaz bulundu", ip=ip)
+        return anahtar
+
+    def calisiyor(self, anahtar: str, not_: str) -> None:
+        if anahtar in self._durum:
+            self._durum[anahtar] = "calisiyor"
+        self._is.satir_guncelle(anahtar, "calisiyor", not_)
+        self._is.adim_ekle(anahtar, not_, "bilgi")
+        self._bildir()
+
+    def adim(self, anahtar: str, metin: str, durum: str = "bilgi") -> None:
+        self._is.adim_ekle(anahtar, metin, durum)
+
+    def kapat(self, anahtar: str, durum: str, not_: str) -> None:
+        if anahtar in self._durum:
+            self._durum[anahtar] = durum
+        self._is.satir_guncelle(anahtar, durum, not_)
+        self._is.adim_ekle(anahtar, not_, durum)
+        self._bildir()
+
+    def acik(self, anahtar: str) -> bool:
+        return self._durum.get(anahtar) in ("bekliyor", "calisiyor")
+
+    def durumlar(self) -> dict[str, str]:
+        """Hedef satırlarının son durumu — özet buradan sayılır."""
+        return dict(self._durum)
+
+    # ---- aşama ve yüzde ----
+    def tur(self, no: int) -> None:
+        """Kaçıncı ÜRETKEN tur. Cihaz bulunmayan tekrarlar tur saymaz:
+        kullanıcı "8. tur"u işin uzadığı sanıyor, oysa iş bitmişti."""
+        self._tur = int(no)
+        self._not = ""
+        self._bildir()
+
+    def notu(self, metin: str) -> None:
+        """Aşama metnine eklenen kısa açıklama ("yeniden bakılıyor")."""
+        self._not = str(metin)
+        self._bildir()
+
+    def asama(self, ad: str) -> None:
+        if _FAB_SIRA.index(ad) >= _FAB_SIRA.index(self._asama):
+            self._asama = ad
+        self._bildir()
+
+    def _kapali(self) -> int:
+        return sum(1 for d in self._durum.values()
+                   if d not in ("bekliyor", "calisiyor"))
+
+    def _ic_oran(self) -> float:
+        if self._asama == "dondurme":
+            if not self._durum:
+                return 1.0
+            return self._kapali() / len(self._durum)
+        return 0.0
+
+    def _metin(self) -> str:
+        if self._asama == "dondurme":
+            tur = f"{self._tur}. tur · " if self._tur > 1 else ""
+            ek = f" · {self._not}" if self._not else ""
+            return (f"{tur}{_FAB_ETIKET['dondurme']} "
+                    f"({self._kapali()}/{len(self._durum)}){ek}")
+        return _FAB_ETIKET[self._asama]
+
+    def _bildir(self) -> None:
+        oran = _FAB_BAS[self._asama] + _FAB_PAY[self._asama] * min(
+            1.0, max(0.0, self._ic_oran()))
+        self._is.ilerleme_yaz(oran)
+        self._is.asama_yaz(self._metin())
+
+    def bitir(self, tam: bool = True) -> None:
+        # Yarıda kesilen işi %100 göstermek, bitmemiş işi bitmiş gibi
+        # okutur (bkz. Ilerleme.bitir).
+        if tam:
+            self._is.ilerleme_yaz(1.0)
+        self._is.asama_yaz("")
+
+
+class _PortCozucu:
+    """Bir adreste cevap veren cihaz hangi porta bağlı?
+
+    ARP tablosu adresin MAC'ini, switch'in MAC öğrenme tablosu da o MAC'in
+    portunu veriyor. Cihaz DeviceMap'teki adresinde DEĞİLKEN satırı doğru
+    porta yazmanın tek yolu bu; aynı adreste iki cihaz varken de ikisini
+    birbirinden bu ayırıyor (biri taşınınca ikincisi aynı adreste görünür
+    ama MAC'i başkadır).
+
+    Switch kimliği yoksa ya da tablo okunamıyorsa None döner ve çağıran
+    taraf adres eşlemesine düşer: kimlik istemek bu işin şartı değil.
+    """
+
+    def __init__(self, sw, ttl: float = 10.0):
+        self._sw = sw
+        self._ttl = ttl
+        self._tablo: dict[str, int] = {}
+        self._zaman = 0.0
+        self._kapali = False
+
+    def _yenile(self) -> None:
+        if self._kapali or (self._tablo
+                            and time.time() - self._zaman < self._ttl):
+            return
+        kimlik = kimlik_deposu.al(self._sw.id, self._sw.ip, grup="switch")
+        if not kimlik:
+            self._kapali = True
+            return
+        try:
+            self._tablo = switch_okuma.mac_tablosu(self._sw.ip, kimlik)
+        except Exception:
+            self._kapali = True
+            return
+        self._zaman = time.time()
+
+    def port(self, ip: str) -> int | None:
+        self._yenile()
+        if not self._tablo:
+            return None
+        try:
+            mac = betik.intercom_ip_assign().host_mac(ip)
+        except Exception:
+            return None
+        deger = self._tablo.get(mac) if mac else None
+        return int(deger) if deger is not None else None
+
+
+def dahili_no(ayarlar: dict | None) -> str:
+    """Cihazın kendi bildirdiği dahili numarası (SIP extension).
+
+    Intercom `/api/v1/system/settings` yanıtında `pbxExtension` alanını
+    veriyor ve bu numara cihaz başına eşsiz — DeviceMap'te de aynı alan
+    duruyor (`PBXExtension`). Yani "bu adreste cevap veren kim" sorusunun
+    cevabı ARP'a, switch kimliğine ve MAC tablosuna hiç ihtiyaç duymadan
+    cihazın kendisinden alınabiliyor. Aynı adreste iki cihaz varken de
+    ikisini ayıran şey budur.
+    """
+    for anahtar in ("pbxExtension", "pbxextension", "PBXExtension"):
+        deger = str((ayarlar or {}).get(anahtar) or "").strip()
+        if deger:
+            return deger
+    return ""
+
+
+def _cihaz_izi(mod, ip: str, ayarlar: dict | None) -> str:
+    """Adreste cevap veren cihazın kimliği.
+
+    Sırayla: cihazın kendi bildirdiği dahili numarası, cihazın bildirdiği
+    MAC, en son işletim sisteminin ARP tablosu. İlk ikisi cihazdan geldiği
+    için bayat ARP kaydından etkilenmez. Hiçbiri yoksa boş döner: kimlik
+    okunamıyor demektir, çağıran taraf buna göre karar verir (bkz.
+    _adres_bosaldi).
+    """
+    dahili = dahili_no(ayarlar)
+    if dahili:
+        return f"dahili:{dahili}"
+    for anahtar in ("mac", "macAddress", "mac_address", "MAC"):
+        deger = str((ayarlar or {}).get(anahtar) or "").strip()
+        if deger:
+            return deger.lower()
+    try:
+        return str(mod.host_mac(ip) or "").lower()
+    except Exception:
+        return ""
+
+
+def _bekle(sure: float, iptal=None) -> bool:
+    """Bölerek bekler; iptal istendiğinde erken döner. Döner: beklendi mi."""
+    bitis = time.monotonic() + sure
+    while time.monotonic() < bitis:
+        if iptal and iptal():
+            return False
+        time.sleep(min(0.5, max(0.0, bitis - time.monotonic())))
+    return not (iptal and iptal())
+
+
+def _yokla(mod, cfg, adaylar: list[str], iptal=None) -> dict:
+    """Aday adresleri yoklar. ARP kaydı ancak GEREKİRSE temizlenir.
+
+    Sıra bilerek böyle: önce işletim sisteminin elindeki kayıtla bakılır,
+    çünkü kayıt geçerliyse cevap milisaniyeler içinde gelir. Kayıt
+    silinirse adres baştan çözülmek zorunda kalıyor ve bu, yoklamanın
+    zaman aşımından uzun sürebiliyor — sahada ölçüldü: çözülmüş adres
+    0.01 sn, çözülmemiş adres zaman aşımına kadar sessiz.
+
+    Eski akış turun başında BÜTÜN adayların kaydını siliyordu; cihazların
+    hepsinin birden "cevap yok" görünmesinin sebebi buydu. Temizlik yine
+    yapılır ama yalnız cevap gelmediğinde: bayat kayıt ihtimali ancak o
+    zaman anlamlı.
+    """
+    bulunan: dict = {}
+    for deneme in range(max(1, FABRIKA_YOKLAMA_DENEME)):
+        if iptal and iptal():
+            return {}
+        bulunan = mod.probe_all(adaylar, cfg)
+        if bulunan:
+            return bulunan
+        mod.arp_unut(adaylar)
+        if deneme + 1 < FABRIKA_YOKLAMA_DENEME:
+            if not _bekle(FABRIKA_YOKLAMA_ARASI, iptal):
+                return {}
+    return bulunan
+
+
+def _adres_bosaldi(mod, cfg, ip: str, iz: str,
+                   sure: float | None = None) -> bool:
+    """Yazma işlendi mi: cihaz bu adresten gitti mi?
+
+    "Adres sustu" tek başına doğru ölçüt DEĞİL — aynı adreste iki cihaz
+    varken biri taşındıktan sonra adres cevap vermeye devam eder (ikincisi
+    oradadır) ve tek turluk akış bunu "yazma işlenmedi" sanıyordu. O
+    yüzden cevabın KİMDEN geldiğine bakılır: kimlik değiştiyse bizim cihaz
+    gitmiş demektir.
+    """
+    # Süre çağrı anında okunur: modül değişkeni varsayılan argümana
+    # yazılsaydı testler onu değiştiremezdi.
+    bitis = time.monotonic() + (FABRIKA_RESET_BEKLEME if sure is None else sure)
+    sessiz = 0
+    while True:
+        simdi = mod.read_settings(ip, cfg)
+        if simdi is not None:
+            sessiz = 0
+            yeni = _cihaz_izi(mod, ip, simdi)
+            if iz and yeni and yeni != iz:
+                return True                  # başka cihaz cevap veriyor
+        else:
+            # Tek sessizlik yetmez: cevap gelmemesinin sebebi bizim cihazın
+            # gitmesi de olabilir, bayat ARP kaydı da. Kaydı temizleyip bir
+            # daha bakılır; iki sessizlik üst üste gelirse adres boşalmıştır.
+            sessiz += 1
+            if sessiz >= 2:
+                return True
+            mod.arp_unut([ip])
+        if time.monotonic() >= bitis:
+            return sessiz > 0
+        time.sleep(getattr(cfg, "poll_interval", 1.0))
+
+
+def fabrikaya_dondur(env: Envanter, switch_id: str, portlar: list[int],
+                     gruplar, is_, ayarlar: dict | None = None,
+                     iptal=None) -> dict:
+    """Seçili cihazları fabrika adresinde toplar (bkz. yukarıdaki not).
+
+    Yalnızca cihaza IP yazma isteği gönderilir — PoE'ye, switch'in
+    ayarlarına, DeviceMap'e dokunulmaz. Cihazlar işlemden sonra AYNI
+    adreste olur; bu, koşunun beklediği başlangıç durumudur.
+
+    `is_` iş kuyruğundaki iş: satırlar, adımlar ve yüzde oraya yazılır
+    (bkz. FabrikaIlerleme).
+
+    Dönüş: özet sözlüğü — {"toplam", "tamam", "hatali", "atlanan",
+    "yazilan", "durduruldu", "fabrika", "fabrikaCevap", "arpTemizlik"}.
+    """
+    mod = betik.intercom_ip_assign()
+    sw = env.bul(switch_id)
+    if sw is None:
+        raise ValueError("Switch bulunamadı")
+    secili = gruplari_coz(gruplar)
+    if not secili:
+        raise ValueError("IP atama yalnızca Intercom cihazlarında kullanılabilir")
+
+    ayarlar = ayarlar or {}
+    fabrika = str(ayarlar.get("fabrikaIp") or "").strip() or fabrika_ip(env)
     if not ipv4_mi(fabrika):
         raise ValueError("Fabrika IP geçerli değil")
 
-    cfg = _betik_cfg(fabrika, sw.ip)
     port_ile = grup_cihazlari(env, secili, sw.id)
     hedefler = [(p, port_ile[p][0]) for p in sorted(portlar) if p in port_ile]
     if not hedefler:
         raise ValueError("Seçili portlarda bu gruptan cihaz yok")
 
-    satir_geri(f"{len(hedefler)} cihaz {fabrika} adresine döndürülecek "
-               f"(yalnız IP yazılır, PoE'ye dokunulmaz)")
-    basarisiz = 0
+    cfg = _betik_cfg(fabrika, sw.ip)
+    rapor = FabrikaIlerleme(is_, hedefler)
+    cozucu = _PortCozucu(sw)
+    hedef_portlar = {p for p, _c in hedefler}
+
+    # Aday adresler: seçili cihazların DeviceMap adresleri + (verildiyse)
+    # kullanıcının arama aralığı. Fabrika adresi listeye GİRMEZ; orada
+    # cevap veren cihaz zaten olması gereken yerdedir ve ona yazmak,
+    # o an hangi cihazın cevap verdiği belli olmadığı için anlamsızdır.
+    adres_port: dict[str, int] = {}
     for port, cihaz in hedefler:
+        ip = str(cihaz.ip or "").strip()
+        if ipv4_mi(ip) and ip != fabrika:
+            adres_port.setdefault(ip, port)
+    ek_adres = [ip for ip in arama_adaylari(
+        ayarlar.get("aramaAgi"), ayarlar.get("aramaMaskesi"),
+        bas=ayarlar.get("aramaBas") or "", son=ayarlar.get("aramaSon") or "")
+        if ip != fabrika]
+    adaylar = list(dict.fromkeys(list(adres_port) + ek_adres))
+
+    rapor.bilgi(f"{len(hedefler)} cihaz {fabrika} adresine döndürülecek "
+                f"(yalnız IP yazılır, PoE'ye dokunulmaz)")
+    # ARP yetkisi olmadan bayat kayıtlar temizlenemiyor: işletim sisteminin
+    # kaydı taşınmış bir cihazın MAC'ini gösterirken o adres "cevap vermedi"
+    # görünüyor — aynı adreste birden çok cihaz varken neredeyse kesin.
+    # Sebebi hiçbir yerde yazmıyordu; artık ilk satırda yazıyor.
+    arp_var = arp_yetkisi()
+    if not arp_var:
+        rapor.bilgi(
+            "ARP önbelleği temizlenemiyor (yönetici/root gerekiyor) — aynı "
+            "adresteki cihazlar sırayla görünür, koşu kaydın dönmesini "
+            "bekleyip birkaç kez daha bakar",
+            durum="uyari")
+    if ek_adres:
+        rapor.bilgi(f"Ek arama: {len(ek_adres)} adres "
+                    f"({ek_adres[0]} – {ek_adres[-1]})")
+
+    # Hedefi zaten fabrika adresi olan cihaz: yazılacak bir şey yok.
+    for port, cihaz in hedefler:
+        if str(cihaz.ip or "").strip() == fabrika:
+            rapor.kapat(port_anahtari(port), "tamam",
+                        f"DeviceMap adresi zaten {fabrika}")
+
+    # Dahili numara -> port. Cihaz kendi dahilisini bildirdiği için
+    # (bkz. dahili_no) hangi cihazın nerede olduğu switch kimliği ya da
+    # ARP olmadan çözülüyor: sahada 10.1.1.13'te oturan cihazın aslında
+    # port 22'nin cihazı olduğu böyle görüldü.
+    dahili_port = {c.pbx_extension: p for p, (c, _g) in port_ile.items()
+                   if getattr(c, "pbx_extension", None)}
+
+    def anahtar_bul(ip: str, ayarlar_: dict | None = None) -> tuple[str, str]:
+        """Adreste bulunan cihazın satırı. Döner: (anahtar, açıklama).
+
+        Anahtar boşsa cihaz seçili portların dışında demektir: dokunulmaz.
+        Sıra kesinlik sırasıdır: cihazın kendi dahilisi, sonra MAC ile port
+        doğrulaması, sonra "bu adres DeviceMap'te kimin" varsayımı.
+        """
+        dahili = dahili_no(ayarlar_)
+        port = dahili_port.get(dahili) if dahili else None
+        nasil = f"dahili {dahili} → port {port}" if port is not None else ""
+        if port is None:
+            port = cozucu.port(ip)
+            nasil = f"MAC → port {port}" if port is not None else ""
+        if port is not None:
+            if port in hedef_portlar:
+                return port_anahtari(port), nasil
+            return "", f"{nasil or f'port {port}'} — seçili portların dışında"
+        port = adres_port.get(ip)
+        if port is not None:
+            return port_anahtari(port), ""
+        return rapor.ek_satir(ip), ""
+
+    yazilan = 0
+    durduruldu = False
+    bos = 0                               # üst üste boş geçen tur
+    bos_tolerans = FABRIKA_BOS_TUR_YETKILI if arp_var else FABRIKA_BOS_TUR
+    tur_arasi = FABRIKA_TUR_ARASI_YETKILI if arp_var else FABRIKA_TUR_ARASI
+    beklendi = False
+    takilan: dict[str, int] = {}          # adres -> boşalmayan deneme puanı
+    rapor.asama("dondurme")
+    uretken = 0                           # cihaz bulunan tur sayısı
+    son_bos = False                       # son yoklama boş mu döndü
+    for _tur in range(1, FABRIKA_TUR_SINIRI + 1):
         if iptal and iptal():
-            satir_geri("Durduruldu")
+            durduruldu = True
             break
-        if cihaz.ip == fabrika:
-            satir_geri(f"p{port} {cihaz.ad}: zaten {fabrika}")
+        if not adaylar:
+            break
+        bulunan = _yokla(mod, cfg, adaylar, iptal)
+        if not bulunan:
+            son_bos = True
+            bos += 1
+            if bos > bos_tolerans:
+                break
+            if not beklendi:
+                beklendi = True
+                rapor.bilgi(
+                    "Hiçbir eski adres cevap vermedi — adreslerin yeniden "
+                    "çözülmesi beklenip tekrar bakılacak"
+                    + ("" if arp_var else
+                       " (ARP temizlenemiyor: kayıt taşınmış bir cihazı "
+                       "gösteriyor olabilir)"),
+                    durum="uyari")
+            # Boş geçen tekrar TUR SAYMAZ: kullanıcı "8. tur"u işin uzaması
+            # sanıyordu, oysa iş çoktan bitmişti.
+            rapor.notu(f"yeniden bakılıyor ({bos}/{bos_tolerans + 1})")
+            if not _bekle(tur_arasi, iptal):
+                durduruldu = True
+                break
             continue
-        # Bayat ARP kaydı burada da cihazı ulaşılmaz gösteriyor.
-        mod.arp_unut([cihaz.ip])
-        ayarlar_ = mod.read_settings(cihaz.ip, cfg)
-        if ayarlar_ is None:
-            basarisiz += 1
-            satir_geri(f"[!] p{port} {cihaz.ad}: {cihaz.ip} cevap vermedi")
+        son_bos = False
+        bos = 0
+        uretken += 1
+        rapor.tur(uretken)
+        ilerledi = False
+        for ip in sorted(bulunan):
+            if iptal and iptal():
+                durduruldu = True
+                break
+            anahtar, neden = anahtar_bul(ip, bulunan[ip])
+            if not anahtar:
+                rapor.bilgi(f"{ip}: {neden} — dokunulmadı", durum="uyari")
+                continue
+            rapor.calisiyor(
+                anahtar,
+                f"{ip} bulundu{f' ({neden})' if neden else ''} — "
+                f"{fabrika} yazılıyor")
+            iz = _cihaz_izi(mod, ip, bulunan[ip])
+            dahili = dahili_no(bulunan[ip])
+            try:
+                mod.write_ip(ip, bulunan[ip], fabrika, cfg)
+            except Exception as exc:
+                # Yazma yanıtı gelmeyebilir: cihaz isteği işleyip reset
+                # atıyor, bağlantı yanıt dönmeden kopuyor. Yazmanın
+                # işlendiğini yanıt değil, cihazın adresten gitmesi söyler.
+                rapor.adim(anahtar,
+                           f"yazma yanıtı alınamadı ({type(exc).__name__})",
+                           "uyari")
+            if _adres_bosaldi(mod, cfg, ip, iz):
+                yazilan += 1
+                ilerledi = True
+                rapor.kapat(anahtar, "tamam",
+                            f"{ip} → {fabrika} yazıldı"
+                            + (f" (dahili {dahili})" if dahili else ""))
+                continue
+            # Adres boşalmadı. Kimlik okunabiliyorsa bu kesin bir
+            # başarısızlık (aynı cihaz orada duruyor); okunamıyorsa arkada
+            # ikinci bir cihaz olabilir ve bir tur daha denenir.
+            takilan[ip] = takilan.get(ip, 0) + (1 if not iz else 2)
+            rapor.adim(anahtar, f"{ip} hâlâ cevap veriyor", "uyari")
+            if takilan[ip] >= FABRIKA_TAKILMA_SINIRI:
+                rapor.kapat(anahtar, "hata",
+                            f"{ip} boşalmadı — yazma işlenmedi")
+            else:
+                ilerledi = True       # ikinci cihaz olabilir: tekrar dene
+        # Kapanan adresler bir daha yoklanmaz; hiçbir adres taşınmadıysa
+        # yeni tur aynı sonucu verir.
+        adaylar = [a for a in adaylar
+                   if takilan.get(a, 0) < FABRIKA_TAKILMA_SINIRI]
+        if durduruldu or not ilerledi:
+            break
+
+    # ── son kontrol: eski adreslerde kimse kaldı mı ──
+    # Koşu zaten boş bir yoklamayla bittiyse tekrarlanmaz: aynı ölçümü
+    # ikinci kez yapmak işi uzatmaktan başka bir şey yapmıyor.
+    rapor.asama("dogrulama")
+    if not durduruldu and adaylar:
+        if not son_bos:
+            for ip, kalan in sorted(_yokla(mod, cfg, adaylar, iptal).items()):
+                anahtar, neden = anahtar_bul(ip, kalan)
+                if not anahtar:
+                    continue
+                dahili = dahili_no(kalan)
+                rapor.kapat(anahtar, "hata",
+                            f"{ip} adresinde hâlâ bir cihaz var"
+                            + (f" (dahili {dahili})" if dahili else ""))
+        if not arp_var:
+            # Son kontrol de aynı bayat kayıttan okuyor: "kimse kalmadı"
+            # diyemeyiz, yalnız "bu kayıtla kimse görünmüyor" diyebiliriz.
+            rapor.bilgi(
+                "Son kontrol ARP önbelleği temizlenmeden yapıldı — aynı "
+                "adreste görünmeyen cihaz kalmış olabilir",
+                durum="uyari")
+
+    for port, cihaz in hedefler:
+        anahtar = port_anahtari(port)
+        if not rapor.acik(anahtar):
             continue
-        try:
-            mod.write_ip(cihaz.ip, ayarlar_, fabrika, cfg)
-        except Exception as exc:
-            basarisiz += 1
-            satir_geri(f"[!] p{port} {cihaz.ad}: yazılamadı "
-                       f"({type(exc).__name__})")
-            continue
-        satir_geri(f"p{port} {cihaz.ad}: {cihaz.ip} -> {fabrika} yazıldı")
-    satir_geri("Bitti — cihazlar reset atıp fabrika adresinde toplanacak")
-    return basarisiz
+        if durduruldu:
+            rapor.kapat(anahtar, "atlandi", "Durduruldu")
+        else:
+            # Cevap vermeyen adres bir başarısızlık değil: cihaz büyük
+            # olasılıkla ZATEN fabrika adresinde (bu işlem tekrar tekrar
+            # çalıştırılıyor). Yine de "tamam" da denmez — kanıt yok.
+            rapor.kapat(anahtar, "atlandi",
+                        f"{cihaz.ip} adresinde cevap yok — cihaz zaten "
+                        f"{fabrika} adresinde olabilir"
+                        + ("" if arp_var else
+                           " (ARP temizlenemedi: görünmüyor da olabilir)"))
+
+    # Fabrika adresinde cevap var mı? Kaç cihazın orada olduğunu tek adres
+    # söylemez, ama "hiç kimse yok" ile "en az biri orada" arasındaki fark
+    # kullanıcı için büyük: eski adreslerinde de cevap vermeyen cihazlar
+    # ya orada toplanmıştır ya da bu ağda hiç görünmüyordur.
+    fabrika_cevap = None
+    if not durduruldu:
+        fabrika_cevap = mod.read_settings(fabrika, cfg) is not None
+        rapor.bilgi(
+            f"{fabrika} adresinde cevap {'var' if fabrika_cevap else 'YOK'}"
+            + ("" if fabrika_cevap else " — cihazlar bu ağda görünmüyor"),
+            durum="tamam" if fabrika_cevap else "uyari")
+    rapor.bitir(tam=not durduruldu)
+
+    durumlar = rapor.durumlar()
+    return {
+        "toplam": len(hedefler),
+        "tamam": sum(1 for d in durumlar.values() if d == "tamam"),
+        "hatali": sum(1 for d in durumlar.values() if d == "hata"),
+        "atlanan": sum(1 for d in durumlar.values() if d == "atlandi"),
+        # Kaç cihaza gerçekten yazıldı: aynı adreste bulunan ikinci cihaz
+        # da buraya girer, o yüzden hedef sayısını aşabilir.
+        "yazilan": yazilan,
+        "durduruldu": durduruldu,
+        "fabrika": fabrika,
+        "fabrikaCevap": fabrika_cevap,
+        # ARP önbelleği temizlenebiliyor muydu: "cevap yok" satırlarının ne
+        # kadar güvenilir olduğunu bu belirliyor (bkz.
+        # panel_api._ip_fabrika_hatasi).
+        "arpTemizlik": arp_var,
+    }
 
 
 # Hangi cihaz grubunun atamasını hangi betik yürütüyor. Her cihaz tipinin
@@ -1106,7 +1860,7 @@ def kosu(env: Envanter, switch_id: str, portlar: list[int],
     # yapılacağı" tahmin edilecek bir şey değil.
     secili = gruplari_coz(gruplar)
     if not secili:
-        raise ValueError("Cihaz grubu seçilmedi")
+        raise ValueError("IP atama yalnızca Intercom cihazlarında kullanılabilir")
     eksik = [g["ad"] for g in secili if g["ad"] not in KOSUCULAR]
     if eksik:
         raise ValueError(

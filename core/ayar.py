@@ -11,7 +11,7 @@ import os
 import sys
 from pathlib import Path
 
-APP_ADI = "Devreye Alma Paneli"
+APP_ADI = "Devreye Alma ve Bakım Paneli"
 KISA_AD = "DevreyeAlmaPaneli"
 APP_VERSION = "0.9.5"
 

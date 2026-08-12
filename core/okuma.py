@@ -334,7 +334,7 @@ def _telemetriden(cihaz: Cihaz, telemetri) -> dict:
     kayit = telemetri.kayit(cihaz.ip) if telemetri else None
     if not kayit:
         raise DogrulamaHatasi(
-            "Cihaz canlı DeviceMap telemetrisinde bulunamadı")
+            "PISCU cihazdan güncel durum bilgisi alamadı")
     durum = kayit.get("Status") or {}
     if durum.get("NoError") is not True:
         # Eskiden "uygulanmıyor" (gri) idi. Yanlıştı: gri "bu cihazda bu
@@ -342,8 +342,7 @@ def _telemetriden(cihaz: Cihaz, telemetri) -> dict:
         # ARIZALI bildirildi. Kapalı bir cihazı N/A göstermek onu
         # sorunsuzmuş gibi okutuyordu.
         raise UlasilamadiHatasi(
-            "PISCU bu cihazı arızalı/kapalı bildiriyor "
-            "(canlı DeviceMap: NoError=false)")
+            "PISCU cihazın kapalı veya arızalı olduğunu bildiriyor")
     return {
         "surum": durum.get("Version") or "",
         "seri": kayit.get("SerialNumber") or "",
@@ -376,8 +375,7 @@ def _appstatusdan(cihaz: Cihaz, telemetri) -> dict:
     # PISCU'nun canlı kaydı cihazı arızalı bildiriyorsa yeşile geçilmez.
     if _canli_arizali_mi(cihaz, telemetri):
         raise UlasilamadiHatasi(
-            "PISCU bu cihazı arızalı/kapalı bildiriyor "
-            "(canlı DeviceMap: NoError=false)")
+            "PISCU cihazın kapalı veya arızalı olduğunu bildiriyor")
 
     uptime = kayit.get("Uptime")
     if uptime in (None, "", -1):

@@ -134,6 +134,44 @@ class MasaustuBaslangicTesti(unittest.TestCase):
         yaz.assert_called_with(
             "[HATA] --port yalnız --tarayici ile kullanılabilir.")
 
+    def test_yetki_yoksa_uygulama_hic_acilmaz(self):
+        """Panel ağa ve cihazlara yazıyor; yetkisiz kip yok.
+
+        Kullanıcı pencerede "Çıkış" derse hiçbir servis kurulmaz.
+        """
+        with (mock.patch.object(sys, "argv", ["app.py"]),
+              mock.patch("app.yonetici_mi", return_value=False),
+              mock.patch("app.macos_kimlik") as kimlik,
+              mock.patch("yetki.sor", return_value="cikis") as sor,
+              mock.patch("panel_api.admin_parolasi_ayarla") as parola,
+              mock.patch("panel_api.baslat") as baslat,
+              mock.patch("app.yaz") as yaz):
+            self.assertEqual(app.main(), 1)
+        sor.assert_called_once()
+        # Yetki penceresi de uygulamanın penceresi: Dock'ta yorumlayıcının
+        # adıyla İKİNCİ bir uygulama gibi görünmemeli.
+        kimlik.assert_called_once()
+        parola.assert_not_called()
+        baslat.assert_not_called()
+        self.assertIn("yükseltilmiş yetkiyle", " ".join(
+            str(c.args[0]) for c in yaz.call_args_list))
+
+    def test_yetki_penceresinden_yeniden_baslatilir(self):
+        """Pencere yalnız haber vermez; yükseltilmiş süreci de başlatır.
+
+        Başlatan süreç 0 ile ÇIKAR: aynı panelin iki kopyası aynı switch'e
+        ve aynı DeviceMap'e yazmamalı.
+        """
+        with (mock.patch.object(sys, "argv", ["app.py"]),
+              mock.patch("app.yonetici_mi", return_value=False),
+              mock.patch("yetki.sor", return_value="yukselt"),
+              mock.patch("yetki.yukselt", return_value=(True, "")) as yukselt,
+              mock.patch("panel_api.baslat") as baslat,
+              mock.patch("app.yaz")):
+            self.assertEqual(app.main(), 0)
+        yukselt.assert_called_once()
+        baslat.assert_not_called()
+
     def test_varsayilan_kip_http_sunucusu_acmaz(self):
         sahte = types.ModuleType("webview")
         sahte.settings = {}
@@ -155,6 +193,7 @@ class MasaustuBaslangicTesti(unittest.TestCase):
         html = f"<!doctype html><head>{KOPRU_ISARETI}</head>"
         with (mock.patch.dict(sys.modules, {"webview": sahte}),
               mock.patch.object(sys, "argv", ["app.py"]),
+              mock.patch("app.yonetici_mi", return_value=True),
               mock.patch("app.platform.system", return_value="Windows"),
               mock.patch("app.macos_kimlik"),
               mock.patch("masaustu.html_yukle", return_value=html),

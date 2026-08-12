@@ -10,7 +10,7 @@
 import { el, doldur, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
-import { deger } from '../core/bicim.js';
+import { deger, tipEtiketi } from '../core/bicim.js';
 import * as diyalog from './diyalog.js';
 import { bildir, basari } from './bildirim.js';
 
@@ -47,9 +47,11 @@ export function ciz() {
     el('span', { sinif: 'ad', metin: c.ad }),
     el('span', { sinif: 'rozet', metin: yontemKodu(c) }),
     el('span', { sinif: 'alt' }, [
-      `${c.ip} · ${c.tipEtiket}`,
+      `${c.ip} · ${tipEtiketi(c.tipEtiket)}`,
       el('br'),
-      c.kimlikGrubu ? `Kimlik grubu: ${c.kimlikGrubu}` : 'Cihaza özel kimlik',
+      c.kimlikGrubu
+        ? `Hesap grubu: ${c.kimlikGrubu}`
+        : 'Yalnız bu cihaz için kullanılan hesap',
       el('br'),
       aciklamaOf(c),
     ]),
@@ -98,7 +100,7 @@ export function kimlikDiyalogu(cihaz, bittiginde = null) {
   ]) : null;
 
   const gonder = el('button', {
-    type: 'submit', sinif: 'btn btn-birincil', metin: 'Doğrula',
+    type: 'submit', sinif: 'btn btn-birincil', metin: 'Erişimi doğrula',
   });
 
   const form = el('form', {
@@ -106,7 +108,7 @@ export function kimlikDiyalogu(cihaz, bittiginde = null) {
       e.preventDefault();
       uyariKutu.hidden = true;
       gonder.disabled = true;
-      gonder.textContent = 'Deneniyor…';
+      gonder.textContent = 'Erişim doğrulanıyor…';
 
       const kullanici = kullaniciAlan.value.trim();
       const parola = parolaAlan.value;
@@ -118,25 +120,25 @@ export function kimlikDiyalogu(cihaz, bittiginde = null) {
         kullaniciAlan.value = '';
         uygulaDurum(y.durum);
         diyalog.kapat();
-        basari(`${cihaz.ad} doğrulandı`
-          + (y.grubaUygulandi ? ' · hesap gruba uygulandı' : ''));
+        basari(`${cihaz.ad} cihazına erişim doğrulandı`
+          + (y.grubaUygulandi ? ' · Hesap gruba uygulandı.' : '.'));
         yenile();
         if (bittiginde) bittiginde();
       } catch (err) {
         // Yanlış parola bellekteki çalışan kimliği ezmez (sunucu tarafı).
         parolaAlan.value = '';
-        uyariKutu.textContent = err.message || 'Doğrulanamadı';
+        uyariKutu.textContent = err.message || 'Erişim doğrulanamadı.';
         uyariKutu.hidden = false;
         parolaAlan.focus();
         if (err.govde && err.govde.durum) uygulaDurum(err.govde.durum);
       } finally {
         gonder.disabled = false;
-        gonder.textContent = 'Doğrula';
+        gonder.textContent = 'Erişimi doğrula';
       }
     },
   }, [
     el('p', { sinif: 'aciklama' }, [
-      `${cihaz.ip} · ${cihaz.tipEtiket} · ${yontemKodu(cihaz)}`,
+      `${cihaz.ip} · ${tipEtiketi(cihaz.tipEtiket)} · ${yontemKodu(cihaz)}`,
       el('br'),
       deger(aciklamaOf(cihaz)),
     ]),
@@ -164,7 +166,7 @@ export function kimlikDiyalogu(cihaz, bittiginde = null) {
     ]),
   ]);
 
-  diyalog.ac({ baslik: cihaz.ad, icerik: form });
+  diyalog.ac({ baslik: `${cihaz.ad} için giriş bilgileri`, icerik: form });
 }
 
 // Sunucudan gelen tam durum görüntüsünü uygular (sayaçlar anında güncellenir).

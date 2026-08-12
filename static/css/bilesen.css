@@ -10,8 +10,8 @@
   border-radius: 0;
   color: var(--metin);
   cursor: pointer;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 13px;
-  letter-spacing: .07em; text-transform: uppercase;
+  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
   white-space: nowrap;
   transition: background .12s ease, border-color .12s ease;
 }
@@ -62,8 +62,8 @@
 .alan[aria-invalid="true"] { border-color: var(--kirmizi); color: #e05c59; }
 
 .etiket {
-  font-family: var(--f-mono); font-size: 9.5px;
-  letter-spacing: .1em; color: var(--soluk); text-transform: uppercase;
+  font-family: var(--f-govde); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--orta); text-transform: none;
 }
 
 /* ─────────────────────────────────────────────────── köşe işaretleri ── */
@@ -100,7 +100,7 @@
 /* Başlığın altındaki tek satır: sayfadaki sayıların ne kadar taze olduğu. */
 .sayfa-alt {
   margin-top: 5px;
-  font-family: var(--f-mono); font-size: 10.5px; color: var(--soluk);
+  font-family: var(--f-govde); font-size: 12.5px; color: var(--orta);
 }
 /* Kontrol listesi kendiliğinden tazeleniyor. Veri bayatladığında bu satır
    dikkat çeker: o görüntüden Excel üretmek yanlış bir belge demek. */
@@ -117,8 +117,8 @@
 }
 .diyalog .ozet-kutu .ozet-satir:last-child { border-bottom: 0; }
 .ust-etiket {
-  font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em;
-  color: var(--soluk); text-transform: uppercase;
+  font-family: var(--f-govde); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--orta); text-transform: none;
 }
 
 /* ───────────────────────────────────────────────────── durum renkleri ── */
@@ -141,7 +141,7 @@
   display: inline-flex; align-items: center; gap: 5px;
   padding: 1px 5px;
   border: 1px solid var(--cizgi-kuvvetli);
-  font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .05em;
+  font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .02em;
   color: var(--orta);
 }
 
@@ -174,8 +174,8 @@
 .tablo-basi {
   background: var(--panel);
   border-bottom: 0;
-  font-family: var(--f-mono); font-size: 9.5px;
-  letter-spacing: .08em; color: var(--soluk); text-transform: uppercase;
+  font-family: var(--f-govde); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .01em; color: var(--orta); text-transform: none;
   position: sticky; top: 0; z-index: 2;
 }
 
@@ -201,7 +201,7 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   border: 1px solid var(--cizgi); border-top: 0;
   background: var(--panel-2);
   padding: 22px 12px; text-align: center;
-  font-family: var(--f-mono); font-size: 11px; color: var(--soluk);
+  font-family: var(--f-govde); font-size: 12.5px; color: var(--orta);
 }
 
 /* ────────────────────────────────────────────────────── hedef şeridi ── */
@@ -221,6 +221,23 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 .serit[data-son="1"] { -webkit-mask-image: none; mask-image: none; }
 .serit .etiket { flex: none; margin-right: 4px; }
 
+/* İşlem hedefi: tek seçim için yatay çip dizisi yerine kompakt açılır
+   liste. Sayılar işlem tablosunda görünür; seçicinin işi yalnız kapsamdır. */
+.hedef-secici {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.hedef-secici .etiket { margin: 0; color: var(--orta); }
+.hedef-secici .alan {
+  width: auto;
+  min-width: 190px;
+  min-height: 35px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 .cip {
   flex: none;
   display: inline-flex; align-items: center; gap: 7px;
@@ -229,8 +246,8 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   border: 1px solid var(--cizgi-kuvvetli);
   color: var(--acik);
   cursor: pointer;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 13px;
-  letter-spacing: .05em; text-transform: uppercase;
+  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
   white-space: nowrap;
 }
 .cip .n { font-family: var(--f-mono); font-size: 10px; color: var(--soluk); }
@@ -290,8 +307,8 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   border-bottom: 1px solid var(--cizgi);
 }
 .yan-panel > header .baslik {
-  font-family: var(--f-baslik); font-weight: 600; font-size: 15px;
-  letter-spacing: .08em; text-transform: uppercase;
+  font-family: var(--f-baslik); font-weight: 600; font-size: 16px;
+  letter-spacing: 0; text-transform: none;
 }
 .yan-panel > .liste {
   flex: 1; overflow-y: auto;
@@ -345,7 +362,7 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 .is-basi .ad {
   display: block;
   font-family: var(--f-baslik); font-weight: 600; font-size: 14.5px;
-  letter-spacing: .05em; text-transform: uppercase;
+  letter-spacing: 0; text-transform: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .is-basi .alt {
@@ -526,8 +543,8 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
 .onay[aria-pressed="true"] { border-color: var(--accent); }
 .onay[aria-pressed="true"] .kutu { background: var(--accent); border-color: var(--accent); }
 .onay span:last-child {
-  font-family: var(--f-baslik); font-weight: 600; font-size: 13px;
-  letter-spacing: .05em; text-transform: uppercase;
+  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
 }
 
 /* ───────────────────────────────────────────────────── cihaz detayı ─── */

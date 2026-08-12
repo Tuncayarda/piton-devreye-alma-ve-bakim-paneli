@@ -74,21 +74,21 @@ def yontem_of(tip: str, alt: str | None) -> str:
 # ops: ip = IP atama, cfg = konfigürasyon, fw = firmware, dog = doğrulama
 GRUPLAR = [
     {"ad": "Intercom", "tip": "Announcement", "alt": "Intercom", "ops": "ip cfg fw dog"},
-    {"ad": "Handset", "tip": "Announcement", "alt": "Handset", "ops": "ip cfg fw dog"},
-    {"ad": "Amplifier", "tip": "Announcement", "alt": "Amplifier", "ops": "ip cfg fw dog"},
-    {"ad": "UIC", "tip": "Announcement", "alt": "UIC", "ops": "ip cfg fw dog"},
+    {"ad": "Handset", "tip": "Announcement", "alt": "Handset", "ops": "cfg fw dog"},
+    {"ad": "Amplifier", "tip": "Announcement", "alt": "Amplifier", "ops": "cfg fw dog"},
+    {"ad": "UIC", "tip": "Announcement", "alt": "UIC", "ops": "cfg fw dog"},
     # Compartment LCD'nin yazılımı APK: adb ile kuruluyor (bkz. core/firmware).
     {"ad": "Compartment LCD", "tip": "LCD", "alt": "Compartment",
-     "ops": "ip fw dog"},
-    {"ad": "Landing LCD", "tip": "LCD", "alt": "Landing", "ops": "ip dog"},
-    {"ad": "LED", "tip": "LED", "alt": "Front", "ops": "ip dog"},
-    {"ad": "ICU", "tip": "ICU", "alt": "", "ops": "ip dog"},
-    {"ad": "Kamera", "tip": "Camera", "alt": "", "ops": "ip dog"},
-    {"ad": "NVR", "tip": "NVR", "alt": "", "ops": "ip dog"},
-    {"ad": "AP", "tip": "AP", "alt": "", "ops": "ip dog"},
+     "ops": "fw dog"},
+    {"ad": "Landing LCD", "tip": "LCD", "alt": "Landing", "ops": "dog"},
+    {"ad": "LED", "tip": "LED", "alt": "Front", "ops": "dog"},
+    {"ad": "ICU", "tip": "ICU", "alt": "", "ops": "dog"},
+    {"ad": "Kamera", "tip": "Camera", "alt": "", "ops": "dog"},
+    {"ad": "NVR", "tip": "NVR", "alt": "", "ops": "dog"},
+    {"ad": "AP", "tip": "AP", "alt": "", "ops": "dog"},
     {"ad": "PISCU", "tip": "PISCU", "alt": "", "ops": "dog"},
     {"ad": "HMI", "tip": "HMI", "alt": "", "ops": "dog"},
-    {"ad": "Tümü", "tip": "*", "alt": "", "ops": "ip dog"},
+    {"ad": "Tümü", "tip": "*", "alt": "", "ops": "dog"},
 ]
 
 
@@ -102,3 +102,14 @@ def grup_eslesir(g: dict, cihaz) -> bool:
     if cihaz.type != g["tip"]:
         return False
     return (not g["alt"]) or (cihaz.subtype or "") == g["alt"]
+
+
+def grup_islemi_destekler(g: dict | None, op: str) -> bool:
+    """Grubun işlem yeteneği metadata'da açıkça tanımlı mı?"""
+    return bool(g) and op in str(g.get("ops", "")).split()
+
+
+def cihaz_islemi_destekler(cihaz, op: str) -> bool:
+    """Cihaz, bu işlem için tanımlı gruplardan birine giriyor mu?"""
+    return any(grup_islemi_destekler(g, op) and grup_eslesir(g, cihaz)
+               for g in GRUPLAR)

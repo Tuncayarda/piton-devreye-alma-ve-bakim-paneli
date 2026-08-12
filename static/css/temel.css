@@ -41,8 +41,8 @@
   --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Menlo", monospace;
 
   --ust: 50px;
-  --alt: 30px;
-  --kenar: 250px;
+  /* Alt bar ana menü düğmesini de taşıyor; 30px'de düğme bara sığmıyordu. */
+  --alt: 36px;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -56,23 +56,23 @@ body {
   background: var(--bg);
   color: var(--metin);
   font-family: var(--f-govde);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 14.5px;
+  line-height: 1.5;
   overflow: hidden;
 }
 
 h1, h2, h3, h4 {
   font-family: var(--f-baslik);
   font-weight: 600;
-  letter-spacing: .01em;
-  text-transform: uppercase;
-  line-height: 1.05;
+  letter-spacing: 0;
+  text-transform: none;
+  line-height: 1.12;
   margin: 0;
 }
 
-h2 { font-size: 26px; }
-h3 { font-size: 17px; letter-spacing: .07em; }
-h4 { font-size: 15px; letter-spacing: .08em; }
+h2 { font-size: 28px; }
+h3 { font-size: 18px; }
+h4 { font-size: 15.5px; }
 
 button { font: inherit; color: inherit; }
 input, select { font: inherit; }
@@ -170,7 +170,7 @@ input, select { font: inherit; }
 .rol-btn:hover { background: rgba(66, 148, 224, .12); border-color: var(--accent); }
 .rol-btn span {
   font-family: var(--f-baslik); font-weight: 600; font-size: 20px;
-  letter-spacing: .09em; text-transform: uppercase;
+  letter-spacing: 0; text-transform: none;
 }
 
 .rol-parola {
@@ -223,14 +223,20 @@ input, select { font: inherit; }
   min-height: 0;
 }
 
+/* Ana menü dar bir ikon rayı: 56 piksel. Adlar ikonun üstüne gelince yandaki
+   balonda görünür, kalıcı isteyen rayı genişletir (bkz. ekran.css "ikon
+   rayı"). Balon rayın dışına taştığı için burada taşma kesilmez. */
 .kenar {
-  width: var(--kenar); flex: none;
+  flex: none;
+  z-index: 30;
+  display: flex; flex-direction: column;
+  width: 56px;
   background: var(--panel);
   border-right: 1px solid var(--cizgi);
-  display: flex; flex-direction: column;
-  overflow-y: auto;
-  padding: 12px 0 14px;
+  transition: width .18s ease;
 }
+.kenar[data-genis="1"] { width: 214px; }
+@media (prefers-reduced-motion: reduce) { .kenar { transition: none; } }
 
 .icerik {
   flex: 1;
@@ -245,31 +251,21 @@ input, select { font: inherit; }
   padding: 0 18px;
   background: var(--panel);
   border-top: 1px solid var(--cizgi);
-  font-family: var(--f-mono); font-size: 10.5px; color: var(--soluk);
+  font-family: var(--f-govde); font-size: 11.5px; color: var(--soluk);
 }
 .alt-bar .ayrac { width: 1px; height: 14px; background: var(--cizgi); }
 
-/* ── dar ekran: kenar çubuğu üstüne biner, açılır kapanır ────────────── */
-/* Menü düğmesi yalnız dar ekranda. .btn de display tanımladığı için
-   burada aynı özgüllükte (iki sınıf) yazılmalı. */
-.btn.kenar-ac { display: none; }
-
+/* ── dar ekran ───────────────────────────────────────────────────────── */
 @media (max-width: 1080px) {
-  .btn.kenar-ac { display: inline-flex; }
-  .kenar {
-    position: absolute;
-    top: 0; bottom: 0; left: 0;
-    z-index: 25;
-    box-shadow: 14px 0 34px rgba(6, 10, 13, .55);
-    transform: translateX(-100%);
-    transition: transform .16s ease;
-  }
-  .kenar[data-acik="1"] { transform: translateX(0); }
+  /* Uygulamanın adı pencere başlığında zaten görünür. Minimum masaüstü
+     genişliğinde bu metni gizlemek, aktif çalışma türünün kırpılmasını
+     ve üst bar eylemlerinin taşmasını önler. */
+  .ust-bar .isim,
+  .ust-bar img.logo + .ayrac { display: none; }
   .icerik { padding: 16px 14px 24px; }
 }
 
 @media (max-width: 720px) {
   .ust-bar { flex-wrap: wrap; padding: 6px 10px; min-height: auto; }
-  .ust-bar .isim { display: none; }
   h2 { font-size: 21px; }
 }

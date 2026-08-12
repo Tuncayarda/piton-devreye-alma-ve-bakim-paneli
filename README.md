@@ -57,6 +57,22 @@ python -m pip install -r docs\requirements-windows.txt
 python app.py
 ```
 
+Uygulama yükseltilmiş (yönetici) yetkiyle çalıştırılır: panel ağ arayüzünü ve
+ARP önbelleğini okuyup temizliyor, cihazlara IP yazıyor ve switch portlarını
+yönetiyor. Windows'ta paketlenmiş uygulamanın manifesti yöneticilik ister, o
+yüzden çift tıklandığında UAC penceresi doğrudan çıkar.
+
+Yetki yoksa panel yine açılmaz — ama sessizce kapanmaz: sebebi anlatan bir
+pencere çıkar ve iki yol sunar, **yönetici olarak yeniden başlat** ya da
+**çıkış**. İzni işletim sistemi ister: Windows'ta UAC, macOS'ta sistem
+parolası penceresi, Linux'ta polkit. O yol düşerse (macOS'ta korumalı
+klasörlerde olabiliyor) ve uygulama bir terminalden başlatılmışsa, yükseltmeyi
+`sudo` ile o terminale devretmek ayrıca sorulur.
+Parola uygulamaya girilmez; istemi işletim sistemi gösterir. Kimsenin başında
+olmadığı otomatik koşularda pencere `PANEL_YETKI_PENCERESI=0` ile kapatılır.
+`--self-test` ve `--version` bu denetimin dışındadır; ikisi de cihaza ve ağa
+dokunmaz.
+
 HTTP tabanlı geliştirme/tanı kipini varsayılan tarayıcıda kullanmak için
 `python app.py --tarayici` komutunu çalıştırın. Diğer seçenekler:
 

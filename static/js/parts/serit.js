@@ -22,6 +22,37 @@ export function gecerliGrup(op) {
   return liste.find(g => g.ad === durum.hedefGrup) || liste[0];
 }
 
+// İşlem ekranlarında hedef tek seçimdir. Yatay çip şeridi çok yer kaplıyor
+// ve seçenek sayısı arttığında kaydırma gerektiriyordu; kompakt açılır liste
+// aynı kapsamı daha sakin ve doğrudan gösterir. Cihaz sayıları seçenek adına
+// eklenmez: sayı, işlemin kendi tablosunda zaten görünür.
+export function secici(op, secilince = () => {}) {
+  const liste = gruplar(op);
+  const aktif = gecerliGrup(op);
+  return el('label', { sinif: 'hedef-secici' }, [
+    el('span', { sinif: 'etiket', metin: 'Cihaz türü' }),
+    el('select', {
+      sinif: 'alan',
+      'aria-label': 'Hedef cihaz türü',
+      disabled: !liste.length,
+      onchange: (e) => {
+        const grup = liste.find(g => g.ad === e.target.value);
+        if (!grup) return;
+        // Seçim bitti: odak listeden çıkarılır. Odaktaki bir liste açık
+        // sayıldığı ve çizimi beklettiği için (bkz. app.odakAcilirListede)
+        // bu olmadan yeni grubun alanları ekrana gelmiyordu.
+        e.target.blur();
+        ata({ hedefGrup: grup.ad });
+        secilince(grup);
+      },
+    }, liste.map(g => el('option', {
+      value: g.ad,
+      selected: aktif && aktif.ad === g.ad ? true : null,
+      metin: g.ad,
+    }))),
+  ]);
+}
+
 // Şerit sığmadığında sağ kenar soluyor (bkz. .serit maskesi). Sonuna
 // gelindiğinde ya da hepsi sığdığında solmaya gerek yok; bunu ancak
 // ölçerek bilebiliyoruz.

@@ -47,6 +47,99 @@ Bağımlılıklar kurulduktan sonra doğrudan açılış: `python3 app.py`
 | `python3 panel_api.py --port 8790` | Yalnız API (hata ayıklama) |
 | `python3 -m unittest discover -s tests -t .` | Bütün testler |
 
+### Yükseltilmiş yetki kapısı
+
+Panel ağ arayüzünü ve ARP önbelleğini okuyup temizliyor, cihazlara IP yazıyor
+ve switch portlarını yönetiyor. Bunlar sıradan kullanıcı yetkisiyle **sessizce
+yarım** çalışıyor: en pahalı örneği ARP kaydının silinememesi, aynı adresteki
+cihazların birbirinin arkasında kalması ve koşunun "cihaz bulunamadı" demesi
+(bkz. §9). Bu yüzden yetkisiz kip yok.
+
+Denetim `yetki.yonetici_mi()` ile yapılır (POSIX'te `geteuid`, Windows'ta
+`IsUserAnAdmin`) ve `--self-test` / `--version` dışındaki bütün kipleri kapsar;
+o ikisi cihaza ve ağa hiç dokunmaz.
+
+Yetki yoksa eskiden konsola tek satır yazılıp çıkılıyordu: uygulamayı çift
+tıklayan kullanıcı **hiçbir şey görmüyordu**. Artık bir pencere açılır ve iki
+yol sunar — "Yönetici olarak yeniden başlat" ve "Çıkış". Üçüncü bir yol
+(yetkisiz devam) bilerek yok.
+
+| | yükseltme | parolayı kim sorar |
+|---|---|---|
+| Windows | `ShellExecuteW` fiil `runas` | UAC |
+| macOS | `osascript … with administrator privileges` | sistem parola penceresi |
+| Linux | `pkexec` (yoksa otomatik yükseltme yok) | polkit |
+| yedek (POSIX, terminalden başlatıldıysa) | `sudo` ile süreç **yerinde** değiştirilir | sudo, aynı terminalde |
+
+Asıl yol sistemin kendi izin penceresidir; uygulamanın terminalle işi yoktur.
+Yedek yol yalnız pencere yolu düştüğünde **sorulur** — sessizce başka bir yola
+sapılmaz.
+
+Yedeğe ihtiyaç macOS'ta doğabiliyor: sistem penceresiyle başlatılan süreç
+`security_authtrampoline` altında doğuyor ve korumalı klasörlere
+(Masaüstü/Belgeler/İndirilenler) erişimi TCC tarafından reddedilebiliyor.
+Sahada bir kez birebir şu görüldü: `can't open file '…/Desktop/dap/app.py':
+[Errno 1] Operation not permitted`. Bu, macOS'un bir kerelik klasör erişimi
+sorusuna cevap verilene kadar süren geçici bir durum; sonraki ölçümlerde aynı
+komut sorunsuz çalıştı. `sudo` ile devredilen süreç terminalin kimliğini
+sürdürdüğü için o engel hiç doğmaz. Paketlenmiş uygulama `/Applications`
+altında durduğundan orada da sorun çıkmaz.
+
+Parola uygulamaya girilmez, uygulama parola sormaz: istemi işletim sistemi
+gösterir, panel yalnız yeni süreci başlatır ve **kendisi çıkar** — aynı panelin
+iki kopyası aynı switch'e ve aynı DeviceMap'e yazmamalı. Kullanıcı istemi
+reddederse sebep hem konsola hem ikinci bir pencereye yazılır; sessizce
+kapanmak, hatanın kendisiydi.
+
+Windows'ta paketlenmiş uygulamanın manifestine ayrıca yönetici isteği gömülür
+(`uac_admin=True`, bkz. `DevreyeAlmaPaneli.spec`): çift tıklamada UAC önce
+çıkar ve panel doğrudan yükseltilmiş açılır. Pencere yine de gerekli — betikten
+çalıştırma ve eski kısayollar bu manifestten geçmez.
+
+Kimsenin başında olmadığı koşularda (CI, otomatik doğrulama) bekleyen bir
+pencere işi sonsuza kadar asar; `PANEL_YETKI_PENCERESI=0` pencereyi hiç açmaz
+ve akış doğrudan "çıkış" ile biter.
+
+İki ayrıntı sahada ölçülerek eklendi:
+
+- **Süreç kendiliğinden kapanmıyordu.** Pencere motorunun olay döngüsü
+  kapandıktan sonra Cocoa/GTK iş parçacıkları süreci ayakta tutabiliyor;
+  yükseltilmiş süreç başladıktan sonra eski süreç dışarıdan sonlandırılana
+  kadar açık kaldı. `app._hemen_cik()` `main()` döndükten sonra yorumlayıcıyı
+  doğrudan bitirir — kapatılacak bir şey kalmamıştır, servisler `main`'in
+  `finally` bloğunda zaten kapanmıştır.
+- **Yeni sürecin çıktısı bir günlüğe yazılır** (`yetki.gunluk_yolu()`,
+  geçici dizinde `devreye-yukseltme.log`). Arkaplandaki yükseltilmiş süreç
+  açılışta düşerse kullanıcı hiçbir şey görmez; geriye bakılacak tek yer
+  orasıdır. Konsola da yolu yazılır.
+- **macOS'ta `nohup` kullanılmaz.** `do shell script` komutu terminalsiz
+  çalıştırıyor ve oradaki nohup `can't detach from console: Inappropriate
+  ioctl for device` deyip düşüyordu: parola giriliyor, komut 0 dönüyor,
+  panel hiç açılmıyordu. Arkaplana atmak için `&` yeterli; girdi
+  `/dev/null`'dan verilir.
+- **Onaydan sonra eski süreç görünmez olur.** Doğrulama boyunca (aşağıdaki
+  madde) birkaç saniye daha yaşıyor ve o sırada Dock'ta yeni panelin yanında
+  ikinci bir simge duruyordu. Pencere kapandığına göre simgenin durmasının
+  anlamı yok: `yetki.dock_gizle()` süreci Dock dışına alır
+  (`NSApplicationActivationPolicyAccessory`).
+- **Yükseltme kanalının bitmesi BEKLENMEZ.** macOS'ta
+  `security_authtrampoline`, başlattığı sürecin bitmesini bekliyor:
+  `subprocess.run` kullanıldığında eski süreç, yeni panel kapanana kadar
+  hayatta kalıyordu — Dock'ta ikinci bir uygulama olarak duruyor, panel
+  kapanınca da PID'i ölü bulup yanlışlıkla "açılışta düştü" penceresi
+  açıyordu. Ölçüm: yalın `do shell script` 12 saniyelik arkaplan süreciyle
+  0,1 sn'de dönüyor, yükseltilmiş olan dönmüyor. Kanal `Popen` ile
+  başlatılır (kendi oturumunda) ve **kabuğun yazdığı PID** beklenir; PID
+  dosyası göründüğü an yeni süreç doğmuştur.
+- **PID'in yazılması da yetmez**, çünkü süreç açılışta düşebilir.
+  `yeni_surec_durumu()` birkaç saniye sonra sürecin hâlâ var olup olmadığına
+  bakar ve düşmüşse günlüğün son satırını sebep olarak gösterir. Sebep "Operation not
+  permitted" ise macOS gizlilik koruması açıklanır: Masaüstü/Belgeler/
+  İndirilenler klasörlerindeki bir uygulamayı sistem penceresiyle başlatan
+  süreç dosyayı açamayabiliyor ve bu, dosya izniyle karıştırılıyor.
+
+---
+
 Admin şifresi verilmezse admin ekranı şifresiz açılır. Şifre yalnız
 bellekte tutulur ve `secrets.compare_digest` ile karşılaştırılır. Bu denetim,
 yerel arayüzde Admin rolüne geçiş kapısıdır; servis işlemleri için oturum veya
@@ -773,6 +866,165 @@ hata nedeni daha sonra incelenebilir. Satır başına en fazla
 `isler.ADIM_SINIRI` adım tutulur (açık işin her yoklamasında arayüze
 gidiyorlar).
 
+### Adres haritası = "hangi adreste kim var"
+
+Sahadaki en sık soru buydu ve cevabı yalnız dış araçlarla (`arp-scan`), o da
+MAC düzeyinde alınabiliyordu: "10.1.1.13'te üç cihaz var" biliniyor ama
+hangileri olduğu bilinmiyordu. Oysa intercom kendi **dahili numarasını**
+bildiriyor (`pbxExtension`) ve DeviceMap aynı alanı taşıyor
+(`PBXExtension`) — ikisi birleşince cümle tamamlanıyor: *"10.1.1.13'te
+oturan cihaz aslında port 22'nin cihazı."*
+
+`ip_atama.adres_haritasi()` aday adresleri (fabrika adresi + gruptaki
+cihazların DeviceMap adresleri + verilmişse arama aralığı) **salt okuma**
+yoklar ve her adres için satır üretir: DeviceMap'te kimin olduğu, şu an kimin
+olduğu ve durum — `yerinde` / `yabanci` / `cakisma` / `bos` / `taninmiyor`.
+
+Çakışma tek yoklamayla görünmez: adres her seferinde tek cihaz cevaplar. Bu
+yüzden birkaç tur yoklanır ve turlar arasında ARP kaydı temizlenir; bir
+adreste FARKLI dahililer görülmüşse orada birden çok cihaz var demektir.
+Uç `GET /api/ip/harita`, iş kuyruğuna girmez (hiçbir şey yazmaz).
+
+### Koşudan sonra kimlik denetimi
+
+Betiğin `find_device` işlevi cihazı **uptime tahminiyle** seçiyor ve bulduğu
+cihazın kim olduğuna bakmıyor (`pbxExtension` betikte hiç geçmez). Aynı
+adreste iki cihaz varken yanlış olana yazmak bu yüzden mümkün — sahada
+sonucu görüldü: üç cihaz tek bir hedef adreste toplandı, bir cihaz da başka
+bir portun adresine yazılmıştı. "Port tamamlandı" demek yalnız "hedef adres
+cevap verdi" demek.
+
+Betik değiştirilmiyor (§3). Denetim koşudan SONRA panel katmanında yapılıyor
+(`ip_atama.kimlik_dogrula`): her portun hedef adresi yoklanır, cevap verenin
+dahilisi DeviceMap'teki cihazla karşılaştırılır. Sonuç port satırlarına
+yazılır (`dogru` sessizce adım olarak, `yanlis` ve `cakisma` satırı KIRMIZI
+yapar) ve iş özeti "cihazlar karışmış" der — bu, "port tamamlanamadı"dan
+farklı ve daha ağır bir sonuçtur.
+
+### Kalıcılık doğrulaması (isteğe bağlı)
+
+"Yazıldı" ile "kalıcı yazıldı" aynı şey değil: cihaz ayarı yalnız belleğine
+almış olabilir ve ilk güç kesintisinde eski adresine döner. Betiğin bunun
+için bir kontrolü var (sonda portların gücünü bir kez kesip açar) ama koşuyu
+uzattığı ve işi biten cihazları yeniden karartığı için panel onu varsayılan
+olarak kapatıyor (`--no-persist-check`). Devreye alma bittiğinde bir kez
+görmek isteyen kullanıcı için arayüzde **"Kalıcılığı doğrula (sonda güç
+çevrimi)"** kutusu var; işaretlenirse bayrak gönderilmez ve betik kendi
+kontrolünü yapar.
+
+### Fabrika adresinde toplama (test akışı)
+
+`core/ip_atama.fabrikaya_dondur`, koşuyu baştan denemek için gereken
+başlangıç durumunu kurar: seçili intercomların hepsine "IP'ni fabrika
+adresine çevir" isteği gönderilir. PoE'ye, switch ayarlarına ve
+DeviceMap'e dokunulmaz.
+
+İlk uygulama her cihaza **yalnız DeviceMap'teki adresinden** ulaşmayı
+deniyor ve tek tur yürüyordu. Sahada iki durumda tıkanıyordu; ikisi de
+`arp-scan` çıktısında görünür:
+
+1. **Cihaz DeviceMap'teki adresinde değil.** İşlem bir kez çalıştıktan
+   sonra cihazların çoğu zaten fabrika adresindedir; eski adreslerinde
+   kimse cevap vermez. Bütün satırlar "cevap vermedi" uyarısı verip iş
+   başarısız görünüyordu — oysa yapılacak bir şey kalmamıştı.
+2. **İki cihaz aynı adreste** (`10.1.1.14 … (DUP: 2)`). O adrese giden
+   tek istek yalnız birine ulaşır; ikincisi adres boşalana kadar görünmez.
+   İşlem kaç kez tekrarlanırsa tekrarlansın bu iki cihaz orada kalıyordu.
+
+Akış bu yüzden **tur tur** yürür: her turda bütün aday adresler (seçili
+cihazların DeviceMap adresleri + verilmişse arama aralığı) yoklanır, cevap
+veren her cihaz fabrika adresine yazılır, sonra adresin gerçekten boşaldığı
+doğrulanır. Adres boşalınca arkasındaki ikinci cihaz görünür hale gelir;
+hiçbir adres cevap vermeyene kadar tur tekrarlanır (`FABRIKA_TUR_SINIRI`).
+
+Dört ayrıntı bu akışı doğru kılıyor:
+
+- **Cihazın kimliği cihazdan sorulur: dahili numara.** Intercom
+  `/api/v1/system/settings` yanıtında `pbxExtension` veriyor ve aynı alan
+  DeviceMap'te de duruyor (`PBXExtension`). "Bu adreste cevap veren kim"
+  sorusu böylece ARP'a, switch kimliğine ve MAC tablosuna hiç ihtiyaç
+  duymadan yanıtlanıyor (`dahili_no`). Sahada `10.1.1.13`'te oturan cihazın
+  aslında **port 22'nin** cihazı olduğu (dahili 2012) bu yolla görüldü.
+- **Yazmanın kanıtı "adres sustu" değil, "oradaki cihaz değişti".** Aynı
+  adreste iki cihaz varken biri taşındıktan sonra adres cevap vermeye devam
+  eder. `_adres_bosaldi` bu yüzden cevabın kimden geldiğine bakar: dahili
+  numara, yoksa cihazın bildirdiği MAC, yoksa ARP tablosu.
+- **Satır, kesinlik sırasına göre seçilir:** dahili → port, sonra MAC → port
+  (switch MAC tablosu), en son "bu adres DeviceMap'te kimin" varsayımı.
+  Cihaz başka bir cihazın adresinde dururken satır yine doğru porta yazılır;
+  seçili portların dışında kalan bir cihaza ise hiç dokunulmaz.
+- **"Adresinde cevap yok" hata değildir**, `atlandi`'dır: cihaz büyük
+  olasılıkla zaten fabrika adresindedir. İşi kırmızıya boyayan tek şey,
+  cihazın eski adresinde **kalmasıdır** (`panel_api._ip_fabrika_hatasi`).
+  Sonda fabrika adresi de bir kez yoklanır: orada da cevap yoksa cihazlar
+  bu ağda hiç görünmüyor demektir ve bu bildirilir.
+
+#### ARP temizliği: yoklamadan önce değil, gerekirse
+
+Koşu turun başında bütün aday adreslerin ARP kaydını siliyor, sonra tek bir
+yoklama yapıyordu. Sahadaki ölçüm bunun neden yıkıcı olduğunu gösterdi:
+
+| adres | durum | yoklama süresi |
+|---|---|---|
+| `10.1.1.14` | ARP kaydı geçerli | **0,01 sn** — cevap |
+| `10.1.1.10` | kayıt çözülmemiş | **2,00 sn** — zaman aşımı |
+
+Kaydı silmek adresi baştan çözülmeye zorluyor ve çözümleme, yoklamanın kendi
+zaman aşımından uzun sürebiliyor. Sonuç: cihazlar yerli yerinde dururken
+**bütün satırlar "adresinde cevap yok"** oluyordu. İşin parmak izi buydu —
+kaydı hiç silinmeyen tek adres (fabrika adresi) aynı koşuda sorunsuz cevap
+veriyordu.
+
+`_yokla` sırayı tersine çevirir: önce işletim sisteminin elindeki kayıtla
+yoklanır (geçerliyse cevap milisaniyelerde gelir), **ancak cevap gelmezse**
+kayıtlar temizlenip yeniden bakılır — bayat kayıt ihtimali ancak o zaman
+anlamlı. Aynı sıra yazma sonrası kontrolde de geçerlidir (`_adres_bosaldi`):
+tek sessizlik yetmez, kayıt temizlenip bir daha bakılır.
+
+Yoklama tek denemeyle bitmez (`FABRIKA_YOKLAMA_DENEME` = 2) ama iki deneme de
+FARKLI şeyi ölçer: birincisi eldeki kayıtla, ikincisi kayıt temizlendikten
+sonra. Üçüncüsü aynı ölçümü tekrarlayıp koşuyu uzatmaktan başka bir şey
+yapmıyordu.
+
+#### Koşu neden uzun görünüyordu
+
+Cihaz bulunmayan tekrarlar da "tur" sayılıyordu: iki cihazlık bir çakışmada
+kullanıcı **"8. tur"** görüp işin uzadığını sanıyordu, oysa iş ikinci turda
+bitmişti. Artık tur yalnız CİHAZ BULUNAN geçişleri sayar; boş tekrar aşama
+metninde "yeniden bakılıyor (1/2)" olarak görünür. Ayrıca koşu zaten boş bir
+yoklamayla bittiyse son kontrol tekrarlanmaz — aynı ölçümü ikinci kez yapmak
+işi uzatmaktan başka bir şey yapmıyor.
+
+Yapacak iş olmayan koşunun ölçülen süresi (12 cihaz, hepsi fabrika
+adresinde): yetkili kipte **~16 sn**, ARP temizlenemeyen kipte ~64 sn — ikinci
+sayı kaydın kendiliğinden dönmesini beklemenin bedeli.
+
+#### ARP önbelleği temizlenemediğinde
+
+Uygulama normalde yükseltilmiş yetkiyle açılır (bkz. `yetki.py`) ve
+gerektiğinde ARP kayıtlarını temizler. Yetkinin olmadığı bir kurulumda (örneğin
+panel doğrudan `python app.py --tarayici` ile geliştirme kipinde
+çalıştırıldığında) aynı adresteki cihazlar **sırayla** görünür: kayıt taşınmış
+bir cihazın MAC'ini gösterirken o adres "cevap vermedi" görünür.
+
+Ölçüm: aynı adresi paylaşan cihazlar birbirinin ARP duyurusunu ezdiği için
+işletim sisteminin kaydı kendiliğinden dönüyor — `10.1.1.13`'ün kaydı ~20
+saniyede iki cihaz arasında gidip geldi. Akış bunu kullanır: boş geçen tur
+işi bitirmez, `FABRIKA_TUR_ARASI` kadar beklenip `FABRIKA_BOS_TUR` kez daha
+denenir. Yetki varsa boş tur gerçekten boştur ve beklenmez.
+
+Sonuç yine de eksik kalabileceği için bu durum saklanmaz: koşunun ilk
+satırında, "cevap yok" satırlarının notunda, son kontrolde ve iş özetinde
+yetkinin olmadığı ve sonucun kesin sayılamayacağı yazar. Arayüz de fabrika
+diyaloğunda düğmeye basılmadan önce uyarır (`/api/ip/plan` → `arpTemizlik`).
+
+İlerleme koşuyla aynı biçimde raporlanır (`FabrikaIlerleme`,
+`FABRIKA_ASAMALARI`): her hedef cihaz sayılan bir satır, satırın altında
+kendi adımları, üstte aşama ve yüzde. Eskiden her çıktı satırı kuyruğa
+bilgi satırı olarak giriyordu; bilgi satırları sayaçlara girmediği için
+**yüzde baştan sona %0** kalıyordu. Davranış `tests/test_fabrika.py` ile
+sabitlenmiştir.
+
 ### Tren seti değiştirme
 
 Üst bardaki `SET n`, `1` ile `254` arasında tam sayı kabul eden bir sayı
@@ -945,6 +1197,26 @@ bir saha günlüğünden oynatıp aynı anda tek portun çalıştığını, port
 koşu içinde kapandığını, yüzdenin aşama payına göre ilerleyip geri
 gitmediğini ve satır altı adımların doğru porta yazıldığını doğrular
 (bkz. §9 "IP atama koşusunun ilerlemesi").
+
+Ek olarak `tests/test_yetki.py`: yükseltilmiş yetki akışı — hangi platformda
+hangi komutla yükseltildiği (paketlenmiş uygulamada `argv[0]`'ın tekrar
+verilmemesi dahil), kullanıcının istemi reddetmesinin nasıl bildirildiği ve
+"çıkış" seçildiğinde hiçbir servisin kurulmadığı. Testler pencere AÇMAZ.
+
+Ek olarak `tests/test_fabrika.py`: cihazları fabrika adresinde toplama
+akışını sahte bir ağ üzerinde oynatır — aynı adreste duran iki cihazın
+ikisinin de toplandığını, eski adresinde cevap vermeyen cihazın hata
+sayılmadığını, bulunan cihazın MAC üstünden kendi satırına yazıldığını ve
+yüzdenin iş sürerken ilerlediğini doğrular (bkz. §9 "Fabrika adresinde
+toplama"). Aynı sahte ağ üzerinde adres haritasının durumları
+(`yerinde`/`yabanci`/`cakisma`), koşu sonrası kimlik denetiminin yanlış
+cihazı yakalaması ve kalıcılık bayrağının betiğe doğru yansıması da
+sabitlenmiştir. Üç akış da **hiçbir şey yazmadığını** ayrıca doğrular.
+
+`tests/test_arayuz.py` içindeki `test_19c_ulasilmayan_modul_kalmaz`,
+`app.js`ten başlayan içe aktarım ağacını yürüyüp hiçbir yerden çağrılmayan
+JS modülü kalmadığını denetler: "bu dosya hâlâ kullanılıyor mu?" sorusu bir
+kez elle grep'lenip yanlış cevaplandı, artık denetim testte.
 
 Ek olarak `tests/test_kontrol.py`: şablon iskeletinin dosyadan geldiğini,
 N/A ile "okunmadı"nın ayrı kaldığını, önizleme ile Excel çıktısının aynı

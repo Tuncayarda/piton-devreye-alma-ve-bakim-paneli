@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core import device_map, dogrulama, excel, ip_atama, isler, okuma
+from core import device_map, dogrulama, excel, ip_atama, isler, kategori, okuma
 
 from .ortak import PanelTesti, ServisTesti
 from . import sahte
@@ -292,7 +292,9 @@ class RetainedMesajCihazVarligiDegildir(PanelTesti):
                 "DeviceIP": "10.1.1.4", "HWID": "34DA8534",
                 "Status": "connected", "Version": "1.2.5"}})
         self.assertEqual(sonuc.durum, dogrulama.KIRMIZI)
-        self.assertIn("NoError=false", sonuc.aciklama)
+        self.assertEqual(
+            sonuc.aciklama,
+            "PISCU cihazın kapalı veya arızalı olduğunu bildiriyor")
 
     def test_status_yazmayan_eski_yuk_canli_kayitla_degerlendirilir(self):
         """AppStatus'ta Status alanı yoksa tek işaret canlı kayıttır."""
@@ -315,7 +317,9 @@ class RetainedMesajCihazVarligiDegildir(PanelTesti):
             {}, tanim=self.ICU)
         self.assertEqual(sonuc.durum, dogrulama.KIRMIZI)
         self.assertEqual(sonuc.dogrulama, dogrulama.DOGRULANAMADI)
-        self.assertIn("arızalı/kapalı", sonuc.aciklama)
+        self.assertEqual(
+            sonuc.aciklama,
+            "PISCU cihazın kapalı veya arızalı olduğunu bildiriyor")
 
     def test_saglam_mqtt_cihazi_yesil_kalir(self):
         sonuc = self._oku(
@@ -519,6 +523,15 @@ class CompartmentLcd(PanelTesti):
 
 
 class IpPlani(PanelTesti):
+
+    def test_ip_atama_yalniz_intercom_grubunu_kabul_eder(self):
+        desteklenen = [g["ad"] for g in kategori.GRUPLAR
+                       if kategori.grup_islemi_destekler(g, "ip")]
+        self.assertEqual(desteklenen, ["Intercom"])
+        self.assertEqual(
+            [g["ad"] for g in ip_atama.gruplari_coz(
+                ["Intercom", "Handset", "Kamera", "Tümü"])],
+            ["Intercom"])
 
     def test_port_ayristirma(self):
         izin = set(range(1, 25))

@@ -12,19 +12,39 @@ export function deger(v) {
 }
 
 export const DURUM_ETIKET = {
-  yesil: 'Doğrulandı',
-  turuncu: 'Erişim bekliyor',
-  kirmizi: 'Hata',
-  gri: 'Okunmadı',
+  yesil: 'Erişilebilir',
+  turuncu: 'Giriş bilgisi gerekli',
+  kirmizi: 'Erişilemiyor',
+  gri: 'Henüz okunmadı',
 };
 
 export const DOGRULAMA_ETIKET = {
-  dogrulandi: 'Doğrulandı',
-  kimlik_bekliyor: 'Kullanıcı adı / parola gerekiyor',
-  dogrulanamadi: 'Doğrulanamadı',
+  dogrulandi: 'Temel veri okundu',
+  kimlik_bekliyor: 'Kullanıcı adı veya parola gerekli',
+  dogrulanamadi: 'Kontrol tamamlanamadı',
   okunmadi: 'Henüz okunmadı',
   uygulanmiyor: 'Bu cihazda uygulanmıyor',
 };
+
+// DeviceMap'teki tür adları cihaz protokolünün parçasıdır ve İngilizce
+// kalabilir. Kullanıcı yüzünde yalnız genel sınıfları Türkçeleştiriyoruz;
+// ürün/model adlarına (PISCU, UIC, Intercom gibi) dokunmuyoruz.
+const TIP_PARCA = {
+  Announcement: 'Anons',
+  Camera: 'Kamera',
+  Compartment: 'Kompartıman',
+  Corridor: 'Koridor',
+  Front: 'Ön',
+  Landing: 'Sahanlık',
+};
+
+export function tipEtiketi(etiket) {
+  return String(etiket || '')
+    .split('/')
+    .map(p => p.trim())
+    .map(p => TIP_PARCA[p] || p)
+    .join(' / ');
+}
 
 export const IS_DURUM_ETIKET = {
   bekliyor: 'Bekliyor',
@@ -32,6 +52,20 @@ export const IS_DURUM_ETIKET = {
   tamam: 'Tamamlandı',
   iptal: 'İptal edildi',
   hata: 'Hata',
+};
+
+export const IS_SONUC_ETIKET = {
+  basarili: 'Başarılı',
+  uyari: 'Uyarı',
+  basarisiz: 'Tamamlanamadı',
+  durduruldu: 'Durduruldu',
+};
+
+export const IS_SONUC_RENK = {
+  basarili: 'yesil',
+  uyari: 'turuncu',
+  basarisiz: 'kirmizi',
+  durduruldu: 'turuncu',
 };
 
 export const SATIR_DURUM_ETIKET = {

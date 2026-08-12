@@ -10,6 +10,11 @@ HTTP yalnız açıkça ``--tarayici`` istendiğinde geliştirme/tanı amacıyla
 başlatılır. Kapanışta iş kuyruğu durdurulur, MQTT dinleyicisi kapatılır ve
 bellekteki bütün cihaz kimlikleri unutulur (bkz. panel_api.temizle).
 
+Uygulama yükseltilmiş (yönetici) yetkiyle çalıştırılır; ağ arayüzü, ARP
+önbelleği ve switch portlarıyla yapılan işler bunu gerektiriyor. Yetki yoksa
+panel açılmaz; bunun yerine kullanıcıya bir pencere çıkar ve iki yol sunar —
+yönetici olarak yeniden başlatmak ya da çıkmak (bkz. yetki.py).
+
 Çalıştırma:
     python3 app.py
     python3 app.py --tarayici              # pencere yerine tarayıcıda aç
@@ -27,6 +32,9 @@ from pathlib import Path
 
 BURASI = Path(__file__).resolve().parent
 sys.path.insert(0, str(BURASI))
+
+import yetki
+from yetki import yonetici_mi                      # noqa: F401  (test yaması)
 
 ASGARI_PYTHON = (3, 10)
 GENISLIK, YUKSEKLIK = 1440, 900
@@ -213,15 +221,33 @@ def main() -> int:
     if a.self_test:
         return self_test()
 
+    # Argüman doğrulaması yetki denetiminden önce: yanlış kullanım, yetki
+    # uyarısının arkasına saklanmasın.
+    if a.port is not None and not a.tarayici:
+        yaz("[HATA] --port yalnız --tarayici ile kullanılabilir.")
+        return 2
+
+    # Dock kimliği yetki denetiminden ÖNCE kurulur: yetki penceresi de bu
+    # uygulamanın penceresi. Kurulmayınca Dock'ta yorumlayıcının adıyla
+    # ("Python") ayrı bir simge çıkıyor ve panel İKİNCİ bir uygulama gibi
+    # görünüyordu.
+    macos_kimlik(ayar.APP_ADI)
+
+    # Yetki denetimi paket doğrulamasından (--self-test, --version) sonra
+    # ama servis kurulmadan önce: o iki kip cihaza ve ağa hiç dokunmadığı
+    # için yükseltilmiş yetki istemez.
+    #
+    # Yetki yoksa panel yine açılmaz; ama kullanıcı sebebini bir pencerede
+    # görür ve oradan yönetici olarak yeniden başlatabilir (bkz. yetki.akis).
+    if not yonetici_mi():
+        return yetki.akis(yaz)
+
     import panel_api
     panel_api.admin_parolasi_ayarla(
         a.admin_parolasi or os.environ.get("PANEL_ADMIN_PAROLASI"))
 
     if a.tarayici:
         return tarayici_kipi(0 if a.port is None else a.port)
-    if a.port is not None:
-        yaz("[HATA] --port yalnız --tarayici ile kullanılabilir.")
-        return 2
 
     kopru = None
     try:
@@ -236,7 +262,6 @@ def main() -> int:
         panel_api.baslat()
         kopru = PanelKoprusu()
         html = html_yukle(kopru._yetenek)
-        macos_kimlik(ayar.APP_ADI)
         # Pywebview 6.x'te dosya URL'leri kimi platformlarda varsayılan
         # olarak açık olabilir. Arayüz bellekte olduğu için ikisine de gerek
         # yoktur; açıkça kapatmak yanlış paketlemenin sessizce çalışmasını da
@@ -282,5 +307,26 @@ def main() -> int:
         panel_api.temizle()
 
 
+def _hemen_cik(kod: int) -> None:
+    """Yorumlayıcıyı doğrudan bitirir.
+
+    Pencere motoru (pywebview → Cocoa/GTK) olay döngüsü kapandıktan sonra
+    süreci ayakta tutabiliyor: yetki penceresinden yükseltilmiş süreç
+    başlatıldıktan sonra ESKİ süreç kendiliğinden kapanmadı, dışarıdan
+    sonlandırılana kadar açık kaldı. Aynı panelin iki kopyasının aynı
+    switch'e ve aynı DeviceMap'e bakması tam da kaçınılan durum.
+
+    `main()` çoktan döndüğü için kapatılacak bir şey kalmıyor: köprü ve
+    servisler onun `finally` bloğunda zaten kapandı (bkz. main). Geriye
+    yalnız tamponlardaki çıktıyı boşaltmak kalıyor.
+    """
+    for akis in (sys.stdout, sys.stderr):
+        try:
+            akis.flush()
+        except Exception:
+            pass
+    os._exit(int(kod))
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    _hemen_cik(main())

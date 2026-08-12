@@ -25,6 +25,7 @@ import { el, doldur } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
 import * as serit from '../parts/serit.js';
+import * as islemSekmeleri from '../parts/islem_sekmeleri.js';
 import * as diyalog from '../parts/diyalog.js';
 import { hata, basari, bildir } from '../parts/bildirim.js';
 import { deger, boyut, YOK } from '../core/bicim.js';
@@ -89,35 +90,29 @@ export function ciz(kok) {
   const parcalar = [];
 
   parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    el('div', {}, [
-      el('span', { sinif: 'ust-etiket', metin: 'Cihaz yazılımı' }),
-      el('h2', { metin: 'Yazılım Yükleme' }),
-      el('p', {
-        sinif: 'sayfa-alt',
-        metin: `${liste.length} cihaz · ${secili} tanesine dosya seçildi`
-          + (yuklenebilir < liste.length
-            ? ` · ${liste.length - yuklenebilir} cihazda yükleme yok` : ''),
-      }),
-    ]),
+    // Başlık üç işlem ekranında da aynı: hangi ekranda olduğumuzu
+    // altındaki sekme şeridi zaten söylüyor.
+    el('h2', { metin: 'İşlemler' }),
     el('div', { sinif: 'eylemler' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Seçimleri Temizle',
+        type: 'button', sinif: 'btn', metin: 'Seçimleri temizle',
         disabled: !secili,
         title: 'Bu gruptaki bütün dosya seçimlerini kaldır',
         onclick: () => seciminiSil(null),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil', metin: 'Yüklemeyi Başlat',
+        type: 'button', sinif: 'btn btn-birincil', metin: 'Yüklemeyi başlat',
         disabled: !secili,
         title: secili
-          ? `${secili} cihaza yükleme kuyruğa alınır`
+          ? `${secili} cihaz için yükleme işlemi kuyruğa alınır`
           : 'Önce en az bir cihaza dosya seçin',
         onclick: baslat,
       }),
     ]),
   ]));
 
-  parcalar.push(serit.ciz('fw', () => tazele()));
+  parcalar.push(islemSekmeleri.ciz());
+  parcalar.push(serit.secici('fw', () => tazele()));
 
   // ── toplu seçim ──
   // Sahadaki olağan durum: bütün gruba aynı dosya. Bir kez seçilir;
@@ -125,12 +120,7 @@ export function ciz(kok) {
   const tur = turMetni(liste);
   parcalar.push(el('section', { sinif: 'kart kose fw-toplu' }, [
     el('div', { sinif: 'fw-toplu-basi' }, [
-      el('span', { sinif: 'ust-etiket', metin: 'Bütün gruba aynı dosya' }),
-      el('p', {
-        metin: `Seçilen dosya gruptaki her cihaza atanır${tur ? ` (${tur})` : ''}. `
-          + 'Tek bir cihaz farklı bir dosya alacaksa satırındaki "Seç" ile '
-          + 'değiştirin.',
-      }),
+      el('h3', { metin: 'Toplu seçim' }),
     ]),
     el('div', { sinif: 'fw-toplu-alanlar' }, [
       el('label', { sinif: 'fw-alan-dar', for: 'fw-toplu-surum' }, [
@@ -143,16 +133,21 @@ export function ciz(kok) {
       ]),
       el('button', {
         type: 'button', sinif: 'btn btn-birincil',
-        metin: yerel.seciciAcik ? 'Seçici açık…' : 'Dosya Seç ve Gruba Uygula',
+        metin: yerel.seciciAcik
+          ? 'Dosya seçiliyor…'
+          : (yuklenebilir
+            ? `Dosya seç ve ${yuklenebilir} cihaza uygula`
+            : 'Dosya seç'),
         disabled: !yuklenebilir || yerel.seciciAcik,
-        title: 'Bilgisayarınızın dosya penceresi açılır',
+        // Beklenen dosya türü ayrı bir açıklama satırı olarak değil,
+        // seçimi yapan düğmenin ipucunda duruyor.
+        title: `Bilgisayarınızın dosya penceresi açılır${tur ? ` (${tur})` : ''}`,
         onclick: () => dosyaSec(null, yerel.topluSurum),
       }),
     ]),
     el('p', {
       sinif: 'ip-alan-yardim',
-      metin: 'Hedef sürüm isteğe bağlıdır; girilirse yükleme sonrası cihaz '
-        + 'o sürümü bildirmezse iş başarısız sayılır.',
+      metin: 'Hedef sürüm isteğe bağlıdır; yükleme sonrasında doğrulanır.',
     }),
   ]));
 
@@ -160,7 +155,7 @@ export function ciz(kok) {
   parcalar.push(el('div', { sinif: 'tablo-sar' }, [
     el('div', { sinif: 'tablo', stil: '--tablo-min:960px' }, [
       el('div', { sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}` },
-        ['Cihaz', 'IP', 'Mevcut', 'Yüklenecek dosya', 'Hedef sürüm', 'Durum']
+        ['Cihaz', 'IP', 'Mevcut sürüm', 'Yüklenecek dosya', 'Hedef sürüm', 'Durum']
           .map(b => el('span', { metin: b }))),
       ...(liste.length
         ? liste.map(satirCiz)
@@ -217,7 +212,10 @@ function satirCiz(c) {
             onclick: () => seciminiSil([c.cihazId]),
           }) : null,
         ])
-      : el('span', { sinif: 'soluk', stil: 'font-size:11.5px', metin: YOK }),
+      : el('span', {
+          sinif: 'soluk', stil: 'font-size:11.5px',
+          metin: 'Desteklenmiyor',
+        }),
     c.yuklenebilir
       ? el('input', {
           sinif: 'alan fw-surum-alan', value: d.surum || '',
@@ -246,7 +244,7 @@ function durumRengi(c) {
 // Dosya adı yan sütunda zaten duruyor; burada onu tekrar etmek yerine
 // seçimin geri kalanı (boyut) yazılır.
 function durumMetni(c, d) {
-  if (!c.yuklenebilir) return 'Bu cihazda yükleme yok';
+  if (!c.yuklenebilir) return 'Yükleme desteklenmiyor';
   if (!d.secili) return 'Dosya seçilmedi';
   return `${boyut(d.boyut)} · yüklemeye hazır`;
 }
@@ -268,7 +266,7 @@ async function dosyaSec(cihazlar, surum) {
     if (y.iptal) { await tazele(); return; }
     await tazele();
     basari(cihazlar
-      ? 'Dosya cihaza atandı' : `Dosya ${y.cihazSayisi} cihaza atandı`);
+      ? 'Dosya seçildi' : `Dosya ${y.cihazSayisi} cihaz için seçildi`);
   } catch (e) {
     yerel.seciciAcik = false;
     hata(e.message);
@@ -300,16 +298,16 @@ function baslat() {
     baslik: 'Yazılım yüklemeyi başlat',
     icerik: el('div', {}, [
       el('p', { sinif: 'aciklama' }, [
-        `${liste.length} cihaza dosya yüklenecek. Yükleme sonrası her cihazın `
-        + 'sürümü okunarak doğrulanır; anons ekipmanları bu sırada yeniden '
-        + 'başlar.',
+        `${liste.length} cihaza dosya yüklenecek. Yükleme tamamlandıktan sonra `
+        + 'her cihazın sürümü okunarak doğrulanır. Anons ekipmanları işlem '
+        + 'sırasında yeniden başlatılır.',
       ]),
       // Kaç tanesinin aynı anda yürüdüğü sunucudan gelir; kullanıcı
       // sahada "hangi cihazlar şimdi kararacak" sorusunu buradan yanıtlar.
       esZamanli() > 1 ? el('p', {
         sinif: 'bilgi', stil: 'margin-top:8px',
-        metin: `Aynı anda en fazla ${esZamanli()} cihaz yüklenir; `
-          + 'kalanlar sıraya girer.',
+        metin: `Aynı anda en fazla ${esZamanli()} cihaza yükleme yapılır; `
+          + 'kalan işlemler sıraya alınır.',
       }) : null,
       el('div', { sinif: 'fw-onay-liste' }, liste.map(c => el('div', {
         sinif: 'satir',
@@ -324,15 +322,15 @@ function baslat() {
         onclick: () => diyalog.kapat(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil', metin: 'Yüklemeyi Başlat',
+        type: 'button', sinif: 'btn btn-birincil', metin: 'Yüklemeyi başlat',
         onclick: async () => {
           diyalog.kapat();
           try {
             const y = await api.firmwareYukle(
               durum.setNo, grup, liste.map(c => c.cihazId));
             ata({ kuyrukAcik: true, acikIs: y.id });
-            if (y.yeni === false) bildir('Yükleme işi zaten kuyrukta');
-            else basari('Yükleme kuyruğa alındı');
+            if (y.yeni === false) bildir('Bu yazılım yükleme işlemi zaten kuyrukta');
+            else basari('Yazılım yükleme işlemi kuyruğa alındı');
           } catch (e) { hata(e.message); }
         },
       }),

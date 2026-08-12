@@ -86,7 +86,7 @@ ZORUNLU = {
 # ── seçenek listeleri (cihaz sayfalarındaki açılır listelerle aynı) ─────
 GAIN = tuple((str(k), f"{k}x")
              for k in (1, 2, 4, 6, 8, 12, 16, 24, 32, 48, 64))
-GUNLUK = (("1", "Info + Error"), ("0", "Yalnız Error"))
+GUNLUK = (("1", "Hata ve bilgi"), ("0", "Yalnızca hata"))
 CALMA = (("0", "Kapalı"), ("5", "5 sn"), ("10", "10 sn"), ("15", "15 sn"),
          ("20", "20 sn"), ("30", "30 sn"), ("45", "45 sn"), ("60", "1 dk"),
          ("90", "1,5 dk"), ("120", "2 dk"))
@@ -137,16 +137,16 @@ ALANLAR: dict[str, Alan] = {
     "calmaSuresi": Alan("Çalma Süresi", "callTimeout", "SIP", "secim",
                         secenekler=CALMA, oku=("callTimeout",)),
     # ── ses ──────────────────────────────────────────────────────────
-    "hoparlor": Alan("Hoparlör Ses Seviyesi", "speakerVolume", "Ses",
+    "hoparlor": Alan("Hoparlör düzeyi", "speakerVolume", "Ses",
                      "tamsayi", en_az=0, en_cok=100, oku=okuma.K_SPK,
                      disla=("gain",)),
-    "mikrofon": Alan("Mikrofon Ses Seviyesi", "micVolume", "Ses", "tamsayi",
+    "mikrofon": Alan("Mikrofon düzeyi", "micVolume", "Ses", "tamsayi",
                      en_az=0, en_cok=100, oku=okuma.K_MIC, disla=("gain",)),
-    "hoparlorGain": Alan("Hoparlör Gain", "speakerGain", "Ses", "secim",
+    "hoparlorGain": Alan("Hoparlör kazancı", "speakerGain", "Ses", "secim",
                          secenekler=GAIN, oku=okuma.K_SPK_GAIN),
-    "mikrofonGain": Alan("Mikrofon Gain", "micGain", "Ses", "secim",
+    "mikrofonGain": Alan("Mikrofon kazancı", "micGain", "Ses", "secim",
                          secenekler=GAIN, oku=okuma.K_MIC_GAIN),
-    "gunluk": Alan("Günlük Seviyesi", "logLevel", "Ses", "secim",
+    "gunluk": Alan("Günlük düzeyi", "logLevel", "Ses", "secim",
                    secenekler=GUNLUK, oku=("logLevel",)),
     # ── Handset modları ──────────────────────────────────────────────
     "ptt": Alan("PTT", "pttEnabled", "Mod", "secim",
@@ -158,13 +158,13 @@ ALANLAR: dict[str, Alan] = {
     "kapatmaModu": Alan("Kapatma Modu", "hangupMode", "Mod", "secim",
                         secenekler=KAPATMA, oku=("hangupMode",)),
     # ── UIC gain'leri ────────────────────────────────────────────────
-    "tcHoparlorGain": Alan("TC Hoparlör Gain", "tcSpeakerGain", "Ses",
+    "tcHoparlorGain": Alan("TC hoparlör kazancı", "tcSpeakerGain", "Ses",
                            "secim", secenekler=GAIN, oku=("tcSpeakerGain",)),
-    "tcMikrofonGain": Alan("TC Mikrofon Gain", "tcMicGain", "Ses", "secim",
+    "tcMikrofonGain": Alan("TC mikrofon kazancı", "tcMicGain", "Ses", "secim",
                            secenekler=GAIN, oku=("tcMicGain",)),
-    "tlHoparlorGain": Alan("TL Hoparlör Gain", "tlSpeakerGain", "Ses",
+    "tlHoparlorGain": Alan("TL hoparlör kazancı", "tlSpeakerGain", "Ses",
                            "secim", secenekler=GAIN, oku=("tlSpeakerGain",)),
-    "tlMikrofonGain": Alan("TL Mikrofon Gain", "tlMicGain", "Ses", "secim",
+    "tlMikrofonGain": Alan("TL mikrofon kazancı", "tlMicGain", "Ses", "secim",
                            secenekler=GAIN, oku=("tlMicGain",)),
     # ── UIC gerilim eşikleri (cihaz sayfası: 0–5 V, 0,1 adım) ────────
     "tcYuksek": Alan("TC Üst Eşik (V)", "tcHigh", "Eşik", "ondalik",
@@ -237,13 +237,22 @@ YAZILABILIR = {ad for _uc, _altlar, alanlar in ROTA for ad in alanlar}
 # mesajı kullanıcıya çıkar.
 YENIDEN_BASLAMA_BEKLEME = float(ayar.OKUMA_TIMEOUT) * 6
 
-# Kullanıcının elle girdiği hedef değerler — yalnızca bellekte.
+# Kullanıcının elle girdiği hedef değerler.
 #
 # İki düzey var: gruba yazılan değer (aynı ayar bütün anons cihazlarına
 # gidecekse bir kez girilir) ve cihaza özel değer (o cihazda farklı
-# olacaksa). Cihaza özel olan grubunkini ezer.
-_HEDEF: dict[str, dict] = {}
-_GRUP_HEDEF: dict[str, dict] = {}
+# olacaksa). Cihaza özel olan grubunkini ezer. DeviceMap'teki cihaz ve grup
+# kimlikleri setler arasında tekrar edebildiği için depo anahtarı her zaman
+# ``(setNo, cihazId/grup)`` olur. Aksi hâlde Set 1'de hazırlanmış bir bakım
+# ayarı Set 2 açıldığında sessizce oraya taşınırdı.
+_HEDEF: dict[tuple[int, str], dict] = {}
+_GRUP_HEDEF: dict[tuple[int, str], dict] = {}
+
+# Biçim 1'de set numarası yoktu. Bu kayıtları herhangi bir sete tahminle
+# bağlamıyoruz; geçiş sırasında doğrulayıp burada koruyor, fakat hiçbir hedef
+# hesabına katmıyoruz. Böylece veri kaybolmaz ve yanlış sete de uygulanmaz.
+_SET_BELIRSIZ_HEDEF: dict[str, dict] = {}
+_SET_BELIRSIZ_GRUP_HEDEF: dict[str, dict] = {}
 _KILIT = threading.Lock()
 
 
@@ -353,55 +362,84 @@ def _kisa(sayi) -> str:
     return str(int(sayi)) if float(sayi).is_integer() else str(sayi)
 
 
+def _kapsam_anahtari(set_no, anahtar: str) -> tuple[int, str]:
+    """Set ve cihaz/grup kimliğini güvenli depo anahtarına dönüştürür."""
+    try:
+        n = int(set_no)
+    except (TypeError, ValueError):
+        raise ValueError("Geçersiz set numarası")
+    if not (ayar.SET_MIN <= n <= ayar.SET_MAX):
+        raise ValueError("Geçersiz set numarası")
+    ad = str(anahtar or "").strip()
+    if not ad or len(ad) > 128:
+        raise ValueError("Geçersiz hedef kimliği")
+    return n, ad
+
+
 def hedef_yaz(cihaz_id: str, alan: str, deger: str,
-              alt: str | None = None) -> None:
+              alt: str | None = None, *, set_no: int = 1) -> None:
     temiz = _dogrula(alan, deger, alt)
+    anahtar = _kapsam_anahtari(set_no, cihaz_id)
     with _KILIT:
         if temiz:
-            _HEDEF.setdefault(cihaz_id, {})[alan] = temiz
+            _HEDEF.setdefault(anahtar, {})[alan] = temiz
         else:                                   # boş = özel değeri kaldır
-            _HEDEF.get(cihaz_id, {}).pop(alan, None)
+            _HEDEF.get(anahtar, {}).pop(alan, None)
     _kaydet()
 
 
-def hedef_al(cihaz_id: str) -> dict:
+def hedef_al(cihaz_id: str, *, set_no: int = 1) -> dict:
+    anahtar = _kapsam_anahtari(set_no, cihaz_id)
     with _KILIT:
-        return dict(_HEDEF.get(cihaz_id, {}))
+        return dict(_HEDEF.get(anahtar, {}))
 
 
 def grup_hedef_yaz(grup: str, alan: str, deger: str,
-                   alt: str | None = None) -> None:
+                   alt: str | None = None, *, set_no: int = 1) -> None:
     temiz = _dogrula(alan, deger, alt)
+    anahtar = _kapsam_anahtari(set_no, grup)
     with _KILIT:
         if temiz:
-            _GRUP_HEDEF.setdefault(grup, {})[alan] = temiz
+            _GRUP_HEDEF.setdefault(anahtar, {})[alan] = temiz
         else:
-            _GRUP_HEDEF.get(grup, {}).pop(alan, None)
+            _GRUP_HEDEF.get(anahtar, {}).pop(alan, None)
     _kaydet()
 
 
-def grup_hedef_al(grup: str) -> dict:
+def grup_hedef_al(grup: str, *, set_no: int = 1) -> dict:
     """Gruba girilen hedefler. Gizli alanlar (parola) değeriyle döner —
     arayüze giden gösterimi `cek`/panel_api maskeler."""
+    if not str(grup or "").strip():
+        return {}
+    anahtar = _kapsam_anahtari(set_no, grup)
     with _KILIT:
-        return dict(_GRUP_HEDEF.get(grup or "", {}))
+        return dict(_GRUP_HEDEF.get(anahtar, {}))
 
 
-def grup_hedef_gosterim(grup: str) -> dict:
+def grup_hedef_gosterim(grup: str, *, set_no: int = 1) -> dict:
     """Arayüze verilebilir hâli: gizli alanların değeri yerine "girildi mi"."""
-    ham = grup_hedef_al(grup)
+    ham = grup_hedef_al(grup, set_no=set_no)
     return {ad: ("" if ALANLAR[ad].gizli else d) for ad, d in ham.items()}
 
 
-def grup_gizli_alanlar(grup: str) -> list[str]:
-    return [ad for ad in grup_hedef_al(grup) if ALANLAR[ad].gizli]
+def grup_gizli_alanlar(grup: str, *, set_no: int = 1) -> list[str]:
+    return [ad for ad in grup_hedef_al(grup, set_no=set_no)
+            if ALANLAR[ad].gizli]
 
 
-def hedefleri_unut() -> None:
+def hedefleri_unut(set_no: int | None = None) -> None:
     """Bellekteki hedefleri boşaltır — kayıtlı dosyaya dokunmaz."""
     with _KILIT:
-        _HEDEF.clear()
-        _GRUP_HEDEF.clear()
+        if set_no is None:
+            _HEDEF.clear()
+            _GRUP_HEDEF.clear()
+            _SET_BELIRSIZ_HEDEF.clear()
+            _SET_BELIRSIZ_GRUP_HEDEF.clear()
+            return
+        n, _ = _kapsam_anahtari(set_no, "_")
+        for depo in (_HEDEF, _GRUP_HEDEF):
+            for anahtar in [k for k in depo if k[0] == n]:
+                depo.pop(anahtar, None)
 
 
 # ── kalıcı varsayılanlar ────────────────────────────────────────────────
@@ -410,25 +448,44 @@ def hedefleri_unut() -> None:
 # alanlar dosyaya hiç girmez, oturum boyunca yalnız bellekte durur. Bu,
 # "parola hiçbir dosyada tutulmaz" kuralının konfigürasyon tarafındaki
 # karşılığıdır (bkz. core/kimlik.py).
-BICIM = 1
+BICIM = 2
 
 
-def _yazilabilir_hedefler(depo: dict) -> dict:
-    return {anahtar: {ad: d for ad, d in alanlar.items()
-                      if ad in ALANLAR and not ALANLAR[ad].gizli}
-            for anahtar, alanlar in depo.items()}
+def _yazilabilir_alanlar(alanlar: dict) -> dict:
+    return {ad: d for ad, d in alanlar.items()
+            if ad in ALANLAR and not ALANLAR[ad].gizli}
+
+
+def _set_govdesi(depo: dict, set_no: int) -> dict:
+    return {anahtar: temiz for (n, anahtar), alanlar in depo.items()
+            if n == set_no and (temiz := _yazilabilir_alanlar(alanlar))}
 
 
 def _kaydet() -> None:
     """Hedefleri dosyaya yazar. Yazamamak akışı bozmaz."""
     with _KILIT:
+        set_nolari = sorted({n for n, _ad in _HEDEF}
+                            | {n for n, _ad in _GRUP_HEDEF})
+        setler = {}
+        for n in set_nolari:
+            gruplar = _set_govdesi(_GRUP_HEDEF, n)
+            cihazlar = _set_govdesi(_HEDEF, n)
+            if gruplar or cihazlar:
+                setler[str(n)] = {"gruplar": gruplar,
+                                  "cihazlar": cihazlar}
         govde = {
             "bicim": BICIM,
-            "gruplar": {k: v for k, v in
-                        _yazilabilir_hedefler(_GRUP_HEDEF).items() if v},
-            "cihazlar": {k: v for k, v in
-                         _yazilabilir_hedefler(_HEDEF).items() if v},
+            "setler": setler,
         }
+        belirsiz_gruplar = {k: temiz for k, alanlar in
+                            _SET_BELIRSIZ_GRUP_HEDEF.items()
+                            if (temiz := _yazilabilir_alanlar(alanlar))}
+        belirsiz_cihazlar = {k: temiz for k, alanlar in
+                             _SET_BELIRSIZ_HEDEF.items()
+                             if (temiz := _yazilabilir_alanlar(alanlar))}
+        if belirsiz_gruplar or belirsiz_cihazlar:
+            govde["setBelirsiz"] = {"gruplar": belirsiz_gruplar,
+                                    "cihazlar": belirsiz_cihazlar}
     yol = ayar.konfig_varsayilan_dosyasi()
     try:
         yol.parent.mkdir(parents=True, exist_ok=True)
@@ -438,6 +495,32 @@ def _kaydet() -> None:
         gecici.replace(yol)             # yarım dosya bırakmamak için
     except OSError:
         pass
+
+
+def _blok_yukle(blok, depo: dict, *, set_no: int | None = None) -> int:
+    """Bir grup/cihaz bloğunu doğrulayarak etkin ya da karantina depoya alır."""
+    if not isinstance(blok, dict):
+        return 0
+    sayi = 0
+    for anahtar, alanlar in blok.items():
+        if not isinstance(alanlar, dict):
+            continue
+        try:
+            hedef_anahtari = (str(anahtar) if set_no is None else
+                              _kapsam_anahtari(set_no, str(anahtar)))
+        except ValueError:
+            continue
+        for ad, deger in alanlar.items():
+            if ad not in ALANLAR or ALANLAR[ad].gizli:
+                continue
+            try:
+                temiz = _dogrula(ad, deger)
+            except ValueError:
+                continue
+            if temiz:
+                depo.setdefault(hedef_anahtari, {})[ad] = temiz
+                sayi += 1
+    return sayi
 
 
 def varsayilanlari_yukle() -> int:
@@ -455,48 +538,84 @@ def varsayilanlari_yukle() -> int:
     if not isinstance(govde, dict):
         return 0
 
+    bicim = govde.get("bicim", 1)
     sayi = 0
+    eski_bicim = bicim == 1
     with _KILIT:
-        for kaynak, depo in (("gruplar", _GRUP_HEDEF),
-                             ("cihazlar", _HEDEF)):
-            blok = govde.get(kaynak)
-            if not isinstance(blok, dict):
-                continue
-            for anahtar, alanlar in blok.items():
-                if not isinstance(alanlar, dict):
-                    continue
-                for ad, deger in alanlar.items():
-                    if ad not in ALANLAR or ALANLAR[ad].gizli:
-                        continue
+        _HEDEF.clear()
+        _GRUP_HEDEF.clear()
+        _SET_BELIRSIZ_HEDEF.clear()
+        _SET_BELIRSIZ_GRUP_HEDEF.clear()
+        if bicim == BICIM:
+            setler = govde.get("setler")
+            if isinstance(setler, dict):
+                for ham_set, set_govde in setler.items():
                     try:
-                        temiz = _dogrula(ad, deger)
+                        n, _ = _kapsam_anahtari(ham_set, "_")
                     except ValueError:
                         continue
-                    if temiz:
-                        depo.setdefault(str(anahtar), {})[ad] = temiz
-                        sayi += 1
+                    if not isinstance(set_govde, dict):
+                        continue
+                    sayi += _blok_yukle(set_govde.get("gruplar"),
+                                        _GRUP_HEDEF, set_no=n)
+                    sayi += _blok_yukle(set_govde.get("cihazlar"),
+                                        _HEDEF, set_no=n)
+            belirsiz = govde.get("setBelirsiz")
+            if isinstance(belirsiz, dict):
+                _blok_yukle(belirsiz.get("gruplar"),
+                            _SET_BELIRSIZ_GRUP_HEDEF)
+                _blok_yukle(belirsiz.get("cihazlar"),
+                            _SET_BELIRSIZ_HEDEF)
+        elif eski_bicim:
+            # Eski dosyada set numarası yoktur. Aynı grup/cihaz kimliği her
+            # sette bulunabildiğinden değerleri Set 1'e bile tahminle bağlamak
+            # güvenli değildir; kaybetmeden karantinaya alırız.
+            _blok_yukle(govde.get("gruplar"),
+                        _SET_BELIRSIZ_GRUP_HEDEF)
+            _blok_yukle(govde.get("cihazlar"), _SET_BELIRSIZ_HEDEF)
+        else:
+            return 0
+    if eski_bicim:
+        # Biçim 1'i hemen güvenli biçime çevirir; sonraki yeni kayıt eski
+        # veriyi ezmez. Gizli alanlar bu yeniden yazımda da dışarıda kalır.
+        _kaydet()
     return sayi
 
 
-def varsayilanlari_sil() -> None:
-    """Kayıtlı varsayılanları hem bellekten hem dosyadan siler."""
-    hedefleri_unut()
+def varsayilanlari_sil(set_no: int | None = None) -> None:
+    """Kayıtlı varsayılanları bellekten ve dosyadan siler.
+
+    ``set_no`` verildiğinde yalnız o set temizlenir. Parametresiz kullanım
+    uygulama/test kapanışı içindir ve bütün depoyu kaldırır.
+    """
+    hedefleri_unut(set_no)
+    if set_no is not None:
+        _kaydet()
+        return
     try:
         ayar.konfig_varsayilan_dosyasi().unlink()
     except OSError:
         pass
 
 
-def varsayilan_ozeti() -> dict:
+def varsayilan_ozeti(set_no: int = 1) -> dict:
     """Arayüzün gösterdiği kayıt durumu (değerler değil, sayılar)."""
+    n, _ = _kapsam_anahtari(set_no, "_")
     with _KILIT:
-        grup_sayi = sum(len(v) for v in _yazilabilir_hedefler(
-            _GRUP_HEDEF).values())
-        cihaz_sayi = sum(len(v) for v in _yazilabilir_hedefler(
-            _HEDEF).values())
+        grup_sayi = sum(len(_yazilabilir_alanlar(v))
+                         for (set_n, _ad), v in _GRUP_HEDEF.items()
+                         if set_n == n)
+        cihaz_sayi = sum(len(_yazilabilir_alanlar(v))
+                          for (set_n, _ad), v in _HEDEF.items()
+                          if set_n == n)
+        belirsiz_sayi = sum(len(_yazilabilir_alanlar(v)) for v in
+                            (*_SET_BELIRSIZ_GRUP_HEDEF.values(),
+                             *_SET_BELIRSIZ_HEDEF.values()))
     yol = ayar.konfig_varsayilan_dosyasi()
-    return {"dosya": str(yol), "kayitli": yol.exists(),
-            "grupDegeri": grup_sayi, "cihazDegeri": cihaz_sayi}
+    return {"dosya": str(yol), "kayitli": bool(grup_sayi + cihaz_sayi),
+            "setNo": n, "grupDegeri": grup_sayi,
+            "cihazDegeri": cihaz_sayi,
+            "setBelirsizDeger": belirsiz_sayi}
 
 
 def _proje_hedefi(cihaz: Cihaz, env: Envanter, alan: str,
@@ -550,11 +669,12 @@ def hedef_detay(cihaz: Cihaz, env: Envanter, alan: str,
 
     Sıra: cihaza özel > gruba girilen > DeviceMap'teki proje değeri.
     """
-    ozel = hedef_al(cihaz.id).get(alan)
+    ozel = hedef_al(cihaz.id, set_no=env.set_no).get(alan)
     proje, uyari = _proje_hedefi(cihaz, env, alan, grup)
     if ozel:
         return ozel, "cihaz", uyari
-    grubun = grup_hedef_al(grup or "").get(alan)
+    grubun = (grup_hedef_al(grup, set_no=env.set_no).get(alan)
+              if grup else None)
     if grubun:
         return grubun, "grup", uyari
     return (proje, "proje", uyari) if proje else ("", "", uyari)
@@ -634,7 +754,7 @@ def _satirlar(cihaz: Cihaz, env: Envanter, duz: dict,
     yazma sonrası doğrulama ile ekran verisi aynı okumayı paylaşır."""
     alt = cihaz.subtype or ""
     mevcut = _mevcutlar(duz, alt)
-    ozel = hedef_al(cihaz.id)
+    ozel = hedef_al(cihaz.id, set_no=env.set_no)
 
     satir = []
     for ad in alt_alanlari(alt):

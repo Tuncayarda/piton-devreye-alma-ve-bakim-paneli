@@ -390,6 +390,20 @@ class Kuyruk(ServisTesti):
         self.assertEqual(gor.al("d1").durum, dogrulama.YESIL)
         self.assertEqual(eski_is.satirlar()[0]["durum"], "hata")
 
+    def test_yasam_dongusu_ile_sonuc_birbirinden_ayridir(self):
+        """Normal dönen iş, cihaz hatası varsa başarılı görünmemeli."""
+        is_ = isler.Is("tarama", "Tarama", 1)
+        is_.ozel_satir("d1", "Birinci cihaz", durum="tamam", sayilir=True)
+        is_.ozel_satir("d2", "İkinci cihaz", durum="hata", sayilir=True)
+        is_.durum = isler.TAMAM
+
+        dto = is_.dto()
+        self.assertEqual(dto["durum"], "tamam")
+        self.assertEqual(dto["sonuc"], "uyari")
+
+        is_.durum = isler.HATA
+        self.assertEqual(is_.dto()["sonuc"], "basarisiz")
+
 
 class CokenIsKuyrugu(unittest.TestCase):
     """Çöken bir iş kuyruğu kilitlememeli.

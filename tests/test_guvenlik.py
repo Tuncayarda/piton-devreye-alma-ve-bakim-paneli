@@ -210,6 +210,25 @@ class Guvenlik(ServisTesti):
             kod, _ = self.cagir(taban, yol)
             self.assertIn(kod, (400, 404), yol)
 
+    def test_ip_uclari_intercom_disindaki_hedefi_reddeder(self):
+        """Arayüz sınırı aşılsa da başka cihaz türüne IP yazılamaz."""
+        env = self.kur_harita(_harita())
+        taban = self.servis_ac()
+
+        kod, y = self.cagir(taban, "/api/ip/plan?set=1&grup=Kamera")
+        self.assertEqual(kod, 400)
+        self.assertIn("yalnızca Intercom", y["hata"])
+
+        kod, y = self.cagir(taban, "/api/ip/fabrika", {
+            "set": 1,
+            "switch": env.switchler()[0].id,
+            "gruplar": ["Kamera"],
+            "portlar": "11",
+            "fabrikaIp": "10.1.1.12",
+        })
+        self.assertEqual(kod, 400)
+        self.assertIn("yalnızca Intercom", y["hata"])
+
     def test_govde_boyutu_sinirli(self):
         self.kur_harita(_harita())
         taban = self.servis_ac()

@@ -6,7 +6,9 @@
 import { el, doldur, odakTuzagi, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
-import { deger, DURUM_ETIKET, DOGRULAMA_ETIKET, saat, YOK } from '../core/bicim.js';
+import {
+  deger, DURUM_ETIKET, DOGRULAMA_ETIKET, saat, YOK, tipEtiketi,
+} from '../core/bicim.js';
 import { kimlikDiyalogu } from './kilit.js';
 import { hata } from './bildirim.js';
 
@@ -55,7 +57,7 @@ function ciz(c) {
 
   const eylemler = [
     el('button', {
-      type: 'button', sinif: 'btn btn-birincil', metin: 'Durumu Oku',
+      type: 'button', sinif: 'btn btn-birincil', metin: 'Şimdi oku',
       onclick: async () => {
         try {
           await api.yenile(durum.setNo, [c.id]);
@@ -66,7 +68,7 @@ function ciz(c) {
   ];
   if (s.dogrulama === 'kimlik_bekliyor') {
     eylemler.push(el('button', {
-      type: 'button', sinif: 'btn', metin: 'Kimlik Gir',
+      type: 'button', sinif: 'btn', metin: 'Giriş bilgilerini gir',
       onclick: () => kimlikDiyalogu({
         ...c, aciklama: s.aciklama, kimlikGrubu: c.kimlikGrubu,
       }),
@@ -74,7 +76,7 @@ function ciz(c) {
   }
   if (c.kimlikVar) {
     eylemler.push(el('button', {
-      type: 'button', sinif: 'btn', metin: 'Kimliği Unut',
+      type: 'button', sinif: 'btn', metin: 'Giriş bilgilerini sil',
       onclick: async () => {
         try {
           await api.kimlikUnut(durum.setNo, c.id);
@@ -94,34 +96,34 @@ function ciz(c) {
     ['Son güncelleme', a.guncelleme],
   ] : [];
 
-  const kimlikBloku = blok('Kimlik', `Proje listesi + ${yb.kod || c.yontem}`, [
-    ['Cihaz İsmi', c.ad],
-    ['Type / SubType', c.tipEtiket],
-    ['Versiyon', a.surum, a.surum ? 'yesil' : null],
+  const ozetBloku = blok('Özet', `Proje + ${yb.kod || c.yontem}`, [
+    ['Cihaz adı', c.ad],
+    ['Tür / Alt tür', tipEtiketi(c.tipEtiket)],
+    ['Sürüm', a.surum, a.surum ? 'yesil' : null],
     ...androidSatir,
     ['Model', a.model],
-    ['Cihaz Numarası', a.seri],
-    ['Durum', DURUM_ETIKET[s.durum] || YOK, renk],
-    ['Doğrulama', DOGRULAMA_ETIKET[s.dogrulama] || YOK, renk],
+    ['Cihaz numarası', a.seri],
+    ['Erişim durumu', DURUM_ETIKET[s.durum] || YOK, renk],
+    ['Kontrol sonucu', DOGRULAMA_ETIKET[s.dogrulama] || YOK, renk],
     ['Açıklama', s.aciklama],
-    ['Çalışma Süresi', a.calisma],
+    ['Çalışma süresi', a.calisma],
   ]);
 
-  const agBloku = blok('Ağ', `Şablon ${c.ipSablonu}`, [
-    ['IP Şablonu', c.ipSablonu],
+  const agBloku = blok('Ağ', `Proje varsayılanı ${c.ipSablonu}`, [
+    ['IP kalıbı', c.ipSablonu],
     ['Beklenen IP', c.ip],
-    ['Bağlantı', s.durum === 'yesil' ? c.ip : 'Doğrulanmış bağlantı yok',
+    ['Erişim IP’si', s.durum === 'yesil' ? c.ip : 'Doğrulanmış erişim yok',
       s.durum === 'yesil' ? 'yesil' : 'soluk'],
     ['Switch · Port', c.portEtiket],
     ['MAC', a.mac],
     ['Ağ / Zaman', a.agZaman],
-    ['Saat Dilimi', a.saatDilimi],
+    ['Saat dilimi', a.saatDilimi],
   ]);
 
   const sipSatir = c.pbxExtension ? [
-    ['SIP PBX IP (proje)', c.piscuIp],
-    ['Beklenen SIP Dahili No', c.pbxExtension],
-    ['Cihazın bildirdiği', a.sipDahili,
+    ['Proje PBX IP’si', c.piscuIp],
+    ['Beklenen SIP dahili numarası', c.pbxExtension],
+    ['Okunan SIP dahili numarası', a.sipDahili,
       a.sipDahili ? (String(a.sipDahili) === String(c.pbxExtension)
         ? 'yesil' : 'kirmizi') : null],
     ['Cihazın bildirdiği PBX', a.sipPbx],
@@ -139,24 +141,25 @@ function ciz(c) {
       // Gain ses seviyesinden ayrı bir ayardır (cihazda speakerGain /
       // micGain); ikisi aynı satırda gösterilmez. "SIP Arama No" cihazın
       // çağrı başlattığı hedeftir, kendi dahilisi değil.
-      : [['SIP Arama No (cihazın aradığı)', a.sipArama],
-         ['Hoparlör Ses Seviyesi', a.hoparlor],
-         ['Mikrofon Ses Seviyesi', a.mikrofon],
-         ['Hoparlör Gain', a.hoparlorGain],
-         ['Mikrofon Gain', a.mikrofonGain]]),
+      : [['SIP arama numarası', a.sipArama],
+         ['Hoparlör ses seviyesi', a.hoparlor],
+         ['Mikrofon ses seviyesi', a.mikrofon],
+         ['Hoparlör kazancı', a.hoparlorGain],
+         ['Mikrofon kazancı', a.mikrofonGain]]),
   ] : [
     ['Okuma yöntemi', yb.kod || c.yontem],
     ['Yol', yb.yol],
     ['Periyot', yb.periyot ? `${yb.periyot} sn` : 'Elle'],
-    ['Kimlik gerekiyor mu', yb.kimlik_ister ? 'Evet' : 'Hayır'],
-    ['Bellekte kimlik', c.kimlikVar ? 'Var (yalnız bu oturum)' : 'Yok'],
+    ['Giriş bilgisi gerekiyor mu', yb.kimlik_ister ? 'Evet' : 'Hayır'],
+    ['Bu oturumda kayıtlı giriş bilgisi',
+      c.kimlikVar ? 'Var (yalnız bu oturum)' : 'Yok'],
   ];
 
   const kutu = el('div', { sinif: 'detay', role: 'dialog', 'aria-modal': 'true',
     'aria-label': `${c.ad} ayrıntıları` }, [
     el('div', { stil: 'display:flex;align-items:flex-start;gap:14px' }, [
       el('div', { stil: 'flex:1;min-width:0' }, [
-        el('div', { sinif: 'ust-etiket', metin: c.tipEtiket }),
+        el('div', { sinif: 'ust-etiket', metin: tipEtiketi(c.tipEtiket) }),
         el('h2', { stil: 'margin:5px 0 0', metin: c.ad }),
         el('div', {
           sinif: 'mono orta', stil: 'margin-top:5px;font-size:11.5px',
@@ -172,12 +175,17 @@ function ciz(c) {
     el('div', {
       sinif: 'bilgi', stil: 'margin-top:14px',
       metin: s.okumaZamani
-        ? `Son okuma ${saat(s.okumaZamani)} · yöntem ${yb.kod || c.yontem}`
-        : 'Bu cihaz henüz okunmadı',
+        ? `Son okuma: ${saat(s.okumaZamani)} · Yöntem: ${yb.kod || c.yontem}`
+        : 'Bu cihaz henüz okunmadı.',
     }),
-    kimlikBloku,
+    ozetBloku,
     agBloku,
-    blok(c.pbxExtension ? 'SIP' : 'Kaynak', yb.yol || '', sipSatir),
+    c.pbxExtension
+      ? blok('SIP', yb.yol || '', sipSatir)
+      : el('details', { sinif: 'teknik-detay' }, [
+          el('summary', { metin: 'Teknik ayrıntılar' }),
+          blok('Veri kaynağı', yb.yol || '', sipSatir),
+        ]),
   ]);
 
   const perde = el('div', {

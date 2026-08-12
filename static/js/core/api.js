@@ -91,6 +91,10 @@ export function apiOlustur(tasiyici = tasima) {
     // Koşunun dokunmaması gereken portlar: bilgisayarın yeri ve switch'ler
     // arası bağlantılar. Hepsi MAC tablolarından bulunur, hiçbiri sorulmaz.
     ipKorunan: (set) => get("/api/ip/korunan", { set }),
+    // Tanı: aday adreslerde hangi cihaz var. Cihaz kendi dahilisini
+    // söylediği için "bu adres kimin" sorusu kesin cevaplanır. Salt okuma.
+    ipHarita: (set, sw, grup, fabrikaIp) =>
+      get("/api/ip/harita", { set, switch: sw, grup, fabrikaIp }),
     ipKosu: (govde) => post("/api/ip/kosu", govde),
     // Test akışı: seçili cihazlara "IP'ni fabrika adresine çevir" isteği.
     ipFabrika: (govde) => post("/api/ip/fabrika", govde),

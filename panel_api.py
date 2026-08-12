@@ -214,38 +214,97 @@ def tarama_isi(env: device_map.Envanter):
 
 
 def ip_fabrika_isi(env, switch_id, portlar, gruplar, ayarlar):
-    """Test akışı: seçili cihazları fabrika adresine döndürür."""
+    """Test akışı: seçili cihazları fabrika adresine döndürür.
+
+    Satırları, adımları ve yüzdeyi işin kendisi yazar (bkz.
+    ip_atama.FabrikaIlerleme); burada yalnız özet hataya çevrilir.
+    """
     def govde(is_: isler.Is):
-        adim = {"n": 0}
-
-        def satir(metin: str):
-            adim["n"] += 1
-            is_.ozel_satir(f"adim{adim['n']}", metin,
-                           durum=_ip_satir_durumu(metin))
-
-        kalan = ip_atama.fabrikaya_dondur(
-            env, switch_id, portlar, gruplar, satir,
+        ozet = ip_atama.fabrikaya_dondur(
+            env, switch_id, portlar, gruplar, is_,
             ayarlar=ayarlar, iptal=is_.iptal.is_set)
-        if kalan:
-            is_.hata = f"{kalan} cihaza fabrika IP'si yazılamadı"
+        is_.hata = _ip_fabrika_hatasi(ozet)
 
     return govde
 
 
-def _ip_satir_durumu(metin: str) -> str:
-    """Betik çıktısının satırını kuyruk rengine çevirir.
+def _ip_fabrika_hatasi(ozet: dict) -> str | None:
+    """Fabrikaya döndürme özeti — işi kırmızı yapan bir şey var mı?
 
-    Koşu iki yüz satır yazıyor; hepsi yeşil "Tamam" görününce bir portun
-    neden tamamlanmadığı gözden kaçıyordu. Betiğin kendi işaretleri
-    kullanılır: "[HATA]" ve "EKSİK —" başarısızlık, "[!]" uyarıdır.
+    "Adresinde cevap yok" tek başına hata DEĞİL: işlem tekrar
+    çalıştırıldığında cihazların çoğu zaten fabrika adresindedir ve eski
+    adreslerinde kimse cevap vermez. Hata, cihazın eski adresinde
+    KALMASIDIR — o da son kontrolde ayrıca görülüyor.
     """
-    if "PORTLAR KAPALI KALMIŞ" in metin or "[HATA]" in metin:
-        return "hata"
-    if "EKSİK —" in metin or "tamamlanmadı" in metin:
-        return "hata"
-    if "[!]" in metin:
-        return "uyari"
-    return "tamam"
+    if ozet.get("durduruldu"):
+        return None
+    if ozet.get("hatali"):
+        return (f"{ozet['hatali']} cihaz {ozet['fabrika']} adresine "
+                "döndürülemedi — eski adresinde cevap vermeye devam ediyor")
+    if (not ozet.get("yazilan") and ozet.get("atlanan")
+            and ozet.get("fabrikaCevap") is False):
+        # Ne eski adreslerinde ne fabrika adresinde cevap var: cihazlar
+        # bilgisayarın göremediği bir yerde. Bu gerçekten bir hata.
+        return (f"Hiçbir cihaz bulunamadı — {ozet['fabrika']} adresinde de "
+                "cevap yok. Cihazlar başka bir adreste olabilir; arama "
+                "aralığı verin ya da PoE/kablo bağlantısını kontrol edin."
+                + ("" if ozet.get("arpTemizlik") else
+                   " ARP önbelleği de temizlenemiyor: uygulamayı "
+                   "yönetici/sudo ile başlatmak bu tabloyu değiştirebilir."))
+    if ozet.get("atlanan") and not ozet.get("arpTemizlik"):
+        # Cevap vermeyen adres, ARP temizlenemezken "orada kimse yok"
+        # demek değil: aynı adresteki cihazlar sırayla görünüyor. Sonuç
+        # eksik olabilir ve bunu ancak yetki çözer.
+        return (f"{ozet['atlanan']} adres cevap vermedi ve ARP önbelleği "
+                "temizlenemiyor — aynı adreste görünmeyen cihaz kalmış "
+                "olabilir. Kesin sonuç için uygulamayı yönetici/sudo ile "
+                "başlatıp tekrar çalıştırın.")
+    return None
+
+
+def _hata_kisalt(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"[:160]
+
+
+def _kimlik_satirlari(is_, kimlik: dict) -> None:
+    """Kimlik denetiminin sonucunu port satırlarına yazar.
+
+    Yalnız sorunlu portlara dokunulur: doğrusu zaten "tamam" duruyor ve
+    her portu ikinci kez işaretlemek satırları gürültüye boğuyordu.
+    """
+    for s in kimlik["satirlar"]:
+        anahtar = ip_atama.port_anahtari(s["port"])
+        kim = ", ".join(f"{b['ad'] or 'bilinmeyen cihaz'}"
+                        f"{f' (dahili {b['dahili']})' if b['dahili'] else ''}"
+                        for b in s["bulunan"]) or "cevap yok"
+        if s["durum"] == "yanlis":
+            is_.satir_guncelle(anahtar, "hata",
+                               f"{s['hedefIp']} adresinde BAŞKA cihaz: {kim}")
+            is_.adim_ekle(anahtar, f"Kimlik denetimi: {kim}", "hata")
+        elif s["durum"] == "cakisma":
+            is_.satir_guncelle(anahtar, "hata",
+                               f"{s['hedefIp']} adresinde birden çok cihaz: "
+                               f"{kim}")
+            is_.adim_ekle(anahtar, f"Kimlik denetimi: {kim}", "hata")
+        elif s["durum"] == "dogru":
+            is_.adim_ekle(anahtar, f"Kimlik doğrulandı: dahili "
+                                   f"{s['beklenenDahili']}", "tamam")
+
+
+def _kimlik_hatasi(say: dict) -> str:
+    """Yanlış cihaza yazılmış portların özeti — işin en ağır sonucu.
+
+    Bu, "port tamamlanamadı"dan farklı ve daha kötü: koşu tamamlandığını
+    sanıyor ama cihazlar karışmış durumda.
+    """
+    parca = []
+    if say["yanlis"]:
+        parca.append(f"{say['yanlis']} portun hedef adresinde BAŞKA cihaz var")
+    if say["cakisma"]:
+        parca.append(f"{say['cakisma']} adreste birden çok cihaz var")
+    return (" ve ".join(parca)
+            + ". Cihazlar karışmış: fabrika adresinde toplayıp koşuyu "
+              "yeniden çalıştırın (ayrıntı port satırlarında).")
 
 
 def _ip_ozet_hatasi(say: dict, kod: int) -> str:
@@ -308,12 +367,31 @@ def ip_isi(env, switch_id, portlar, korumali, gruplar, ayarlar):
             is_.ozel_satir("gunluk", gunluk_yolu.name, durum="tamam",
                            not_="Koşunun ham çıktısı", yol=str(gunluk_yolu))
 
+        # Koşu bitti; ama "port tamamlandı" demek yalnız "hedef adres cevap
+        # verdi" demek. Cevap verenin DOĞRU cihaz olduğu ayrıca denetlenir:
+        # betik cihazı uptime tahminiyle seçtiği için yanlış cihaza yazmak
+        # mümkün ve sahada oldu (bkz. ip_atama.kimlik_dogrula).
+        kimlik = None
+        if not is_.iptal.is_set():
+            try:
+                kimlik = ip_atama.kimlik_dogrula(env, switch_id, portlar,
+                                                 gruplar, ayarlar)
+            except Exception as exc:               # noqa: BLE001
+                is_.ozel_satir("kimlik", "Cihaz kimliği doğrulanamadı",
+                               durum="uyari", not_=_hata_kisalt(exc))
+            else:
+                _kimlik_satirlari(is_, kimlik)
+
         sw = env.bul(switch_id)
         if acik_kalmadi["var"]:
             is_.hata = (
                 "PoE portları geri açılamadı — cihazlar hâlâ kapalı olabilir. "
                 f"Switch arayüzünden elle açın: http://{sw.ip if sw else ''}"
                 "/poePort.html")
+        elif kimlik and (kimlik["sayilar"]["yanlis"]
+                         or kimlik["sayilar"]["cakisma"]):
+            say = kimlik["sayilar"]
+            is_.hata = _kimlik_hatasi(say)
         elif kod and kod != 130:      # 130 = kullanıcı durdurdu
             # "Betik 1 koduyla bitti" kullanıcıya hiçbir şey söylemiyordu:
             # koşu portların çoğunu tamamlamış olsa da aynı cümle
@@ -344,11 +422,11 @@ def _konfig_alanlari(env, c, grup: str) -> dict:
     ortak, farkli = konfig.grup_proje_ozeti(env, hedefler)
     return {
         "alanlar": konfig.alan_listesi(c.subtype or ""),
-        "grupHedef": konfig.grup_hedef_gosterim(grup),
-        "grupGizli": konfig.grup_gizli_alanlar(grup),
+        "grupHedef": konfig.grup_hedef_gosterim(grup, set_no=env.set_no),
+        "grupGizli": konfig.grup_gizli_alanlar(grup, set_no=env.set_no),
         "projeHedef": ortak,
         "projeFarkli": farkli,
-        "varsayilan": konfig.varsayilan_ozeti(),
+        "varsayilan": konfig.varsayilan_ozeti(env.set_no),
     }
 
 
@@ -424,11 +502,11 @@ def firmware_isi(env, cihazlar):
                 return
             # Hangi dosyanın gittiği satırda yazar: cihaz başına ayrı
             # dosya seçilebildiği için "yüklendi" tek başına yetmiyor.
-            dosya_adi = firmware.secili_of(c.id)["ad"]
+            dosya_adi = firmware.secili_of(c.id, set_no=env.set_no)["ad"]
             is_.satir_guncelle(c.id, isler.CALISIYOR,
                                f"Yükleniyor · {dosya_adi}")
             try:
-                sonuc = firmware.yukle(c, _kimlik(c))
+                sonuc = firmware.yukle(c, _kimlik(c), set_no=env.set_no)
                 is_.satir_guncelle(c.id, "tamam",
                                    f"{dosya_adi} yüklendi · "
                                    f"sürüm {sonuc['yeni']}")
@@ -626,11 +704,15 @@ class PanelService:
 
         if yol == "/api/ip/plan":
             env = _env(tek("set", 1))
-            # Birden çok grup seçilebilir: "gruplar=Intercom,Kamera".
-            # Tek gruplu eski biçim (grup=…) da kabul edilir.
+            # IP atama motoru yalnız Intercom'u destekler. Parametre
+            # verilmemişse bu sabit kapsam kullanılır; farklı bir hedef
+            # sessizce Intercom'a çevrilmez, açıkça reddedilir.
             adlar = [a for a in (tek("gruplar") or tek("grup", "")).split(",")
                      if a.strip()]
-            gruplar = ip_atama.gruplari_coz(adlar) or [kategori.GRUPLAR[0]]
+            gruplar = ip_atama.gruplari_coz(adlar or ["Intercom"])
+            if not gruplar:
+                return self._gonder(400, {
+                    "hata": "IP atama yalnızca Intercom cihazlarında kullanılabilir"})
             hedefler = [c for c in env.cihazlar
                         if c.port and any(kategori.grup_eslesir(g, c)
                                           for g in gruplar)]
@@ -660,15 +742,12 @@ class PanelService:
                 # bilsin (bkz. ip_atama.ARAMA_SINIRI).
                 "aramaSiniri": ip_atama.ARAMA_SINIRI,
                 # Cihazlar aynı fabrika adresinde geldiği için koşu, her
-                # port değişiminde ARP önbelleğini temizlemek zorunda;
-                # yetki yoksa kullanıcı bunu koşudan önce bilsin.
+                # port değişiminde ARP önbelleğini temizlemek zorunda.
+                # Uygulama yükseltilmiş yetkiyle açıldığından (bkz.
+                # app.yonetici_mi) bu beklenen durum; alan yalnız tanı için
+                # duruyor, arayüz artık işletim sistemine özgü bir uyarı
+                # yazmıyor.
                 "arpTemizlik": ip_atama.arp_yetkisi(),
-                # Yetki yoksa ne yapılacağı PLATFORMA GÖRE değişiyor:
-                # Windows'ta `sudo` diye bir şey yok, karşılığı
-                # "Yönetici olarak çalıştır". Arayüz metni sunucudan gelir
-                # ki tarayıcı işletim sistemini tahmin etmek zorunda
-                # kalmasın.
-                "arpIpucu": ip_atama.arp_ipucu(),
                 # grupCihaz: o switch'te seçili gruplardan kaç cihaz var.
                 # Arayüz, gruba ait cihazı olmayan switch'in panelini buna
                 # bakarak işaretler; kullanıcı boşuna port aramaz.
@@ -683,6 +762,24 @@ class PanelService:
             sw_id = tek("switch") or (env.switchler()[0].id if env.switchler() else "")
             sw = _cihaz(env, sw_id)
             return self._gonder(200, ip_atama.onpanel(env, sw.id, _kimlik(sw)))
+
+        if yol == "/api/ip/harita":
+            # Salt okuma tanı: aday adreslerde kim var. Hiçbir şey yazılmaz,
+            # PoE'ye dokunulmaz; bu yüzden iş kuyruğuna girmez.
+            env = _env(tek("set", 1))
+            sw = _cihaz(env, tek("switch") or
+                        (env.switchler()[0].id if env.switchler() else ""))
+            ham = tek("grup") or "Intercom"
+            gruplar = [x["ad"] for x in ip_atama.gruplari_coz([ham])]
+            if not gruplar:
+                return self._gonder(400, {
+                    "hata": "Adres haritası yalnızca Intercom cihazlarında "
+                            "çıkarılabilir"})
+            ayarlar = {"fabrikaIp": str(tek("fabrikaIp", "") or "").strip()}
+            if ayarlar["fabrikaIp"] and not ip_atama.ipv4_mi(ayarlar["fabrikaIp"]):
+                return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
+            return self._gonder(
+                200, ip_atama.adres_haritasi(env, sw.id, gruplar, ayarlar))
 
         if yol == "/api/ip/korunan":
             # Koşunun dokunmaması gereken portların tamamı. İstemci hiçbir
@@ -739,6 +836,9 @@ class PanelService:
             # seçili olanlar döner (yükleme düğmesi bunu sayar).
             env = _env(tek("set", 1))
             grup = kategori.grup_bul(str(tek("grup", "") or ""))
+            if grup and not kategori.grup_islemi_destekler(grup, "fw"):
+                return self._gonder(400, {
+                    "hata": "Bu cihaz türünde yazılım yükleme desteklenmiyor"})
             hedef = [c for c in env.cihazlar
                      if grup is None or kategori.grup_eslesir(grup, c)]
             gor = isler.gorunum(env.set_no)
@@ -756,9 +856,9 @@ class PanelService:
                     "yuklenebilir": firmware.destekli(c),
                     "uzanti": firmware.uzanti(c),
                     "mevcutSurum": _mevcut_surum(gor.al(c.id)),
-                    "dosya": firmware.secili_of(c.id),
+                    "dosya": firmware.secili_of(c.id, set_no=env.set_no),
                 } for c in hedef],
-                "seciliSayi": len(firmware.secilenler()),
+                "seciliSayi": len(firmware.secilenler(set_no=env.set_no)),
                 "esZamanli": ayar.FIRMWARE_WORKER,
             })
 
@@ -928,7 +1028,8 @@ class PanelService:
             adlar = [ham] if isinstance(ham, str) else list(ham)
             gruplar = [x["ad"] for x in ip_atama.gruplari_coz(adlar)]
             if not gruplar:
-                return self._gonder(400, {"hata": "Cihaz grubu seçilmedi"})
+                return self._gonder(400, {
+                    "hata": "IP atama yalnızca Intercom cihazlarında kullanılabilir"})
             eksik = ip_atama.kosucusuz(gruplar)
             if eksik:
                 return self._gonder(400, {
@@ -945,6 +1046,10 @@ class PanelService:
                 # olduğunda (örn. /8) taranacak yeri daraltmanın tek yolu.
                 "aramaBas": str(g.get("aramaBas") or "").strip(),
                 "aramaSon": str(g.get("aramaSon") or "").strip(),
+                # Sonda güç çevirip ayarın cihazın flash'ına indiğini
+                # doğrula. Koşuyu uzattığı için varsayılan kapalı
+                # (bkz. ip_atama._intercom_kosu).
+                "kalicilik": bool(g.get("kalicilik")),
             }
             if ayarlar["fabrikaIp"] and not ip_atama.ipv4_mi(ayarlar["fabrikaIp"]):
                 return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
@@ -979,17 +1084,33 @@ class PanelService:
             adlar = [ham] if isinstance(ham, str) else list(ham)
             gruplar = [x["ad"] for x in ip_atama.gruplari_coz(adlar)]
             if not gruplar:
-                return self._gonder(400, {"hata": "Cihaz grubu seçilmedi"})
+                return self._gonder(400, {
+                    "hata": "IP atama yalnızca Intercom cihazlarında kullanılabilir"})
             fabrika = str(g.get("fabrikaIp") or "").strip()
             if fabrika and not ip_atama.ipv4_mi(fabrika):
                 return self._gonder(400, {"hata": "Fabrika IP geçerli değil"})
+            # Cihaz DeviceMap'teki adresinde olmayabilir; koşudaki gibi
+            # burada da aranacak adres aralığı verilebilir.
+            fab_ayar = {
+                "fabrikaIp": fabrika,
+                "aramaAgi": str(g.get("aramaAgi") or "").strip(),
+                "aramaMaskesi": str(g.get("aramaMaskesi") or "").strip(),
+                "aramaBas": str(g.get("aramaBas") or "").strip(),
+                "aramaSon": str(g.get("aramaSon") or "").strip(),
+            }
+            try:
+                ip_atama.arama_adaylari(fab_ayar["aramaAgi"],
+                                        fab_ayar["aramaMaskesi"],
+                                        bas=fab_ayar["aramaBas"],
+                                        son=fab_ayar["aramaSon"])
+            except ValueError as exc:
+                return self._gonder(400, {"hata": str(exc)})
             is_ = isler.Is("ipfab",
                            f"Fabrika IP'sine döndür · {sw.ad} · "
                            f"{ip_atama.metin_yap(portlar)}",
                            env.set_no, anahtar=f"ipfab:{env.set_no}:{sw.id}")
             is_, yeni = isler.YONETICI.ekle(
-                is_, ip_fabrika_isi(env, sw.id, portlar, gruplar,
-                                    {"fabrikaIp": fabrika}))
+                is_, ip_fabrika_isi(env, sw.id, portlar, gruplar, fab_ayar))
             return self._gonder(200 if yeni else 202,
                                 {**is_.dto(satir=False), "yeni": yeni})
 
@@ -1003,14 +1124,22 @@ class PanelService:
             # göre burada doğrulanır: geçersiz değer bellekte bekleyip
             # yazma anında patlarsa kullanıcı hatayı kuyrukta görürdü.
             alt = c.subtype or ""
+            gr = kategori.grup_bul(grup) if grup else None
+            if not kategori.cihaz_islemi_destekler(c, "cfg"):
+                return self._gonder(400, {
+                    "hata": "Bu cihaz türünde ayar yönetimi desteklenmiyor"})
+            if grup and (not kategori.grup_islemi_destekler(gr, "cfg")
+                          or not kategori.grup_eslesir(gr, c)):
+                return self._gonder(400, {"hata": "Geçerli bir cihaz türü seçin"})
             if str(g.get("kapsam") or "cihaz") == "grup":
-                if not grup:
-                    return self._gonder(400, {"hata": "grup gerekli"})
-                gr = kategori.grup_bul(grup)
-                konfig.grup_hedef_yaz(grup, alan, deger,
-                                      (gr or {}).get("alt") or alt)
+                if not gr:
+                    return self._gonder(400, {"hata": "Cihaz türü gerekli"})
+                konfig.grup_hedef_yaz(
+                    grup, alan, deger, gr.get("alt") or alt,
+                    set_no=env.set_no)
             else:
-                konfig.hedef_yaz(c.id, alan, deger, alt)
+                konfig.hedef_yaz(c.id, alan, deger, alt,
+                                 set_no=env.set_no)
             try:
                 govde = konfig.cek(c, env, _kimlik(c), grup)
             except CihazHatasi as exc:
@@ -1026,7 +1155,7 @@ class PanelService:
             env = _env(g.get("set"))
             c = _cihaz(env, g.get("cihazId"))
             grup = str(g.get("grup") or "")
-            konfig.varsayilanlari_sil()
+            konfig.varsayilanlari_sil(env.set_no)
             try:
                 govde = konfig.cek(c, env, _kimlik(c), grup)
             except CihazHatasi as exc:
@@ -1038,10 +1167,17 @@ class PanelService:
 
         if yol == "/api/konfig/uygula":
             env = _env(g.get("set"))
-            cihazlar = self._hedef_cihazlar(env, g)
+            cihazlar = self._hedef_cihazlar(env, g, "cfg")
             grup = str(g.get("grup") or "")
-            is_ = isler.Is("cfg", f"Konfigürasyon · {len(cihazlar)} cihaz",
-                           env.set_no, anahtar=f"cfg:{env.set_no}")
+            # Kuyruk aynı anahtarlı işi ikinci kez almaz. Tek cihaza
+            # uygulama kendi anahtarını taşır: arayüzde ayar penceresi
+            # cihaz cihaz açılıyor ve gruba uygulanmış bekleyen bir iş,
+            # tek cihaza gönderilen ayarı sessizce yutmamalı.
+            kapsam = cihazlar[0].id if len(cihazlar) == 1 else "grup"
+            baslik = (f"Konfigürasyon · {cihazlar[0].ad}" if len(cihazlar) == 1
+                      else f"Konfigürasyon · {len(cihazlar)} cihaz")
+            is_ = isler.Is("cfg", baslik, env.set_no,
+                           anahtar=f"cfg:{env.set_no}:{kapsam}")
             is_, yeni = isler.YONETICI.ekle(is_,
                                             konfig_isi(env, cihazlar, grup))
             return self._gonder(200 if yeni else 202,
@@ -1053,7 +1189,7 @@ class PanelService:
             # yolu vermiyor, kullanıcı da elle yazmak zorunda kalmasın.
             # İstek, kullanıcı pencereyi kapatana kadar bekler.
             env = _env(g.get("set"))
-            cihazlar = self._hedef_cihazlar(env, g)
+            cihazlar = self._hedef_cihazlar(env, g, "fw")
             hedef = [c for c in cihazlar if firmware.destekli(c)]
             if not hedef:
                 return self._gonder(400, {
@@ -1077,17 +1213,20 @@ class PanelService:
             if not secilen:
                 return self._gonder(200, {"iptal": True})
             secim = firmware.dosya_sec(
-                [c.id for c in hedef], secilen, str(g.get("surum", "")))
+                [c.id for c in hedef], secilen, str(g.get("surum", "")),
+                set_no=env.set_no)
             return self._gonder(200, {"dosyalar": secim,
                                       "cihazSayisi": len(hedef),
-                                      "seciliSayi": len(firmware.secilenler())})
+                                      "seciliSayi": len(firmware.secilenler(
+                                          set_no=env.set_no))})
 
         if yol == "/api/firmware/surum":
             # Yalnız hedef sürüm değişir; seçili dosyaya dokunulmaz.
             env = _env(g.get("set"))
-            cihazlar = self._hedef_cihazlar(env, g)
+            cihazlar = self._hedef_cihazlar(env, g, "fw")
             secim = firmware.surum_yaz([c.id for c in cihazlar],
-                                       str(g.get("surum", "")))
+                                       str(g.get("surum", "")),
+                                       set_no=env.set_no)
             return self._gonder(200, {"dosyalar": secim})
 
         if yol == "/api/firmware/dosya":
@@ -1099,7 +1238,7 @@ class PanelService:
             yol_metni = g.get("yol")
             if not isinstance(yol_metni, str) or not yol_metni.strip():
                 return self._gonder(400, {"hata": "dosya yolu gerekli"})
-            cihazlar = self._hedef_cihazlar(env, g)
+            cihazlar = self._hedef_cihazlar(env, g, "fw")
             # Yükleme ucu olmayan cihaza imaj atanmaz: "gruba uygula"
             # dediğinde listede yükleme yapılamayacak bir cihaz varsa
             # onu sessizce atlamak, sonra "neden yüklenmedi" sorusunu
@@ -1109,31 +1248,38 @@ class PanelService:
                 return self._gonder(400, {
                     "hata": "Seçilen cihazlarda yazılım yükleme tanımlı değil"})
             secim = firmware.dosya_sec(
-                [c.id for c in hedef], yol_metni, str(g.get("surum", "")))
+                [c.id for c in hedef], yol_metni, str(g.get("surum", "")),
+                set_no=env.set_no)
             return self._gonder(200, {"dosyalar": secim,
                                       "cihazSayisi": len(hedef),
-                                      "seciliSayi": len(firmware.secilenler())})
+                                      "seciliSayi": len(firmware.secilenler(
+                                          set_no=env.set_no))})
 
         if yol == "/api/firmware/sil":
-            if g.get("hepsi") is True:
-                firmware.temizle()
-                return self._gonder(200, {"silindi": "hepsi", "seciliSayi": 0})
             env = _env(g.get("set"))
-            cihazlar = self._hedef_cihazlar(env, g)
-            silindi = firmware.sil([c.id for c in cihazlar])
+            if g.get("hepsi") is True:
+                # "Hepsi" proje geneli değil, açık olan setteki seçimlerin
+                # tamamıdır. Başka setlerin hazırlığına dokunulmaz.
+                firmware.temizle(env.set_no)
+                return self._gonder(200, {"silindi": "hepsi", "seciliSayi": 0})
+            cihazlar = self._hedef_cihazlar(env, g, "fw")
+            silindi = firmware.sil([c.id for c in cihazlar],
+                                    set_no=env.set_no)
             return self._gonder(200, {
                 "silindi": silindi,
-                "dosyalar": firmware.secilenler([c.id for c in cihazlar]),
-                "seciliSayi": len(firmware.secilenler())})
+                "dosyalar": firmware.secilenler(
+                    [c.id for c in cihazlar], set_no=env.set_no),
+                "seciliSayi": len(firmware.secilenler(set_no=env.set_no))})
 
         if yol == "/api/firmware/yukle":
             env = _env(g.get("set"))
-            cihazlar = self._hedef_cihazlar(env, g)
+            cihazlar = self._hedef_cihazlar(env, g, "fw")
             # Yalnız imajı seçilmiş cihazlar kuyruğa girer: dosyası
             # olmayanı işe koymak, satırı "hata" ile dolduran ama hiçbir
             # şey yapmayan bir koşu demek.
             hedef = [c for c in cihazlar
-                     if firmware.destekli(c) and firmware.secili_var(c.id)]
+                     if firmware.destekli(c)
+                     and firmware.secili_var(c.id, set_no=env.set_no)]
             if not hedef:
                 return self._gonder(400, {
                     "hata": "Yüklenecek dosyası seçilmiş cihaz yok"})
@@ -1166,16 +1312,33 @@ class PanelService:
         return self._gonder(404, {"hata": "bilinmeyen yol"})
 
     # ---- ayrıntılı işlemler ----
-    def _hedef_cihazlar(self, env, g):
-        """İstemcinin seçtiği grup/cihaz listesini envanterden çözer."""
+    def _hedef_cihazlar(self, env, g, op=""):
+        """İstemcinin seçtiği grup/cihaz listesini envanterden çözer.
+
+        Arayüz yalnız desteklenen seçenekleri gösterir; aynı sınır doğrudan
+        API çağrılarında da geçerlidir. Karma açık listeler kısmen işlenmez.
+        """
         idler = g.get("cihazlar")
         if isinstance(idler, list) and idler:
             if len(idler) > 256:
                 raise ValueError("Çok fazla cihaz seçildi")
-            return [_cihaz(env, str(i)) for i in idler]
+            cihazlar = [_cihaz(env, str(i)) for i in idler]
+            if op and any(not kategori.cihaz_islemi_destekler(c, op)
+                          for c in cihazlar):
+                if op == "fw":
+                    raise ValueError(
+                        "Seçilen cihazlarda yazılım yükleme tanımlı değil")
+                raise ValueError(
+                    "Seçilen cihazlardan bazıları bu işlemi desteklemiyor")
+            return cihazlar
         grup = kategori.grup_bul(str(g.get("grup", "")))
         if grup is None:
             raise ValueError("Geçerli bir hedef grup seçilmedi")
+        if op and not kategori.grup_islemi_destekler(grup, op):
+            if op == "fw":
+                raise ValueError(
+                    "Seçilen cihazlarda yazılım yükleme tanımlı değil")
+            raise ValueError("Seçilen cihaz türü bu işlemi desteklemiyor")
         return [c for c in env.cihazlar if kategori.grup_eslesir(grup, c)]
 
     def _hafif_yenileme(self, g: dict):

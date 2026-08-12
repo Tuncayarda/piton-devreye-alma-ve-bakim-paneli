@@ -6,7 +6,10 @@
 import { el, doldur, ikon, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
-import { IS_DURUM_ETIKET, SATIR_DURUM_ETIKET, SATIR_RENK, saat } from '../core/bicim.js';
+import {
+  IS_DURUM_ETIKET, IS_SONUC_ETIKET, IS_SONUC_RENK,
+  SATIR_DURUM_ETIKET, SATIR_RENK, saat,
+} from '../core/bicim.js';
 import { bildir, hata } from './bildirim.js';
 
 const IS_RENK = {
@@ -72,10 +75,14 @@ function isKart(j) {
   // bekliyor olabilir. Bu aralıkta durum "Durduruluyor…" yazar, düğme de
   // basılamaz olur — yoksa kullanıcı hiçbir şey olmadı sanıp tekrar basıyor.
   const duruyor = surüyor && j.iptalIstendi;
-  const renk = duruyor ? 'turuncu' : (IS_RENK[j.durum] || 'gri');
+  const sonucRengi = IS_SONUC_RENK[j.sonuc];
+  const renk = duruyor ? 'turuncu'
+    : (!surüyor && sonucRengi ? sonucRengi : (IS_RENK[j.durum] || 'gri'));
   const etiket = duruyor
     ? 'Durduruluyor…'
-    : `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`;
+    : (surüyor
+      ? `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`
+      : (IS_SONUC_ETIKET[j.sonuc] || IS_DURUM_ETIKET[j.durum] || j.durum));
 
   return el('div', { sinif: 'is-kart', veri: { durum: j.durum } }, [
     el('div', { sinif: 'is-kart-basi' }, [
@@ -102,7 +109,12 @@ function isKart(j) {
             ? el('span', { sinif: 'is-asama', metin: j.asama })
             : null,
         ]),
-        el('span', { sinif: 'is-sayac' }, [
+        el('span', {
+          sinif: 'is-sayac',
+          'aria-label': `${s.basarili ?? 0} başarılı, `
+            + `${s.erisimBekleyen ?? 0} giriş bilgisi gerekli, `
+            + `${s.hatali ?? 0} başarısız`,
+        }, [
           el('span', { stil: 'color:var(--yesil)', metin: String(s.basarili ?? 0) }),
           el('span', { stil: 'color:var(--turuncu)', metin: String(s.erisimBekleyen ?? 0) }),
           el('span', { stil: 'color:var(--kirmizi)', metin: String(s.hatali ?? 0) }),
@@ -112,9 +124,9 @@ function isKart(j) {
         ? el('button', {
             type: 'button', sinif: 'btn btn-x',
             disabled: duruyor,
-            title: duruyor ? 'Durduruluyor…' : 'İşi durdur',
+            title: duruyor ? 'Durduruluyor…' : 'İşlemi durdur',
             'aria-label': duruyor
-              ? `${j.baslik} durduruluyor` : `${j.baslik} işini durdur`,
+              ? `${j.baslik} durduruluyor` : `${j.baslik} işlemini durdur`,
             onclick: async () => {
               try {
                 await api.isIptal(j.id);
@@ -125,7 +137,7 @@ function isKart(j) {
         : el('button', {
             type: 'button', sinif: 'btn btn-x',
             title: 'Kuyruktan kaldır',
-            'aria-label': `${j.baslik} işini kuyruktan kaldır`,
+            'aria-label': `${j.baslik} işlemini kuyruktan kaldır`,
             onclick: async () => {
               try { await api.isSil(j.id); } catch (e) { hata(e.message); }
             },
@@ -277,8 +289,8 @@ export function ozetMetni(yenilenen = 0) {
     if (!durum.sonTarama) return 'İlk tarama bekleniyor…';
     const taze = `Son tarama ${saat(durum.sonTarama)}`;
     return yenilenen
-      ? `${taze} · yenileme ${yenilenen} doğrulanmış cihazda`
-      : `${taze} · yenilenecek doğrulanmış cihaz yok`;
+      ? `${taze} · ${yenilenen} cihaz yeniden okundu`
+      : `${taze} · yeniden okunabilecek cihaz yok`;
   }
   return `${j.baslik} · %${Math.round((j.ilerleme || 0) * 100)}`;
 }

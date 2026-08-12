@@ -1,4 +1,4 @@
-// Genel Bakış — KPI'lar, kategori durumu, sıradaki adımlar, son işlemler.
+// Genel bakış — sistem özeti, dikkat gerekenler ve bu oturumdaki işlemler.
 //
 // Bütün sayılar o anki tarama görüntüsünden gelir. Hiç tarama yapılmadıysa
 // sayılar sıfır değil, "okunmadı" olarak görünür: 0 aktif cihaz ile
@@ -6,15 +6,17 @@
 //
 // Sayfada aynı bilgi iki kez durmaz. Eski "Sistem Özeti" kartı kategori
 // listesinin aynısını başka adlarla tekrarlıyordu (Anons zinciri = Anons
-// Ekipmanları, Video sistemi = Video Sistemi …); yerine ne yapılması
-// gerektiğini söyleyen "Sıradaki Adımlar" geldi.
+// Ekipmanları, Video sistemi = Video Sistemi …); yerine müdahale gerektiren
+// durumları söyleyen kısa kontrol özeti geldi.
 //
 // Sayfadaki her sayı tıklanabilir: sayıyı görüp arkasındaki cihaz listesini
 // elle bulmak fazladan bir adımdı.
 
 import { el, doldur } from '../core/dom.js';
 import { durum, ata } from '../core/durum.js';
-import { yuzde, saat, tazelik, IS_DURUM_ETIKET, YOK } from '../core/bicim.js';
+import {
+  yuzde, saat, tazelik, IS_DURUM_ETIKET, IS_SONUC_ETIKET, YOK,
+} from '../core/bicim.js';
 
 // Kutucuklar: büyük sayı + neyin içinde olduğu + doluluk çubuğu.
 // Çubuğun altında açıklama yazısı yok; sayı ile çubuk zaten aynı şeyi
@@ -53,7 +55,7 @@ export function ciz(kok, guncelle) {
   // olduğunu söyler; sayılara bakmadan önce görülmesi gereken tek şey bu.
   parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
     el('div', {}, [
-      el('h2', { metin: 'Devreye Alma Durumu' }),
+      el('h2', { metin: 'Sistem durumu' }),
       el('div', {
         sinif: 'sayfa-alt',
         metin: taramaVar
@@ -63,25 +65,25 @@ export function ciz(kok, guncelle) {
     ]),
     el('div', { sinif: 'eylemler' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Kontrol Listesi',
+        type: 'button', sinif: 'btn', metin: 'Doğrulama ve raporlar',
         onclick: () => ata({ gorunum: 'dog' }),
       }),
     ]),
   ]));
 
   parcalar.push(el('div', { sinif: 'kpi-izgara' }, [
-    kpi('Toplam Cihaz', n, 'kayıt', 'accent', '100%',
+    kpi('Toplam cihaz', n, 'kayıt', 'accent', '100%',
       () => listeye('tumu'), 'Bütün cihazları listele'),
-    kpi('Doğrulanan', taramaVar ? s.basarili : YOK, `/ ${n}`, 'yesil',
+    kpi('Erişilebilir', taramaVar ? s.basarili : YOK, `/ ${n}`, 'yesil',
       yuzde(s.basarili, n),
-      () => listeye('aktif'), 'Doğrulanan cihazları listele'),
-    kpi('Erişim Bekleyen', taramaVar ? s.erisimBekleyen : YOK, `/ ${n}`,
+      () => listeye('aktif'), 'Erişilebilen cihazları listele'),
+    kpi('Giriş bilgisi gerekli', taramaVar ? s.erisimBekleyen : YOK, `/ ${n}`,
       'turuncu', yuzde(s.erisimBekleyen, n),
       () => ata({ kilitAcik: true, kuyrukAcik: false }),
-      'Kullanıcı adı / parola bekleyen cihazları aç'),
-    kpi('Yanıt Vermeyen', taramaVar ? s.hatali : YOK, `/ ${n}`, 'kirmizi',
+      'Kullanıcı adı veya parola gereken cihazları aç'),
+    kpi('İncelenecek', taramaVar ? s.hatali : YOK, `/ ${n}`, 'kirmizi',
       yuzde(s.hatali, n),
-      () => listeye('sorunlu'), 'Sorunlu cihazları listele'),
+      () => listeye('sorunlu'), 'Kontrolü tamamlanamayan cihazları listele'),
   ]));
 
   // ── kategori durumu + sağ sütun ──
@@ -89,9 +91,9 @@ export function ciz(kok, guncelle) {
   // sütun olarak her satırda yazınca liste okunmuyordu.
   const katKart = el('div', { sinif: 'kart kose' }, [
     el('div', { sinif: 'kart-basi' }, [
-      el('h3', { metin: 'Kategori Durumu' }),
+      el('h3', { metin: 'Kategori özeti' }),
       el('span', { stil: 'flex:1' }),
-      el('span', { sinif: 'etiket', metin: 'Doğrulanan / Toplam' }),
+      el('span', { sinif: 'etiket', metin: 'Erişilebilir / toplam' }),
     ]),
     ...(durum.meta ? durum.meta.kategoriler : []).map(k => {
       const ds = k.id === 'tum' ? cihazlar : cihazlar.filter(c => c.kategori === k.id);
@@ -118,7 +120,7 @@ export function ciz(kok, guncelle) {
     }),
   ]);
 
-  // ── sıradaki adımlar ──
+  // ── kontrol özeti ──
   // Kart yalnız yapılacak iş varken satır gösterir; her satır o işi
   // yapacağı yere götürür.
   const adimSatir = (renk, ad, not, eylemAd, eylem) => el('div', {
@@ -136,35 +138,36 @@ export function ciz(kok, guncelle) {
 
   const adimlar = [];
   if (!taramaVar) {
-    adimlar.push(adimSatir('accent', 'Tarama yapılmadı',
-      'Bu tren setindeki bütün cihazlar sırayla okunur.',
-      'Güncelle', () => guncelle && guncelle()));
+    adimlar.push(adimSatir('accent', 'Henüz tarama yapılmadı',
+      'Setteki cihazların güncel durumunu görmek için taramayı başlatın.',
+      'Şimdi tara', () => guncelle && guncelle()));
   } else {
     if (s.erisimBekleyen) {
       adimlar.push(adimSatir('turuncu',
-        `${s.erisimBekleyen} cihaz kullanıcı adı / parola bekliyor`,
+        `${s.erisimBekleyen} cihaz için giriş bilgisi gerekli`,
         'Girilen bilgiler yalnız bu oturumda bellekte tutulur.',
-        'Kimlik gir', () => ata({ kilitAcik: true, kuyrukAcik: false })));
+        'Bilgileri gir', () => ata({ kilitAcik: true, kuyrukAcik: false })));
     }
     if (s.hatali) {
-      adimlar.push(adimSatir('kirmizi', `${s.hatali} cihaz yanıt vermedi`,
-        'Kablo, IP ve besleme kontrolü gerekir.',
+      adimlar.push(adimSatir('kirmizi',
+        `${s.hatali} cihazın kontrolü tamamlanamadı`,
+        'Bağlantı, IP, besleme veya cihaz yanıtı incelenmeli.',
         'Listeyi aç', () => listeye('sorunlu')));
     }
     if (!adimlar.length) {
-      adimlar.push(adimSatir('yesil', 'Bütün cihazlar doğrulandı',
-        'Kontrol listesi çıkarılabilir.',
-        'Kontrol Listesi', () => ata({ gorunum: 'dog' })));
+      adimlar.push(adimSatir('yesil', 'Erişim taraması tamamlandı',
+        'IP ve SIP uyumunu doğrulama ekranından inceleyebilirsiniz.',
+        'Sonuçları aç', () => ata({ gorunum: 'dog' })));
     }
   }
 
   const adimKart = el('div', { sinif: 'kart kose' }, [
-    el('h3', { stil: 'margin-bottom:4px', metin: 'Sıradaki Adımlar' }),
+    el('h3', { stil: 'margin-bottom:4px', metin: 'Kontrol özeti' }),
     ...adimlar,
     // Sürüm okuma, doğrulamadan ayrı bir ölçü: cihaz yanıt verse de
     // sürümünü vermeyebiliyor.
     el('div', { sinif: 'adim-dip' }, [
-      el('span', { metin: 'Sürümü okunan cihaz' }),
+      el('span', { metin: 'Sürüm bilgisi alınan cihaz' }),
       el('span', {
         sinif: 'mono acik',
         metin: taramaVar ? `${surumlu}/${n}` : `${YOK}/${n}`,
@@ -173,7 +176,7 @@ export function ciz(kok, guncelle) {
   ]);
 
   const gecmisKart = el('div', { sinif: 'kart kose' }, [
-    el('h3', { stil: 'margin-bottom:11px', metin: 'Son İşlemler' }),
+    el('h3', { stil: 'margin-bottom:11px', metin: 'Bu oturumdaki son işlemler' }),
     ...(durum.isler.length
       ? durum.isler.slice(-6).reverse().map(j => el('div', {
           stil: 'display:flex;gap:10px;padding:6px 0;font-family:var(--f-mono);'
@@ -188,10 +191,13 @@ export function ciz(kok, guncelle) {
           }),
           el('span', {
             sinif: 'acik',
-            metin: `${j.baslik} — ${IS_DURUM_ETIKET[j.durum] || j.durum}`,
+            metin: `${j.baslik} — ${IS_SONUC_ETIKET[j.sonuc]
+              || IS_DURUM_ETIKET[j.durum] || j.durum}`,
           }),
         ]))
-      : [el('div', { sinif: 'mono soluk', stil: 'font-size:11px', metin: 'Kayıt yok' })]),
+      : [el('div', {
+        sinif: 'bos-durum', metin: 'Bu oturumda henüz işlem yapılmadı.',
+      })]),
   ]);
 
   parcalar.push(el('div', { sinif: 'genel-izgara' }, [

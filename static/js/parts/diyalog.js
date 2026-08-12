@@ -6,14 +6,17 @@ let acik = null;
 
 export function kapat() {
   if (!acik) return;
-  const { perde, coz, oncekiOdak } = acik;
+  const { perde, coz, oncekiOdak, kapaninca } = acik;
   coz();
   perde.remove();
   acik = null;
   if (oncekiOdak && document.contains(oncekiOdak)) oncekiOdak.focus();
+  // Diyalog Escape ile ya da perdeye tıklanarak da kapanabiliyor; çağıran
+  // ekran penceresinin kapandığını ancak buradan öğrenir.
+  if (kapaninca) kapaninca();
 }
 
-export function ac({ baslik, icerik, eylemler = [], genislik }) {
+export function ac({ baslik, icerik, eylemler = [], genislik, kapaninca }) {
   kapat();
   const oncekiOdak = document.activeElement;
 
@@ -34,7 +37,7 @@ export function ac({ baslik, icerik, eylemler = [], genislik }) {
 
   doldur($('#diyalog-yuva'), [perde]);
   const coz = odakTuzagi(perde, kapat);
-  acik = { perde, coz, oncekiOdak };
+  acik = { perde, coz, oncekiOdak, kapaninca };
 
   const ilk = kutu.querySelector('input, button, select, textarea');
   if (ilk) ilk.focus();

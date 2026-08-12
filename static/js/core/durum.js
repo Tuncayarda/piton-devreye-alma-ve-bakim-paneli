@@ -10,7 +10,7 @@ const ANAHTARLAR = new Set([
   'kilitAcik', 'detayId', 'hedefGrup', 'surum', 'sonTarama',
   'aktifTarama', 'kenarAcik', 'piscuIp', 'yukleniyor', 'ipDurum',
   'cfgDurum', 'fwDurum', 'mqttDurum', 'piscuDurum', 'meta',
-  'kontrolDurum', 'kontrolKategori',
+  'kontrolDurum', 'kontrolKategori', 'gecmisFiltresi',
 ]);
 
 const _abone = new Set();
@@ -46,6 +46,7 @@ export const durum = {
   piscuDurum: null,
   kontrolDurum: null,
   kontrolKategori: 'tum',
+  gecmisFiltresi: 'tumu',
 };
 
 // Hangi anahtarların değiştiği abonelere bildirilir: her değişimde bütün

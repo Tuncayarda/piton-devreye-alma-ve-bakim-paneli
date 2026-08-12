@@ -310,6 +310,23 @@ class Is:
         bitmis = say["toplam"] - say["bekleyen"]
         return round(bitmis / say["toplam"], 4)
 
+    def sonuc_durumu(self) -> str | None:
+        """Kuyruk yaşam döngüsünden ayrı, kullanıcıya dönük iş sonucu."""
+        if self.durum in (BEKLIYOR, CALISIYOR):
+            return None
+        if self.durum == HATA:
+            return "basarisiz"
+        if self.durum == IPTAL:
+            return "durduruldu"
+        # Bir gövdenin normal dönmesi, bütün cihazların başarılı olduğu
+        # anlamına gelmez. Tarama tamamlanabilir ama bazı cihazlar yanıt
+        # vermemiş olabilir; bu sonuç yeşil "başarılı" görünmemeli.
+        say = self.sayilar()
+        if (say["hatali"] or say["erisimBekleyen"] or say["atlanan"]
+                or say["bekleyen"]):
+            return "uyari"
+        return "basarili"
+
     def dto(self, satir: bool = True) -> dict:
         say = self.sayilar()
         veri = {
@@ -319,6 +336,7 @@ class Is:
             "olusturma": self.olusturma, "baslama": self.baslama,
             "bitis": self.bitis, "ilerleme": self.ilerleme(),
             "hata": self.hata, "sayilar": say,
+            "sonuc": self.sonuc_durumu(),
             # İptal istendi ama iş henüz duruyor: worker o an bir cihazın
             # zaman aşımını bekliyor olabiliyor. Arayüz bu aralıkta hâlâ
             # "Çalışıyor" yazınca düğmeye basan kişi bir şey olmadı sanıyor.

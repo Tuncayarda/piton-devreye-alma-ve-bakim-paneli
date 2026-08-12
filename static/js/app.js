@@ -7,7 +7,7 @@
 //   · Yenileme iki hızda çalışır ve durdurulamaz:
 //       – Keşif (tam tarama) dakikada bir. DeviceMap'teki HER adrese
 //         bakar, yani ulaşılamayan cihaz başına zaman aşımı kadar bekler;
-//         pahalı olan bu. "Güncelle" düğmesi bu turu öne çeker.
+//         pahalı olan bu. "Şimdi tara" düğmesi bu turu öne çeker.
 //       – Hafif yenileme birkaç saniyede bir, YALNIZ son turda yeşile
 //         düşmüş cihazlara. Ulaşılamayana dokunmaz, o yüzden hızlıdır.
 //   · Tam tarama sürerken hafif yenileme çalışmaz.
@@ -31,6 +31,7 @@ import * as vIp from './views/ip.js';
 import * as vCfg from './views/konfig.js';
 import * as vFw from './views/firmware.js';
 import * as vDog from './views/kontrol.js';
+import * as vGecmis from './views/gecmis.js';
 import * as vPiscu from './views/piscu.js';
 import * as vMqtt from './views/mqtt.js';
 import * as vAdmin from './views/admin.js';
@@ -159,7 +160,7 @@ function otomatikTaramaIsi() {
       && (j.durum === 'calisiyor' || j.durum === 'bekliyor')) || null;
 }
 
-// Keşif turu. Ne kadar bekleneceği dışarıdan verilebiliyor: "Güncelle",
+// Keşif turu. Ne kadar bekleneceği dışarıdan verilebiliyor: "Şimdi tara",
 // oturum açılışı ve set değişimi sayacı kendi süresiyle sıfırlar.
 function taramaDongusu(gecikme = TAM_TARAMA_ARALIK) {
   clearTimeout(taramaZaman);
@@ -220,12 +221,27 @@ const EKRANLAR = {
   cfg: ['#v-cfg', (k) => vCfg.ciz(k)],
   fw: ['#v-fw', (k) => vFw.ciz(k)],
   dog: ['#v-dog', (k) => vDog.ciz(k, guncelle)],
+  gecmis: ['#v-gecmis', (k) => vGecmis.ciz(k)],
   piscu: ['#v-piscu', (k) => vPiscu.ciz(k)],
   mqtt: ['#v-mqtt', (k) => vMqtt.ciz(k)],
   admin: ['#v-admin', (k) => vAdmin.ciz(k, setDegistir)],
 };
 
 let sonGorunum = null;
+
+// Kaynak HTML'de eski ekran kökleri sabit duruyor. Geçmiş görünümünü burada
+// bir kez eklemek, hem tarayıcı sürümünü hem de aynı kaynaklardan üretilen tek
+// dosyalık masaüstü paketini ayrı bir HTML değişikliğine gerek kalmadan korur.
+function gecmisEkraniniKur() {
+  if ($('#v-gecmis')) return;
+  const icerik = $('#icerik');
+  if (!icerik) return;
+  const kok = document.createElement('div');
+  kok.id = 'v-gecmis';
+  kok.className = 'ekran';
+  kok.hidden = true;
+  icerik.insertBefore(kok, $('#v-piscu'));
+}
 
 // Yalnız yan panelleri ilgilendiren anahtarlar. Kuyrukta bir işi açıp
 // kapatmak ekranın geri kalanını (cihaz tablosu, kenar çubuğu, üst bar)
@@ -250,7 +266,6 @@ function ciz(_d, degisen) {
   }
   $('#rol-rozet').textContent = durum.rol === 'admin' ? 'Admin' : 'Kullanıcı';
   $('#rol-rozet').style.color = durum.rol === 'admin' ? 'var(--accent)' : '';
-  $('#kenar-ac').setAttribute('aria-expanded', String(durum.kenarAcik));
   $('#alt-bilgi').textContent = kuyruk.ozetMetni(yenilemeHedefi().length);
   $('#alt-surum').textContent = `v${durum.surum}`;
 
@@ -259,7 +274,7 @@ function ciz(_d, degisen) {
   // Yalnız görünen etiket değişir; ölçü etiketi düğmenin genişliğini
   // sabit tutmak için yerinde durur (bkz. index.html).
   $('.etiket-oynak', guncelle).textContent = durum.aktifTarama
-    ? 'Taranıyor…' : 'Güncelle';
+    ? 'Taranıyor…' : 'Şimdi tara';
   yanPaneliHizala();
 
   kenar.ciz();
@@ -281,21 +296,58 @@ function ciz(_d, degisen) {
   // için bu, konfigürasyon alanına yazarken sürekli metin kaybı demekti.
   // Odak ekranın içindeki bir kutudayken o turun çizimi atlanır; ekran
   // değişimi kullanıcının kendi eylemidir, o atlanmaz.
-  if (ekranDegisti || !odakEkranKutusunda()) {
+  // Açık bir açılır listenin üstüne çizim yapmak listeyi kapatıyor. Tarama
+  // sürerken cihaz okumaları saniyede bir, cihaz okuması da zaman aşımıyla
+  // araya girdiği için kullanıcı seçeneğe basamadan liste kapanıyor, hedef
+  // grubu ya da cihazı seçmek imkânsız hale geliyordu.
+  //
+  // Hangi verinin geldiğine bakılmaz: liste odaktayken çizim bekler. Seçim
+  // yapıldığında ekranın yenilenmesi gereken yerlerde (hedef türü, hedef
+  // grup) `change` işleyicisi odağı listeden çıkarır — o zaman bu koşul
+  // düşer ve seçim anında çizilir (bkz. serit.secici).
+  if (ekranDegisti || !(odakEkranKutusunda() || odakAcilirListede())) {
     kaydirmayiKoru(ekranDegisti ? null : $('#icerik'), () => cizFn($(secici)));
   }
 
   if (ekranDegisti) {
     sonGorunum = durum.gorunum;
     $('#icerik').scrollTop = 0;
+    gecisiOynat($(secici));
     ekranaGirildi(durum.gorunum);
   }
 }
 
+// Ekran değişiminde kısa bir giriş animasyonu. Sekmeler arasında geçerken
+// içeriğin tek karede yer değiştirmesi, aynı yerde duran başlık ve şerit
+// yüzünden "hiçbir şey olmadı" gibi görünüyordu. Animasyon her geçişte
+// baştan başlamalı; bunun için sınıf önce kaldırılır ve yeniden akış
+// (reflow) zorlanır.
+function gecisiOynat(kok) {
+  if (!kok) return;
+  kok.classList.remove('ekran-gecis');
+  void kok.offsetWidth;
+  kok.classList.add('ekran-gecis');
+}
+
+// Çizim yalnız YAZILMAKTA olan bir kutu yüzünden atlanır. Açılır listeler
+// buna dahil değildi: seçim `change` ile bittiği anda odak hâlâ listedeydi
+// ve o turun çizimi atlanıyordu — cihaz ya da hedef grup değiştirildiğinde
+// yeni seçimin alanları ancak sekme değiştirilince görünüyordu.
 function odakEkranKutusunda() {
   const a = document.activeElement;
   if (!a || !$('#icerik').contains(a)) return false;
-  return a.matches('input, textarea, select, [contenteditable="true"]');
+  return a.matches(
+    'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]),'
+    + ' textarea, [contenteditable="true"]');
+}
+
+// Açık bir açılır liste odağı kendinde tutar. Liste ekranda da olabilir,
+// cihaz ayar penceresinde de (bkz. konfig.cihazAc) — ikisi de kullanıcının
+// o an baktığı yer.
+function odakAcilirListede() {
+  const a = document.activeElement;
+  if (!a || !a.matches('select')) return false;
+  return [$('#icerik'), $('#diyalog-yuva')].some(k => k && k.contains(a));
 }
 
 // Ekran ilk açıldığında kendi verisini çeker (açılışta hepsi çekilmez).
@@ -309,7 +361,7 @@ function ekranaGirildi(ad) {
 }
 
 // ───────────────────────────────────────────────────────── eylemler ──────
-// "Güncelle" artık tarama BAŞLATMAZ, sıradakini ÖNE ÇEKER: tarama zaten
+// "Şimdi tara" artık tarama BAŞLATMAZ, sıradakini ÖNE ÇEKER: tarama zaten
 // dakikada bir çalışıyor, düğme o turu şimdi kuyruğa alır ve sayacı
 // baştan kurar. Bir koşu (IP atama, konfigürasyon, yazılım yükleme)
 // sürüyorsa tarama kuyrukta bekler — kuyruk tek işçili olduğu için koşuyla
@@ -340,7 +392,7 @@ async function guncelle() {
   }
 }
 
-// Sağdan açılan panellerin sol kenarını "Güncelle" düğmesinin sol
+// Sağdan açılan panellerin sol kenarını "Şimdi tara" düğmesinin sol
 // kenarına oturtur: paneli açan düğmeler panelin üstünde kalır, panel de
 // üst bara yapışık tek parça görünür. Genişlik sabit yazılamıyor, çünkü
 // üst bardaki düğme yazıları değişiyor ("Taranıyor…", rol rozeti).
@@ -445,7 +497,7 @@ async function rolSec(rol) {
   isDongusu();
   hafifDongu();
   // Oturum boş bir tabloyla açılıyordu ve ilk veri için kullanıcının
-  // "Güncelle"ye basması gerekiyordu; yenileme sürekli olduğuna göre
+  // "Şimdi tara"ya basması gerekiyordu; yenileme sürekli olduğuna göre
   // ilk keşif de kendiliğinden çalışmalı.
   taramaDongusu(ILK_TARAMA_GECIKME);
   ciz();
@@ -464,6 +516,7 @@ function cikis() {
   ata({
     rol: null, gorunum: 'genel', kategori: 'tum', altTip: null,
     detayId: null, kuyrukAcik: false, kilitAcik: false, acikIs: null,
+    gecmisFiltresi: 'tumu', kenarAcik: false,
   });
   sonGorunum = null;
   $('#uygulama').hidden = true;
@@ -476,6 +529,7 @@ function cikis() {
 
 // ───────────────────────────────────────────────────────── başlangıç ─────
 async function basla() {
+  gecmisEkraniniKur();
   try {
     const s = await api.surum();
     ata({ surum: s.surum });
@@ -520,8 +574,6 @@ async function basla() {
   $('#kuyruk-btn').addEventListener('click', kuyruk.acKapat);
   $('#kilit-btn').addEventListener('click', kilit.kilitAcKapat);
   $('#cikis-btn').addEventListener('click', cikis);
-  $('#kenar-ac').addEventListener('click',
-    () => ata({ kenarAcik: !durum.kenarAcik }));
   $('#proje-btn').addEventListener('click', () => {
     if (durum.rol === 'admin') ata({ gorunum: 'admin' });
     else bildir('Proje ayrıntıları admin rolünde görüntülenir');

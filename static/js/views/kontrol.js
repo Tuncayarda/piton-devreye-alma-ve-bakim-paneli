@@ -13,7 +13,7 @@ import { durum, ata } from '../core/durum.js';
 import { hata, basari } from '../parts/bildirim.js';
 import * as detay from '../parts/detay.js';
 import * as diyalog from '../parts/diyalog.js';
-import { YOK, saat, tazelik } from '../core/bicim.js';
+import { YOK, saat, tazelik, DURUM_ETIKET } from '../core/bicim.js';
 
 // Sütun genişlikleri: içeriği taşımayacak kadar, ekranı boğmayacak kadar.
 const GENISLIK = {
@@ -51,6 +51,162 @@ const sadelestir = (d) => String(d).trim().toLowerCase().replace(/\s+/g, ' ');
 // dakika önceki okumadan üretmek işe yaramıyor: cihazlar o arada
 // yeniden başlatılıyor, IP'si değişiyor, kablosu çekiliyor.
 const BAYAT_SN = 120;
+
+// Günlük kullanımda yalnız sapmalar görünür. Excel önizlemesi, şablonun
+// bütün sütunlarını görmek isteyen kullanıcı için ayrı bir yerel sekmedir.
+let raporSekmesi = 'sapmalar';
+
+const SAPMA_KOLON = 'minmax(170px,1.1fr) 112px minmax(260px,1.7fr) 150px';
+
+const bosMu = (v) => v === null || v === undefined || String(v).trim() === '';
+
+function satirDegerleri(satir, sutunlar) {
+  const degerler = new Map();
+  satir.hucreler.forEach((h, i) => {
+    if (!h.na && sutunlar[i]) degerler.set(sutunlar[i].ad, h.deger);
+  });
+  return degerler;
+}
+
+// Kullanıcının seçtiği sağlık tanımı: erişim + IP + varsa SIP dahili
+// numarası. Sürüm ve diğer yapılandırma alanları raporda görünmeye devam
+// eder, fakat cihazın temel kontrolleri geçip geçmediğini belirlemez.
+function temelDegerlendir(satir, sutunlar) {
+  const degerler = satirDegerleri(satir, sutunlar);
+  const sorunlar = [];
+
+  if (satir.durum !== 'yesil') {
+    const kod = satir.durum === 'turuncu' ? 'giris'
+      : satir.durum === 'gri' ? 'okunmadi' : 'erisim';
+    const metin = kod === 'giris' ? 'Kullanıcı adı veya parola gerekli'
+      : kod === 'okunmadi' ? 'Henüz okunmadı'
+        : (satir.aciklama || 'Cihaza erişilemedi');
+    sorunlar.push({ kod, metin, renk: satir.durum || 'kirmizi' });
+    return { sorunlar, degerler, gecti: false };
+  }
+
+  const beklenenIp = degerler.get('Beklenen IP');
+  const okunanIp = degerler.get('Bağlantı Bilgisi');
+  if (!bosMu(beklenenIp)
+      && (bosMu(okunanIp) || sadelestir(okunanIp) !== sadelestir(beklenenIp))) {
+    sorunlar.push({
+      kod: 'ip', renk: 'kirmizi',
+      metin: bosMu(okunanIp)
+        ? `IP doğrulanamadı · beklenen ${beklenenIp}`
+        : `IP uyuşmuyor · beklenen ${beklenenIp}, okunan ${okunanIp}`,
+    });
+  }
+
+  const beklenenSip = degerler.get('Beklenen SIP Dahili No');
+  const okunanSip = degerler.get('SIP Dahili No');
+  if (!bosMu(beklenenSip)
+      && (bosMu(okunanSip) || sadelestir(okunanSip) !== sadelestir(beklenenSip))) {
+    sorunlar.push({
+      kod: 'sip', renk: 'kirmizi',
+      metin: bosMu(okunanSip)
+        ? `SIP dahili numarası okunamadı · beklenen ${beklenenSip}`
+        : `SIP dahili numarası uyuşmuyor · beklenen ${beklenenSip}, okunan ${okunanSip}`,
+    });
+  }
+
+  return { sorunlar, degerler, gecti: sorunlar.length === 0 };
+}
+
+function ozetKarti(ad, deger, renk, not) {
+  return el('div', { sinif: 'dog-ozet-kart' }, [
+    el('span', { sinif: 'ad', metin: ad }),
+    el('strong', { stil: `color:var(--${renk})`, metin: String(deger) }),
+    el('span', { sinif: 'not', metin: not }),
+  ]);
+}
+
+function sapmaTablosu(satirlar, sutunlar) {
+  const sapmalar = satirlar
+    .map(s => ({ satir: s, sonuc: temelDegerlendir(s, sutunlar) }))
+    .filter(x => !x.sonuc.gecti);
+
+  if (!sapmalar.length) {
+    return el('div', { sinif: 'bos-durum bos-durum-basarili' }, [
+      el('strong', { metin: 'Temel kontrollerde sorun bulunmadı.' }),
+      el('span', {
+        metin: 'Seçili kapsamda erişim, IP ve SIP değerleri beklenenle uyumlu.',
+      }),
+    ]);
+  }
+
+  return el('div', { sinif: 'tablo-sar' }, [
+    el('div', { sinif: 'tablo', stil: '--tablo-min:820px' }, [
+      el('div', {
+        sinif: 'tablo-basi', stil: `--tablo-kolon:${SAPMA_KOLON}`, role: 'row',
+      }, ['Cihaz', 'Beklenen IP', 'Bulgu', 'Erişim durumu']
+        .map(ad => el('span', { metin: ad }))),
+      ...sapmalar.map(({ satir, sonuc }) => el('button', {
+        type: 'button', sinif: 'tablo-satir dog-sapma-satir',
+        stil: `--tablo-kolon:${SAPMA_KOLON}`,
+        title: `${satir.ad} ayrıntılarını aç`,
+        onclick: () => { if (satir.cihazId) detay.ac(satir.cihazId); },
+      }, [
+        el('span', { sinif: 'cihaz-ozet' }, [
+          el('span', {
+            sinif: 'nokta', veri: { durum: satir.durum }, 'aria-hidden': 'true',
+          }),
+          el('span', { sinif: 'mono kirp', metin: satir.ad || YOK }),
+        ]),
+        el('span', { sinif: 'mono', metin: satir.ip || YOK }),
+        el('span', {
+          sinif: 'sapma-metin',
+          metin: sonuc.sorunlar.map(s => s.metin).join(' · '),
+        }),
+        el('span', {
+          sinif: 'durum-yazi', veri: { durum: satir.durum },
+          metin: DURUM_ETIKET[satir.durum] || YOK,
+        }),
+      ])),
+    ]),
+  ]);
+}
+
+function excelOnizlemesi(satirlar, v) {
+  const kolon = v.sutunlar
+    .map(s => `${GENISLIK[s.ad] || VARSAYILAN_GENISLIK}px`)
+    .join(' ');
+  const enAz = v.sutunlar
+    .reduce((t, s) => t + (GENISLIK[s.ad] || VARSAYILAN_GENISLIK), 0)
+    + v.sutunlar.length * 10;
+
+  return [
+    el('div', { sinif: 'bilgi dog-excel-notu' }, [
+      'Bu görünüm üretilecek Excel dosyasının tam sütun yapısını gösterir. ',
+      'Günlük inceleme için Sapmalar sekmesini kullanabilirsiniz.',
+    ]),
+    el('div', { sinif: 'tablo-sar' }, [
+      el('div', { sinif: 'tablo', stil: `--tablo-min:${enAz}px` }, [
+        el('div', {
+          sinif: 'tablo-basi', stil: `--tablo-kolon:${kolon}`, role: 'row',
+        }, v.sutunlar.map(s => el('span', {
+          sinif: 'kirp', title: s.ad, metin: s.ad,
+        }))),
+        ...(satirlar.length
+          ? satirlar.map(s => satirCiz(s, v.sutunlar, kolon))
+          : [el('div', {
+              sinif: 'tablo-bos', metin: 'Bu kategoride cihaz bulunamadı.',
+            })]),
+      ]),
+    ]),
+    el('div', { sinif: 'lejant lejant-sade' }, [
+      el('span', {}, [el('i', { stil: 'background:var(--turuncu)' }),
+        'Turuncu: proje varsayılanı']),
+      el('span', {}, [el('i', { stil: 'background:var(--yesil)' }),
+        'Yeşil: beklenenle uyumlu']),
+      el('span', {}, [el('i', { stil: 'background:var(--kirmizi)' }),
+        'Kırmızı: beklenenle uyuşmuyor']),
+      el('span', {}, [el('i', { stil: 'background:#2a3339' }),
+        'Gri alan: bu cihaz türünde kullanılmıyor']),
+      el('span', { stil: 'margin-left:auto',
+        metin: `${satirlar.length} satır · ${v.sutunlar.length} sütun` }),
+    ]),
+  ];
+}
 
 export async function tazele() {
   try {
@@ -112,7 +268,7 @@ export function ciz(kok, guncelle) {
 
   parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
     el('div', {}, [
-      el('h2', { metin: 'Kontrol Listesi' }),
+      el('h2', { metin: 'Doğrulama ve raporlar' }),
       // Liste kendiliğinden tazeleniyor; ne kadar taze olduğu burada
       // yazar. Excel onayı da aynı damgayı gösterir.
       el('div', {
@@ -122,14 +278,14 @@ export function ciz(kok, guncelle) {
     ]),
     el('div', { sinif: 'eylemler' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Yeniden Oku',
+        type: 'button', sinif: 'btn', metin: 'Şimdi tara',
         disabled: durum.aktifTarama,
         // Üst bardaki "Güncelle" ile aynı iş: sıradaki taramayı öne
         // çeker, kuyruk paneli açılmaz, haber kuyruk düğmesinde belirir.
         onclick: () => taramayiOneCek(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil', metin: 'Excel Üret',
+        type: 'button', sinif: 'btn btn-birincil', metin: 'Excel oluştur',
         onclick: excelOnayi,
       }),
     ]),
@@ -137,13 +293,28 @@ export function ciz(kok, guncelle) {
 
   if (!v) {
     parcalar.push(el('p', {
-      sinif: 'bilgi', metin: 'Şablon önizlemesi alınamadı.',
+      sinif: 'bilgi',
+      metin: 'Doğrulama verisi alınamadı. Biraz sonra yeniden deneyin.',
     }));
     doldur(kok, parcalar);
     return;
   }
 
-  // ── kategori filtresi ──
+  // ── yerel görünüm ve kategori filtresi ──
+  parcalar.push(el('div', {
+    sinif: 'yerel-sekmeler rapor-sekmeleri', role: 'tablist',
+    'aria-label': 'Rapor görünümü',
+  }, [
+    ['sapmalar', 'Sapmalar'],
+    ['excel', 'Excel önizlemesi'],
+  ].map(([id, ad]) => el('button', {
+    type: 'button', sinif: 'yerel-sekme', role: 'tab',
+    'aria-selected': String(raporSekmesi === id),
+    'aria-pressed': String(raporSekmesi === id),
+    metin: ad,
+    onclick: () => { raporSekmesi = id; ciz(kok); },
+  }))));
+
   const kategoriler = durum.meta ? durum.meta.kategoriler : [];
   const tumSatirlar = v.bolumler.flatMap(b => b.satirlar);
   const cihazKategorisi = new Map(
@@ -174,49 +345,38 @@ export function ciz(kok, guncelle) {
     ? tumSatirlar
     : tumSatirlar.filter(s => cihazKategorisi.get(s.cihazId) === seciliKat);
 
-  // ── tablo ──
-  const kolon = v.sutunlar
-    .map(s => `${GENISLIK[s.ad] || VARSAYILAN_GENISLIK}px`)
-    .join(' ');
-  const enAz = v.sutunlar
-    .reduce((t, s) => t + (GENISLIK[s.ad] || VARSAYILAN_GENISLIK), 0)
-    + v.sutunlar.length * 10;
+  const sonuclar = satirlar.map(s => temelDegerlendir(s, v.sutunlar));
+  const gecen = sonuclar.filter(s => s.gecti).length;
+  const erisim = sonuclar.filter(s => s.sorunlar.some(
+    x => ['erisim', 'giris', 'okunmadi'].includes(x.kod))).length;
+  const ip = sonuclar.filter(s => s.sorunlar.some(x => x.kod === 'ip')).length;
+  const sip = sonuclar.filter(s => s.sorunlar.some(x => x.kod === 'sip')).length;
 
-  parcalar.push(el('div', { sinif: 'tablo-sar' }, [
-    el('div', { sinif: 'tablo', stil: `--tablo-min:${enAz}px` }, [
-      el('div', {
-        sinif: 'tablo-basi', stil: `--tablo-kolon:${kolon}`, role: 'row',
-      }, v.sutunlar.map(s => el('span', {
-        sinif: 'kirp', title: s.ad, metin: s.ad,
-      }))),
-      ...(satirlar.length
-        ? satirlar.map(s => satirCiz(s, v.sutunlar, kolon))
-        : [el('div', {
-            sinif: 'tablo-bos', metin: 'Bu kategoride cihaz yok',
-          })]),
-    ]),
+  parcalar.push(el('div', { sinif: 'dog-olcut' }, [
+    el('span', { sinif: 'etiket', metin: 'Temel kontrol ölçütleri' }),
+    el('span', { metin: 'Erişim · IP · SIP dahili numarası' }),
+  ]));
+  parcalar.push(el('div', { sinif: 'dog-ozet-izgara' }, [
+    ozetKarti('Temel kontrolleri geçen', gecen, 'yesil',
+      `Toplam ${satirlar.length} cihaz`),
+    ozetKarti('Erişim sorunu', erisim, erisim ? 'kirmizi' : 'yesil',
+      'Yanıt alınamayan veya giriş bilgisi gereken cihazlar'),
+    ozetKarti('IP sapması', ip, ip ? 'kirmizi' : 'yesil', 'Beklenen ve okunan IP'),
+    ozetKarti('SIP sapması', sip, sip ? 'kirmizi' : 'yesil',
+      'SIP kullanan cihazlarda'),
   ]));
 
-  parcalar.push(el('div', { sinif: 'lejant' }, [
-    el('span', {}, [el('i', { stil: 'background:var(--yesil)' }),
-      'Okundu ve doğrulandı']),
-    el('span', {}, [el('i', { stil: 'background:var(--turuncu)' }),
-      'Kimlik bekliyor']),
-    el('span', {}, [el('i', { stil: 'background:var(--kirmizi)' }), 'Hata']),
-    el('span', {}, [el('i', { stil: 'background:var(--turuncu)' }),
-      'Turuncu yazı = beklenen (şablon) değeri']),
-    el('span', {}, [el('i', { stil: 'background:var(--yesil)' }),
-      'Yeşil/kırmızı yazı = okunan değer beklenenle uyuyor / uymuyor']),
-    el('span', {}, [el('i', { stil: 'background:#2a3339' }),
-      'Gri kutu = bu cihaz türünde kullanılmıyor']),
-    el('span', {}, [el('i', {
-      stil: 'background:transparent;border:1px solid var(--cizgi-kuvvetli)',
-    }), '— henüz okunmadı']),
-    el('span', {
-      stil: 'margin-left:auto',
-      metin: `${satirlar.length} satır · ${v.sutunlar.length} sütun`,
-    }),
-  ]));
+  if (raporSekmesi === 'excel') {
+    parcalar.push(...excelOnizlemesi(satirlar, v));
+  } else {
+    parcalar.push(el('div', { sinif: 'bolum-basi' }, [
+      el('div', {}, [
+        el('h3', { metin: 'İncelenecek cihazlar' }),
+      ]),
+      el('span', { sinif: 'rozet', metin: `${satirlar.length - gecen} cihaz` }),
+    ]));
+    parcalar.push(sapmaTablosu(satirlar, v.sutunlar));
+  }
 
   doldur(kok, parcalar);
   sayaciKur();
@@ -244,24 +404,23 @@ function excelOnayi() {
   const icerik = el('div', {}, [
     el('p', { sinif: 'aciklama' }, [
       ts
-        ? `Excel, son taramada okunan değerlerden üretilir. O tarama ${saat(ts)}'de bitti.`
-        : 'Bu tren setinde henüz tarama yapılmadı; Excel boş değerlerle üretilir.',
+        ? `Excel son taramada okunan değerlerden oluşturulur. Tarama ${saat(ts)}'de tamamlandı.`
+        : 'Bu tren setinde henüz tarama yapılmadı. Excel boş değerlerle oluşturulur.',
     ]),
     el('div', { sinif: 'ozet-kutu' }, [
       satir('Verinin yaşı', ts ? `${tazelik(ts)} önce` : YOK,
         bayat ? 'var(--turuncu)' : 'var(--yesil)'),
-      satir('Doğrulanan', `${s.basarili ?? 0}`, 'var(--yesil)'),
-      satir('Erişim bekleyen', `${s.erisimBekleyen ?? 0}`, 'var(--turuncu)'),
-      satir('Yanıt vermeyen', `${s.hatali ?? 0}`, 'var(--kirmizi)'),
+      satir('Erişilebilir', `${s.basarili ?? 0}`, 'var(--yesil)'),
+      satir('Giriş bilgisi gerekli', `${s.erisimBekleyen ?? 0}`, 'var(--turuncu)'),
+      satir('İncelenecek', `${s.hatali ?? 0}`, 'var(--kirmizi)'),
     ]),
     bayat ? el('p', {
       sinif: 'uyari', stil: 'margin-top:12px',
-      metin: 'Bu veri tazeliğini yitirmiş olabilir. Cihazlar o zamandan '
-        + 'beri yeniden başlatılmış ya da kablosu çekilmiş olabilir; '
-        + 'önce taramayı öne çekmek daha doğru bir dosya üretir.',
+      metin: 'Veri güncelliğini yitirmiş olabilir. Dosyayı oluşturmadan '
+        + 'önce yeniden tarama yapmak daha güvenilir bir sonuç verir.',
     }) : el('p', {
       sinif: 'bilgi', stil: 'margin-top:12px',
-      metin: 'Veri taze — dosya cihazların şu anki durumunu yansıtır.',
+      metin: 'Veri güncel. Dosya son taramanın sonuçlarını yansıtır.',
     }),
   ]);
 
@@ -270,12 +429,12 @@ function excelOnayi() {
     try {
       const y = await api.excel(durum.setNo);
       ata({ kuyrukAcik: true, acikIs: y.id });
-      basari('Excel işi kuyruğa alındı');
+      basari('Excel oluşturma işlemi kuyruğa alındı');
     } catch (e) { hata(e.message); }
   };
 
   diyalog.ac({
-    baslik: 'Excel üret',
+    baslik: 'Excel oluştur',
     icerik,
     eylemler: [
       el('button', {
@@ -283,7 +442,7 @@ function excelOnayi() {
         onclick: () => diyalog.kapat(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Önce Güncelle',
+        type: 'button', sinif: 'btn', metin: 'Önce tara',
         disabled: durum.aktifTarama,
         title: durum.aktifTarama
           ? 'Tarama zaten sürüyor' : 'Taramayı öne çek, Excel\'i sonra üret',
@@ -291,7 +450,7 @@ function excelOnayi() {
       }),
       el('button', {
         type: 'button', sinif: 'btn btn-birincil',
-        metin: bayat ? 'Yine de Üret' : 'Excel Üret',
+        metin: bayat ? 'Yine de oluştur' : 'Excel oluştur',
         onclick: uret,
       }),
     ],

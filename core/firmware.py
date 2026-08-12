@@ -12,7 +12,7 @@ ile aynı yerden doğrulanır (bkz. okuma.paket_bilgisi).
 İki yolda da HTTP 200 / "Success" tek başına başarı sayılmaz: cihaz
 yeniden okunur ve uygulamanın gerçekten yeni sürümü bildirdiği görülür.
 
-Dosya CİHAZ BAŞINA seçilir. Aynı gruptaki iki cihaz aynı dosyayı almak
+Dosya SET VE CİHAZ BAŞINA seçilir. Aynı gruptaki iki cihaz aynı dosyayı almak
 zorunda değil: sahada bir intercom eski donanım revizyonundan olabiliyor
 ve grubun geri kalanıyla aynı .bin'i almıyor. Tek bir "seçili dosya"
 tutulduğunda bunu görmenin yolu yoktu — yükleme başlıyor, yanlış imaj
@@ -61,9 +61,24 @@ def uzanti(cihaz: Cihaz) -> str:
     """Cihazın beklediği dosya uzantısı ("bin" / "apk")."""
     return UZANTI.get(cihaz.yontem, "")
 
-# cihaz kimliği -> {"yol": Path, "boyut": int, "surum": str}
-_SECILI: dict[str, dict] = {}
+# (set numarası, cihaz kimliği) -> {"yol": Path, "boyut": int, "surum": str}
+# DeviceMap kimlikleri setler arasında tekrar eder; set kapsamı olmazsa Set 1
+# için seçilmiş imaj Set 2 açıldığında aynı adlı cihaza sızar.
+_SECILI: dict[tuple[int, str], dict] = {}
 _KILIT = threading.Lock()
+
+
+def _kapsam_anahtari(set_no, cihaz_id: str) -> tuple[int, str]:
+    try:
+        n = int(set_no)
+    except (TypeError, ValueError):
+        raise ValueError("Geçersiz set numarası")
+    if not (ayar.SET_MIN <= n <= ayar.SET_MAX):
+        raise ValueError("Geçersiz set numarası")
+    cihaz = str(cihaz_id or "").strip()
+    if not cihaz or len(cihaz) > 128:
+        raise ValueError("Geçersiz cihaz kimliği")
+    return n, cihaz
 
 
 def dosya_dogrula(yol: str) -> tuple[Path, int]:
@@ -84,42 +99,47 @@ def dosya_dogrula(yol: str) -> tuple[Path, int]:
     return p, boyut
 
 
-def dosya_sec(cihaz_idler, yol: str, surum: str = "") -> dict:
+def dosya_sec(cihaz_idler, yol: str, surum: str = "", *,
+              set_no: int = 1) -> dict:
     """İmajı verilen cihazlara atar (yalnızca bellekte tutulur).
 
     Dönüş: atanan cihazların seçim künyesi.
     """
-    idler = [str(i) for i in (cihaz_idler or []) if str(i).strip()]
-    if not idler:
+    anahtarlar = [_kapsam_anahtari(set_no, i) for i in (cihaz_idler or [])
+                  if str(i).strip()]
+    if not anahtarlar:
         raise ValueError("Cihaz seçilmedi")
     p, boyut = dosya_dogrula(yol)
     kayit = {"yol": p, "boyut": boyut, "surum": str(surum or "").strip()[:32]}
     with _KILIT:
-        for i in idler:
-            _SECILI[i] = dict(kayit)
-    return secilenler(idler)
+        for anahtar in anahtarlar:
+            _SECILI[anahtar] = dict(kayit)
+    return secilenler([i for _n, i in anahtarlar], set_no=set_no)
 
 
-def surum_yaz(cihaz_idler, surum: str) -> dict:
+def surum_yaz(cihaz_idler, surum: str, *, set_no: int = 1) -> dict:
     """Seçili imajın hedef sürümünü değiştirir (dosyaya dokunmadan).
 
     Hedef sürüm dosyadan okunamıyor, kullanıcı yazıyor; dosyayı yeniden
     seçtirmek için bir sebep değil.
     """
     temiz = str(surum or "").strip()[:32]
-    idler = [str(i) for i in (cihaz_idler or [])]
+    anahtarlar = [_kapsam_anahtari(set_no, i) for i in (cihaz_idler or [])
+                  if str(i).strip()]
     with _KILIT:
-        for i in idler:
-            if i in _SECILI:
-                _SECILI[i]["surum"] = temiz
-    return secilenler(idler)
+        for anahtar in anahtarlar:
+            if anahtar in _SECILI:
+                _SECILI[anahtar]["surum"] = temiz
+    return secilenler([i for _n, i in anahtarlar], set_no=set_no)
 
 
-def sil(cihaz_idler) -> int:
+def sil(cihaz_idler, *, set_no: int = 1) -> int:
     """Verilen cihazların seçimini kaldırır; kaç tanesi silindi döner."""
+    anahtarlar = [_kapsam_anahtari(set_no, i) for i in (cihaz_idler or [])
+                  if str(i).strip()]
     with _KILIT:
-        return sum(1 for i in (cihaz_idler or [])
-                   if _SECILI.pop(str(i), None) is not None)
+        return sum(1 for anahtar in anahtarlar
+                   if _SECILI.pop(anahtar, None) is not None)
 
 
 def _dto(kayit: dict | None) -> dict:
@@ -138,30 +158,42 @@ def _dto(kayit: dict | None) -> dict:
     }
 
 
-def secilenler(cihaz_idler=None) -> dict:
-    """{cihazId: künye} — id verilmezse seçili olan bütün cihazlar."""
+def secilenler(cihaz_idler=None, *, set_no: int = 1) -> dict:
+    """{cihazId: künye} — yalnız verilen setteki seçimler."""
+    n, _ = _kapsam_anahtari(set_no, "_")
     with _KILIT:
         if cihaz_idler is None:
-            return {i: _dto(k) for i, k in _SECILI.items()}
-        return {str(i): _dto(_SECILI.get(str(i))) for i in cihaz_idler}
+            return {i: _dto(k) for (set_n, i), k in _SECILI.items()
+                    if set_n == n}
+        return {str(i): _dto(_SECILI.get((n, str(i))))
+                for i in cihaz_idler}
 
 
-def secili_of(cihaz_id: str) -> dict:
+def secili_of(cihaz_id: str, *, set_no: int = 1) -> dict:
+    anahtar = _kapsam_anahtari(set_no, cihaz_id)
     with _KILIT:
-        return _dto(_SECILI.get(str(cihaz_id)))
+        return _dto(_SECILI.get(anahtar))
 
 
-def secili_var(cihaz_id: str) -> bool:
+def secili_var(cihaz_id: str, *, set_no: int = 1) -> bool:
+    anahtar = _kapsam_anahtari(set_no, cihaz_id)
     with _KILIT:
-        return str(cihaz_id) in _SECILI
+        return anahtar in _SECILI
 
 
-def temizle() -> None:
+def temizle(set_no: int | None = None) -> None:
+    """Seçimleri temizler; set verilmezse uygulama genelini boşaltır."""
     with _KILIT:
-        _SECILI.clear()
+        if set_no is None:
+            _SECILI.clear()
+            return
+        n, _ = _kapsam_anahtari(set_no, "_")
+        for anahtar in [k for k in _SECILI if k[0] == n]:
+            _SECILI.pop(anahtar, None)
 
 
-def yukle(cihaz: Cihaz, kimlik=None, dogrula_sure: float = 45.0) -> dict:
+def yukle(cihaz: Cihaz, kimlik=None, dogrula_sure: float = 45.0, *,
+          set_no: int = 1) -> dict:
     """Bu cihaz için seçili dosyayı yükler ve sürümü doğrular.
 
     Yol cihazın yöntemine göre ayrılır: anons ekipmanı HTTP ile imaj
@@ -170,8 +202,9 @@ def yukle(cihaz: Cihaz, kimlik=None, dogrula_sure: float = 45.0) -> dict:
     if not destekli(cihaz):
         raise UygulanmazHatasi(
             "Bu cihaz türünde yazılım yükleme tanımlı değil")
+    anahtar = _kapsam_anahtari(set_no, cihaz.id)
     with _KILIT:
-        kayit = _SECILI.get(str(cihaz.id))
+        kayit = _SECILI.get(anahtar)
     if kayit is None:
         raise ValueError("Bu cihaz için yüklenecek dosya seçilmedi")
     yol, beklenen = kayit["yol"], kayit["surum"]

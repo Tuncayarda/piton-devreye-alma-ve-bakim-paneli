@@ -62,6 +62,24 @@ class DosyaSecimi(PanelTesti):
         firmware.temizle()
         self.assertEqual(firmware.secilenler(), {})
 
+    def test_ayni_cihaz_kimligi_setler_arasinda_secim_sizdirmaz(self):
+        _, cihazlar = self.kur(1)
+        c = cihazlar[0]
+        firmware.dosya_sec([c.id], imaj("set1.bin"), "1.0", set_no=1)
+
+        self.assertTrue(firmware.secili_var(c.id, set_no=1))
+        self.assertFalse(firmware.secili_var(c.id, set_no=2))
+        self.assertEqual(firmware.secili_of(c.id, set_no=2)["secili"], False)
+        self.assertEqual(firmware.secilenler(set_no=2), {})
+
+        firmware.dosya_sec([c.id], imaj("set2.bin"), "2.0", set_no=2)
+        self.assertEqual(firmware.secili_of(c.id, set_no=1)["ad"], "set1.bin")
+        self.assertEqual(firmware.secili_of(c.id, set_no=2)["ad"], "set2.bin")
+
+        firmware.temizle(1)
+        self.assertFalse(firmware.secili_var(c.id, set_no=1))
+        self.assertTrue(firmware.secili_var(c.id, set_no=2))
+
     def test_gecersiz_dosya_secilmez(self):
         _, cihazlar = self.kur(1)
         c = cihazlar[0]
@@ -343,6 +361,45 @@ class FirmwareUclari(ServisTesti):
         self.assertTrue(secili[cihazlar[0].id]["secili"])
         self.assertEqual(secili[cihazlar[0].id]["ad"], "intercom-1.2.6.bin")
         self.assertFalse(secili[cihazlar[1].id]["secili"])
+
+    def test_api_set_parametresi_firmware_secimini_ayirir(self):
+        env = self.kur()
+        taban = self.servis_ac()
+        c = env.tip_ile("Announcement")[0]
+
+        kod, y = self.cagir(taban, "/api/firmware/dosya", {
+            "set": 1, "cihazlar": [c.id], "yol": imaj("set1.bin")})
+        self.assertEqual(kod, 200)
+        self.assertEqual(y["seciliSayi"], 1)
+
+        # DeviceMap kimliği aynı olsa da Set 2'de seçim görünmez ve yükleme
+        # kuyruğu başlamaz.
+        kod, set2 = self.cagir(taban, "/api/firmware?set=2&grup=Intercom")
+        self.assertEqual(kod, 200)
+        self.assertEqual(set2["seciliSayi"], 0)
+        self.assertFalse(next(x for x in set2["cihazlar"]
+                              if x["cihazId"] == c.id)["dosya"]["secili"])
+        kod, _hata = self.cagir(taban, "/api/firmware/yukle", {
+            "set": 2, "cihazlar": [c.id]})
+        self.assertEqual(kod, 400)
+
+        self.cagir(taban, "/api/firmware/dosya", {
+            "set": 2, "cihazlar": [c.id], "yol": imaj("set2.bin")})
+        _kod1, set1 = self.cagir(
+            taban, "/api/firmware?set=1&grup=Intercom")
+        _kod2, set2 = self.cagir(
+            taban, "/api/firmware?set=2&grup=Intercom")
+        dosya1 = next(x for x in set1["cihazlar"]
+                      if x["cihazId"] == c.id)["dosya"]
+        dosya2 = next(x for x in set2["cihazlar"]
+                      if x["cihazId"] == c.id)["dosya"]
+        self.assertEqual((dosya1["ad"], dosya2["ad"]),
+                         ("set1.bin", "set2.bin"))
+
+        # "hepsi" yalnız açık setin seçimlerini temizler.
+        self.cagir(taban, "/api/firmware/sil", {"set": 1, "hepsi": True})
+        self.assertFalse(firmware.secili_var(c.id, set_no=1))
+        self.assertTrue(firmware.secili_var(c.id, set_no=2))
 
     def test_gruba_uygulamak_yalniz_o_grubu_kapsar(self):
         env = self.kur()

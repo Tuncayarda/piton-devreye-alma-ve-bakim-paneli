@@ -21,7 +21,7 @@
 import { el, doldur } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { durum, ata } from '../core/durum.js';
-import * as serit from '../parts/serit.js';
+import * as islemSekmeleri from '../parts/islem_sekmeleri.js';
 import * as diyalog from '../parts/diyalog.js';
 import { kimlikDiyalogu } from '../parts/kilit.js';
 import { hata, basari, bildir } from '../parts/bildirim.js';
@@ -29,9 +29,17 @@ import { deger, tazelik, YOK } from '../core/bicim.js';
 
 const KOLON = '68px minmax(150px,1.25fr) minmax(104px,.85fr) 112px 112px '
   + 'minmax(150px,1fr)';
+// IP atanacak cihaz türü. Motor bugün yalnız Intercom'u destekliyor
+// (bkz. panel_api /api/ip/plan), o yüzden listede tek seçenek var. Seçim
+// yine de ekranda duruyor: başka cihaz grupları ve "bütün cihazlar" için
+// IP atama eklendiğinde buraya bir satır eklemek yetecek, ekranın
+// yerleşimi değişmeyecek.
+const IP_HEDEFLERI = [
+  { id: 'Intercom', ad: 'Intercom', gruplar: ['Intercom'] },
+];
 
 const yerel = {
-  gruplar: null,           // null = şeritteki ilk grup; yoksa seçili adlar
+  hedefId: IP_HEDEFLERI[0].id,
   portMetni: null,         // null = plandaki varsayılan (grubun portları)
   fabrikaIp: null,         // null = plandaki varsayılan (10.1.1.12)
   aramaAcik: false,        // fabrika adresinde bulunamayanları ağda ara
@@ -39,6 +47,9 @@ const yerel = {
   aramaMaskesi: null,
   aramaBas: null,          // açık adres aralığı — verilirse ağ/maske yerine
   aramaSon: null,
+  // Sonda güç çevirip ayarın cihazın flash'ına indiğini doğrula. Koşuyu
+  // uzattığı ve cihazları yeniden karartığı için varsayılan kapalı.
+  kalicilik: false,
   // Korunan portlar (bilgisayarın yeri + switch'ler arası bağlantılar)
   // elle girilmez, MAC tablolarından bulunur ve düzenli aralıkla yeniden
   // doğrulanır (bkz. korunanTuru). Ekranda ayrı bir form yok; bulgu ön
@@ -47,6 +58,12 @@ const yerel = {
   korunanAraniyor: false,
   switchId: null,          // null = planın kendi seçtiği switch
   hataMetni: '',
+  acikBolumler: {
+    kapsam: true,
+    paneller: true,
+    plan: null,
+    teknik: false,
+  },
 };
 
 let tazeleSurumu = 0;
@@ -171,35 +188,38 @@ function yenilemeyiKur() {
   }
 }
 
-// Birden çok cihaz grubu aynı koşuda seçilebilir; her grubun atama betiği
-// ayrı olduğu için koşu grup grup yürür. "Tümü" tek başına anlamlı: onu
-// seçmek diğerlerini bırakır, başka bir grubu seçmek de "Tümü"yü kaldırır.
-const TUMU = 'Tümü';
-
-function seciliGruplar() {
-  const liste = serit.gruplar('ip').map(g => g.ad);
-  const secili = (yerel.gruplar || []).filter(ad => liste.includes(ad));
-  if (secili.length) return secili;
-  const ilk = serit.gecerliGrup('ip');
-  return ilk ? [ilk.ad] : [];
+function gecerliHedef() {
+  return IP_HEDEFLERI.find(h => h.id === yerel.hedefId) || IP_HEDEFLERI[0];
 }
 
-function grupSec(ad) {
-  const simdiki = seciliGruplar();
-  let yeni;
-  if (ad === TUMU) {
-    yeni = simdiki.includes(TUMU) ? [] : [TUMU];
-  } else if (simdiki.includes(ad)) {
-    yeni = simdiki.filter(x => x !== ad);
-  } else {
-    yeni = [...simdiki.filter(x => x !== TUMU), ad];
-  }
-  yerel.gruplar = yeni;
-  // Grup değişince port seçimi de sıfırlanır: önceki grubun portları yeni
-  // seçimde anlamsız, hatta başka bir switch'e ait olabilir.
-  yerel.portMetni = null;
-  yerel.switchId = null;
-  tazele();
+function seciliGruplar() {
+  return gecerliHedef().gruplar;
+}
+
+// Hedef türü seçici. Tek seçenekliyken de görünür durur: kullanıcı IP
+// atamanın hangi cihazlara gittiğini ekrandan okuyabilsin.
+function hedefSecici() {
+  const aktif = gecerliHedef();
+  return el('label', { sinif: 'hedef-secici' }, [
+    el('span', { sinif: 'etiket', metin: 'Cihaz türü' }),
+    el('select', {
+      sinif: 'alan', 'aria-label': 'IP atanacak cihaz türü',
+      onchange: (e) => {
+        if (e.target.value === yerel.hedefId) return;
+        // Odaktaki liste çizimi bekletiyor (bkz. app.odakAcilirListede);
+        // seçim bittiğine göre odak listeden çıkar.
+        e.target.blur();
+        yerel.hedefId = e.target.value;
+        // Port seçimi eski hedefin cihazlarına göreydi; plan yeniden
+        // kurulurken varsayılana (yeni hedefin portları) dönsün.
+        yerel.portMetni = null;
+        yerel.switchId = null;
+        tazele();
+      },
+    }, IP_HEDEFLERI.map(h => el('option', {
+      value: h.id, selected: h.id === aktif.id ? true : null, metin: h.ad,
+    }))),
+  ]);
 }
 
 // ── korunan portların keşfi ─────────────────────────────────────────────
@@ -310,7 +330,7 @@ export function portlariAyristir(metin, izinli) {
     if (disarida.length) {
       return {
         portlar: [],
-        hata: `Bu switch'te cihaz tanımlı olmayan port: ${disarida.join(', ')}`,
+        hata: `Bu switch’te cihaz tanımlanmamış portlar: ${disarida.join(', ')}`,
       };
     }
   }
@@ -357,28 +377,28 @@ function aramaDenetle(agMetni, maskeMetni, basMetni, sonMetni) {
   const son = String(sonMetni || '').trim();
   if (bas || son) {
     if (!bas || !son) {
-      return 'Arama aralığının başlangıcı ve sonu birlikte girilmeli';
+      return 'Aralığın başlangıç ve bitiş adreslerini birlikte girin.';
     }
     if (!ipv4Mi(bas) || !ipv4Mi(son)) {
-      return 'Arama aralığı geçerli IPv4 adresleri olmalı';
+      return 'Aralıkta geçerli IPv4 adresleri kullanın.';
     }
     const adet = ipSayi(son) - ipSayi(bas) + 1;
-    if (adet <= 0) return 'Aralığın sonu başlangıcından küçük olamaz';
+    if (adet <= 0) return 'Bitiş adresi başlangıç adresinden önce olamaz.';
     if (adet > ARAMA_SINIRI) {
-      return `Bu aralık ${adet} adres tarar; en fazla ${ARAMA_SINIRI} olabilir`;
+      return `Bu aralıkta ${adet} adres taranır; en fazla ${ARAMA_SINIRI} adres taranabilir.`;
     }
     return '';
   }
   const ag = String(agMetni || '').trim();
   const maske = String(maskeMetni || '').trim();
-  if (!ag && !maske) return 'Arama ağı ve maskesi gerekli';
+  if (!ag && !maske) return 'Arama ağı ile ağ maskesini girin.';
   if (!ipv4Mi(ag)) return 'Arama ağı geçerli bir IPv4 adresi olmalı';
   const onek = maskeOnek(maske);
   if (onek === null) return 'Maske 255.255.255.0 ya da 24 biçiminde olmalı';
   const adet = onek >= 31 ? 1 : (2 ** (32 - onek)) - 2;
   if (adet > ARAMA_SINIRI) {
-    return `Bu maske ${adet} adres tarar; en fazla ${ARAMA_SINIRI} olabilir `
-      + '— ya maskeyi daraltın ya da aşağıya adres aralığı yazın';
+    return `Bu ağ maskesiyle ${adet} adres taranır; en fazla ${ARAMA_SINIRI} `
+      + 'adres taranabilir. Maskeyi daraltın veya bir adres aralığı girin.';
   }
   return '';
 }
@@ -392,7 +412,7 @@ function portDenetle(metin, izinli, plan) {
   const carpisan = portlar.filter(p => korumali.has(p));
   if (carpisan.length) {
     const p = carpisan[0];
-    return `Port ${p} koşuya giremez — ${korumali.get(p)}`;
+    return `Port ${p} IP atamaya dahil edilemez — ${korumali.get(p)}`;
   }
   return '';
 }
@@ -415,23 +435,18 @@ function kosuDenetle(veri) {
   // riski demek. Arama sürerken bu bir "hata" değil, bekleme durumu.
   const korunanHatasi = korunanBeklemeMetni();
   const portHatasi = ayrisma.hata || portDenetle(seciliMetin, izinli, plan);
+  const hedef = gecerliHedef();
   const kapsamHatasi = !seciliPortSayisi
-    ? 'Koşu için en az bir hedef port seçin'
-    : !planaDahil ? 'Seçili portlarda hedef gruptan cihaz bulunmuyor' : '';
+    ? 'IP atama için en az bir hedef port seçin'
+    : !planaDahil ? `Seçili portlarda ${hedef.ad} bulunmuyor` : '';
   // Koşu switch'e kullanıcı adı/parola ile bağlanır. Kimlik yoksa iş
   // kuyruğa girip ilk adımda düşüyordu; başlamadan söylemek daha doğru.
   const aktifPanel = panelIle.get(plan.switchId);
   const kimlikHatasi = aktifPanel && aktifPanel.kimlikVar === false
-    ? `${aktifPanel.switchAd} için kullanıcı adı/parola girilmemiş`
+    ? `${aktifPanel.switchAd} için kullanıcı adı ve parola girilmemiş.`
     : '';
-  // Her cihaz grubunun atama betiği ayrı; betiği olmayan grup seçiliyse
-  // koşu başlatılmaz. Sunucu da aynı denetimi yapıyor, burada olması
-  // kullanıcının düğmeye basmadan görmesi için.
-  const grupHatasi = !(plan.gruplar || []).length
-    ? 'En az bir cihaz grubu seçin'
-    : (plan.kosucusuz || []).length
-      ? `IP atama betiği henüz yok: ${plan.kosucusuz.join(', ')}`
-      : '';
+  const grupHatasi = hedef.gruplar.some(g => !(plan.gruplar || []).includes(g))
+    ? `${hedef.ad} hedefi bulunamadı` : '';
   const fabrika = yerel.fabrikaIp ?? plan.fabrikaIp ?? '';
   const fabrikaHatasi = ipv4Mi(fabrika)
     ? '' : 'Fabrika IP geçerli bir IPv4 adresi olmalı';
@@ -549,7 +564,6 @@ export async function tazele() {
 export function ciz(kok) {
   const veri = durum.ipDurum;
   const parcalar = [];
-  const hazirPlan = veri && veri.plan;
   const denetim = veri ? kosuDenetle(veri) : null;
   const ustDurum = veri
     ? denetim.hazir ? 'hazir' : 'hata'
@@ -563,9 +577,9 @@ export function ciz(kok) {
   }, [el('i', { 'aria-hidden': 'true' }), hazirlikYazisi]);
   const baslatDugmesi = el('button', {
     type: 'button', sinif: 'btn btn-birincil ip-baslat-btn',
-    metin: 'Koşuyu Başlat',
+    metin: 'IP atamayı başlat',
     disabled: !veri || !denetim.hazir,
-    title: denetim && denetim.hata ? denetim.hata : 'IP atama koşusunu başlat',
+    title: denetim && denetim.hata ? denetim.hata : 'IP atama işlemini başlat',
     onclick: baslat,
   });
   const ozetRozeti = veri ? el('span', {
@@ -581,7 +595,7 @@ export function ciz(kok) {
   function eylemDurumuGoster(d, bekleyenMetin = '') {
     const hazir = !!d.hazir && !bekleyenMetin;
     baslatDugmesi.disabled = !hazir;
-    baslatDugmesi.title = d.hata || bekleyenMetin || 'IP atama koşusunu başlat';
+    baslatDugmesi.title = d.hata || bekleyenMetin || 'IP atama işlemini başlat';
     hazirlik.dataset.durum = hazir ? 'hazir' : d.hata ? 'hata' : 'beklemede';
     hazirlikYazisi.textContent = hazir
       ? 'Plan hazır' : d.hata ? 'Ayarları kontrol edin' : bekleyenMetin;
@@ -589,49 +603,24 @@ export function ciz(kok) {
       ? 'rozet ip-hazir-rozet'
       : d.hata ? 'rozet ip-hata-rozet' : 'rozet ip-bekliyor-rozet';
     ozetRozeti.textContent = hazir
-      ? 'Hazır' : d.hata ? 'Kontrol gerekli' : 'Güncelleme bekliyor';
+      ? 'Hazır' : d.hata ? 'Kontrol gerekli' : 'Veri bekleniyor';
     kosuHataMetni.textContent = d.hata || '';
     kosuHataMetni.hidden = !d.hata;
   }
 
   parcalar.push(el('div', { sinif: 'sayfa-basi ip-sayfa-basi' }, [
-    el('div', { sinif: 'ip-baslik' }, [
-      el('span', { sinif: 'ust-etiket', metin: 'Ağ yapılandırması' }),
-      el('h2', { metin: 'Otomatik IP Atama' }),
-      el('p', {
-        sinif: 'ip-aciklama',
-        metin: 'Hedef cihazları ve korunacak bağlantıları belirleyin; '
-          + 'atama planını çalıştırmadan önce tek ekranda doğrulayın.',
-      }),
-      hazirPlan ? el('div', { sinif: 'ip-hizli-ozet' }, [
-        el('span', {}, [
-          el('b', { metin: String((hazirPlan.gruplar || []).length) }),
-          ' grup',
-        ]),
-        el('span', {}, [
-          el('b', { metin: String(hazirPlan.hedefSayi) }),
-          ' hedef cihaz',
-        ]),
-        el('span', {}, [
-          el('b', { metin: String((hazirPlan.switchler || []).length) }),
-          ' switch',
-        ]),
-        el('span', {}, [
-          el('b', { metin: deger(hazirPlan.switch) }),
-          ' etkin',
-        ]),
-      ]) : null,
-    ]),
+    // Başlık üç işlem ekranında da aynı: hangi ekranda olduğumuzu
+    // altındaki sekme şeridi zaten söylüyor.
+    el('h2', { metin: 'İşlemler' }),
     el('div', { sinif: 'ip-ust-eylem' }, [
       hazirlik,
       baslatDugmesi,
     ]),
   ]));
 
-  const hedefSerit = serit.ciz('ip', (g) => grupSec(g.ad),
-    { coklu: true, secili: seciliGruplar() });
-  hedefSerit.classList.add('ip-serit');
-  parcalar.push(hedefSerit);
+  parcalar.push(islemSekmeleri.ciz());
+  parcalar.push(hedefSecici());
+  if (kosuHataMetni) parcalar.push(kosuHataMetni);
 
   if (!veri) {
     parcalar.push(el('div', {
@@ -669,7 +658,7 @@ export function ciz(kok) {
     oninput: (e) => {
       const ayrisma = portlariAyristir(e.target.value, izinli);
       const h = portDenetle(e.target.value, izinli, plan)
-        || (!ayrisma.portlar.length ? 'Koşu için en az bir hedef port seçin' : '');
+        || (!ayrisma.portlar.length ? 'IP atama için en az bir hedef port seçin' : '');
       e.target.setAttribute('aria-invalid', String(!!h));
       portUyari.textContent = h;
       portUyari.hidden = !h;
@@ -735,15 +724,89 @@ export function ciz(kok) {
     }),
   ]);
 
-  const ayarKart = el('section', { sinif: 'kart kose ip-ayar-kart' }, [
-    el('div', { sinif: 'ip-kart-basi' }, [
-      el('span', { sinif: 'ip-adim-no', metin: '01' }),
-      el('div', {}, [
-        el('h3', { metin: 'Koşu Ayarları' }),
-        el('p', {
-          metin: 'Atamanın kapsamını ve kesilmemesi gereken bağlantıları tanımlayın.',
+  const teknikAyrintilar = el('details', {
+    sinif: 'kart kose ip-teknik-ayrintilar ip-acilir-bolum',
+    open: yerel.acikBolumler.teknik,
+    ontoggle: (e) => { yerel.acikBolumler.teknik = e.currentTarget.open; },
+  }, [
+    el('summary', { sinif: 'ip-teknik-ozet' }, [
+      el('span', { metin: 'Teknik ayrıntılar' }),
+      el('span', {
+        sinif: 'soluk',
+        metin: 'Plan kaynağı, ARP ve korunan bağlantılar',
+      }),
+    ]),
+    el('div', { sinif: 'ip-teknik-icerik' }, [
+      el('div', { sinif: 'satir' }, [
+        el('span', { metin: 'Plan kaynağı' }),
+        el('b', {
+          title: 'Hedef IP ve port bilgileri DeviceMap dosyasından alınır',
+          metin: 'Proje varsayılanı (DeviceMap)',
         }),
       ]),
+      el('div', { sinif: 'ip-test-alani' }, [
+        el('span', { sinif: 'ust-etiket', metin: 'Test aracı' }),
+        // Tanı önce gelir: "ne oldu" sorusunun cevabı, cihazlara yazan
+        // düğmeye basmadan önce alınabilmeli.
+        el('button', {
+          type: 'button', sinif: 'btn btn-kucuk',
+          metin: 'Adres haritası',
+          title: 'Aday adreslerde hangi cihaz var — cihazın kendi dahili '
+            + 'numarasından okunur. Hiçbir şey yazılmaz.',
+          onclick: adresHaritasi,
+        }),
+        el('button', {
+          type: 'button', sinif: 'btn btn-kucuk btn-tehlike',
+          metin: 'Fabrika IP’sine döndür',
+          title: `Seçili cihazların IP adresini ${denetim.fabrika} olarak `
+            + 'değiştirerek IP atamayı yeniden denemeye hazırlar',
+          onclick: fabrikayaDondur,
+        }),
+      ]),
+      // ARP önbelleğinin temizlenip temizlenemediği artık ekranda
+      // yazmıyor: uygulama zaten yükseltilmiş yetkiyle açılıyor (bkz.
+      // app.py) ve yetki uyarısının karşılığı her işletim sisteminde
+      // başka bir cümleydi. Panel işletim sistemine göre konuşmaz.
+      el('div', { sinif: 'satir' }, [
+        el('span', { metin: 'Switch IP adresi' }),
+        el('b', { metin: deger(plan.switchIp) }),
+      ]),
+      ...(plan.switchler || []).map(s => el('div', { sinif: 'satir' }, [
+        el('span', { metin: s.ad }),
+        el('b', {
+          sinif: s.id === plan.switchId ? 'vurgu' : 'soluk',
+          metin: s.id === plan.switchId
+            ? plan.portMetni
+            : (s.grupCihaz
+              ? `${s.grupCihaz} cihaz · seçilmedi`
+              : `${gecerliHedef().ad} yok`),
+        }),
+      ])),
+      el('div', { sinif: 'satir' }, [
+        el('span', { metin: 'Bilgisayar bağlantısı' }),
+        el('b', {
+          sinif: pcOzeti().tamam ? '' : 'soluk',
+          title: pcOzeti().ipucu,
+          metin: pcOzeti().metin,
+        }),
+      ]),
+      ...korumaliPortlar(plan).map(([no, sebep]) => el('div', {
+        sinif: 'satir korunan',
+      }, [
+        el('span', { metin: `Korunan port ${no}` }),
+        el('b', { sinif: 'soluk', metin: sebep }),
+      ])),
+    ]),
+  ]);
+
+  const ayarKart = el('details', {
+    sinif: 'kart kose ip-ayar-kart ip-acilir-bolum',
+    open: yerel.acikBolumler.kapsam,
+    ontoggle: (e) => { yerel.acikBolumler.kapsam = e.currentTarget.open; },
+  }, [
+    el('summary', { sinif: 'ip-kart-basi ip-acilir-ozet' }, [
+      el('h3', { metin: 'IP ayarları' }),
+      ozetRozeti,
     ]),
     el('fieldset', { sinif: 'ip-form-bolum ip-port-alani' }, [
       el('legend', { sinif: 'gizli-metin', metin: 'Hedef portlar' }),
@@ -764,13 +827,9 @@ export function ciz(kok) {
       el('legend', { sinif: 'gizli-metin', metin: 'Adresleme' }),
       el('div', { sinif: 'ip-alt-baslik' }, [
         el('span', { sinif: 'ust-etiket', metin: 'Adresleme' }),
-        el('p', {
-          metin: 'Koşu portları sırayla açar; o an ayağa kalkan cihazı '
-            + 'aşağıdaki adreslerde arar ve DeviceMap\'teki IP\'yi yazar.',
-        }),
       ]),
       el('label', { sinif: 'ayar-satir', for: 'ip-fabrika' }, [
-        el('span', { sinif: 'etiket', metin: 'Fabrika (varsayılan) IP' }),
+        el('span', { sinif: 'etiket', metin: 'Fabrika IP adresi' }),
         fabrikaGiris,
       ]),
       fabrikaUyari,
@@ -783,6 +842,21 @@ export function ciz(kok) {
       }, [
         el('span', { sinif: 'kutu', 'aria-hidden': 'true' }),
         el('span', { metin: 'Fabrika adresinde bulunamazsa ağda ara' }),
+      ]),
+      // "Yazıldı" ile "kalıcı yazıldı" aynı şey değil: cihaz ayarı yalnız
+      // belleğine almış olabilir ve ilk güç kesintisinde eski adresine
+      // döner. Kontrol koşuyu uzattığı için varsayılan kapalı.
+      el('button', {
+        type: 'button', sinif: 'onay', 'aria-pressed': String(yerel.kalicilik),
+        title: 'Koşunun sonunda portların gücü bir kez kesilip açılır ve '
+          + 'cihazların yeni adreslerinde döndüğü doğrulanır. Koşuyu uzatır.',
+        onclick: () => {
+          yerel.kalicilik = !yerel.kalicilik;
+          ata({ ipDurum: { ...veri } });
+        },
+      }, [
+        el('span', { sinif: 'kutu', 'aria-hidden': 'true' }),
+        el('span', { metin: 'Kalıcılığı doğrula (sonda güç çevrimi)' }),
       ]),
       ...(yerel.aramaAcik ? [
         aramaAlani('aramaAgi', 'ip-arama-ag', 'Arama ağı',
@@ -809,89 +883,12 @@ export function ciz(kok) {
     // ── özet: hangi switch'te ne yapılacak ──
     el('div', { sinif: 'ayar-ozet' }, [
       el('div', { sinif: 'ip-ozet-basi' }, [
-        el('span', { sinif: 'ust-etiket', metin: 'Koşu özeti' }),
-        ozetRozeti,
+        el('span', { sinif: 'ust-etiket', metin: 'İşlem özeti' }),
       ]),
-      kosuHataMetni,
       el('div', { sinif: 'satir' }, [
-        el('span', { metin: 'Koşu' }),
+        el('span', { metin: 'Hedef' }),
         el('b', { metin: `${deger(plan.switch)} · ${plan.hedefSayi} cihaz` }),
       ]),
-      // Gruplar sırayla, her biri kendi betiğiyle yürüyecek; hangi
-      // gruplarla çalışılacağı özetin ilk satırlarında dursun.
-      el('div', { sinif: 'satir' }, [
-        el('span', { metin: 'Gruplar' }),
-        el('b', {
-          sinif: (plan.kosucusuz || []).length ? 'soluk' : '',
-          metin: (plan.gruplar || []).join(', ') || YOK,
-        }),
-      ]),
-      ...(plan.kosucusuz || []).map(ad => el('div', { sinif: 'satir' }, [
-        el('span', { metin: `${ad} betiği` }),
-        el('b', { sinif: 'soluk', metin: 'henüz yazılmadı' }),
-      ])),
-      // Bütün cihazlar aynı fabrika adresiyle geldiği için koşu her port
-      // değişiminde ARP kaydını tazelemek zorunda; yetki yoksa cihazlar
-      // eski MAC'e yazılıp "bulunamadı" oluyor. Koşuyu engellemez —
-      // sistem yetkisi bizim kararımız değil — ama sebebi baştan söyler.
-      // Test aracı: koşuyu baştan denemek için cihazları fabrika
-      // adresinde toplar. Koşu düğmesinin yanında değil, özetin altında —
-      // yanlışlıkla basılacak bir yerde durmamalı.
-      el('div', { sinif: 'ip-test-alani' }, [
-        el('span', { sinif: 'ust-etiket', metin: 'Test' }),
-        el('button', {
-          type: 'button', sinif: 'btn btn-kucuk btn-tehlike',
-          metin: 'Fabrika adresine döndür',
-          title: `Seçili cihazlara "IP'ni ${denetim.fabrika} yap" isteği `
-            + 'gönderir; koşuyu baştan denemek için',
-          onclick: fabrikayaDondur,
-        }),
-      ]),
-      plan.arpTemizlik === false ? el('div', { sinif: 'satir korunan' }, [
-        el('span', { metin: 'ARP önbelleği' }),
-        el('b', {
-          sinif: 'soluk',
-          // Ne yapılacağı işletim sistemine göre değişiyor ve metni
-          // sunucu gönderiyor: burada "sudo -v" yazılıydı, Windows'ta
-          // öyle bir komut yok — kullanıcıya çalıştıramayacağı bir şey
-          // öneriliyordu.
-          title: 'Cihazlar aynı fabrika IP\'sinde geldiği için önbellekteki '
-            + 'eski MAC koşuyu yanıltır',
-          metin: plan.arpIpucu
-            ? `temizlenemiyor · ${plan.arpIpucu}`
-            : 'temizlenemiyor',
-        }),
-      ]) : null,
-      el('div', { sinif: 'satir' }, [
-        el('span', { metin: 'Switch IP' }),
-        el('b', { metin: deger(plan.switchIp) }),
-      ]),
-      ...(plan.switchler || []).map(s => el('div', { sinif: 'satir' }, [
-        el('span', { metin: s.ad }),
-        el('b', {
-          sinif: s.id === plan.switchId ? 'vurgu' : 'soluk',
-          metin: s.id === plan.switchId
-            ? plan.portMetni
-            : (s.grupCihaz ? `${s.grupCihaz} cihaz · seçilmedi` : 'bu grupta cihaz yok'),
-        }),
-      ])),
-      // Korunan portların ekrandaki tek yeri burası ve ön panel: form
-      // kaldırıldı, hepsi kendiliğinden bulunuyor. Ne bulunduğu yine de
-      // görünmeli — koşu bir portu atlıyorsa sebebi okunabilsin.
-      el('div', { sinif: 'satir' }, [
-        el('span', { metin: 'Bilgisayar' }),
-        el('b', {
-          sinif: pcOzeti().tamam ? '' : 'soluk',
-          title: pcOzeti().ipucu,
-          metin: pcOzeti().metin,
-        }),
-      ]),
-      ...korumaliPortlar(plan).map(([no, sebep]) => el('div', {
-        sinif: 'satir korunan',
-      }, [
-        el('span', { metin: `Korunan p${no}` }),
-        el('b', { sinif: 'soluk', metin: sebep }),
-      ])),
     ]),
   ]);
 
@@ -919,24 +916,26 @@ export function ciz(kok) {
     metin: canli.acik ? 'Yenileme açık' : 'Duraklatıldı',
   });
 
-  const panelAlani = el('section', { sinif: 'ip-panel-alani' }, [
-    el('div', { sinif: 'ip-bolum-basi' }, [
+  const panelAlani = el('details', {
+    sinif: 'ip-panel-alani ip-acilir-bolum',
+    open: yerel.acikBolumler.paneller,
+    ontoggle: (e) => { yerel.acikBolumler.paneller = e.currentTarget.open; },
+  }, [
+    el('summary', { sinif: 'ip-bolum-basi ip-acilir-ozet' }, [
       el('div', { sinif: 'ip-bolum-baslik' }, [
-        el('span', { sinif: 'ip-adim-no', metin: '02' }),
         el('div', {}, [
-          el('h3', { metin: 'Switch Ön Panelleri' }),
+          el('h3', { metin: 'Switch ve portlar' }),
           el('p', {
-            metin: 'Hedef portları seçin; switch değiştirmek için panelindeki '
-              + 'tanımlı bir porta tıklayın.',
+            metin: 'Canlı port durumlarını inceleyin ve hedef portları seçin.',
           }),
         ]),
       ]),
-      el('div', { sinif: 'ip-bolum-eylem' }, [
-        yenilemeDugmesi,
-        el('span', {
-          sinif: 'ip-bolum-sayac', metin: `${paneller.length} panel`,
-        }),
-      ]),
+      el('span', {
+        sinif: 'ip-bolum-sayac', metin: `${paneller.length} panel`,
+      }),
+    ]),
+    el('div', { sinif: 'ip-bolum-eylem ip-panel-araclari' }, [
+      yenilemeDugmesi,
     ]),
     panelYigin,
     paneller.length ? lejant() : null,
@@ -945,16 +944,20 @@ export function ciz(kok) {
   yenilemeyiKur();
 
   parcalar.push(el('div', { sinif: 'ip-izgara' }, [ayarKart, panelAlani]));
+  parcalar.push(teknikAyrintilar);
 
   // ── altta plan tablosu ──
-  parcalar.push(el('section', { sinif: 'ip-plan-bolum' }, [
-    el('div', { sinif: 'ip-bolum-basi' }, [
+  parcalar.push(el('details', {
+    sinif: 'ip-plan-bolum ip-acilir-bolum',
+    open: yerel.acikBolumler.plan ?? planDisi > 0,
+    ontoggle: (e) => { yerel.acikBolumler.plan = e.currentTarget.open; },
+  }, [
+    el('summary', { sinif: 'ip-bolum-basi ip-acilir-ozet' }, [
       el('div', { sinif: 'ip-bolum-baslik' }, [
-        el('span', { sinif: 'ip-adim-no', metin: '03' }),
         el('div', {}, [
-          el('h3', { metin: 'Atama Planı' }),
+          el('h3', { metin: 'Atama planı' }),
           el('p', {
-            metin: 'Cihazların mevcut ve yeni IP adreslerini çalıştırmadan önce kontrol edin.',
+            metin: 'Mevcut ve hedef IP adreslerini inceleyin.',
           }),
         ]),
       ]),
@@ -966,7 +969,7 @@ export function ciz(kok) {
     el('div', { sinif: 'tablo-sar ip-plan-tablo' }, [
       el('div', { sinif: 'tablo', stil: '--tablo-min:800px' }, [
         el('div', { sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}` },
-          ['Port', 'Hedef Cihaz', 'Grup', 'Fabrika IP', 'Atanacak IP', 'Durum']
+          ['Port', 'Hedef cihaz', 'Grup', 'Fabrika IP', 'Atanacak IP', 'Durum']
             .map(b => el('span', { metin: b }))),
         ...(plan.satirlar.length
           ? plan.satirlar.map(p => el('div', {
@@ -1076,7 +1079,7 @@ function portDugmesi(p, ctx) {
           : ' · boş';
   const kilitli = !!koruma || p.no === ctx.pcPort;
   const aciklama = kilitli
-    ? `Port ${p.no} · ${koruma || 'bilgisayar bu portta'} · koşuya girmez`
+    ? `Port ${p.no} · ${koruma || 'bilgisayar bu portta'} · IP atamaya dahil edilmez`
     : (p.tanimli
       ? `Port ${p.no} · ${p.cihaz}${durumMetni}`
       : `Port ${p.no} · cihaz tanımlı değil${durumMetni}`)
@@ -1173,7 +1176,7 @@ function panelKarti(panel, plan) {
         el('span', {
           sinif: panel.kaynak === 'switch'
             ? 'rozet ip-kaynak-rozet canli' : 'rozet ip-kaynak-rozet',
-          metin: panel.kaynak === 'switch' ? 'Canlı veri' : 'DeviceMap',
+          metin: panel.kaynak === 'switch' ? 'Canlı veri' : 'Proje varsayılanı',
           title: panel.kaynak === 'switch'
             ? 'Port durumları switch\'ten okundu'
             : 'Port durumu okunamadı; yerleşim DeviceMap\'ten çizildi',
@@ -1181,8 +1184,8 @@ function panelKarti(panel, plan) {
         // Kimlik yoksa koşu başlayamaz; girecek yer de burası olmalı.
         panel.kimlikVar === false ? el('button', {
           type: 'button', sinif: 'btn btn-kucuk ip-kimlik-btn',
-          metin: 'Kimlik gir',
-          title: `${panel.switchAd} kullanıcı adı/parolasını gir`,
+          metin: 'Giriş bilgilerini gir',
+          title: `${panel.switchAd} için kullanıcı adı ve parola girin.`,
           onclick: () => switchKimligi(panel),
         }) : null,
       ]),
@@ -1198,7 +1201,7 @@ function panelKarti(panel, plan) {
     aktif && panel.kimlikVar === false
       ? el('p', {
           sinif: 'ip-panel-not uyari-ton',
-          metin: 'Kullanıcı adı/parola girilmemiş — koşu başlayamaz.',
+          metin: 'Giriş bilgileri girilmediği için IP atama başlatılamaz.',
         })
       : null,
     el('div', { sinif: 'pm-kasa' }, [
@@ -1256,6 +1259,91 @@ function portTikla(no, ctx) {
   tazele();
 }
 
+// ── tanı: adres haritası ────────────────────────────────────────────────
+// "Hangi adreste hangi cihaz var" sorusu sahada en çok sorulan şey ve
+// cevabı şimdiye kadar yalnız dış araçlarla (arp-scan) ve o da MAC
+// düzeyinde alınabiliyordu. Cihaz kendi dahilisini söylediği için panel
+// bunu kesin biçimde yanıtlayabiliyor: "10.1.1.13'teki cihaz aslında port
+// 22'nin cihazı".
+const HARITA_DURUM = {
+  bos: ['soluk', 'Boş'],
+  yerinde: ['tamam', 'Yerinde'],
+  yabanci: ['uyari', 'Başka cihaz'],
+  cakisma: ['hata', 'Çakışma'],
+  taninmiyor: ['uyari', 'Tanınmıyor'],
+};
+
+const HARITA_KOLON = '120px 1fr 1fr 90px';
+
+function haritaSatiri(s) {
+  const [sinif, etiket] = HARITA_DURUM[s.durum] || ['soluk', s.durum];
+  const kim = s.bulunan.length
+    ? s.bulunan.map(b => (b.port
+      ? `${b.ad || b.dahili} · port ${b.port}`
+      : `dahili ${b.dahili || '?'}`)).join(' + ')
+    : '—';
+  const beklenen = s.fabrikaMi
+    ? 'fabrika adresi'
+    : (s.beklenenPort ? `${s.beklenenAd} · port ${s.beklenenPort}` : '—');
+  return el('div', {
+    sinif: 'tablo-satir', stil: `--tablo-kolon:${HARITA_KOLON}`,
+  }, [
+    el('span', { sinif: 'mono', metin: s.ip }),
+    el('span', { sinif: 'soluk', metin: beklenen }),
+    el('span', { sinif: s.bulunan.length ? '' : 'soluk', metin: kim }),
+    el('span', {}, [el('span', { sinif: `rozet ${sinif}`, metin: etiket })]),
+  ]);
+}
+
+async function adresHaritasi() {
+  const veri = durum.ipDurum;
+  const plan = veri && veri.plan;
+  if (!plan) return;
+  const denetim = kosuDenetle(veri);
+  const govde = el('div', {}, [
+    el('p', { sinif: 'aciklama', metin: 'Adresler yoklanıyor…' }),
+  ]);
+  diyalog.ac({ baslik: 'Adres haritası', icerik: govde, eylemler: [
+    el('button', {
+      type: 'button', sinif: 'btn', metin: 'Kapat',
+      onclick: () => diyalog.kapat(),
+    }),
+  ] });
+  try {
+    const h = await api.ipHarita(durum.setNo, plan.switchId,
+                                (plan.gruplar || [])[0] || 'Intercom',
+                                denetim.fabrika);
+    const s = h.sayilar || {};
+    govde.replaceChildren(
+      el('p', { sinif: 'aciklama' }, [
+        `${s.cihaz || 0} cihaz görüldü · ${s.yerinde || 0} yerinde · `
+        + `${s.yabanci || 0} başka adreste · ${s.cakisma || 0} çakışma`,
+      ]),
+      el('div', { sinif: 'tablo-sar' }, [
+        el('div', { sinif: 'tablo', stil: '--tablo-min:560px' }, [
+          el('div', {
+            sinif: 'tablo-basi', stil: `--tablo-kolon:${HARITA_KOLON}`,
+          }, ['Adres', 'DeviceMap’te kimin', 'Şu an kim var', 'Durum']
+            .map(b => el('span', { metin: b }))),
+          ...(h.satirlar || []).map(haritaSatiri),
+        ]),
+      ]),
+      // Çakışma tek yoklamayla görünmez; kaç tur bakıldığı ve ARP
+      // temizliğinin çalışıp çalışmadığı sonucun güvenilirliğini belirler.
+      el('p', {
+        sinif: h.arpTemizlik ? 'bilgi' : 'uyari', stil: 'margin-top:10px',
+        metin: h.arpTemizlik
+          ? 'Aynı adreste birden çok cihaz, adres birkaç kez yoklanarak '
+            + 'bulunur; "Çakışma" satırları bu şekilde ortaya çıkar.'
+          : 'ARP önbelleği temizlenemiyor: aynı adresteki cihazların hepsi '
+            + 'görünmemiş olabilir.',
+      }),
+    );
+  } catch (e) {
+    govde.replaceChildren(el('p', { sinif: 'uyari', metin: e.message }));
+  }
+}
+
 // ── test akışı: cihazları fabrika adresinde topla ───────────────────────
 // Koşuyu baştan denemek için gereken başlangıç durumunu kurar. Cihazlara
 // yalnız "IP'ni şu adrese çevir" isteği gider; PoE'ye ve switch'e
@@ -1267,32 +1355,48 @@ function fabrikayaDondur() {
   const denetim = kosuDenetle(veri);
   const hedefler = plan.satirlar.filter(s => s.uygulanabilir);
   if (!hedefler.length) {
-    hata('Seçili portlarda hedef gruptan cihaz yok');
+    hata(`Seçili portlarda ${gecerliHedef().ad} yok`);
     return;
   }
   diyalog.ac({
-    baslik: 'Fabrika adresine döndür',
+    baslik: 'Fabrika IP’sine döndür',
     icerik: el('div', {}, [
       el('p', { sinif: 'aciklama' }, [
-        `${hedefler.length} cihaza "IP'ni ${denetim.fabrika} yap" isteği `
-        + 'gönderilecek. Cihazlar reset atıp aynı adreste toplanacak; '
-        + 'bundan sonra birbirleriyle çakışırlar.',
+        `${hedefler.length} cihazın IP adresi ${denetim.fabrika} olarak `
+        + 'değiştirilecek. Cihazlar yeniden başlatılacağı ve aynı IP adresini '
+        + 'kullanacağı için geçici adres çakışması oluşacaktır.',
       ]),
       el('p', {
         sinif: 'bilgi', stil: 'margin-top:10px',
-        metin: 'Bu bir test aracıdır: IP atama koşusunu baştan denemek '
-          + 'için başlangıç durumunu kurar. PoE portlarına dokunmaz.',
+        metin: 'Bu test aracı, IP atamayı yeniden denemek için başlangıç '
+          + 'durumunu hazırlar. PoE portlarına dokunmaz. Cihazlar '
+          + 'DeviceMap’teki adreslerinde değilse ya da iki cihaz aynı '
+          + 'adreste kaldıysa, adresler boşalana kadar tur tekrarlanır.',
       }),
+      // Aynı adresteki cihazlara sırayla ulaşmanın tek güvenilir yolu ARP
+      // önbelleğini temizlemek. Yetki yoksa işlem yine çalışır ama
+      // kaydın kendiliğinden dönmesini bekler ve sonuç eksik kalabilir;
+      // kullanıcı bunu düğmeye basmadan önce bilmeli.
+      plan.arpTemizlik === false
+        ? el('p', {
+            sinif: 'uyari', stil: 'margin-top:10px',
+            metin: 'ARP önbelleği temizlenemiyor (yönetici/root yok). Aynı '
+              + 'adreste birden çok cihaz varsa hepsine tek turda '
+              + 'ulaşılamaz; işlem bekleyip tekrar dener ve sonuç eksik '
+              + 'kalabilir. Kesin sonuç için uygulamayı yönetici/sudo ile '
+              + 'başlatın.',
+          })
+        : null,
       // Fabrika adresi tren setine göre çözülmüyor (hep 10.1.1.12).
       // Bilgisayar başka bir ağdaysa cihazlar bu yazımdan sonra
       // görünmez olur ve koşu onları bulamaz — geri almanın yolu da
       // cihaza ulaşmaktan geçtiği için önce söylenmeli.
       el('p', {
         sinif: 'uyari', stil: 'margin-top:10px',
-        metin: `Cihazlar ${denetim.fabrika} ağına gider. Bilgisayarınız o `
-          + 'ağa erişemiyorsa cihazlar bu işlemden sonra görünmez olur; '
+        metin: `Cihazların IP adresi ${denetim.fabrika} olarak değiştirilir. `
+          + 'Bilgisayarınız bu ağa erişemiyorsa cihazlar işlemden sonra görünmez olur; '
           + 'setin kendi ağında kalsınlar istiyorsanız yukarıdaki '
-          + '"Fabrika (varsayılan) IP" alanını değiştirin.',
+          + '"Fabrika IP adresi" alanını değiştirin.',
       }),
     ]),
     eylemler: [
@@ -1301,7 +1405,7 @@ function fabrikayaDondur() {
         onclick: () => diyalog.kapat(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-tehlike', metin: 'Gönder',
+        type: 'button', sinif: 'btn btn-tehlike', metin: 'Fabrika IP’sine döndür',
         onclick: async () => {
           diyalog.kapat();
           try {
@@ -1311,6 +1415,13 @@ function fabrikayaDondur() {
               gruplar: plan.gruplar || [],
               portlar: yerel.portMetni ?? plan.portMetni,
               fabrikaIp: denetim.fabrika,
+              // Cihaz DeviceMap'teki adresinde olmayabilir; koşuda olduğu
+              // gibi burada da aranacak yer verilebilir.
+              aramaAgi: yerel.aramaAcik ? (yerel.aramaAgi ?? plan.aramaAgi) : '',
+              aramaMaskesi: yerel.aramaAcik
+                ? (yerel.aramaMaskesi ?? plan.aramaMaskesi) : '',
+              aramaBas: yerel.aramaAcik ? (yerel.aramaBas || '') : '',
+              aramaSon: yerel.aramaAcik ? (yerel.aramaSon || '') : '',
             });
             ata({ kuyrukAcik: true, acikIs: y.id });
             if (y.yeni === false) bildir('Bu switch için zaten bir iş var');
@@ -1345,13 +1456,14 @@ async function baslat() {
         ? (yerel.aramaMaskesi ?? plan.aramaMaskesi) : '',
       aramaBas: yerel.aramaAcik ? (yerel.aramaBas || '') : '',
       aramaSon: yerel.aramaAcik ? (yerel.aramaSon || '') : '',
+      kalicilik: !!yerel.kalicilik,
       // Sunucu korunan portları koşu başlarken KENDİSİ bulur; bu liste
       // yalnız o an switch cevap vermezse kullanılacak son bilgidir.
       korunan: (yerel.korunan && yerel.korunan.portlar) || [],
     });
     ata({ kuyrukAcik: true, acikIs: y.id });
-    if (y.yeni === false) bildir('Bu switch için zaten bir koşu var');
-    else basari('Koşu kuyruğa alındı');
+    if (y.yeni === false) bildir('Bu switch için bir IP atama işlemi zaten sürüyor');
+    else basari('IP atama işlemi kuyruğa alındı');
   } catch (e) {
     hata(e.message);
   }

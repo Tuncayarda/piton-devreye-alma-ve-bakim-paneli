@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Devreye Alma Paneli</title>
+<title>Devreye Alma ve Bakım Paneli</title>
 <link rel="icon" type="image/png" href="/piton-favicon.png">
 <link rel="stylesheet" href="/css/temel.css">
 <link rel="stylesheet" href="/css/bilesen.css">
@@ -16,7 +16,7 @@
   <div class="rol-marka">
     <img src="/piton-logo.svg" alt="Piton">
     <span class="ayrac" aria-hidden="true"></span>
-    <span>Devreye Alma Paneli</span>
+    <span>Devreye Alma ve Bakım Paneli</span>
   </div>
 
   <div class="rol-kutu kose">
@@ -61,16 +61,12 @@
 <div id="uygulama" hidden>
 
   <header class="ust-bar">
-    <button type="button" class="btn btn-simge kenar-ac" id="kenar-ac"
-            aria-label="Menüyü aç/kapat" aria-expanded="false">
-      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
-           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
-        <path d="M3 5h14M3 10h14M3 15h14"></path>
-      </svg>
-    </button>
+    <!-- Ana menü üst barda değil, içeriğin solunda duran dar ikon rayında
+         (bkz. js/parts/kenar.js); üst bar yalnız proje künyesi ve eylemler
+         için kullanılır. -->
     <img src="/piton-logo.svg" alt="Piton" class="logo">
     <span class="ayrac" aria-hidden="true"></span>
-    <span class="isim">Devreye Alma Paneli</span>
+    <span class="isim">Devreye Alma ve Bakım Paneli</span>
 
     <!-- Proje künyesi. Tren seti buradan değiştirilir; admin rolü
          gerekmez, saha kullanıcısı da set atlayabilmeli. -->
@@ -97,20 +93,19 @@
          yenileme artık durdurulabilir bir şey değil.
 
          İki etiket üst üste durur: görünen olan duruma göre değişir,
-         genişliği ise her zaman uzun olan belirler. Yoksa "Güncelle" ->
+         genişliği ise her zaman uzun olan belirler. Yoksa "Şimdi tara" ->
          "Taranıyor…" geçişinde düğme büyüyüp üst barı kaydırıyordu. -->
     <button type="button" class="btn" id="guncelle-btn"
             title="Sıradaki taramayı şimdi çalıştır">
-      <span class="etiket-oynak">Güncelle</span>
+      <span class="etiket-oynak">Şimdi tara</span>
       <span class="etiket-olcu" aria-hidden="true">Taranıyor…</span>
     </button>
 
-    <!-- Kilit: kimlik bekleyen cihazlar. Tasarımda olmayan ama gereken
-         kutucuk; rozet bekleyen cihaz sayısını gösterir. -->
+    <!-- Giriş bilgisi gereken cihazlar; rozet cihaz sayısını gösterir. -->
     <button type="button" class="btn btn-simge" id="kilit-btn"
             style="position:relative" aria-expanded="false"
-            title="Kullanıcı adı/parola bekleyen cihazlar"
-            aria-label="Kullanıcı adı veya parola bekleyen cihazlar">
+            title="Giriş bilgisi gereken cihazlar"
+            aria-label="Giriş bilgisi gereken cihazlar">
       <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
            stroke-width="1.5" aria-hidden="true">
         <rect x="4.5" y="8.5" width="11" height="7.5"></rect>
@@ -166,12 +161,12 @@
     </aside>
 
     <aside class="yan-panel" id="kilit-panel" hidden
-           aria-label="Kimlik bekleyen cihazlar">
+           aria-label="Giriş bilgisi gereken cihazlar">
       <header>
-        <span class="baslik">Erişim Bekleyen</span>
+        <span class="baslik">Giriş bilgisi gerekenler</span>
         <span class="esne" style="flex:1"></span>
         <button type="button" class="btn btn-x" data-kapat="kilit"
-                aria-label="Kilit menüsünü kapat">×</button>
+                aria-label="Giriş bilgileri panelini kapat">×</button>
       </header>
       <div class="liste" id="kilit-liste"></div>
     </aside>
