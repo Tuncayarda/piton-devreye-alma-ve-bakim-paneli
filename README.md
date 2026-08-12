@@ -156,26 +156,20 @@ değişiklik yapıldığında iki kopya elle eşitlenmelidir.
 
 ## Depo ve sürüm düzeni
 
-Depoda iki uygulama bulunur ve her biri kendi dalında geliştirilir:
+Bu depo yalnız Devreye Alma ve Bakım Paneli'ni barındırır. Uygulama daha
+önce Switch Yönetim Paneli ile aynı depoda, ayrı bir branch'te duruyordu;
+o uygulama artık kendi deposunda. İlk commit'ler iki uygulamanın ortak
+geçmişi olduğu için eski sürümlerde her ikisinin dosyaları da görünür.
 
-| Dal | Uygulama | Etiket biçimi |
-|---|---|---|
-| `main` | Devreye Alma Paneli (bu dal) | `dap-v*` |
-| `syp` | Switch Yönetim Paneli | `syp-v*`, eski sürümlerde `v*` |
-
+Etiket biçimi `dap-v*`; önek mevcut iş akışlarıyla uyum için korunuyor.
 Etiket sürümü, `core/ayar.py` içindeki `APP_VERSION` değeriyle birebir aynı
 olmalıdır. Örneğin `APP_VERSION = "0.9.6"` için etiket `dap-v0.9.6` olur;
 uyuşmazlıkta yayın derlemesi durur.
 
-Hazır paketler [Devreye Alma Paneli sürümleri](../../releases?q=dap-v)
-sayfasındadır. Paketler henüz kod imzalı değildir; Windows masaüstü paketi
-Edge WebView2 çalışma zamanını gerektirir. Ayrıntılı platform yönergeleri
-her sürümün indirme sayfasında yer alır.
-
-> GitHub sürüm listesi depo düzeyindedir; dallara göre ayrı liste sunulmaz.
-> Uygulamalar başlık, etiket öneki ve paket adlarıyla ayrılır. “Latest”
-> rozeti de depo düzeyinde tek olduğu için yayınlar bilinçli olarak
-> `--latest=false` seçeneğiyle oluşturulur.
+Hazır paketler [Releases](../../releases) sayfasındadır. Paketler henüz
+kod imzalı değildir; Windows masaüstü paketi Edge WebView2 çalışma
+zamanını gerektirir. Ayrıntılı platform yönergeleri her sürümün indirme
+sayfasında yer alır.
 
 ## Lisans
 
