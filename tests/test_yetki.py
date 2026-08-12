@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Yükseltilmiş yetki akışı (yetki.py).
+r"""Yükseltilmiş yetki akışı (yetki.py).
 
 Uygulama yetkisiz açılmıyor; bu doğru ama tek başına yetmiyordu: çift
 tıklayan kullanıcı hiçbir şey görmüyor, sebebini de öğrenemiyordu. Artık bir
@@ -9,6 +9,14 @@ Buradaki testler pencere AÇMAZ; asıl kararı veren saf işlevleri sabitler:
 hangi platformda hangi komutla yükseltiliyor ve kullanıcının cevabı akışı
 nasıl bitiriyor. Yanlış kurulan bir komut satırı, kullanıcının parolasını
 girip hiçbir şeyin açılmadığını görmesi demek.
+
+YOL KARŞILAŞTIRMASI: testler POSIX planlarını Windows'ta da kuruyor (üretimde
+plan hep kendi sisteminde kurulur, ama denetim her yerde çalışmalı). Yol
+mutlaklaştırma testi ÇALIŞTIRAN sistemin kurallarına göre yapılır —
+Windows'ta `/panel/app.py` → `D:\panel\app.py`. Bu yüzden beklenen değerler
+sabit dize olarak değil, aynı işlevden (`os.path.abspath`) türetilir; kabuk
+ve AppleScript kaçırmasından geçen metinlerde ise yol yerine dosya adı
+aranır. Windows CI bunu bir kez yakaladı.
 """
 from __future__ import annotations
 
@@ -85,7 +93,9 @@ class YukseltmePlani(unittest.TestCase):
                                      argv=["app.py"], donmus=False,
                                      terminal=False)
 
-        self.assertTrue(os.path.isabs(plan["argv"][0]), plan["argv"])
+        # Beklenen değer aynı işlevden türetilir; "mutlak" tanımı testi
+        # çalıştıran sisteme göre değişiyor (bkz. modül başlığı).
+        self.assertEqual(plan["argv"], [os.path.abspath("app.py")])
 
     def test_tek_yol_sistem_penceresidir(self):
         """Terminale devretme yok: yükseltmenin tek yolu izin penceresi.
@@ -106,14 +116,18 @@ class YukseltmePlani(unittest.TestCase):
                                      calisma_dizini="/panel")
 
         self.assertEqual(plan["yol"], "osascript")
+        # Yol, testi çalıştıran sistemin kurallarıyla mutlaklaşır (Windows'ta
+        # "D:\panel\app.py"); bu yüzden yolun kendisi değil, plana girdiği
+        # doğrulanır. Karşılaştırma metni kabuk ve AppleScript kaçırmasından
+        # geçtiği için ham dize aranmaz (bkz. modül başlığı).
+        self.assertEqual(plan["argv"], [os.path.abspath("/panel/app.py")])
         betik = plan["komut"][-1]
         self.assertIn("with administrator privileges", betik)
-        self.assertIn("/panel/app.py", betik)
         # Arkaplana atılmazsa osascript uygulama kapanana kadar bekler.
         self.assertIn("&", betik)
         # Yeni süreç açılışta düşerse geriye bakılacak tek yer bu günlük.
-        self.assertIn(yetki.gunluk_yolu(), betik)
-        self.assertIn(yetki.pid_yolu(), betik)
+        self.assertIn(os.path.basename(yetki.gunluk_yolu()), betik)
+        self.assertIn(os.path.basename(yetki.pid_yolu()), betik)
 
     def test_macos_komutunda_nohup_kullanilmaz(self):
         """`do shell script` terminalsiz çalıştırıyor.
@@ -142,7 +156,7 @@ class YukseltmePlani(unittest.TestCase):
                                          argv=["/panel/app.py"], donmus=False,
                                          terminal=False)
         self.assertEqual(plan["yol"], "pkexec")
-        self.assertIn("/panel/app.py", plan["komut"])
+        self.assertIn(os.path.abspath("/panel/app.py"), plan["komut"])
 
     def test_applescript_tirnagi_kacirilir(self):
         """Yol tırnak içeriyorsa komut bozulmamalı."""
