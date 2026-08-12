@@ -5,6 +5,57 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v0.9.6 — Yayımlanmamış
+
+### Fabrika adresinde toplama yeniden yazıldı
+
+- **Aynı adreste birden çok cihaz kalıyordu.** İşlem her cihaza yalnız
+  DeviceMap'teki adresinden ulaşmayı deniyor ve tek tur yürüyordu; iki cihaz
+  aynı adresi paylaştığında yalnız biri taşınıyor, ikincisi kaç kez
+  denenirse denensin orada kalıyordu. Akış artık tur tur yürüyor: her turda
+  bütün aday adresler yoklanıyor, cevap veren her cihaz fabrika adresine
+  yazılıyor ve adresin gerçekten boşaldığı doğrulanıyor.
+- **Cihaz artık kendi kimliğiyle tanınıyor.** Intercom, dahili numarasını
+  (`pbxExtension`) bildiriyor ve DeviceMap aynı alanı taşıyor; hangi cihazın
+  hangi porta ait olduğu böylece switch kimliğine ve ARP'a gerek kalmadan
+  kesin biçimde çözülüyor. Başka bir cihazın adresinde duran cihaz da doğru
+  satıra yazılıyor.
+- **"Adresinde cevap yok" artık hata sayılmıyor**, atlandı olarak
+  işaretleniyor: cihaz büyük olasılıkla zaten fabrika adresindedir. İşi
+  başarısız yapan tek şey cihazın eski adresinde kalması.
+- İşlem yüzdesi ilerliyor ve her cihaz için ayrı satır açılıyor; eskiden
+  çubuk baştan sona %0 duruyordu.
+
+### Yeni: adres haritası
+
+- IP ekranına **Adres haritası** düğmesi eklendi. Aday adresler salt okuma
+  yoklanıp "bu adres DeviceMap'te kimin, şu an kim var, durumu ne"
+  gösteriliyor: yerinde, başka cihaz, çakışma, boş. Aynı adreste birden çok
+  cihaz olup olmadığı da görünüyor.
+
+### IP atama koşusu
+
+- **Koşudan sonra cihaz kimliği doğrulanıyor.** "Port tamamlandı" demek
+  yalnız "hedef adres cevap verdi" demekti; koşu yanlış cihaza yazmış
+  olabiliyordu. Artık her portun hedef adresindeki cihazın dahili numarası
+  DeviceMap'le karşılaştırılıyor, uyuşmayan port kırmızı işaretleniyor ve
+  iş özeti cihazların karıştığını söylüyor.
+- **Kalıcılığı doğrula** seçeneği eklendi (varsayılan kapalı): koşunun
+  sonunda portların gücü bir kez kesilip açılarak ayarın cihazda kalıcı
+  olduğu denetleniyor.
+
+### Yönetici yetkisi
+
+- Yetki olmadan açıldığında uygulama artık sessizce kapanmıyor: sebebi
+  anlatan bir pencere çıkıyor ve **Yönetici olarak yeniden başlat** ile
+  **Çıkış** sunuyor. İzni işletim sistemi istiyor (Windows'ta UAC, macOS'ta
+  sistem parola penceresi, Linux'ta polkit); parola uygulamaya girilmiyor.
+- Windows paketinin manifesti yönetici istiyor; çift tıklamada UAC doğrudan
+  çıkıyor.
+- Yükseltilmiş süreç başlatıldıktan sonra eski süreç kendini kapatıyor ve
+  Dock/görev çubuğunda ikinci bir uygulama olarak durmuyor. Yeni süreç
+  açılışta düşerse sebebi gösteriliyor.
+
 ## v0.9.5 — Yayımlanmamış
 
 ### Soketsiz masaüstü arayüzü

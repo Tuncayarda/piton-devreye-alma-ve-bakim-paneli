@@ -8,7 +8,7 @@ adresi atar ve bu cihazların yapılandırma işlemlerini yürütür.
 ## İndirme ve çalıştırma
 
 Dosya adlarındaki `<sürüm>` bölümü, sayfanın başlığında görünen sürüm
-numarasıdır; örneğin `0.9.5`.
+numarasıdır; örneğin `0.9.6`.
 
 | Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
