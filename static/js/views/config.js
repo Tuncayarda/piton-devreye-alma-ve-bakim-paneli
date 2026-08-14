@@ -1,496 +1,549 @@
-// Konfigürasyon ekranı: cihazdaki değer ↔ hedef değer.
+// The configuration screen: the value on the device ↔ the target value.
 //
-// Yalnız anons cihazları (Announcement ailesi) konfigüre edilir; şerit
-// zaten yalnız o grupları listeler, cihazın okuma yöntemi de "http"dir.
+// Only announcement devices (the Announcement family) are configured; the bar
+// already lists only those groups, and the device's read method is "http".
 //
-// Alanlar cihaz tipine göre gelir: Handset'in mod alanları Amplifier'da
-// yok, UIC'in gerilim eşikleri yalnız UIC'te var. Liste sunucudan alınır,
-// bu dosya kendi alan tablosunu tutmaz (bkz. core/konfig.py ROTA).
+// The fields arrive per device type: a Handset's mode fields do not exist on
+// an Amplifier, and the UIC's voltage thresholds exist only on a UIC. The
+// list comes from the server; this file keeps no field table of its own (see
+// panel/config_sync/fields.py ROUTES).
 //
-// Hedef değer iki düzeyde girilir:
-//   · Gruba  — aynı ayar bütün gruba gidecekse bir kez yazılır
-//   · Cihaza — o cihazda farklı olacaksa; grubunkini ezer
+// A target value is entered at two levels:
+//   · Group  — written once when the same setting goes to the whole group
+//   · Device — when it differs on that device; it overrides the group's
 //
-// "Cihazdaki değer" sütunu okunmadıysa boş (—) kalır. Hedefler bellekte
-// tutulur; hiçbir dosyaya yazılmaz. SIP parolası bu ekranda girilebilir
-// ama GÖSTERİLMEZ: sunucu değerini hiç geri vermez, satırda yalnız
-// uyuşup uyuşmadığı ve kaynağı görünür.
+// The "value on the device" column stays empty (—) when unread. Targets live
+// in memory; nothing is written to a file. The SIP password can be entered on
+// this screen but is NEVER SHOWN: the server never returns its value, and the
+// row shows only whether it matches and where it came from.
 
-import { el, doldur } from '../core/dom.js';
+import { el, fill } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
-import * as serit from '../parts/serit.js';
-import * as islemSekmeleri from '../parts/islem_sekmeleri.js';
-import * as diyalog from '../parts/diyalog.js';
-import { hata, basari, bildir } from '../parts/bildirim.js';
-import { deger } from '../core/bicim.js';
+import { state, patch } from '../core/store.js';
+import * as groupBar from '../components/group_bar.js';
+import * as actionTabs from '../components/action_tabs.js';
+import * as dialog from '../components/dialog.js';
+import { showError, showSuccess, notify } from '../components/toast.js';
+import { value } from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-const KOLON = 'minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) '
+const COLUMNS = 'minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) '
   + '86px 104px';
 
-const SONUC_ETIKET = {
-  uyuyor: ['Uygun', 'yesil'],
-  farkli: ['Farklı', 'turuncu'],
-  okunamadi: ['Okunamadı', 'kirmizi'],
-  hedef_yok: ['Belirlenmedi', 'soluk'],
+const COMPARISON_LABEL = {
+  match: ['compare.match', 'ok'],
+  differs: ['compare.differs', 'auth'],
+  unread: ['compare.unread', 'failed'],
+  no_target: ['compare.noTarget', 'text-dim'],
 };
 
-const KAYNAK_ETIKET = {
-  cihaz: ['Özel', 'accent'],
-  grup: ['Ortak', 'orta'],
-  proje: ['Varsayılan', 'soluk'],
+const SOURCE_LABEL = {
+  device: ['source.device', 'accent'],
+  group: ['source.group', 'text-mid'],
+  project: ['source.project', 'text-dim'],
 };
 
-// Bölüm başlıkları — sunucudaki `bolum` değerlerinin görünen adı.
-const BOLUM_ETIKET = {
-  SIP: 'SIP',
-  Ses: 'Ses ve kazanç',
-  Mod: 'Çalışma modları',
-  Eşik: 'Gerilim eşikleri',
-  Yönlendirme: 'Çağrı yönlendirme',
-  Bilgi: 'Cihaz bilgisi',
+// Section headings, keyed by the server's stable `section` id (see
+// panel/config_sync/fields.py). The server also sends `sectionLabel`; this
+// table only fills in when an older server does not.
+const SECTION_LABEL = {
+  sip: 'SIP',
+  audio: 'Audio and gain',
+  mode: 'Operating modes',
+  thresholds: 'Voltage thresholds',
+  routing: 'Call routing',
+  information: 'Device information',
 };
 
-// `pencere`: açık cihaz penceresi ({cihaz, govde}) — bkz. cihazAc.
-const yerel = {
-  cihazId: null, hataMetni: '', kimlikGerek: false, nesil: 0, pencere: null,
+// `window`: the open device window ({device, body}) — see openDevice.
+const local = {
+  deviceId: null, errorText: '', needsCredentials: false, token: 0,
+  window: null,
 };
 
-function grupAdi() {
-  const g = serit.gecerliGrup('cfg');
-  return g ? g.ad : '';
+function groupName() {
+  const group = groupBar.currentGroup('cfg');
+  return group ? group.name : '';
 }
 
-function hedefCihazlar() {
-  const g = serit.gecerliGrup('cfg');
-  return g ? serit.eslesen(g) : [];
+function targetDevices() {
+  const group = groupBar.currentGroup('cfg');
+  return group ? groupBar.devicesIn(group) : [];
 }
 
-// İki aşamalı yükleme. Alan listesi, hedefler ve DeviceMap değerleri
-// cihaza gitmeyen uçtan gelir ve HEMEN çizilir; cihazdaki değerler arkadan
-// yetişir. Tek istek beklendiğinde grup değiştirmek saniyelerce eski
-// grubun alanlarını gösteriyordu (cihaz okuması yavaş, kapalıysa zaman
-// aşımı kadar).
+// A two-stage load. The field list, the targets and the DeviceMap values come
+// from an endpoint that never touches the device and are drawn AT ONCE; the
+// values on the device catch up afterwards. Waiting for a single request made
+// changing group show the old group's fields for seconds (a device read is
+// slow, and a timeout long if the device is off).
 //
-// `nesil`: kullanıcı beklerken başka bir gruba geçebilir. Geciken yanıtın
-// yeni seçimin üstüne yazmaması için her tazelemeye sıra numarası verilir.
-export async function tazele(hizli = true) {
-  const liste = hedefCihazlar();
-  if (!liste.length) { ata({ cfgDurum: null }); return; }
-  if (!liste.some(c => c.id === yerel.cihazId)) yerel.cihazId = liste[0].id;
-  const nesil = (yerel.nesil = (yerel.nesil || 0) + 1);
-  const gecerli = () => nesil === yerel.nesil;
-  const id = yerel.cihazId;
-  const grup = grupAdi();
+// `token`: the user can move to another group while waiting. Every refresh
+// gets a sequence number so a late reply cannot overwrite the new selection.
+export async function refresh(fast = true) {
+  const devices = targetDevices();
+  if (!devices.length) { patch({ configState: null }); return; }
+  if (!devices.some(d => d.id === local.deviceId)) {
+    local.deviceId = devices[0].id;
+  }
+  const token = (local.token = (local.token || 0) + 1);
+  const current = () => token === local.token;
+  const id = local.deviceId;
+  const group = groupName();
 
-  if (hizli) {
+  if (fast) {
     try {
-      const on = await api.konfigAlanlar(durum.setNo, id, grup);
-      if (!gecerli()) return;
-      yerel.hataMetni = '';
-      yerel.kimlikGerek = false;
-      ata({ cfgDurum: on });
-    } catch { /* hızlı uç başarısızsa asıl okuma zaten hata gösterir */ }
+      const preview = await api.configFields(state.setNo, id, group);
+      if (!current()) return;
+      local.errorText = '';
+      local.needsCredentials = false;
+      patch({ configState: preview });
+    } catch { /* if the fast endpoint fails, the real read reports it */ }
   }
 
   try {
-    const y = await api.konfig(durum.setNo, id, grup);
-    if (!gecerli()) return;
-    yerel.hataMetni = y.hata || '';
-    yerel.kimlikGerek = !!y.kimlik;
-    ata({ cfgDurum: y });
+    const body = await api.config(state.setNo, id, group);
+    if (!current()) return;
+    local.errorText = body.error || '';
+    local.needsCredentials = !!body.auth;
+    patch({ configState: body });
   } catch (e) {
-    if (!gecerli()) return;
-    yerel.hataMetni = e.message;
-    ata({ cfgDurum: { cihazId: id, satirlar: [] } });
+    if (!current()) return;
+    local.errorText = e.message;
+    patch({ configState: { deviceId: id, rows: [] } });
   }
 }
 
-export function ciz(kok) {
-  const liste = hedefCihazlar();
-  const veri = durum.cfgDurum;
-  const parcalar = [];
+export function render(root) {
+  const devices = targetDevices();
+  const data = state.configState;
+  const parts = [];
 
-  // Açık pencerenin cihazı listeden düştüyse (set/grup değişimi) pencere
-  // kapanır; yoksa artık var olmayan bir cihaza ayar yazılabilirdi.
-  if (yerel.pencere && !liste.some(c => c.id === yerel.pencere.cihaz.id)) {
-    diyalog.kapat();
+  // If the open window's device dropped off the list (set/group change) the
+  // window is closed; otherwise settings could be written to a device that no
+  // longer exists.
+  if (local.window && !devices.some(d => d.id === local.window.device.id)) {
+    dialog.close();
   }
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    // Başlık üç işlem ekranında da aynı: hangi ekranda olduğumuzu
-    // altındaki sekme şeridi zaten söylüyor.
-    el('h2', { metin: 'İşlemler' }),
-    el('div', { sinif: 'eylemler' }, [
+  parts.push(el('div', { class: 'page-head' }, [
+    // The heading is the same on all three operation screens: the tab bar
+    // below already says which screen this is.
+    el('h2', { text: t('nav.operations') }),
+    el('div', { class: 'actions' }, [
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil',
-        metin: liste.length ? `${liste.length} cihaza uygula` : 'Cihazlara uygula',
-        disabled: !liste.length, onclick: uygula,
+        type: 'button', class: 'btn btn-primary',
+        text: devices.length
+          ? `Apply to ${devices.length} device(s)` : 'Apply to the devices',
+        disabled: !devices.length, onclick: applyToGroup,
       }),
     ]),
   ]));
 
-  parcalar.push(islemSekmeleri.ciz());
-  parcalar.push(serit.secici('cfg', () => {
-    // Açık pencere eski grubun cihazına aitti; grup değişince kapanır.
-    if (yerel.pencere) diyalog.kapat();
-    yerel.cihazId = null;
-    tazele();
+  parts.push(actionTabs.render());
+  parts.push(groupBar.picker('cfg', () => {
+    // The open window belonged to the old group's device; it closes on a
+    // group change.
+    if (local.window) dialog.close();
+    local.deviceId = null;
+    refresh();
   }));
 
-  if (!liste.length) {
-    parcalar.push(el('p', {
-      sinif: 'bilgi', stil: 'margin-top:16px',
-      metin: 'Bu grupta ayarları yönetilebilen cihaz yok.',
+  if (!devices.length) {
+    parts.push(el('p', {
+      class: 'info', style: 'margin-top:16px',
+      text: t('config.noDeviceInThisGroup'),
     }));
-    doldur(kok, parcalar);
+    fill(root, parts);
     return;
   }
 
-  const satirlar = (veri && veri.satirlar) || [];
-  const grupHedef = (veri && veri.grupHedef) || {};
-  const grupGizli = (veri && veri.grupGizli) || [];
-  // DeviceMap'te tanımlı, gruptaki bütün cihazlarda aynı olan değerler:
-  // kutulara hazır yazılır ki kullanıcı hiçbir şeye dokunmadan "Gruba
-  // Uygula" dediğinde ne yazılacağı görünür olsun.
-  const projeHedef = (veri && veri.projeHedef) || {};
-  const projeFarkli = (veri && veri.projeFarkli) || [];
-  // Alan listesi cihazdan bağımsız gelir: cihaza erişilemezken de gruba
-  // yazılacak değerler girilebilmeli.
-  const alanlar = (veri && veri.alanlar) || [];
+  const rows = (data && data.rows) || [];
+  const groupTargets = (data && data.groupTargets) || {};
+  const groupSecrets = (data && data.groupSecrets) || [];
+  // Values defined in DeviceMap that are the same on every device in the
+  // group: pre-filled into the boxes so that pressing "apply to group"
+  // without touching anything shows what will be written.
+  const projectShared = (data && data.projectShared) || {};
+  const projectVarying = (data && data.projectVarying) || [];
+  // The field list arrives independently of the device: values to be written
+  // to the group must be enterable even while the device is unreachable.
+  const fields = (data && data.fields) || [];
 
-  parcalar.push(el('div', { sinif: 'cfg-izgara' }, [
-    grupKarti(alanlar, satirlar, {
-      grupHedef, grupGizli, projeHedef, projeFarkli,
-      varsayilan: (veri && veri.varsayilan) || {},
+  parts.push(el('div', { class: 'cfg-grid' }, [
+    groupCard(fields, rows, {
+      groupTargets, groupSecrets, projectShared, projectVarying,
+      savedDefaults: (data && data.savedDefaults) || {},
     }),
-    el('div', { sinif: 'cfg-cihaz-alani' }, [
-      el('div', { sinif: 'cfg-cihaz-basi' }, [
-        el('h3', { metin: 'Cihaza özel' }),
-        el('span', { sinif: 'rozet', metin: `${liste.length} cihaz` }),
+    el('div', { class: 'cfg-device-area' }, [
+      el('div', { class: 'cfg-device-head' }, [
+        el('h3', { text: t('config.perDevice') }),
+        el('span', {
+          class: 'badge',
+          text: t('config.deviceCount', { count: devices.length }),
+        }),
       ]),
-      el('div', { sinif: 'cfg-cihaz-listesi' }, liste.map(cihazOgesi)),
+      el('div', { class: 'cfg-device-list' }, devices.map(deviceItem)),
     ]),
   ]));
 
-  doldur(kok, parcalar);
-  // Pencere ekranın dışında (diyalog yuvasında) duruyor; yeni veri
-  // geldiğinde onun da tazelenmesi gerekiyor.
-  pencereyiCiz();
+  fill(root, parts);
+  // The window lives outside the screen (in the dialog slot); it has to be
+  // refreshed when new data arrives too.
+  renderWindow();
 }
 
-// ── cihaz penceresi ─────────────────────────────────────────────────────
-// Cihaza özel değerler artık açılır listeyle seçilen tek bir satır değil:
-// cihazlar listelenir, tıklanan cihazın ayarları ortada açılan pencerede
-// düzenlenir. Uygulama düğmesi de o pencerede ve yalnız o cihaza yazar;
-// seçili cihazın gözden kaçıp bütün gruba uygulanması böylece mümkün değil.
-function cihazOgesi(c) {
-  const renk = (c.sonuc && c.sonuc.durum) || 'gri';
-  const acik = !!yerel.pencere && yerel.pencere.cihaz.id === c.id;
+// ── the device window ───────────────────────────────────────────────────
+// Device-specific values are no longer a single row picked from a dropdown:
+// the devices are listed and the clicked device's settings are edited in a
+// window that opens in the middle. The apply button is in that window too and
+// writes to that device only; the selected device can no longer be missed and
+// applied to the whole group by accident.
+function deviceItem(device) {
+  const colour = (device.result && device.result.state) || 'unknown';
+  const open = !!local.window && local.window.device.id === device.id;
   return el('button', {
-    type: 'button', sinif: 'cfg-cihaz-oge',
-    veri: { acik: acik ? '1' : '0' },
-    title: `${c.ad} · ${c.ip} — ayar penceresini açar`,
-    onclick: () => cihazAc(c),
+    type: 'button', class: 'cfg-device-item',
+    dataset: { open: open ? '1' : '0' },
+    title: t('config.opensWindow',
+                 { device: device.name, ip: device.ip }),
+    onclick: () => openDevice(device),
   }, [
-    el('span', { sinif: 'nokta', veri: { durum: renk }, 'aria-hidden': 'true' }),
-    el('span', { sinif: 'mono kirp cfg-oge-ad', metin: c.ad }),
-    el('span', { sinif: 'mono soluk cfg-oge-ip', metin: c.ip }),
-    el('span', { sinif: 'cfg-oge-ok', 'aria-hidden': 'true', metin: '›' }),
+    el('span', {
+      class: 'dot', dataset: { state: colour }, 'aria-hidden': 'true',
+    }),
+    el('span', {
+      class: 'mono truncate cfg-item-name', text: device.name,
+    }),
+    el('span', { class: 'mono text-dim cfg-item-ip', text: device.ip }),
+    el('span', { class: 'cfg-item-chevron', 'aria-hidden': 'true', text: '›' }),
   ]);
 }
 
-function cihazAc(c) {
-  yerel.cihazId = c.id;
-  const govde = el('div', { sinif: 'cfg-pencere-govde' });
-  const pencere = diyalog.ac({
-    baslik: c.ad,
-    icerik: govde,
-    genislik: '840px',
-    // Escape ya da perde tıklamasıyla kapanışta da liste işaretini bırak.
-    kapaninca: () => { yerel.pencere = null; },
-    eylemler: [
+function openDevice(device) {
+  local.deviceId = device.id;
+  const body = el('div', { class: 'cfg-window-body' });
+  const handle = dialog.show({
+    title: device.name,
+    content: body,
+    width: '840px',
+    // Clear the list marker when closed with Escape or a backdrop click too.
+    onClose: () => { local.window = null; },
+    actions: [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Cihazdan oku',
-        title: 'Bu cihazın güncel ayarlarını yeniden oku',
-        onclick: () => tazele(),
+        type: 'button', class: 'btn', text: t('config.readFromTheDevice'),
+        title: t('config.readThisDevicesCurrentSettings'),
+        onclick: () => refresh(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil', metin: 'Bu cihaza uygula',
-        title: `Ayarlar yalnız ${c.ad} cihazına yazılır`,
-        onclick: () => cihazaUygula(c),
+        type: 'button', class: 'btn btn-primary', text: t('config.applyToThisDevice'),
+        title: t('config.appliesToOnly', { device: device.name }),
+        onclick: () => applyToDevice(device),
       }),
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Kapat',
-        onclick: () => diyalog.kapat(),
+        type: 'button', class: 'btn', text: t('detail.close'),
+        onclick: () => dialog.close(),
       }),
     ],
   });
-  yerel.pencere = { cihaz: c, govde, kapat: pencere.kapat };
-  pencereyiCiz();
-  tazele();
+  local.window = { device, body, close: handle.close };
+  renderWindow();
+  refresh();
 }
 
-function pencereyiCiz() {
-  const p = yerel.pencere;
-  if (!p || !p.govde.isConnected) return;
-  const veri = durum.cfgDurum;
-  // Geciken bir yanıt başka cihaza aitse pencerede gösterilmez.
-  const bizim = !!veri && veri.cihazId === p.cihaz.id;
-  const satirlar = (bizim && veri.satirlar) || [];
-  // Her hedef yazımından sonra pencere yeniden çiziliyor; kullanıcı sonraki
-  // alana geçerken odağın kaybolmaması için aynı alan yeniden bulunur.
-  const oncekiOdak = document.activeElement;
-  const odakEtiketi = oncekiOdak && p.govde.contains(oncekiOdak)
-    ? oncekiOdak.getAttribute('aria-label') : null;
-  doldur(p.govde, [
+function renderWindow() {
+  const win = local.window;
+  if (!win || !win.body.isConnected) return;
+  const data = state.configState;
+  // A late reply belonging to another device is not shown in the window.
+  const ours = !!data && data.deviceId === win.device.id;
+  const rows = (ours && data.rows) || [];
+  // The window is redrawn after every target write; the same field is found
+  // again so focus is not lost as the user moves to the next one.
+  const previousFocus = document.activeElement;
+  const focusLabel = previousFocus && win.body.contains(previousFocus)
+    ? previousFocus.getAttribute('aria-label') : null;
+  fill(win.body, [
     el('p', {
-      sinif: 'cfg-pencere-not',
-      metin: `${p.cihaz.ip} · girilen değerler yalnız bu cihaza yazılır`,
+      class: 'cfg-window-note',
+      text: t('config.windowNote', { ip: win.device.ip }),
     }),
-    yerel.hataMetni ? el('p', {
-      sinif: yerel.kimlikGerek ? 'bilgi' : 'uyari',
-      metin: yerel.hataMetni
-        + (yerel.kimlikGerek
-          ? ' Giriş bilgileri panelinden kullanıcı adı ve parola girin.' : ''),
+    local.errorText ? el('p', {
+      class: local.needsCredentials ? 'info' : 'warning',
+      text: local.errorText
+        + (local.needsCredentials
+          ? ' Enter a username and password from the credentials panel.' : ''),
     }) : null,
-    el('div', { sinif: 'tablo-sar' }, [
-      el('div', { sinif: 'tablo', stil: '--tablo-min:660px' }, [
-        el('div', { sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}` },
-          ['Ayar', 'Mevcut', 'Özel değer', 'Kaynak', 'Durum']
-            .map(b => el('span', { metin: b }))),
-        ...(satirlar.length ? satirlar.map(satirCiz)
+    el('div', { class: 'table-wrap' }, [
+      el('div', { class: 'table', style: '--table-min:660px' }, [
+        el('div', { class: 'table-head', style: `--table-columns:${COLUMNS}` },
+          ['col.setting', 'col.current', 'col.deviceValue', 'col.source',
+           'col.state'].map(key => el('span', { text: t(key) }))),
+        ...(rows.length ? rows.map(renderRow)
           : [el('div', {
-              sinif: 'tablo-bos',
-              // Okuma sürerken "okunamadı" yazmak yanlış: cihaz henüz
-              // denenmedi bile.
-              metin: (!bizim || (veri && veri.okunuyor)) && !yerel.hataMetni
-                ? 'Cihaz okunuyor…'
-                : 'Cihaz değerleri okunamadı. "Cihazdan oku" ile yeniden deneyin.',
+              class: 'table-empty',
+              // Writing "could not be read" while the read is in progress is
+              // wrong: the device has not even been tried yet.
+              text: (!ours || (data && data.reading)) && !local.errorText
+                ? 'Reading the device…'
+                : 'The device values could not be read. Try again with '
+                  + '"Read from the device".',
             })]),
       ]),
     ]),
   ]);
-  if (odakEtiketi) {
-    const yeni = p.govde.querySelector(
-      `[aria-label="${CSS.escape(odakEtiketi)}"]`);
-    if (yeni) yeni.focus();
+  if (focusLabel) {
+    const restored = win.body.querySelector(
+      `[aria-label="${CSS.escape(focusLabel)}"]`);
+    if (restored) restored.focus();
   }
 }
 
-async function cihazaUygula(c) {
-  const g = serit.gecerliGrup('cfg');
-  if (!g) return;
+async function applyToDevice(device) {
+  const group = groupBar.currentGroup('cfg');
+  if (!group) return;
   try {
-    const y = await api.konfigUygula(durum.setNo, g.ad, [c.id]);
-    ata({ kuyrukAcik: true, acikIs: y.id });
-    if (y.yeni === false) {
-      bildir(`${c.ad} için ayar uygulama işlemi zaten kuyrukta`);
+    const job = await api.configApply(state.setNo, group.name, [device.id]);
+    patch({ queueOpen: true, openJob: job.id });
+    if (job.new === false) {
+      notify(t('config.applyQueuedFor', { device: device.name }));
     } else {
-      basari(`${c.ad} için ayarlar kuyruğa alındı`);
+      showSuccess(t('config.settingsQueuedFor', { device: device.name }));
     }
-    diyalog.kapat();
-  } catch (e) { hata(e.message); }
+    dialog.close();
+  } catch (e) { showError(e.message); }
 }
 
-// Alanın türüne uygun giriş öğesi. Tür bilgisi cihazın kendi arayüzünden
-// geliyor (açılır liste / 0–100 kaydırıcı / gerilim); serbest metin yerine
-// aynı sınırların panelde de durması, cihazın reddedeceği bir değerin
-// kuyruğa girmesini engelliyor.
-function girdi(f, mevcutDeger, onDegis, ek = {}) {
-  if (f.tur === 'secim') {
+// An input element matching the field's kind. The kind comes from the
+// device's own UI (dropdown / 0–100 slider / voltage); keeping the same
+// limits in the panel rather than a free text box stops a value the device
+// would reject from entering the queue.
+function input(field, currentValue, onChange, extra = {}) {
+  if (field.kind === 'choice') {
     return el('select', {
-      sinif: `alan ${ek.sinif || ''}`, stil: ek.stil || null,
-      'aria-label': `${f.etiket} · ${ek.aria || ''}`,
-      title: ek.baslik || f.ipucu || null,
-      onchange: (e) => onDegis(e.target.value),
+      class: `field ${extra.class || ''}`, style: extra.style || null,
+      'aria-label': `${field.label} · ${extra.aria || ''}`,
+      title: extra.title || field.hint || null,
+      onchange: (e) => onChange(e.target.value),
     }, [
-      el('option', { value: '', metin: ek.bosEtiket || '—' }),
-      ...(f.secenekler || []).map(s => el('option', {
-        value: s.deger, metin: s.etiket,
-        selected: String(mevcutDeger) === String(s.deger) ? true : null,
+      el('option', { value: '', text: extra.emptyLabel || '—' }),
+      ...(field.options || []).map(option => el('option', {
+        value: option.value, text: option.label,
+        selected: String(currentValue) === String(option.value) ? true : null,
       })),
     ]);
   }
-  const sayisal = f.tur === 'tamsayi' || f.tur === 'ondalik';
+  const numeric = field.kind === 'integer' || field.kind === 'decimal';
   return el('input', {
-    type: f.gizli ? 'password' : (sayisal ? 'number' : 'text'),
-    sinif: `alan ${ek.sinif || ''}`, stil: ek.stil || null,
-    value: mevcutDeger || '',
-    min: sayisal && f.enAz !== null ? f.enAz : null,
-    max: sayisal && f.enCok !== null ? f.enCok : null,
-    step: sayisal ? (f.adim || 1) : null,
-    placeholder: ek.yerTutucu || '—',
-    autocomplete: f.gizli ? 'new-password' : 'off', spellcheck: 'false',
-    'aria-label': `${f.etiket} · ${ek.aria || ''}`,
-    title: ek.baslik || f.ipucu || null,
-    onchange: (e) => onDegis(e.target.value),
+    type: field.secret ? 'password' : (numeric ? 'number' : 'text'),
+    class: `field ${extra.class || ''}`, style: extra.style || null,
+    value: currentValue || '',
+    min: numeric && field.minimum !== null ? field.minimum : null,
+    max: numeric && field.maximum !== null ? field.maximum : null,
+    step: numeric ? (field.step || 1) : null,
+    placeholder: extra.placeholder || '—',
+    autocomplete: field.secret ? 'new-password' : 'off', spellcheck: 'false',
+    'aria-label': `${field.label} · ${extra.aria || ''}`,
+    title: extra.title || field.hint || null,
+    onchange: (e) => onChange(e.target.value),
   });
 }
 
-// Gruba bir kez girilen değerler: buradaki her alan, gruptaki bütün
-// cihazlara yazılır (cihaza özel değer girilmediyse).
+// Values entered once for the group: every field here is written to all the
+// group's devices (unless a device-specific value was entered).
 //
-// Kutular DeviceMap'teki değerle hazır gelir; kullanıcı dokunmazsa cihaza
-// yazılan da o değerdir. Dahili numara gibi cihaza göre DEĞİŞEN alanlarda
-// kutu boş kalır (projeFarkli): tek bir numara gösterip kullanıcının bir
-// harf değiştirmesi, bütün gruba aynı numarayı yazdırırdı.
-function grupKarti(alanlar, satirlar, kaynaklar) {
-  const { grupHedef, grupGizli, projeHedef, projeFarkli, varsayilan } = kaynaklar;
-  const satirIle = new Map(satirlar.map(s => [s.alan, s]));
-  const yazilabilir = alanlar.filter(f => f.duzenlenebilir)
-    // Satır verisi (kaynak/hedef) alan tanımının üstüne değil altına
-    // gelir: ortak anahtarlarda (etiket, tür) tanım geçerli olmalı.
-    .map(f => ({ ...(satirIle.get(f.alan) || {}), ...f }));
+// The boxes arrive pre-filled with the DeviceMap value; if the user touches
+// nothing, that is what is written. For fields that DIFFER per device (the
+// extension) the box stays empty (projectVarying): showing a single number
+// and having the user change one character would write that number to the
+// whole group.
+function groupCard(fields, rows, sources) {
+  const {
+    groupTargets, groupSecrets, projectShared, projectVarying, savedDefaults,
+  } = sources;
+  const rowFor = new Map(rows.map(row => [row.field, row]));
+  const writable = fields.filter(f => f.editable)
+    // The row data (source/target) goes under the field definition, not over
+    // it: on shared keys (label, kind) the definition must win.
+    .map(f => ({ ...(rowFor.get(f.field) || {}), ...f }));
 
-  // Bölümler cihaz sayfasındaki panellere karşılık geliyor; 20'yi aşan
-  // alan listesi (UIC) başlıksız tek yığın olarak okunmuyor.
-  const bolumler = [];
-  for (const f of yazilabilir) {
-    const son = bolumler[bolumler.length - 1];
-    if (son && son.ad === (f.bolum || '')) son.alanlar.push(f);
-    else bolumler.push({ ad: f.bolum || '', alanlar: [f] });
+  // The sections match the panels on the device's own page; a field list over
+  // 20 long (the UIC) was unreadable as one heading-less pile.
+  const sections = [];
+  for (const field of writable) {
+    const last = sections[sections.length - 1];
+    if (last && last.name === (field.section || '')) last.fields.push(field);
+    else {
+      sections.push({
+        name: field.section || '', label: field.sectionLabel || '',
+        fields: [field],
+      });
+    }
   }
 
-  return el('section', { sinif: 'kart kose cfg-grup-kart' }, [
-    el('h3', { metin: 'Ortak ayarlar' }),
-    ...(bolumler.length
-      ? bolumler.flatMap(b => [
-        b.ad ? el('h4', {
-          sinif: 'cfg-bolum', metin: BOLUM_ETIKET[b.ad] || b.ad,
+  return el('section', { class: 'card corner cfg-group-card' }, [
+    el('h3', { text: t('config.sharedSettings') }),
+    ...(sections.length
+      ? sections.flatMap(section => [
+        section.name ? el('h4', {
+          class: 'cfg-section',
+          text: section.label || SECTION_LABEL[section.name] || section.name,
         }) : null,
-        ...b.alanlar.map(f => {
-          const girilen = f.gizli ? '' : (grupHedef[f.alan] || '');
-          const devralinan = !girilen && !f.gizli
-            && !projeFarkli.includes(f.alan) ? (projeHedef[f.alan] || '') : '';
-          return el('label', { sinif: 'ayar-satir' }, [
-            el('span', { sinif: 'etiket', metin: f.etiket }),
-            girdi(f, girilen || devralinan,
-              (v) => hedefYaz(f.alan, v, 'grup'), {
-                sinif: `cfg-alan${devralinan ? ' cfg-devralinan' : ''}`,
-                aria: 'gruba yazılacak değer',
-                yerTutucu: grupYerTutucu(f, grupGizli, projeFarkli),
-                bosEtiket: devralinan ? 'Varsayılan' : 'Değiştirme',
-                baslik: devralinan
-                  ? 'Proje varsayılanından (DeviceMap) geldi; değiştirilmezse bu değer uygulanır'
-                  : (f.uyari || f.ipucu || ''),
+        ...section.fields.map(field => {
+          const entered = field.secret ? '' : (groupTargets[field.field] || '');
+          const inherited = !entered && !field.secret
+            && !projectVarying.includes(field.field)
+            ? (projectShared[field.field] || '') : '';
+          return el('label', { class: 'setting-row' }, [
+            el('span', { class: 'label', text: field.label }),
+            input(field, entered || inherited,
+              (v) => writeTarget(field.field, v, 'group'), {
+                class: `cfg-field${inherited ? ' cfg-inherited' : ''}`,
+                aria: t('config.valueToWriteToThe'),
+                placeholder: groupPlaceholder(
+                  field, groupSecrets, projectVarying),
+                emptyLabel: inherited ? 'Default' : 'Leave unchanged',
+                title: inherited
+                  ? 'Came from the project default (DeviceMap); left alone, '
+                    + 'this value is applied'
+                  : (field.warning || field.hint || ''),
               }),
           ]);
         }),
       ])
       : [el('p', {
-          sinif: 'mono soluk', stil: 'font-size:10.5px',
-          metin: 'Bu cihaz tipinde yazılabilir alan yok.',
+          class: 'mono text-dim', style: 'font-size:10.5px',
+          text: t('config.thisDeviceTypeHasNo'),
         })]),
-    varsayilanAyagi(varsayilan),
+    savedDefaultsFooter(savedDefaults),
   ]);
 }
 
-// Girilen değerler dosyaya yazılır ve uygulama açılışında geri yüklenir.
-// Kullanıcı bunu bilmezse "acaba kalıcı mı" diye her açılışta baştan
-// giriyor. Parola dosyaya HİÇ yazılmaz, bu da burada söylenir.
-function varsayilanAyagi(v) {
-  const sayi = (v.grupDegeri || 0) + (v.cihazDegeri || 0);
-  return el('div', { sinif: 'cfg-varsayilan' }, [
+// Entered values are written to a file and restored when the application
+// opens. Without knowing that, the user re-enters them every time wondering
+// whether they stick. The password is NEVER written to the file, which is
+// said here too.
+function savedDefaultsFooter(defaults) {
+  const count = (defaults.groupValues || 0) + (defaults.deviceValues || 0);
+  return el('div', { class: 'cfg-defaults' }, [
     el('span', {
-      sinif: 'cfg-kayit-notu',
-      metin: `${sayi ? `${sayi} değişiklik kayıtlı` : 'Set için kaydedilir'}`
-        + ' · SIP parolası hariç',
-      title: v.dosya || '',
+      class: 'cfg-saved-note',
+      text: (count ? t('config.savedCount', { count })
+        : t('config.savedForSet')) + t('config.savedSuffix'),
+      title: defaults.file || '',
     }),
-    sayi ? el('button', {
-      type: 'button', sinif: 'btn btn-kucuk',
-      metin: 'Sıfırla', onclick: sifirla,
+    count ? el('button', {
+      type: 'button', class: 'btn btn-small',
+      text: t('config.reset'), onclick: resetDefaults,
     }) : null,
   ]);
 }
 
-async function sifirla() {
+async function resetDefaults() {
   try {
-    const y = await api.konfigSifirla(durum.setNo, yerel.cihazId, grupAdi());
-    ata({ cfgDurum: y });
-    basari('Değişiklikler silindi; varsayılanlara dönüldü');
-  } catch (e) { hata(e.message); }
+    const body = await api.configReset(
+      state.setNo, local.deviceId, groupName());
+    patch({ configState: body });
+    showSuccess(t('config.theChangesWereRemovedBack'));
+  } catch (e) { showError(e.message); }
 }
 
-// Gizli alanın değeri hiç gelmediği için yer tutucu ne durumda olduğunu
-// söylemek zorunda: girildi mi, DeviceMap'ten mi gelecek.
-function grupYerTutucu(f, grupGizli, projeFarkli) {
-  if (f.gizli) {
-    if (grupGizli.includes(f.alan)) return 'Girildi';
-    return f.kaynak === 'proje' ? 'Varsayılan' : 'Boş';
+// A secret field's value never arrives, so the placeholder has to say what
+// state it is in: entered, or coming from DeviceMap.
+function groupPlaceholder(field, groupSecrets, projectVarying) {
+  if (field.secret) {
+    if (groupSecrets.includes(field.field)) return 'Entered';
+    return field.source === 'project' ? 'Default' : 'Empty';
   }
-  // Cihaza göre değişen alanda kutu bilerek boş: her cihaz kendi
-  // DeviceMap değerini alır.
-  if (projeFarkli.includes(f.alan)) return 'Cihaza göre';
+  // For a field that varies per device the box is deliberately empty: each
+  // device takes its own DeviceMap value.
+  if (projectVarying.includes(field.field)) return 'Per device';
   return '—';
 }
 
-async function hedefYaz(alan, value, kapsam) {
+async function writeTarget(field, newValue, scope) {
   try {
-    const y = await api.konfigHedef(
-      durum.setNo, yerel.cihazId, alan, value, grupAdi(), kapsam);
-    ata({ cfgDurum: y });
-  } catch (err) { hata(err.message); }
+    const body = await api.configTarget(
+      state.setNo, local.deviceId, field, newValue, groupName(), scope);
+    patch({ configState: body });
+  } catch (err) { showError(err.message); }
 }
 
-function satirCiz(f) {
-  const [etiket, renk] = SONUC_ETIKET[f.sonuc] || ['—', 'soluk'];
-  const [kaynakAd, kaynakRenk] = KAYNAK_ETIKET[f.kaynak] || ['—', 'soluk'];
-  // Gizli alanın cihazdaki değeri gelmez; yalnız "var" bilgisi gelir.
-  const mevcutMetin = f.gizli ? (f.mevcutVar ? '•••' : '—') : deger(f.mevcut);
-  return el('div', { sinif: 'tablo-satir', stil: `--tablo-kolon:${KOLON}` }, [
-    el('span', { sinif: 'mono', stil: 'font-size:12px', metin: f.etiket }),
+function renderRow(row) {
+  const [labelKey, colour] = COMPARISON_LABEL[row.comparison]
+    || ['', 'text-dim'];
+  const [sourceKey, sourceColour] = SOURCE_LABEL[row.source]
+    || ['', 'text-dim'];
+  const label = labelKey ? t(labelKey) : '—';
+  const sourceName = sourceKey ? t(sourceKey) : '—';
+  // A secret field's value on the device never arrives; only "it exists".
+  const currentText = row.secret
+    ? (row.hasCurrent ? '•••' : '—') : value(row.current);
+  return el('div', {
+    class: 'table-row', style: `--table-columns:${COLUMNS}`,
+  }, [
+    el('span', { class: 'mono', style: 'font-size:12px', text: row.label }),
     el('span', {
-      sinif: 'mono orta kirp', stil: 'font-size:12px', metin: mevcutMetin,
+      class: 'mono text-mid truncate', style: 'font-size:12px',
+      text: currentText,
     }),
-    f.duzenlenebilir
-      // Kutu, cihaza yazılacak DEĞERLE dolu gelir: cihaza özel bir değer
-      // girilmemişse gruptan ya da DeviceMap'ten gelen hedef görünür ve
-      // devralındığı soluk renkten anlaşılır. Kutuyu boşaltmak cihaza özel
-      // değeri kaldırır, hedef yine devralınana döner.
-      ? girdi(f, f.gizli ? '' : (f.ozel || f.hedef || ''),
-        (v) => hedefYaz(f.alan, v, 'cihaz'), {
-          stil: 'padding:5px 8px;font-size:12px',
-          sinif: !f.ozel && f.hedef ? 'cfg-devralinan' : '',
-          aria: 'bu cihaza özel değer',
-          yerTutucu: f.gizli
-            ? (f.ozelVar ? 'girildi (gizli)' : (f.hedefVar ? 'gizli' : '—'))
+    row.editable
+      // The box arrives filled with the VALUE that will be written: with no
+      // device-specific value entered, the target inherited from the group or
+      // DeviceMap shows, and the dim colour says it was inherited. Emptying
+      // the box removes the device-specific value and the target falls back
+      // to the inherited one.
+      ? input(row, row.secret ? '' : (row.override || row.target || ''),
+        (v) => writeTarget(row.field, v, 'device'), {
+          style: 'padding:5px 8px;font-size:12px',
+          class: !row.override && row.target ? 'cfg-inherited' : '',
+          aria: t('config.valueSpecificToThisDevice'),
+          placeholder: row.secret
+            ? (row.hasOverride ? 'entered (hidden)'
+              : (row.hasTarget ? 'hidden' : '—'))
             : '—',
-          baslik: f.uyari || (!f.ozel && f.hedef
-            ? `${KAYNAK_ETIKET[f.kaynak] ? KAYNAK_ETIKET[f.kaynak][0] : ''}`
-              + ' değeri. Değiştirilmezse bu değer uygulanır.'
-            : f.ipucu || ''),
-          // Boş seçenek "bu cihaza özel değer yok" demek; hedefin nereye
-          // döneceği etiketten anlaşılsın.
-          bosEtiket: f.kaynak === 'proje' ? 'Varsayılan'
-            : (f.kaynak === 'grup' ? 'Ortak ayar' : 'Boş'),
+          title: row.warning || (!row.override && row.target
+            ? `${SOURCE_LABEL[row.source]
+              ? t(SOURCE_LABEL[row.source][0]) : ''}`
+              + ' value. Left alone, this value is applied.'
+            : row.hint || ''),
+          // The empty option means "no device-specific value"; the label says
+          // where the target will fall back to.
+          emptyLabel: row.source === 'project' ? 'Default'
+            : (row.source === 'group' ? 'Shared setting' : 'Empty'),
         })
-      : el('span', { sinif: 'mono soluk', stil: 'font-size:12px', metin: '—' }),
-    // DeviceMap'teki değer geçersizse hedef sayılmadı; sebebi burada
-    // görünür, yoksa alan sessizce boş kalmış gibi durur.
+      : el('span', {
+          class: 'mono text-dim', style: 'font-size:12px', text: '—',
+        }),
+    // If the DeviceMap value is invalid it did not count as a target; the
+    // reason shows here, or the field would look silently empty.
     el('span', {
-      sinif: 'mono',
-      stil: 'font-size:10.5px;color:var(--'
-        + (f.uyari ? 'kirmizi' : kaynakRenk) + ')',
-      title: f.uyari || null,
-      metin: f.uyari ? 'Proje varsayılanı ✕' : (f.duzenlenebilir ? kaynakAd : '—'),
+      class: 'mono',
+      style: 'font-size:10.5px;color:var(--'
+        + (row.warning ? 'failed' : sourceColour) + ')',
+      title: row.warning || null,
+      text: row.warning
+        ? t('config.projectDefaultInvalid')
+        : (row.editable ? sourceName : '—'),
     }),
     el('span', {
-      stil: 'font-family:var(--f-baslik);font-weight:600;font-size:12.5px;'
-        + `letter-spacing:.08em;text-transform:uppercase;color:var(--${renk})`,
-      metin: etiket,
+      style: 'font-family:var(--font-heading);font-weight:600;'
+        + 'font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;'
+        + `color:var(--${colour})`,
+      text: label,
     }),
   ]);
 }
 
-async function uygula() {
-  const g = serit.gecerliGrup('cfg');
-  if (!g) return;
+async function applyToGroup() {
+  const group = groupBar.currentGroup('cfg');
+  if (!group) return;
   try {
-    const y = await api.konfigUygula(durum.setNo, g.ad, null);
-    ata({ kuyrukAcik: true, acikIs: y.id });
-    if (y.yeni === false) bildir('Cihaz ayarlarını uygulama işlemi zaten kuyrukta');
-    else basari('Cihaz ayarlarını uygulama işlemi kuyruğa alındı');
-  } catch (e) { hata(e.message); }
+    const job = await api.configApply(state.setNo, group.name, null);
+    patch({ queueOpen: true, openJob: job.id });
+    if (job.new === false) {
+      notify(t('config.applyingTheDeviceSettingsIs'));
+    } else {
+      showSuccess(t('config.applyingTheDeviceSettingsWas'));
+    }
+  } catch (e) { showError(e.message); }
 }

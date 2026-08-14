@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Switch Yönetim Paneli — KYLAND switch backend'i.
+"""Switch management panel — KYLAND switch backend.
 
-Tarayıcı doğrudan switch'e gitmez; bu servis araya girer:
+The browser never talks to a switch directly; this service sits in between:
 
-    Web arayüzü  ->  bu backend  --Basic Auth-->  KYLAND switch HTTP API
+    web UI  ->  this backend  --Basic Auth-->  KYLAND switch HTTP API
 
-Kullanıcı adı/şifre hiçbir dosyada saklanmaz: kullanıcı switch'i seçince
-arayüzden girer, burada yalnızca bellekte tutulur ve uygulama kapanınca
-kaybolur. Tarayıcı switch'e hiç bağlanmaz, kimlik oraya da sızmaz.
+Credentials are stored in no file: the user types them in after picking a
+switch, they live in memory only and disappear when the app exits.
 
-Her switch için yazma kilidi vardır; PoE/port POST'ları her zaman güncel
-GET üzerine kurulur, sıraya sokulur, paralel çalışmaz.
+Every switch has a write lock; PoE/port POSTs are always built on a fresh GET,
+serialised, never run in parallel.
 
-Çalıştırma:
-    python3 switch_api.py --port 9000              # yalnız API (pencere yok)
-    python3 switch_api.py --discover 10.1.1.0/24   # tek seferlik tarama
+Run:
+    python3 switch_api.py --port 9000              # API only (no window)
+    python3 switch_api.py --discover 10.1.1.0/24   # one-off scan
 """
 from __future__ import annotations
 
@@ -36,39 +35,39 @@ from requests.auth import HTTPBasicAuth
 HERE = Path(__file__).resolve().parent
 
 
-def kaynak_dizini() -> Path:
-    """Arayüz dosyalarının (static/) bulunduğu klasör.
+def resource_dir() -> Path:
+    """Folder holding the UI files (static/).
 
-    PyInstaller ile paketlendiğinde veriler geçici bir klasöre açılır ve
-    yolu sys._MEIPASS ile verilir; kaynaktan çalışırken bu dosyanın yanı.
+    Under PyInstaller data is unpacked to a temp dir reported via
+    sys._MEIPASS; from source it sits next to this file.
     """
-    temel = getattr(sys, "_MEIPASS", None)
-    return Path(temel) if temel else HERE
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base) if base else HERE
 
 
-STATIC_DIR = kaynak_dizini() / "static"
+STATIC_DIR = resource_dir() / "static"
 
-# Uygulama sürümü — alt barda gösterilir. Tek kaynak burası.
+# Application version — shown in the status bar. Single source.
 APP_VERSION = "1.0.3"
 
-# ------------------------------------------------------------------ ayar --
+# ------------------------------------------------------------- settings --
 PREFIX_TO_MASK = {"8": "255.0.0.0", "16": "255.255.0.0", "24": "255.255.255.0"}
-POE_MODE = {"0": "Kapalı", "1": "PoE", "2": "PoE+"}
+POE_MODE = {"0": "Off", "1": "PoE", "2": "PoE+"}
 POE_PRIORITY = {"0": "Low", "1": "High", "2": "Critical"}
 
-# switch başına yazma kilidi (aynı switch'e eşzamanlı POST engellenir)
+# Write lock per switch (blocks concurrent POSTs to the same switch)
 _LOCKS: dict[str, threading.Lock] = {}
 _LOCKS_GUARD = threading.Lock()
 
-# Aynı anda tek tarama. Üst üste tarama isteği gelirse ikincisi beklemez,
-# hemen reddedilir: yığılan taramalar switch'in web sunucusunu boğuyor.
+# One scan at a time. A second request is rejected immediately rather than
+# queued: stacked scans drown the switch's small web server.
 _SCAN_LOCK = threading.Lock()
 
-# Süren taramayı durdurma bayrağı. Arayüzdeki "İptal" bunu kaldırır;
-# tarama iş parçacıkları her adresten önce bakar ve sıradakilere hiç
-# dokunmadan çıkar. Yalnızca isteği kesmek yetmiyordu: sunucu tarafı
-# switch'lere sormaya devam edip kilidi tutuyordu.
-_SCAN_IPTAL = threading.Event()
+# Flag that stops a running scan. The UI's "Cancel" sets it; scan threads
+# check it before each address and leave the rest untouched. Aborting the
+# request alone was not enough — the server kept polling switches and holding
+# the lock.
+_SCAN_CANCEL = threading.Event()
 
 
 def lock_for(ip: str) -> threading.Lock:
@@ -76,56 +75,55 @@ def lock_for(ip: str) -> threading.Lock:
         return _LOCKS.setdefault(ip, threading.Lock())
 
 
-# Switch'lerin HTTP portu. Arayüz açılırken --switch-port ile
-# değiştirilebilir; ayar dosyası yok.
+# HTTP port of the switches. Overridable with --switch-port at startup;
+# there is no settings file.
 SWITCH_PORT = 80
 
-# Tarama kutusuna gelen varsayılan ağ aralığı
+# Default network range offered in the scan box
 DISCOVER_CIDR = "10.1.1.0/24"
 
-# Her değişiklikten sonra configSave çağrılsın mı?
-# KAPALI: kayıt yalnızca kullanıcı "Kaydet"e basınca yapılır. Böylece
-# switch'in flash'ı her port dokunuşunda yazılmaz ve yapılan değişiklik
-# beğenilmezse yeniden başlatmak eski haline döndürür.
+# Call configSave after every change?
+# OFF: saving happens only when the user presses "Save", so the switch's
+# flash is not written on every port touch and an unwanted change can be
+# undone by rebooting.
 AUTOSAVE = False
 
-# Ağ aralığı taramasında TCP ön yoklama süresi (tek IP'de kullanılmaz)
+# TCP pre-probe timeout during a range scan (unused for a single IP)
 TCP_PROBE_TIMEOUT = 1.2
 
 
-# Kimlik bilgileri hiçbir dosyada tutulmaz. Kullanıcı switch'i seçince
-# arayüzden girer, burada yalnızca bellekte durur, uygulama kapanınca
-# kaybolur.
-_KIMLIK: dict[str, tuple[str, str]] = {}          # ip -> (kullanıcı, şifre)
-_KIMLIK_GUARD = threading.Lock()
-_SON_KIMLIK: tuple[str, str] | None = None        # taramada denenecek son çift
+# Credentials are kept in no file. The user types them in after picking a
+# switch; they live in memory only and vanish when the app exits.
+_CREDENTIALS: dict[str, tuple[str, str]] = {}      # ip -> (username, password)
+_CREDENTIALS_GUARD = threading.Lock()
+_LAST_CREDENTIALS: tuple[str, str] | None = None   # last pair to try when scanning
 
 
-def kimlik_ver(ip: str, kullanici: str, sifre: str) -> None:
-    global _SON_KIMLIK
-    with _KIMLIK_GUARD:
-        _KIMLIK[ip] = (kullanici, sifre)
-        _SON_KIMLIK = (kullanici, sifre)
+def store_credentials(ip: str, username: str, password: str) -> None:
+    global _LAST_CREDENTIALS
+    with _CREDENTIALS_GUARD:
+        _CREDENTIALS[ip] = (username, password)
+        _LAST_CREDENTIALS = (username, password)
 
 
-def kimlik_sil(ip: str | None = None) -> None:
-    global _SON_KIMLIK
-    with _KIMLIK_GUARD:
+def clear_credentials(ip: str | None = None) -> None:
+    global _LAST_CREDENTIALS
+    with _CREDENTIALS_GUARD:
         if ip is None:
-            _KIMLIK.clear()
-            _SON_KIMLIK = None
+            _CREDENTIALS.clear()
+            _LAST_CREDENTIALS = None
         else:
-            _KIMLIK.pop(ip, None)
+            _CREDENTIALS.pop(ip, None)
 
 
-def kimlik_al(ip: str) -> tuple[str, str] | None:
-    """Önce o switch'in kendi kimliği, yoksa en son başarılı olan çift.
+def get_credentials(ip: str) -> tuple[str, str] | None:
+    """That switch's own credential first, else the last successful pair.
 
-    İkincisi taramada işe yarıyor: bir switch'e girdikten sonra aynı
-    kullanıcı/şifreyle diğerleri de tanınabiliyor.
+    The fallback helps while scanning: after signing in to one switch the
+    same username/password often works on the rest.
     """
-    with _KIMLIK_GUARD:
-        return _KIMLIK.get(ip) or _SON_KIMLIK
+    with _CREDENTIALS_GUARD:
+        return _CREDENTIALS.get(ip) or _LAST_CREDENTIALS
 
 
 # ----------------------------------------------------------- switch API ----
@@ -133,38 +131,39 @@ class SwitchError(Exception):
     pass
 
 
-class YetkiHatasi(Exception):
-    """Switch kimlik doğrulamayı reddetti ya da hiç kimlik girilmemiş."""
+class AuthError(Exception):
+    """The switch rejected authentication, or none was entered."""
 
 
-def _auth(ip: str, kimlik=None):
-    k = kimlik or kimlik_al(ip)
-    return HTTPBasicAuth(*k) if k else None
+def _auth(ip: str, credentials=None):
+    pair = credentials or get_credentials(ip)
+    return HTTPBasicAuth(*pair) if pair else None
 
 
-def _kontrol(r, ip: str):
-    """Yanıtı JSON'a çevirir; kimlik sorunlarını YetkiHatasi'na dönüştürür.
+def _parse_response(r, ip: str):
+    """Parse the response as JSON; turn auth problems into AuthError.
 
-    Cihaz kimlik istediğini her zaman 401 ile söylemiyor: bazı sürümler
-    oturum açma sayfasını 200 ile HTML olarak döndürüyor. JSON gelmeyen
-    her yanıtı da kimlik sorunu sayıyoruz — çünkü bu uçlar normalde
-    yalnızca JSON döndürür.
+    A device does not always signal "I want credentials" with a 401: some
+    firmware returns the login page as HTML with 200. Any non-JSON reply is
+    treated as an auth problem too, because these endpoints otherwise only
+    ever return JSON.
     """
     if r.status_code in (401, 403) or "WWW-Authenticate" in r.headers:
-        raise YetkiHatasi(f"{ip} kullanıcı adı/şifre istiyor")
+        raise AuthError(f"{ip} wants a username/password")
     r.raise_for_status()
     try:
         return r.json()
     except ValueError:
-        tur = r.headers.get("Content-Type", "?")
-        raise YetkiHatasi(
-            f"{ip} JSON yerine {tur} döndürdü — oturum açılması gerekiyor")
+        content_type = r.headers.get("Content-Type", "?")
+        raise AuthError(
+            f"{ip} returned {content_type} instead of JSON — "
+            "a session must be opened")
 
 
-def sw_get(ip: str, endpoint: str, timeout=5, kimlik=None):
+def sw_get(ip: str, endpoint: str, timeout=5, credentials=None):
     r = requests.get(f"http://{ip}:{SWITCH_PORT}/{endpoint}",
-                     auth=_auth(ip, kimlik), timeout=timeout)
-    return _kontrol(r, ip)
+                     auth=_auth(ip, credentials), timeout=timeout)
+    return _parse_response(r, ip)
 
 
 def sw_post(ip: str, endpoint: str, form: dict, timeout=8):
@@ -174,21 +173,22 @@ def sw_post(ip: str, endpoint: str, form: dict, timeout=8):
                                "application/x-www-form-urlencoded; charset=UTF-8",
                                "X-Requested-With": "XMLHttpRequest"},
                       timeout=timeout)
-    return _kontrol(r, ip)
+    return _parse_response(r, ip)
 
 
-def is_switch(ip: str, timeout=1.5, kimlik=None) -> dict | None:
-    """basicInfo dönerse switch'tir; özet bilgi döndürür.
+def is_switch(ip: str, timeout=1.5, credentials=None) -> dict | None:
+    """A basicInfo reply means it is a switch; returns a summary.
 
-    Kimlik yoksa ya da yanlışsa cihaz 401 döner — bu da bir switch olduğunu
-    gösterir. Böyle olanları "kilitli" işaretleyip listede gösteriyoruz;
-    kullanıcı seçtiğinde kullanıcı adı/şifre soruluyor.
+    Without (or with wrong) credentials the device returns 401 — which also
+    proves it is a switch. Those are flagged "locked" and still listed; the
+    user is asked for a username/password on selection.
     """
     try:
-        data = sw_get(ip, "stat/basicInfo", timeout=timeout, kimlik=kimlik)
-    except YetkiHatasi:
+        data = sw_get(ip, "stat/basicInfo", timeout=timeout,
+                      credentials=credentials)
+    except AuthError:
         return {"ip": ip, "name": "Switch", "model": "", "version": "",
-                "mac": "", "kilit": True}
+                "mac": "", "locked": True}
     except Exception:
         return None
     info = data.get("basicInfo", data) if isinstance(data, dict) else {}
@@ -200,7 +200,7 @@ def is_switch(ip: str, timeout=1.5, kimlik=None) -> dict | None:
         "model": info.get("deviceType") or info.get("model") or "",
         "version": info.get("softVer") or info.get("softwareVersion") or "",
         "mac": info.get("macAddress") or info.get("mac") or "",
-        "kilit": False,
+        "locked": False,
     }
 
 
@@ -212,76 +212,77 @@ def tcp_open(ip: str, port: int, timeout=0.4) -> bool:
         return False
 
 
-def discover(cidr: str, workers=64, iptal: threading.Event | None = None) -> dict:
-    """Ağı tarayıp switch'leri bulur.
+def discover(cidr: str, workers=64,
+             cancel: threading.Event | None = None) -> dict:
+    """Scan a network and find switches.
 
-    Tek IP verilirse ("10.1.1.101") doğrudan HTTP ile sorgulanır — TCP ön
-    yoklaması yoktur, çünkü orada eleme yapmanın anlamı yok ve yavaş bir
-    cihazı yanlışlıkla elemesin.
+    A single IP ("10.1.1.101") is queried over HTTP directly — no TCP
+    pre-probe, since filtering one address is pointless and could wrongly
+    exclude a slow device.
 
-    Ağ aralığı verilirse önce hafif TCP yoklaması yapılır (254 eşzamanlı
-    HTTP+auth isteği switch'in küçük web sunucusunu boğuyor), sonra yalnızca
-    cevap veren adreslere basicInfo sorulur. TCP hiç sonuç vermezse yine de
-    HTTP denenir; ön yoklama bir hız optimizasyonudur, kapı bekçisi değil.
+    For a range, a light TCP probe runs first (254 concurrent HTTP+auth
+    requests drown the switch's little web server) and only responders are
+    asked for basicInfo. If TCP finds nothing, HTTP is tried anyway: the
+    pre-probe is a speed optimisation, not a gatekeeper.
 
-    `iptal` verilirse her adresten önce bakılır: kaldırılmışsa sıradaki
-    adreslere hiç dokunulmaz ve sonuçta "iptal" işareti döner. Çalışmakta
-    olan tek bir soket beklemesi kendi zaman aşımı kadar sürebilir; onun
-    ötesinde tarama anında biter.
+    With `cancel` set, each address is checked first: the rest are left
+    untouched and the result carries a "cancelled" flag. One in-flight socket
+    wait may still run to its own timeout; beyond that the scan ends at once.
     """
     cidr = (cidr or "").strip()
-    tek = bool(re.fullmatch(r"\d+\.\d+\.\d+\.\d+", cidr))
-    durdu = lambda: bool(iptal and iptal.is_set())        # noqa: E731
+    single = bool(re.fullmatch(r"\d+\.\d+\.\d+\.\d+", cidr))
+    stopped = lambda: bool(cancel and cancel.is_set())        # noqa: E731
 
-    if tek:
+    if single:
         hosts = [cidr]
-        adaylar = hosts                       # doğrudan HTTP
+        candidates = hosts                    # straight to HTTP
     else:
         m = (re.match(r"(\d+\.\d+\.\d+)\.\d+/\d+", cidr)
              or re.match(r"(\d+\.\d+\.\d+)\.?$", cidr))
         prefix = m.group(1) if m else cidr.rstrip(".")
         hosts = [f"{prefix}.{i}" for i in range(1, 255)]
         with cf.ThreadPoolExecutor(max_workers=workers) as pool:
-            adaylar = [h for h, ok in zip(hosts, pool.map(
-                lambda h: (not durdu()
+            candidates = [h for h, ok in zip(hosts, pool.map(
+                lambda h: (not stopped()
                            and tcp_open(h, SWITCH_PORT, TCP_PROBE_TIMEOUT)),
                 hosts)) if ok]
-        if durdu():
+        if stopped():
             return {"switches": [], "probed": len(hosts), "queried": 0,
-                    "iptal": True}
-        if not adaylar:                       # ön yoklama boş -> yine de dene
-            adaylar = hosts
+                    "cancelled": True}
+        if not candidates:                    # empty pre-probe -> try anyway
+            candidates = hosts
 
-    sure = 6.0 if tek else 4.0
+    timeout = 6.0 if single else 4.0
     found = []
-    with cf.ThreadPoolExecutor(max_workers=min(len(adaylar) or 1, 24)) as pool:
-        for res in pool.map(
-                lambda h: None if durdu() else is_switch(h, timeout=sure),
-                adaylar):
-            if res:
-                found.append(res)
-    return {"switches": found, "probed": len(hosts), "queried": len(adaylar),
-            "iptal": durdu()}
+    with cf.ThreadPoolExecutor(
+            max_workers=min(len(candidates) or 1, 24)) as pool:
+        for result in pool.map(
+                lambda h: None if stopped() else is_switch(h, timeout=timeout),
+                candidates):
+            if result:
+                found.append(result)
+    return {"switches": found, "probed": len(hosts),
+            "queried": len(candidates), "cancelled": stopped()}
 
 
-# ------------------------------------------------------- iş mantığı --------
+# ------------------------------------------------------- business logic ----
 def get_info(ip: str) -> dict:
-    """Seçilen switch'in künyesi + yönetim IP'si.
+    """The selected switch's identity plus its management IP.
 
-    is_switch() taramada kullanıldığı için kimlik sorununda "kilitli" bir
-    özet döndürüyor; burada bunu hataya çeviriyoruz. Aksi halde arayüz
-    şifre sormadan boş bir başlık gösteriyordu ("SWITCH · ip · v?").
+    is_switch() is used while scanning, so it returns a "locked" summary on
+    auth problems; here that becomes an error. Otherwise the UI showed an
+    empty header ("SWITCH · ip · v?") without ever asking for a password.
     """
     info = is_switch(ip, timeout=4)
     if info is None:
-        raise SwitchError(f"{ip} yanıt vermiyor")
-    if info.get("kilit"):
-        raise YetkiHatasi(f"{ip} kullanıcı adı/şifre istiyor")
+        raise SwitchError(f"{ip} is not answering")
+    if info.get("locked"):
+        raise AuthError(f"{ip} wants a username/password")
     try:
         net = sw_get(ip, "stat/vlanIntfIp?intf=1")
         net = net.get("vlanIntfIp", net) if isinstance(net, dict) else {}
-    except YetkiHatasi:
-        raise                       # kimlik sorunu yutulmamalı
+    except AuthError:
+        raise                       # an auth problem must not be swallowed
     except Exception:
         net = {}
     info["network"] = {
@@ -295,16 +296,17 @@ def get_info(ip: str) -> dict:
 
 
 def get_ports(ip: str) -> list[dict]:
-    """portMode + poePort + poeStatus tek listede birleştirilir."""
+    """portMode + poePort + poeStatus merged into one list."""
     pm = sw_get(ip, "stat/portMode").get("portMode", [])
-    poe = {int(p["pid"]): p for p in sw_get(ip, "stat/poePort").get("poePort", [])}
+    poe = {int(p["pid"]): p
+           for p in sw_get(ip, "stat/poePort").get("poePort", [])}
     try:
         live = {int(p["pid"]): p
                 for p in sw_get(ip, "stat/poeStatus").get("poeStatus", [])}
-    except YetkiHatasi:
-        raise                       # kimlik sorunu yutulmamalı
+    except AuthError:
+        raise                       # an auth problem must not be swallowed
     except Exception:
-        live = {}                   # bu uç yoksa tüketim boş kalır, sorun değil
+        live = {}                   # endpoint absent: usage stays empty
 
     out = []
     for p in pm:
@@ -331,41 +333,42 @@ def get_ports(ip: str) -> list[dict]:
             "priorityText": POE_PRIORITY.get(str(pp.get("priority", "0")), ""),
             "maxPower": str(pp.get("maxPower", "154")),
             "poeStatus": ls.get("portStatus", ""),
-            "powerW": round(int(power) / 10, 1) if str(power).isdigit() else None,
+            "powerW": (round(int(power) / 10, 1)
+                       if str(power).isdigit() else None),
         })
     return out
 
 
 def config_save(ip: str) -> dict:
-    """Çalışan yapılandırmayı kalıcı hale getirir.
+    """Persist the running configuration.
 
-    Bu çağrılmazsa PoE/port/IP değişiklikleri switch yeniden başlayınca
-    kaybolur — RAM'de kalır, flash'a yazılmaz.
+    Without this, PoE/port/IP changes are lost when the switch reboots — they
+    live in RAM and are never written to flash.
     """
     return sw_post(ip, "stat/configSave", {"postOperation": "configSave"},
                    timeout=15)
 
 
-def _autosave(ip: str, sonuc: dict) -> dict:
-    """Değişiklikten sonra kaydeder; kaydedilemezse sonuca not düşer.
+def _autosave(ip: str, result: dict) -> dict:
+    """Save after a change; note it on the result if saving fails.
 
-    Otomatik kayıt kapalıyken sonuca "saved" alanı hiç konmaz — çünkü
-    kaydedilmemiş olması hata değil, beklenen durum. Arayüz bunu
-    "kaydedilmemiş değişiklik var" göstergesiyle takip eder.
+    With autosave off, no "saved" field is added at all — being unsaved is
+    the expected state, not an error. The UI tracks it with an "unsaved
+    changes" indicator.
     """
     if not AUTOSAVE:
-        return sonuc
+        return result
     try:
         config_save(ip)
-        sonuc["saved"] = True
+        result["saved"] = True
     except Exception as exc:
-        sonuc["saved"] = False
-        sonuc["saveError"] = f"{type(exc).__name__}: {exc}"
-    return sonuc
+        result["saved"] = False
+        result["saveError"] = f"{type(exc).__name__}: {exc}"
+    return result
 
 
 def set_poe(ip: str, port: int, mode: str) -> dict:
-    """Tek portun PoE modunu değiştirir (24 portun tamamını okuyup yazar)."""
+    """Change one port's PoE mode (reads and writes all 24 ports)."""
     with lock_for(ip):
         ports = sw_get(ip, "stat/poePort").get("poePort", [])
         if not any(int(p["pid"]) == port for p in ports):
@@ -373,17 +376,18 @@ def set_poe(ip: str, port: int, mode: str) -> dict:
         form = {}
         for p in ports:
             pid = int(p["pid"])
-            form[f"mode_{pid}"] = str(mode) if pid == port else str(p["poeMode"])
+            form[f"mode_{pid}"] = (str(mode) if pid == port
+                                   else str(p["poeMode"]))
             form[f"priority_{pid}"] = str(p["priority"])
             form[f"maxPower_{pid}"] = str(p["maxPower"])
         return _autosave(ip, sw_post(ip, "stat/poePort", form))
 
 
 def _portmode_form(ports: list, admin_over: dict) -> dict:
-    """portMode POST gövdesini kurar; admin_over verilen portları ezer.
+    """Build the portMode POST body; admin_over overrides the given ports.
 
-    Switch tüm portları tek istekte yazdığı için, değişmeyen portların
-    mevcut değerleri de aynen geri gönderilmek zorunda.
+    The switch writes every port in one request, so unchanged ports must be
+    sent back with their current values.
     """
     form = {}
     for p in ports:
@@ -405,10 +409,10 @@ def _portmode_form(ports: list, admin_over: dict) -> dict:
 
 def set_port_enabled(ip: str, port: int, enabled: bool,
                      protect_uplink=True) -> dict:
-    """Tek portu açar/kapatır (tüm portları okuyup yazar).
+    """Enable/disable one port (reads and writes all ports).
 
-    Uplink portu (link'i up olan ve istekte olmayan) yanlışlıkla kapatılırsa
-    switch'e erişim kaybedilir; koruma varsayılan açık.
+    Accidentally closing the uplink port (link up and not in the request)
+    loses access to the switch; protection is on by default.
     """
     with lock_for(ip):
         ports = sw_get(ip, "stat/portMode").get("portMode", [])
@@ -418,45 +422,44 @@ def set_port_enabled(ip: str, port: int, enabled: bool,
                                      _portmode_form(ports, {port: enabled})))
 
 
-def apply_batch(ip: str, poe: dict, portlar: dict) -> dict:
-    """Birden çok PoE/port değişikliğini tek yazımda uygular.
+def apply_batch(ip: str, poe: dict, ports: dict) -> dict:
+    """Apply several PoE/port changes in a single write.
 
-    Switch API'si zaten "hepsini oku, hepsini yaz" mantığında. Değişiklikleri
-    tek tek göndermek yerine burada birleştiriyoruz: en fazla iki POST
-    (poePort + portMode) ve sonda bir kez kayıt. 10 değişiklik için 10 kayıt
-    turu yerine 1 tur — hem hızlı hem switch'i yormuyor.
+    The switch API already works as "read all, write all". Merging here means
+    at most two POSTs (poePort + portMode) and one save at the end — one save
+    round for 10 changes instead of 10.
     """
-    sonuc = {"retCode": ["success"], "poe": [], "ports": []}
+    result = {"retCode": ["success"], "poe": [], "ports": []}
     with lock_for(ip):
         if poe:
-            mevcut = sw_get(ip, "stat/poePort").get("poePort", [])
-            bilinen = {int(p["pid"]) for p in mevcut}
-            eksik = sorted(set(poe) - bilinen)
-            if eksik:
-                raise SwitchError(f"PoE listesinde olmayan port: {eksik}")
+            current = sw_get(ip, "stat/poePort").get("poePort", [])
+            known = {int(p["pid"]) for p in current}
+            missing = sorted(set(poe) - known)
+            if missing:
+                raise SwitchError(f"PoE listesinde olmayan port: {missing}")
             form = {}
-            for p in mevcut:
+            for p in current:
                 pid = int(p["pid"])
                 form[f"mode_{pid}"] = str(poe.get(pid, p["poeMode"]))
                 form[f"priority_{pid}"] = str(p["priority"])
                 form[f"maxPower_{pid}"] = str(p["maxPower"])
             sw_post(ip, "stat/poePort", form)
-            sonuc["poe"] = sorted(poe)
+            result["poe"] = sorted(poe)
 
-        if portlar:
-            mevcut = sw_get(ip, "stat/portMode").get("portMode", [])
-            bilinen = {int(p["pid"]) for p in mevcut}
-            eksik = sorted(set(portlar) - bilinen)
-            if eksik:
-                raise SwitchError(f"olmayan port: {eksik}")
-            sw_post(ip, "stat/portMode", _portmode_form(mevcut, portlar))
-            sonuc["ports"] = sorted(portlar)
+        if ports:
+            current = sw_get(ip, "stat/portMode").get("portMode", [])
+            known = {int(p["pid"]) for p in current}
+            missing = sorted(set(ports) - known)
+            if missing:
+                raise SwitchError(f"olmayan port: {missing}")
+            sw_post(ip, "stat/portMode", _portmode_form(current, ports))
+            result["ports"] = sorted(ports)
 
-    return _autosave(ip, sonuc)
+    return _autosave(ip, result)
 
 
 def set_port_config(ip: str, port: int, cfg: dict) -> dict:
-    """Bir portun hız/dupleks/akış/çerçeve ayarlarını günceller."""
+    """Update one port's speed/duplex/flow/frame settings."""
     with lock_for(ip):
         ports = sw_get(ip, "stat/portMode").get("portMode", [])
         if not any(int(p["pid"]) == port for p in ports):
@@ -473,11 +476,11 @@ def set_port_config(ip: str, port: int, cfg: dict) -> dict:
             if auto:
                 form[f"autoNego_{pid}"] = "1"
             form[f"speed_{pid}"] = str(cur.get("speed", p.get("speed", "")))
-            dup = cur.get("duplex", bool(p.get("duplex")))
-            if dup:
+            duplex = cur.get("duplex", bool(p.get("duplex")))
+            if duplex:
                 form[f"duplex_{pid}"] = "1"
-            fc = cur.get("flowCtrl", bool(p.get("flowCtrl")))
-            if fc:
+            flow = cur.get("flowCtrl", bool(p.get("flowCtrl")))
+            if flow:
                 form[f"flowCtrl_{pid}"] = "1"
             form[f"maxLength_{pid}"] = str(
                 cur.get("maxLength", p.get("maxLength", "1522")))
@@ -485,42 +488,44 @@ def set_port_config(ip: str, port: int, cfg: dict) -> dict:
 
 
 def set_network(ip: str, addr: str, prefix: str, mtu="1500") -> dict:
-    """Switch IP'sini değiştirir. Bağlantı kopması beklenen durumdur."""
+    """Change the switch IP. Losing the connection is expected."""
     with lock_for(ip):
         form = {"method": "manual", "addr": addr,
                 "netmaskLen": str(prefix), "mtu": str(mtu)}
         try:
-            sonuc = sw_post(ip, "stat/vlanIntfIp?intf=1", form, timeout=5)
+            result = sw_post(ip, "stat/vlanIntfIp?intf=1", form, timeout=5)
         except requests.RequestException:
-            # IP değişince switch eski adresi bırakır, bağlantı kopar — normal
-            sonuc = {"retCode": ["success"], "note": "bağlantı koptu (beklenen)"}
-        # Kayıt YENİ adresten yapılmalı; switch eski IP'de artık yok
+            # On an IP change the switch drops the old address — normal.
+            result = {"retCode": ["success"],
+                      "note": "the connection dropped (expected)"}
+        # The save must go to the NEW address; the switch is gone from the old.
         if AUTOSAVE:
             time.sleep(2)
             try:
                 config_save(addr)
-                sonuc["saved"] = True
+                result["saved"] = True
             except Exception:
-                sonuc["saved"] = False
-                sonuc["saveError"] = (f"{addr} adresinden kaydedilemedi — "
-                                      f"yeni adresten bağlanıp Kaydet'e basın")
-        return sonuc
+                result["saved"] = False
+                result["saveError"] = (f"{addr} adresinden kaydedilemedi — "
+                                       f"connect on the new address and "
+                                       f"press Save")
+        return result
 
 
-def giris(ip: str, kullanici: str, sifre: str) -> dict:
-    """Girilen kimlikle switch'e bağlanmayı dener, tutarsa belleğe alır.
+def login(ip: str, username: str, password: str) -> dict:
+    """Try the given credential against the switch; remember it if it works.
 
-    Kimlik hiçbir yere yazılmaz; yalnızca çalışan süreçte durur.
+    Nothing is written anywhere; it stays in the running process.
     """
-    if not kullanici:
-        raise SwitchError("kullanıcı adı gerekli")
-    bilgi = is_switch(ip, timeout=6, kimlik=(kullanici, sifre))
-    if bilgi is None:
-        raise SwitchError(f"{ip} yanıt vermiyor")
-    if bilgi.get("kilit"):
-        raise YetkiHatasi("kullanıcı adı ya da şifre hatalı")
-    kimlik_ver(ip, kullanici, sifre)
-    return bilgi
+    if not username:
+        raise SwitchError("a username is required")
+    info = is_switch(ip, timeout=6, credentials=(username, password))
+    if info is None:
+        raise SwitchError(f"{ip} is not answering")
+    if info.get("locked"):
+        raise AuthError("wrong username or password")
+    store_credentials(ip, username, password)
+    return info
 
 
 def reboot(ip: str) -> dict:
@@ -529,23 +534,24 @@ def reboot(ip: str) -> dict:
             return sw_post(ip, "stat/reboot",
                            {"postOperation": "reboot"}, timeout=5)
         except requests.RequestException:
-            return {"retCode": ["success"], "note": "switch kapanıyor"}
+            return {"retCode": ["success"], "note": "the switch is shutting down"}
 
 
 def factory_reset(ip: str) -> dict:
-    """Switch'i fabrika ayarlarına döndürür.
+    """Reset the switch to factory defaults.
 
-    Geri alınamaz: IP dahil bütün yapılandırma silinir, switch varsayılan
-    adresine döner ve bu arayüzden bir daha bulunamayabilir. Bu yüzden
-    çağrı, gövdede switch IP'sinin yazılı onayını ister (bkz. do_POST).
+    Irreversible: the whole configuration including the IP is wiped, the
+    switch returns to its default address and may not be findable from this
+    UI again. The call therefore requires the switch IP typed as confirmation
+    in the body (see do_POST).
     """
     with lock_for(ip):
         try:
             return sw_post(ip, "stat/reset",
                            {"postOperation": "reset"}, timeout=10)
         except requests.RequestException:
-            # Sıfırlanan switch cevap vermeden bağlantıyı koparabilir
-            return {"retCode": ["success"], "note": "switch sıfırlanıyor"}
+            # A resetting switch may drop the connection without answering
+            return {"retCode": ["success"], "note": "the switch is resetting"}
 
 
 # --------------------------------------------------------------- HTTP -----
@@ -562,20 +568,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json_body(self):
-        n = int(self.headers.get("Content-Length", 0))
-        if not n:
+        length = int(self.headers.get("Content-Length", 0))
+        if not length:
             return {}
         try:
-            return json.loads(self.rfile.read(n))
+            return json.loads(self.rfile.read(length))
         except ValueError:
             return {}
 
     def _file(self, name, ctype):
-        """Statik dosyayı önbelleğe alınmadan gönderir.
+        """Send a static file with caching disabled.
 
-        Önbellek başlığı göndermezsek tarayıcı kendi kestirimiyle dosyayı
-        saklıyor; arayüzü güncelledikten sonra pencerede eski sürüm kalıyordu.
-        Yerelden okunan birkaç KB için önbelleğin faydası da yok.
+        Without a cache header the browser keeps the file on its own guess,
+        and the window still showed the old UI after an update. Caching a few
+        KB read from disk buys nothing anyway.
         """
         path = STATIC_DIR / name
         if not path.exists():
@@ -590,21 +596,20 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _index(self):
-        """index.html'i varlık adreslerine sürüm ekleyerek gönderir.
+        """Send index.html with a version stamp on asset URLs.
 
-        Uygulama penceresi (WebView2 / WKWebView / QtWebEngine) eski
-        app.js ve style.css'i inatla önbellekte tutabiliyor; arayüz
-        güncellendiği halde eski hali görünüyordu. Dosya her değiştiğinde adres de
-        değiştiği için önbellek kendiliğinden devre dışı kalır.
+        The app window (WebView2 / WKWebView / QtWebEngine) stubbornly cached
+        the old app.js and style.css. The URL changes whenever the file does,
+        so the cache drops out by itself.
         """
         path = STATIC_DIR / "index.html"
         if not path.exists():
             return self._send(404, {"error": "yok"})
         html = path.read_text(encoding="utf-8")
-        for varlik in ("app.js", "style.css"):
-            p = STATIC_DIR / varlik
-            surum = int(p.stat().st_mtime) if p.exists() else 0
-            html = html.replace(f'"/{varlik}"', f'"/{varlik}?v={surum}"')
+        for asset in ("app.js", "style.css"):
+            asset_path = STATIC_DIR / asset
+            stamp = int(asset_path.stat().st_mtime) if asset_path.exists() else 0
+            html = html.replace(f'"/{asset}"', f'"/{asset}?v={stamp}"')
         body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -615,163 +620,167 @@ class Handler(BaseHTTPRequestHandler):
 
     # --------------------------------------------------------- routing ----
     def do_GET(self):
-        u = urlparse(self.path)
-        q = parse_qs(u.query)
+        url = urlparse(self.path)
+        query = parse_qs(url.query)
         try:
-            if u.path in ("/", "/index.html"):
+            if url.path in ("/", "/index.html"):
                 return self._index()
-            if u.path == "/app.js":
+            if url.path == "/app.js":
                 return self._file("app.js", "application/javascript")
-            if u.path == "/style.css":
+            if url.path == "/style.css":
                 return self._file("style.css", "text/css")
-            if u.path == "/piton-logo.svg":
+            if url.path == "/piton-logo.svg":
                 return self._file("piton-logo.svg", "image/svg+xml")
-            if u.path == "/piton-favicon.png":
+            if url.path == "/piton-favicon.png":
                 return self._file("piton-favicon.png", "image/png")
 
-            if u.path == "/api/version":
+            if url.path == "/api/version":
                 return self._send(200, {"version": APP_VERSION})
-            if u.path == "/api/discover":
-                cidr = q.get("cidr", [DISCOVER_CIDR])[0]
+            if url.path == "/api/discover":
+                cidr = query.get("cidr", [DISCOVER_CIDR])[0]
                 if not _SCAN_LOCK.acquire(blocking=False):
-                    return self._send(409, {"error": "tarama zaten sürüyor"})
+                    return self._send(409, {"error": "a scan is already running"})
                 try:
-                    _SCAN_IPTAL.clear()
-                    return self._send(200, discover(cidr, iptal=_SCAN_IPTAL))
+                    _SCAN_CANCEL.clear()
+                    return self._send(200, discover(cidr, cancel=_SCAN_CANCEL))
                 finally:
                     _SCAN_LOCK.release()
-            if u.path == "/api/discover/cancel":
-                # Bayrağı kaldırıp taramanın gerçekten bitmesini bekliyoruz:
-                # arayüz bu yanıtı aldığında kilit boşta olsun ki hemen
-                # ardından basılan "Tara" 409'a düşmesin.
-                _SCAN_IPTAL.set()
+            if url.path == "/api/discover/cancel":
+                # Raise the flag and wait for the scan to really finish, so
+                # the lock is free by the time the UI gets this reply and a
+                # "Scan" pressed right after does not hit a 409.
+                _SCAN_CANCEL.set()
                 if _SCAN_LOCK.acquire(timeout=10):
                     _SCAN_LOCK.release()
-                    return self._send(200, {"ok": True, "durdu": True})
-                return self._send(200, {"ok": True, "durdu": False})
-            if u.path == "/api/switch/info":
-                return self._send(200, get_info(q["ip"][0]))
-            if u.path == "/api/switch/ports":
-                return self._send(200, {"ports": get_ports(q["ip"][0])})
-            return self._send(404, {"error": "bilinmeyen yol"})
-        except YetkiHatasi as e:
-            self._send(401, {"error": str(e), "kimlik": True})
+                    return self._send(200, {"ok": True, "stopped": True})
+                return self._send(200, {"ok": True, "stopped": False})
+            if url.path == "/api/switch/info":
+                return self._send(200, get_info(query["ip"][0]))
+            if url.path == "/api/switch/ports":
+                return self._send(200, {"ports": get_ports(query["ip"][0])})
+            return self._send(404, {"error": "unknown path"})
+        except AuthError as exc:
+            self._send(401, {"error": str(exc), "auth": True})
         except KeyError:
-            self._send(400, {"error": "ip parametresi gerekli"})
-        except requests.RequestException as e:
-            self._send(502, {"error": f"switch'e ulaşılamadı: {e}"})
-        except Exception as e:
-            self._send(500, {"error": str(e)})
+            self._send(400, {"error": "the ip parameter is required"})
+        except requests.RequestException as exc:
+            self._send(502, {"error": f"the switch is unreachable: {exc}"})
+        except Exception as exc:
+            self._send(500, {"error": str(exc)})
 
     def do_POST(self):
-        u = urlparse(self.path)
+        url = urlparse(self.path)
         body = self._json_body()
         ip = body.get("ip")
         try:
             if not ip:
-                return self._send(400, {"error": "ip gerekli"})
-            if u.path == "/api/switch/login":
-                return self._send(200, giris(ip, str(body.get("user", "")),
+                return self._send(400, {"error": "an ip is required"})
+            if url.path == "/api/switch/login":
+                return self._send(200, login(ip, str(body.get("user", "")),
                                              str(body.get("pass", ""))))
-            if u.path == "/api/switch/logout":
-                kimlik_sil(ip if body.get("hepsi") is not True else None)
+            if url.path == "/api/switch/logout":
+                clear_credentials(ip if body.get("all") is not True else None)
                 return self._send(200, {"ok": True})
-            if u.path == "/api/switch/poe":
+            if url.path == "/api/switch/poe":
                 return self._send(200, set_poe(ip, int(body["port"]),
                                                str(body["mode"])))
-            if u.path == "/api/switch/port":
+            if url.path == "/api/switch/port":
                 if "enabled" in body:
                     return self._send(200, set_port_enabled(
                         ip, int(body["port"]), bool(body["enabled"])))
                 return self._send(200, set_port_config(
                     ip, int(body["port"]), body.get("config", {})))
-            if u.path == "/api/switch/batch":
+            if url.path == "/api/switch/batch":
                 poe = {int(k): str(v)
                        for k, v in (body.get("poe") or {}).items()}
-                portlar = {int(k): bool(v)
-                           for k, v in (body.get("ports") or {}).items()}
-                if not poe and not portlar:
-                    return self._send(400, {"error": "gönderilecek değişiklik yok"})
-                return self._send(200, apply_batch(ip, poe, portlar))
-            if u.path == "/api/switch/network":
+                ports = {int(k): bool(v)
+                         for k, v in (body.get("ports") or {}).items()}
+                if not poe and not ports:
+                    return self._send(
+                        400, {"error": "there is no change to send"})
+                return self._send(200, apply_batch(ip, poe, ports))
+            if url.path == "/api/switch/network":
                 return self._send(200, set_network(
                     ip, body["addr"], body["prefix"], body.get("mtu", "1500")))
-            if u.path == "/api/switch/config-save":
+            if url.path == "/api/switch/config-save":
                 return self._send(200, config_save(ip))
-            if u.path == "/api/switch/reboot":
-                # Kendiliğinden kaydetmiyoruz: kayıt yalnızca kullanıcının
-                # işi. Kaydedilmemiş değişiklikler varsa arayüz uyarıyor.
+            if url.path == "/api/switch/reboot":
+                # No automatic save: saving is the user's call. The UI warns
+                # when there are unsaved changes.
                 return self._send(200, reboot(ip))
-            if u.path == "/api/switch/factory-reset":
-                # Yıkıcı işlem: gövdede switch IP'si onay olarak yazılmalı.
+            if url.path == "/api/switch/factory-reset":
+                # Destructive: the body must repeat the switch IP as consent.
                 if str(body.get("confirm", "")).strip() != ip:
-                    return self._send(400, {"error": "onay doğrulanmadı"})
+                    return self._send(400, {"error": "the confirmation was not verified"})
                 return self._send(200, factory_reset(ip))
-            return self._send(404, {"error": "bilinmeyen yol"})
-        except YetkiHatasi as e:
-            self._send(401, {"error": str(e), "kimlik": True})
-        except (KeyError, ValueError) as e:
-            self._send(400, {"error": f"eksik/geçersiz alan: {e}"})
-        except SwitchError as e:
-            self._send(400, {"error": str(e)})
-        except requests.RequestException as e:
-            self._send(502, {"error": f"switch'e ulaşılamadı: {e}"})
-        except Exception as e:
-            self._send(500, {"error": str(e)})
+            return self._send(404, {"error": "unknown path"})
+        except AuthError as exc:
+            self._send(401, {"error": str(exc), "auth": True})
+        except (KeyError, ValueError) as exc:
+            self._send(400, {"error": f"missing/invalid field: {exc}"})
+        except SwitchError as exc:
+            self._send(400, {"error": str(exc)})
+        except requests.RequestException as exc:
+            self._send(502, {"error": f"the switch is unreachable: {exc}"})
+        except Exception as exc:
+            self._send(500, {"error": str(exc)})
 
     def log_message(self, fmt, *args):
         pass
 
 
 def main() -> int:
-    """Yalnızca API sunucusu — pencere açmaz.
+    """API server only — opens no window.
 
-    Uygulama penceresi için app.py kullanılır. Bu giriş noktası hata
-    ayıklama içindir: uçları curl ile denemek, tek seferlik tarama yapmak.
+    app.py is used for the application window. This entry point is for
+    debugging: trying endpoints with curl, running a one-off scan.
     """
     global SWITCH_PORT
 
-    # Windows konsolu cp1252 olabiliyor; Türkçe karakter yazmak
-    # UnicodeEncodeError veriyor. Çıktıyı UTF-8'e çeviriyoruz.
-    for akis in (sys.stdout, sys.stderr):
+    # A Windows console may be cp1252, where Turkish characters raise
+    # UnicodeEncodeError. Force the streams to UTF-8.
+    for stream in (sys.stdout, sys.stderr):
         try:
-            akis.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 
-    p = argparse.ArgumentParser(
-        description="Switch Yönetim Paneli — API sunucusu (pencere açmaz)")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8770, help="bu servisin portu")
-    p.add_argument("--switch-port", type=int, default=SWITCH_PORT,
-                   help=f"switch'lerin HTTP portu (varsayılan {SWITCH_PORT})")
-    p.add_argument("--discover", default=None,
-                   help="sunucuyu açmadan bu ağı tara ve çık (ör. 10.1.1.0/24)")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Switch Management Panel — API server (opens no window)")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8770,
+                        help="the port this service listens on")
+    parser.add_argument("--switch-port", type=int, default=SWITCH_PORT,
+                        help=f"the switches' HTTP port (default {SWITCH_PORT})")
+    parser.add_argument("--discover", default=None,
+                        help="scan this network and exit without starting "
+                             "the server (e.g. 10.1.1.0/24)")
+    args = parser.parse_args()
     SWITCH_PORT = args.switch_port
 
     if args.discover:
-        print(f"Ağ taranıyor: {args.discover}")
-        for s in discover(args.discover)["switches"]:
-            durum = "kilitli" if s["kilit"] else f"{s['model']} v{s['version']}"
-            print(f"  {s['ip']:<16} {durum}")
+        print(f"Scanning the network: {args.discover}")
+        for found in discover(args.discover)["switches"]:
+            state = ("kilitli" if found["locked"]
+                     else f"{found['model']} v{found['version']}")
+            print(f"  {found['ip']:<16} {state}")
         return 0
 
     try:
-        srv = ThreadingHTTPServer((args.host, args.port), Handler)
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError as exc:
-        print(f"[HATA] {args.port} portu açılamadı: {exc}")
+        print(f"[ERROR] Could not open port {args.port}: {exc}")
         return 1
 
-    print(f"API: http://{args.host}:{args.port}   (durdurmak için Ctrl-C)")
+    print(f"API: http://{args.host}:{args.port}   (Ctrl-C to stop)")
     print(f"Switch'ler {SWITCH_PORT} portunda aranacak")
-    print("Kimlik bilgisi arayüzden istenir, hiçbir yere yazılmaz.")
+    print("Credentials are asked for in the UI and written nowhere.")
     try:
-        srv.serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
-        print("\nKapatılıyor.")
+        print("\nShutting down.")
     finally:
-        srv.shutdown()
+        server.shutdown()
     return 0
 
 

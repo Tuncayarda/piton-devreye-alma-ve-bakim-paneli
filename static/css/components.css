@@ -1,16 +1,16 @@
-/* Yeniden kullanılan parçalar: düğmeler, kartlar, tablolar, rozetler,
-   kilit menüsü, kuyruk paneli ve diyaloglar. */
+/* Reused parts: buttons, cards, tables, badges, the credentials menu, the
+   queue panel and the dialogs. */
 
-/* ─────────────────────────────────────────────────────────── düğmeler ── */
+/* ──────────────────────────────────────────────────────────── buttons ── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   padding: 8px 14px;
   background: transparent;
-  border: 1px solid var(--cizgi-kuvvetli);
+  border: 1px solid var(--line-strong);
   border-radius: 0;
-  color: var(--metin);
+  color: var(--text);
   cursor: pointer;
-  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
   letter-spacing: 0; text-transform: none;
   white-space: nowrap;
   transition: background .12s ease, border-color .12s ease;
@@ -18,219 +18,219 @@
 .btn:hover:not(:disabled) { background: rgba(214, 235, 255, .06); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 
-.btn-birincil {
-  background: var(--accent); border-color: var(--accent); color: var(--derin);
+.btn-primary {
+  background: var(--accent); border-color: var(--accent); color: var(--deep);
 }
-.btn-birincil:hover:not(:disabled) { background: #59a3e8; }
+.btn-primary:hover:not(:disabled) { background: #59a3e8; }
 
-.btn-tehlike { border-color: var(--kirmizi-zayif); color: #e05c59; }
-.btn-tehlike:hover:not(:disabled) { background: rgba(218, 54, 51, .12); }
+.btn-danger { border-color: var(--failed-soft); color: #e05c59; }
+.btn-danger:hover:not(:disabled) { background: rgba(218, 54, 51, .12); }
 
-.btn-kucuk { padding: 5px 11px; font-size: 12px; }
+.btn-small { padding: 5px 11px; font-size: 12px; }
 
-/* Sabit genişlikli düğme: iki etiket aynı ızgara hücresinde üst üste
-   durur, hücre genişliğini uzun olan verir. Piksel değeri yazmıyoruz —
-   yazı tipi yerelde yoksa yedeğe düşüyor ve sabit genişlik tutmuyor. */
-#guncelle-btn { display: inline-grid; place-items: center; }
-#guncelle-btn > span { grid-area: 1 / 1; }
-#guncelle-btn .etiket-olcu { visibility: hidden; }
+/* Fixed-width button: the two labels sit on top of each other in the same
+   grid cell and the longer one sets the cell width. No pixel value is
+   written — if the font is not installed the fallback kicks in and a fixed
+   width no longer holds. */
+#refresh-btn { display: inline-grid; place-items: center; }
+#refresh-btn > span { grid-area: 1 / 1; }
+#refresh-btn .label-measure { visibility: hidden; }
 
-.btn-simge {
+.btn-icon {
   width: 30px; height: 30px; padding: 0; flex: none;
-  border-color: var(--cizgi); color: var(--orta);
+  border-color: var(--line); color: var(--text-mid);
 }
-.btn-simge:hover:not(:disabled) { color: var(--metin); border-color: var(--cizgi-kuvvetli); }
-.btn-simge[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.btn-icon:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.btn-icon[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 
-.btn-x {
+.btn-close {
   width: 24px; height: 24px; padding: 0; flex: none;
-  border-color: var(--cizgi); color: var(--orta);
-  font-family: var(--f-govde); font-size: 13px; letter-spacing: 0;
+  border-color: var(--line); color: var(--text-mid);
+  font-family: var(--font-body); font-size: 13px; letter-spacing: 0;
 }
 
 /* ────────────────────────────────────────────────────────── alanlar ──── */
-.alan {
+.field {
   width: 100%;
   background: var(--bg);
-  color: var(--metin);
-  border: 1px solid var(--cizgi-kuvvetli);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
   border-radius: 0;
   padding: 8px 10px;
-  font-family: var(--f-mono); font-size: 12.5px;
+  font-family: var(--font-mono); font-size: 12.5px;
 }
-.alan:focus-visible { border-color: var(--accent); }
-.alan[aria-invalid="true"] { border-color: var(--kirmizi); color: #e05c59; }
+.field:focus-visible { border-color: var(--accent); }
+.field[aria-invalid="true"] { border-color: var(--failed); color: #e05c59; }
 
-.etiket {
-  font-family: var(--f-govde); font-size: 11px; font-weight: 600;
-  letter-spacing: .01em; color: var(--orta); text-transform: none;
+.label {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
 }
 
-/* ─────────────────────────────────────────────────── köşe işaretleri ── */
-.kose { position: relative; }
-.kose::before, .kose::after {
+/* ──────────────────────────────────────────────────── corner marks ── */
+.corner { position: relative; }
+.corner::before, .corner::after {
   content: ""; position: absolute; width: 11px; height: 11px;
   pointer-events: none;
   background:
-    linear-gradient(var(--cizgi-kose), var(--cizgi-kose)) center/100% 1px no-repeat,
-    linear-gradient(var(--cizgi-kose), var(--cizgi-kose)) center/1px 100% no-repeat;
+    linear-gradient(var(--line-corner), var(--line-corner)) center/100% 1px no-repeat,
+    linear-gradient(var(--line-corner), var(--line-corner)) center/1px 100% no-repeat;
 }
-.kose::before { left: -6px; top: -6px; }
-.kose::after { right: -6px; bottom: -6px; }
+.corner::before { left: -6px; top: -6px; }
+.corner::after { right: -6px; bottom: -6px; }
 
 /* ──────────────────────────────────────────────────────────── kartlar ── */
-.kart {
-  border: 1px solid var(--cizgi);
+.card {
+  border: 1px solid var(--line);
   background: var(--panel);
   padding: 15px 17px 16px;
 }
-.kart.saydam { background: transparent; }
 
-.kart-basi {
+.card-head {
   display: flex; align-items: baseline; gap: 12px;
   margin-bottom: 13px; flex-wrap: wrap;
 }
-.kart-basi .esne { flex: 1; }
+.card-head .spacer { flex: 1; }
 
-.sayfa-basi {
+.page-head {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
 }
-.sayfa-basi .eylemler { display: flex; gap: 8px; flex-wrap: wrap; }
-/* Başlığın altındaki tek satır: sayfadaki sayıların ne kadar taze olduğu. */
-.sayfa-alt {
+.page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* The single line under the heading: how fresh the numbers on the page are. */
+.page-sub {
   margin-top: 5px;
-  font-family: var(--f-govde); font-size: 12.5px; color: var(--orta);
+  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
 }
-/* Kontrol listesi kendiliğinden tazeleniyor. Veri bayatladığında bu satır
-   dikkat çeker: o görüntüden Excel üretmek yanlış bir belge demek. */
-.dog-tazelik[data-bayat="1"] { color: var(--turuncu); }
+/* The checklist refreshes itself. When the data goes stale this line draws
+   attention: producing an Excel from that view means a wrong document. */
+.check-freshness[data-stale="1"] { color: var(--auth); }
 
-/* Excel onayında verinin yaşı ve sayaçlar. */
-.diyalog .ozet-kutu {
+/* The age of the data and the counters in the Excel confirmation. */
+.dialog .summary-box {
   margin-top: 12px;
   padding: 2px 12px;
-  border: 1px solid var(--cizgi-hafif);
-  background: var(--derin);
-  font-family: var(--f-mono);
+  border: 1px solid var(--line-soft);
+  background: var(--deep);
+  font-family: var(--font-mono);
   font-size: 11.5px;
 }
-.diyalog .ozet-kutu .ozet-satir:last-child { border-bottom: 0; }
-.ust-etiket {
-  font-family: var(--f-govde); font-size: 11px; font-weight: 600;
-  letter-spacing: .01em; color: var(--orta); text-transform: none;
+.dialog .summary-box .summary-row:last-child { border-bottom: 0; }
+.eyebrow {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
 }
 
-/* ───────────────────────────────────────────────────── durum renkleri ── */
-.nokta {
+/* ───────────────────────────────────────────────────── state colours ── */
+.dot {
   width: 7px; height: 7px; flex: none; display: block;
-  background: var(--gri);
+  background: var(--unknown);
 }
-.nokta[data-durum="yesil"], .metin-yesil { }
-[data-durum="yesil"] { --durum-renk: var(--yesil); }
-[data-durum="turuncu"] { --durum-renk: var(--turuncu); }
-[data-durum="kirmizi"] { --durum-renk: var(--kirmizi); }
-[data-durum="gri"] { --durum-renk: var(--gri); }
-/* Süren iş: yeşil "bitti" demek, bekleyen gri ise sönük kalıyor.
-   Çalışan mavi — vurgu rengi zaten "şu an oluyor" anlamını taşıyor. */
-[data-durum="mavi"] { --durum-renk: var(--accent); }
-.nokta[data-durum] { background: var(--durum-renk); }
-.durum-yazi[data-durum] { color: var(--durum-renk); }
+[data-state="ok"] { --state-colour: var(--ok); }
+[data-state="auth"] { --state-colour: var(--auth); }
+[data-state="failed"] { --state-colour: var(--failed); }
+[data-state="unknown"] { --state-colour: var(--unknown); }
+/* A running job: green means "finished" and queued grey reads as dormant.
+   Running is blue — the accent colour already means "happening now". */
+[data-state="busy"] { --state-colour: var(--accent); }
+.dot[data-state] { background: var(--state-colour); }
+.state-text[data-state] { color: var(--state-colour); }
 
-.rozet {
+.badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 1px 5px;
-  border: 1px solid var(--cizgi-kuvvetli);
-  font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .02em;
-  color: var(--orta);
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .02em;
+  color: var(--text-mid);
 }
 
-.mono { font-family: var(--f-mono); }
-.soluk { color: var(--soluk); }
-.orta { color: var(--orta); }
-.acik { color: var(--acik); }
+.mono { font-family: var(--font-mono); }
+.text-dim { color: var(--text-dim); }
+.text-mid { color: var(--text-mid); }
+.text-bright { color: var(--text-bright); }
 
 /* ───────────────────────────────────────────────────────── tablolar ──── */
-/* Izgara tabanlı tablo: sütun genişlikleri her ekranda ayarlanır,
-   dar ekranda satırlar bozulmasın diye kendi içinde yatay kayar. */
-.tablo-sar {
+/* A grid-based table: column widths are tuned per screen, and it scrolls
+   horizontally inside itself so rows do not break on a narrow screen. */
+.table-wrap {
   overflow-x: auto;
   margin-top: 14px;
 }
 
-.tablo {
-  min-width: var(--tablo-min, 900px);
+.table {
+  min-width: var(--table-min, 900px);
 }
 
-.tablo-basi, .tablo-satir {
+.table-head, .table-row {
   display: grid;
-  grid-template-columns: var(--tablo-kolon);
+  grid-template-columns: var(--table-columns);
   gap: 10px;
   align-items: center;
   padding: 9px 12px;
-  border: 1px solid var(--cizgi);
+  border: 1px solid var(--line);
 }
 
-.tablo-basi {
+.table-head {
   background: var(--panel);
   border-bottom: 0;
-  font-family: var(--f-govde); font-size: 11.5px; font-weight: 600;
-  letter-spacing: .01em; color: var(--orta); text-transform: none;
+  font-family: var(--font-body); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
   position: sticky; top: 0; z-index: 2;
 }
 
-.tablo-satir {
+.table-row {
   border-top: 0;
   background: var(--panel-2);
   text-align: left;
   width: 100%;
   font: inherit;
-  color: var(--metin);
+  color: var(--text);
 }
-button.tablo-satir { cursor: pointer; }
-button.tablo-satir:hover { background: #16212a; }
-button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
+button.table-row { cursor: pointer; }
+button.table-row:hover { background: #16212a; }
+button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 
 
-.tablo-satir .kirp {
+.table-row .truncate {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
 }
 
-.tablo-bos {
-  border: 1px solid var(--cizgi); border-top: 0;
+.table-empty {
+  border: 1px solid var(--line); border-top: 0;
   background: var(--panel-2);
   padding: 22px 12px; text-align: center;
-  font-family: var(--f-govde); font-size: 12.5px; color: var(--orta);
+  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
 }
 
-/* ────────────────────────────────────────────────────── hedef şeridi ── */
-/* Grup şeridi sığmayınca yatay kayar. Sağ kenardaki solma, listenin
-   devam ettiğini söyler: kesilen son çip "bitti" gibi duruyor, kullanıcı
-   kalan grupları aramıyordu. */
-.serit {
+/* ───────────────────────────────────────────────────── target strip ── */
+/* The group strip scrolls horizontally when it does not fit. The fade on the
+   right edge says the list continues: a clipped last chip looked like the
+   end, and users were not looking for the remaining groups. */
+.chip-bar {
   display: flex; align-items: center; gap: 7px;
   flex-wrap: nowrap; overflow-x: auto;
   min-height: 44px; margin-top: 16px;
   padding: 6px 12px;
-  border: 1px solid var(--cizgi); background: var(--panel);
+  border: 1px solid var(--line); background: var(--panel);
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
 }
-/* Sona gelindiğinde ya da hepsi sığdığında solmaya gerek yok. */
-.serit[data-son="1"] { -webkit-mask-image: none; mask-image: none; }
-.serit .etiket { flex: none; margin-right: 4px; }
+/* No fade is needed at the end, or when everything fits. */
+.chip-bar[data-at-end="1"] { -webkit-mask-image: none; mask-image: none; }
+.chip-bar .label { flex: none; margin-right: 4px; }
 
-/* İşlem hedefi: tek seçim için yatay çip dizisi yerine kompakt açılır
-   liste. Sayılar işlem tablosunda görünür; seçicinin işi yalnız kapsamdır. */
-.hedef-secici {
+/* The operation target: a compact dropdown instead of a row of chips when
+   only one can be chosen. The counts appear in the operation table; the
+   picker's only job is the scope. */
+.target-picker {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   margin: 0 0 18px;
 }
-.hedef-secici .etiket { margin: 0; color: var(--orta); }
-.hedef-secici .alan {
+.target-picker .label { margin: 0; color: var(--text-mid); }
+.target-picker .field {
   width: auto;
   min-width: 190px;
   min-height: 35px;
@@ -238,389 +238,418 @@ button.tablo-satir[aria-selected="true"] { background: var(--accent-zayif); }
   padding-bottom: 6px;
 }
 
-.cip {
+.chip {
   flex: none;
   display: inline-flex; align-items: center; gap: 7px;
   padding: 5px 10px;
   background: transparent;
-  border: 1px solid var(--cizgi-kuvvetli);
-  color: var(--acik);
+  border: 1px solid var(--line-strong);
+  color: var(--text-bright);
   cursor: pointer;
-  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
   letter-spacing: 0; text-transform: none;
   white-space: nowrap;
 }
-.cip .n { font-family: var(--f-mono); font-size: 10px; color: var(--soluk); }
-.cip[aria-pressed="true"] {
-  background: var(--accent); border-color: var(--accent); color: var(--derin);
+.chip .count { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.chip[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); color: var(--deep);
 }
-.cip[aria-pressed="true"] .n { color: rgba(11, 17, 22, .65); }
+.chip[aria-pressed="true"] .count { color: rgba(11, 17, 22, .65); }
 
-/* ──────────────────────────────────────────────── ilerleme çubukları ── */
-.cubuk { height: 3px; background: rgba(214, 235, 255, .1); }
-.cubuk > i { display: block; height: 3px; background: var(--accent); }
+/* ──────────────────────────────────────────────────── progress bars ── */
+.bar { height: 3px; background: rgba(214, 235, 255, .1); }
+.bar > i { display: block; height: 3px; background: var(--accent); }
 
-/* ────────────────────────────────────────────────── kilit ve kuyruk ─── */
-.sayac-rozet {
+/* ─────────────────────────────────────────── credentials and queue ─── */
+.count-badge {
   position: absolute; top: -7px; right: -7px;
   min-width: 17px; height: 17px; padding: 0 4px;
   display: flex; align-items: center; justify-content: center;
-  background: var(--turuncu); color: var(--derin);
-  font-family: var(--f-mono); font-size: 10px;
+  background: var(--auth); color: var(--deep);
+  font-family: var(--font-mono); font-size: 10px;
 }
-.sayac-rozet[data-tur="kuyruk"] { background: var(--accent); }
+.count-badge[data-kind="queue"] { background: var(--accent); }
 
-/* Kuyruğa iş eklendi — panel açılmadığı için haber düğmenin üstünde
-   verilir. Üç kısa nabız; sonra düğme normale döner. */
-#kuyruk-btn[data-yeni] {
+/* A job was added to the queue — the panel does not open, so the news is
+   given on the button. Three short pulses, then the button settles. */
+#queue-btn[data-flash] {
   border-color: var(--accent);
   color: var(--accent);
-  animation: kuyruk-nabiz .85s ease-out 3;
+  animation: queue-pulse .85s ease-out 3;
 }
-@keyframes kuyruk-nabiz {
+@keyframes queue-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(66, 148, 224, .55); }
   70%  { box-shadow: 0 0 0 7px rgba(66, 148, 224, 0); }
   100% { box-shadow: 0 0 0 0 rgba(66, 148, 224, 0); }
 }
-/* Hareket azaltma isteyen kullanıcıda nabız yerine düz vurgu kalır. */
+/* For a user who asks for reduced motion, a flat accent replaces the pulse. */
 @media (prefers-reduced-motion: reduce) {
-  #kuyruk-btn[data-yeni] { animation: none; background: var(--accent-zayif); }
+  #queue-btn[data-flash] { animation: none; background: var(--accent-soft); }
 }
 
-/* Panel, üst bardaki "Güncelle" düğmesinin sol kenarında biter: paneli
-   açan düğmeler ile panelin kendisi aynı hizada durunca panel üst bara
-   yapışık, tek parça görünüyor. Genişliği app.js ölçer (--yan-panel);
-   düğme yazıları değişince (rol rozeti, "Taranıyor…") hiza kaymasın. */
-.yan-panel {
+/* The panel ends at the left edge of the top bar's refresh button: with the
+   buttons that open a panel and the panel itself in line, the panel reads as
+   one piece with the top bar. app.js measures the width (--side-panel) so the
+   alignment does not drift when button text changes (the role badge,
+   "Scanning…"). */
+.side-panel {
   position: absolute; top: 0; right: 0; bottom: 0;
-  width: min(92vw, max(300px, var(--yan-panel, 340px)));
+  width: min(92vw, max(300px, var(--side-panel, 340px)));
   z-index: 30;
   background: var(--panel);
-  border-left: 1px solid var(--cizgi-kuvvetli);
+  border-left: 1px solid var(--line-strong);
   box-shadow: -14px 0 34px rgba(6, 10, 13, .55);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.yan-panel > header {
+.side-panel > header {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--cizgi);
+  border-bottom: 1px solid var(--line);
 }
-.yan-panel > header .baslik {
-  font-family: var(--f-baslik); font-weight: 600; font-size: 16px;
+.side-panel > header .title {
+  font-family: var(--font-heading); font-weight: 600; font-size: 16px;
   letter-spacing: 0; text-transform: none;
 }
-.yan-panel > .liste {
+.side-panel > .list {
   flex: 1; overflow-y: auto;
   padding: 12px 14px 16px;
   display: flex; flex-direction: column; gap: 10px;
 }
 
-/* İş kutusunda renkli kenar şeridi ve ilerleme çubuğu yok: işin durumu
-   başlıktaki nokta, yüzde ve sayaçlardan okunuyor; kutunun kenarını da
-   boyamak kuyruğu gürültülü gösteriyordu. */
-.is-kart {
-  border: 1px solid var(--cizgi);
+/* The job card has no coloured edge strip: the job's state is read from the
+   dot in the heading, the percentage and the counters, and painting the card
+   edge as well made the queue noisy. */
+.job-card {
+  border: 1px solid var(--line);
   background: var(--panel-2);
 }
 
-/* Çalışan satır ince bir çerçeveyle ayrılır: koşu portları sırayla
-   işlediği için bu çerçeve aynı anda tek satırda olur ve "şu an burada"
-   demenin en sakin yolu. Satırın üstünden geçen ışık denenmiş, kuyruğu
-   kaynatıyordu. Negatif kenar boşluğu, çerçeve yüzünden metnin diğer
-   satırlara göre kaymasını engeller. */
-.is-satir[data-islem="calisiyor"] {
-  border: 1px solid var(--accent-cizgi);
+/* The running row is set apart by a thin border: the run works through the
+   ports in order, so this border is on exactly one row at a time and is the
+   calmest way to say "here, right now". A light sweeping across the row was
+   tried and made the queue boil. The negative margin stops the border from
+   shifting the text relative to the other rows. */
+.job-row[data-row-state="running"] {
+  border: 1px solid var(--accent-line);
   background: rgba(66, 148, 224, .06);
   padding: 6px 7px;
   margin: 0 -8px;
 }
-/* Tek hareket noktada: "duruyor mu, sürüyor mu" sorusunu cevaplar. */
-.is-satir[data-islem="calisiyor"] .nokta {
-  animation: is-nabiz 1.6s ease-in-out infinite;
+/* The only motion is on the dot: it answers "stalled, or still running?". */
+.job-row[data-row-state="running"] .dot {
+  animation: job-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes is-nabiz {
+@keyframes job-pulse {
   0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 rgba(66, 148, 224, .45); }
   50%      { opacity: .45; box-shadow: 0 0 0 3px rgba(66, 148, 224, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .is-satir[data-islem="calisiyor"] .nokta { animation: none; }
+  .job-row[data-row-state="running"] .dot { animation: none; }
 }
-/* Başlık düğmesi ile durdurma düğmesi tek satırda. `width:100%` vardı ve
-   başlık düğmesi bütün genişliği isteyince durdurma düğmesi kartın
-   dışına taşıyordu (kuyruk paneli dar). Şimdi başlık esner, durdurma
-   düğmesi sabit genişlikte yerinde kalır. */
-.is-kart-basi { display: flex; align-items: stretch; min-width: 0; }
-.is-kart-basi > .btn-x { align-self: center; margin-right: 9px; flex: none; }
-.is-basi {
+/* The title button and the stop button share one row. `width:100%` used to
+   be here, and with the title button asking for the whole width the stop
+   button spilled outside the card (the queue panel is narrow). Now the title
+   flexes and the stop button keeps its fixed width. */
+.job-card-head { display: flex; align-items: stretch; min-width: 0; }
+.job-card-head > .btn-close { align-self: center; margin-right: 9px; flex: none; }
+.job-head {
   display: flex; align-items: center; gap: 9px;
   padding: 10px 11px; flex: 1; min-width: 0;
   background: transparent; border: 0; cursor: pointer; text-align: left;
 }
-.is-basi .ad {
+.job-head .name {
   display: block;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 14.5px;
+  font-family: var(--font-heading); font-weight: 600; font-size: 14.5px;
   letter-spacing: 0; text-transform: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.is-basi .alt {
+.job-head .sub {
   display: block; margin-top: 3px;
-  font-family: var(--f-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: 10px;
 }
-/* Aşama metni ("Port 14 işleniyor (3/6)"). Tek satır: uzun bir aşama
-   kartı büyütüp kuyruktaki diğer işleri aşağı itmemeli. */
-.is-asama {
+/* The phase text ("Port 14 · writing the IP (3/6)"). One line: a long phase
+   must not grow the card and push the other queued jobs down. */
+.job-phase {
   display: block; margin-top: 2px;
-  font-family: var(--f-mono); font-size: 9.5px; color: var(--soluk);
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.is-sayac {
+.job-counts {
   display: flex; gap: 7px; flex: none;
-  font-family: var(--f-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: 10px;
 }
-/* İnce ilerleme çubuğu — kartın altına yapışık, yalnız süren işte. */
-.is-cubuk { height: 2px; background: var(--cizgi-hafif); overflow: hidden; }
-.is-cubuk i {
+/* A thin progress bar — flush with the bottom of the card, running job only. */
+.job-bar { height: 2px; background: var(--line-soft); overflow: hidden; }
+.job-bar i {
   display: block; height: 100%;
-  background: var(--durum-renk, var(--accent));
+  background: var(--state-colour, var(--accent));
   transition: width .3s ease;
 }
-.is-satirlar { padding: 4px 11px 10px; }
-.is-satir {
+.job-rows { padding: 4px 11px 10px; }
+.job-row {
   display: flex; gap: 9px; padding: 7px 0;
-  border-bottom: 1px solid var(--cizgi-hafif);
+  border-bottom: 1px solid var(--line-soft);
 }
-.is-satir .nokta { margin-top: 5px; width: 6px; height: 6px; }
-/* Sınıf adı ".govde" olamaz: o ad uygulamanın ana gövdesinde kullanılıyor
-   ve oradaki display:flex bu satırı yan yana diziyordu. */
-.is-satir .is-govde { min-width: 0; flex: 1; }
-/* Uzun dosya adı ("..._set1.xlsx") kutusundan taşıp sağdaki durum
-   yazısının üstüne biniyordu: alt çizgi ve nokta tarayıcı için satır
-   sonu sayılmıyor, o yüzden kırılma açıkça isteniyor. */
-.is-satir .ad {
-  display: block; font-family: var(--f-mono); font-size: 11px;
+.job-row .dot { margin-top: 5px; width: 6px; height: 6px; }
+/* The class cannot be called ".body": that name is used by the application's
+   main body, and its display:flex laid this row out side by side. */
+.job-row .job-row-body { min-width: 0; flex: 1; }
+/* A long file name ("..._set1.xlsx") spilled out of its box and over the
+   state text on the right: the browser does not treat an underscore or a dot
+   as a break opportunity, so breaking is asked for explicitly. */
+.job-row .name {
+  display: block; font-family: var(--font-mono); font-size: 11px;
   overflow-wrap: anywhere;
 }
-.is-satir .alt {
+.job-row .sub {
   display: block; margin-top: 2px;
-  font-family: var(--f-mono); font-size: 9.5px; color: var(--soluk);
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
   word-break: break-word;
 }
-.is-satir .durum {
+.job-row .state {
   flex: none; align-self: flex-start;
-  font-family: var(--f-baslik); font-weight: 600; font-size: 11px;
+  font-family: var(--font-heading); font-weight: 600; font-size: 11px;
   letter-spacing: .08em; text-transform: uppercase;
 }
 
-/* ---- satır altındaki adım akordiyonu ----
-   Bir portun koşu içinde nerede olduğu ("cihaz aranıyor", "IP yazılıyor")
-   tek satırlık nota sığmıyordu: her yeni adım bir öncekini siliyor, port
-   hata verince neyin ne zaman olduğu kayboluyordu. Adımı olan satır bir
-   düğmeye dönüşür; düğmenin kendi görünümü sıfırlanır, satır görünümü
-   .is-satir'dan gelir. */
-.is-satir-btn {
+/* ---- the step accordion under a row ----
+   Where a port is within the run ("searching for the device", "writing the
+   IP") did not fit into a one-line note: each new step erased the previous
+   one, and when the port failed, what happened when was lost. A row with
+   steps turns into a button; the button's own appearance is reset and the row
+   appearance
+   .job-row'dan gelir. */
+.job-row-btn {
   width: 100%; color: inherit; font: inherit;
   background: transparent;
   border-top: 0; border-left: 0; border-right: 0;
   text-align: left; cursor: pointer;
 }
-.is-satir-btn:hover { background: rgba(255, 255, 255, .02); }
-/* Açılabilir olduğunu gösteren tek işaret; açıkken aşağı döner. */
-.is-ok {
+.job-row-btn:hover { background: rgba(255, 255, 255, .02); }
+/* The only marker that a row expands; it turns downwards when open. */
+.job-chevron {
   flex: none; align-self: center; width: 6px; height: 6px;
   margin-top: -3px;
-  border-right: 1.5px solid var(--soluk);
-  border-bottom: 1.5px solid var(--soluk);
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
   transform: rotate(-45deg);
   transition: transform .18s ease;
 }
-.is-satir-btn[data-acik="true"] .is-ok {
+.job-row-btn[data-open="true"] .job-chevron {
   transform: rotate(45deg); margin-top: -2px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .is-ok { transition: none; }
+  .job-chevron { transition: none; }
 }
 
-.is-adimlar {
+.job-steps {
   margin: 0 0 6px 3px; padding: 4px 0 4px 13px;
-  border-left: 1px solid var(--cizgi-hafif);
+  border-left: 1px solid var(--line-soft);
 }
-.is-adim { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
-.is-adim .nokta { width: 5px; height: 5px; margin-top: 0; }
-.is-adim-metin {
+.job-step { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+.job-step .dot { width: 5px; height: 5px; margin-top: 0; }
+.job-step-text {
   flex: 1; min-width: 0;
-  font-family: var(--f-mono); font-size: 10px; color: var(--orta);
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-mid);
   overflow-wrap: anywhere;
 }
-.is-adim[data-islem="uyari"] .is-adim-metin { color: var(--turuncu); }
-.is-adim[data-islem="hata"] .is-adim-metin { color: var(--kirmizi); }
-.is-adim-saat {
+.job-step[data-row-state="warning"] .job-step-text { color: var(--auth); }
+.job-step[data-row-state="failed"] .job-step-text { color: var(--failed); }
+.job-step-time {
   flex: none; align-self: flex-start;
-  font-family: var(--f-mono); font-size: 9px; color: var(--soluk);
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
 }
 
-/* Üretilen dosyanın altındaki iki düğme: aç / klasörde göster. */
-.dosya-eylem { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
-.dosya-btn {
+/* The two buttons under a generated file: open / show in folder. */
+.file-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.file-btn {
   gap: 5px; padding: 3px 8px;
-  font-family: var(--f-mono); font-size: 10px; font-weight: 400;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
   letter-spacing: .04em; text-transform: none;
-  border-color: var(--cizgi); color: var(--orta);
+  border-color: var(--line); color: var(--text-mid);
 }
-.dosya-btn:hover:not(:disabled) { color: var(--metin); border-color: var(--accent); }
-.dosya-btn svg { flex: none; }
+.file-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.file-btn svg { flex: none; }
 
-.kilit-satir {
+.locked-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 4px 10px;
   width: 100%;
   padding: 10px 11px;
   background: var(--panel-2);
-  border: 1px solid var(--turuncu-zayif);
-  color: var(--metin);
+  border: 1px solid var(--auth-soft);
+  color: var(--text);
   cursor: pointer; text-align: left;
 }
-.kilit-satir:hover { background: #1a232b; }
-.kilit-satir .ad {
-  font-family: var(--f-mono); font-size: 12px;
+.locked-row:hover { background: #1a232b; }
+.locked-row .name {
+  font-family: var(--font-mono); font-size: 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.kilit-satir .alt {
+.locked-row .sub {
   grid-column: 1 / -1;
-  font-family: var(--f-mono); font-size: 9.5px; color: var(--soluk);
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
   line-height: 1.5;
 }
 
-/* ───────────────────────────────────────────────────────── diyalog ──── */
-.perde {
+/* ────────────────────────────────────────────────────────── dialog ──── */
+.backdrop {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(6, 10, 13, .62);
   display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
-.perde.sag { align-items: stretch; justify-content: flex-end; padding: 0; }
+.backdrop.right { align-items: stretch; justify-content: flex-end; padding: 0; }
 
-.diyalog {
+.dialog {
   width: min(430px, 100%);
   background: var(--panel);
-  border: 1px solid var(--cizgi-kuvvetli);
+  border: 1px solid var(--line-strong);
   padding: 20px 22px 22px;
   display: flex; flex-direction: column; gap: 14px;
   max-height: 92vh; overflow-y: auto;
 }
-.diyalog h3 { font-size: 19px; }
-.diyalog .aciklama { font-size: 12.5px; color: var(--acik); }
-.diyalog .eylemler { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog h3 { font-size: 19px; }
+.dialog .description { font-size: 12.5px; color: var(--text-bright); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-.uyari {
+.warning {
   padding: 8px 10px;
-  border: 1px solid var(--kirmizi-zayif);
+  border: 1px solid var(--failed-soft);
   background: rgba(218, 54, 51, .08);
   color: #e8817f;
   font-size: 12px;
 }
-.bilgi {
+.info {
   padding: 8px 10px;
-  border: 1px solid var(--cizgi);
+  border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
-  font-size: 12px; color: var(--acik);
+  font-size: 12px; color: var(--text-bright);
 }
 
-.onay {
+.checkbox {
   display: flex; align-items: center; gap: 9px;
   padding: 9px 11px;
   background: transparent;
-  border: 1px solid var(--cizgi-kuvvetli);
-  color: var(--metin); cursor: pointer; text-align: left; width: 100%;
+  border: 1px solid var(--line-strong);
+  color: var(--text); cursor: pointer; text-align: left; width: 100%;
 }
-.onay .kutu {
+.checkbox .box {
   width: 12px; height: 12px; flex: none;
-  border: 1px solid var(--cizgi-kuvvetli); display: block;
+  border: 1px solid var(--line-strong); display: block;
 }
-.onay[aria-pressed="true"] { border-color: var(--accent); }
-.onay[aria-pressed="true"] .kutu { background: var(--accent); border-color: var(--accent); }
-.onay span:last-child {
-  font-family: var(--f-govde); font-weight: 600; font-size: 13px;
+.checkbox[aria-pressed="true"] { border-color: var(--accent); }
+.checkbox[aria-pressed="true"] .box { background: var(--accent); border-color: var(--accent); }
+.checkbox span:last-child {
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
   letter-spacing: 0; text-transform: none;
 }
 
-/* ───────────────────────────────────────────────────── cihaz detayı ─── */
-.detay {
+/* ────────────────────────────────────────────────────── device detail ── */
+.detail {
   width: min(520px, 100%); height: 100%;
   background: var(--panel);
-  border-left: 1px solid var(--cizgi-kuvvetli);
+  border-left: 1px solid var(--line-strong);
   overflow-y: auto;
   padding: 20px 24px 30px;
 }
-.detay-blok { margin-top: 20px; }
-.detay-blok > .basi {
+.detail-block { margin-top: 20px; }
+.detail-block > .head {
   display: flex; align-items: baseline; gap: 10px;
-  padding-bottom: 7px; border-bottom: 1px solid var(--cizgi);
+  padding-bottom: 7px; border-bottom: 1px solid var(--line);
 }
-.detay-blok > .basi .esne { flex: 1; }
-.detay-satir {
+.detail-block > .head .spacer { flex: 1; }
+.detail-row {
   display: grid; grid-template-columns: 1fr 1.1fr; gap: 12px;
   padding: 7px 0; border-bottom: 1px solid rgba(214, 235, 255, .06);
 }
-.detay-satir .ad { font-size: 12.5px; color: var(--orta); }
-.detay-satir .deger {
-  font-family: var(--f-mono); font-size: 12px;
+.detail-row .name { font-size: 12.5px; color: var(--text-mid); }
+.detail-row .value {
+  font-family: var(--font-mono); font-size: 12px;
   word-break: break-word;
 }
 
-/* ──────────────────────────────────────────────────── bildirim şeridi ─ */
-#bildirim {
+/* ───────────────────────────────────────────────────── toast strip ─── */
+#toast {
   position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
   z-index: 70;
   max-width: min(560px, 92vw);
   padding: 9px 14px;
-  border: 1px solid var(--cizgi-kuvvetli);
+  border: 1px solid var(--line-strong);
   background: var(--panel);
   box-shadow: 0 8px 26px rgba(6, 10, 13, .6);
   font-size: 12.5px;
 }
-#bildirim[data-tur="hata"] { border-color: var(--kirmizi-zayif); color: #e8817f; }
-#bildirim[data-tur="basari"] { border-color: var(--yesil-zayif); color: var(--yesil); }
+#toast[data-kind="error"] { border-color: var(--failed-soft); color: #e8817f; }
+#toast[data-kind="success"] { border-color: var(--ok-soft); color: var(--ok); }
 
-/* ────────────────────────────────────────────── üst bar proje şeridi ─── */
-.proje-serit {
+/* ─────────────────────────────────────────── top bar project strip ─── */
+.project-bar {
   display: flex; align-items: center; gap: 7px; flex: none;
   padding: 3px 9px;
-  border: 1px solid var(--cizgi-kuvvetli);
-  font-family: var(--f-mono); font-size: 11px; letter-spacing: .04em;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
   white-space: nowrap;
 }
-.proje-serit > button {
+.project-bar > button {
   display: flex; align-items: center; gap: 7px;
   padding: 2px 2px;
-  background: transparent; border: 0; color: var(--metin);
+  background: transparent; border: 0; color: var(--text);
   cursor: pointer; font: inherit;
 }
-.proje-serit > button:hover { color: var(--accent); }
+.project-bar > button:hover { color: var(--accent); }
 
-.set-secim {
+.set-field {
   display: inline-flex; align-items: center; gap: 5px;
-  color: var(--metin); cursor: pointer;
+  color: var(--text); cursor: pointer;
 }
-.set-secim input {
+.set-field input {
   width: 44px;
   background: transparent;
   color: var(--accent);
-  border: 1px solid var(--cizgi);
+  border: 1px solid var(--line);
   border-radius: 0;
   padding: 1px 4px;
-  font-family: var(--f-mono); font-size: 11px;
+  font-family: var(--font-mono); font-size: 11px;
   text-align: center;
 }
-.set-secim input:hover { border-color: var(--cizgi-kuvvetli); }
-.set-secim input:focus-visible { border-color: var(--accent); outline: none; }
-.set-secim input:disabled { color: var(--soluk); cursor: not-allowed; }
-/* Artırma okları sayıyı daraltıyor; set numarası zaten elle yazılıyor. */
-.set-secim input::-webkit-outer-spin-button,
-.set-secim input::-webkit-inner-spin-button {
+.set-field input:hover { border-color: var(--line-strong); }
+.set-field input:focus-visible { border-color: var(--accent); outline: none; }
+.set-field input:disabled { color: var(--text-dim); cursor: not-allowed; }
+/* The spinner arrows squeeze the number; the set number is typed anyway. */
+.set-field input::-webkit-outer-spin-button,
+.set-field input::-webkit-inner-spin-button {
   -webkit-appearance: none; margin: 0;
 }
-.set-secim input { -moz-appearance: textfield; appearance: textfield; }
+.set-field input { -moz-appearance: textfield; appearance: textfield; }
+
+/* ─────────────────────────────────────────────────── language picker ─── */
+/* Two buttons rather than a dropdown: with two options a dropdown hides
+   which one is active, and the active language is the thing a lost user is
+   looking for. Each language names ITSELF (EN / TR), never translated. */
+.language-picker {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--line-strong);
+}
+.language-btn {
+  height: 30px;
+  min-width: 34px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+.language-btn + .language-btn { border-left: 1px solid var(--line); }
+.language-btn:hover { color: var(--text); background: rgba(214, 235, 255, .05); }
+.language-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

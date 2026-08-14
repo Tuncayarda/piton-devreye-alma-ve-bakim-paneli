@@ -1,111 +1,116 @@
 #!/usr/bin/env bash
-# PyInstaller onedir çıktısından AppImage üretir — Devreye Alma Paneli.
+# Builds an AppImage from the PyInstaller onedir output — Commissioning and
+# Maintenance Panel.
 #
-#   ./packaging/appimage.sh <dist_dizini> <cikti.AppImage> <surum>
+#   ./packaging/appimage.sh <dist_dir> <output.AppImage> <version>
 #
-# Örnek:
-#   ./packaging/appimage.sh dist/DevreyeAlmaPaneli \
-#       release/DevreyeAlmaPaneli-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
+# Example:
+#   ./packaging/appimage.sh dist/CommissioningPanel \
+#       release/CommissioningPanel-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
 #
-# appimagetool sürümü sabittir (aşağıdaki APPIMAGETOOL_SURUM). Bir sha256
-# verirsen indirilen dosya doğrulanır; vermezsen indirilenin sha256'sı
-# ekrana yazılır — onu APPIMAGETOOL_SHA256'ya koyup sabitle.
+# The appimagetool version is pinned (APPIMAGETOOL_VERSION below). Give a
+# sha256 and the download is verified; leave it empty and the sha256 of what
+# was downloaded is printed — put that in APPIMAGETOOL_SHA256 to pin it.
 set -euo pipefail
 
-DIST_DIZINI="${1:?dist dizini gerekli}"
-CIKTI="${2:?çıktı dosyası gerekli}"
-SURUM="${3:-0.0.0}"
+DIST_DIR="${1:?dist directory is required}"
+OUTPUT="${2:?output file is required}"
+VERSION="${3:-0.0.0}"
 
-BURASI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-UYGULAMA_KOK="$(cd "$BURASI/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APPIMAGETOOL_SURUM="1.9.1"
-APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_SURUM}/appimagetool-x86_64.AppImage"
-# Boşsa yalnızca uyarı verilir; doldurulunca zorunlu doğrulama yapılır.
+APP_BINARY_NAME="CommissioningPanel"
+DESKTOP_ID="commissioningpanel"
+
+APPIMAGETOOL_VERSION="1.9.1"
+APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+# When empty only a warning is printed; once filled in, verification is
+# mandatory.
 APPIMAGETOOL_SHA256="${APPIMAGETOOL_SHA256:-}"
 
-CALISMA="$(mktemp -d)"
-temizle() { rm -rf "$CALISMA"; }
-trap temizle EXIT
+WORK_DIR="$(mktemp -d)"
+cleanup() { rm -rf "$WORK_DIR"; }
+trap cleanup EXIT
 
-APPDIR="$CALISMA/AppDir"
+APPDIR="$WORK_DIR/AppDir"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-echo "==> AppDir kuruluyor"
-cp -a "$DIST_DIZINI/." "$APPDIR/usr/bin/"
-test -x "$APPDIR/usr/bin/DevreyeAlmaPaneli" \
-  || chmod +x "$APPDIR/usr/bin/DevreyeAlmaPaneli"
+echo "==> building the AppDir (version $VERSION)"
+cp -a "$DIST_DIR/." "$APPDIR/usr/bin/"
+test -x "$APPDIR/usr/bin/$APP_BINARY_NAME" \
+  || chmod +x "$APPDIR/usr/bin/$APP_BINARY_NAME"
 
-# .desktop — AppImage için zorunlu
-cat > "$APPDIR/usr/share/applications/devreyealmapaneli.desktop" <<'DESKTOP'
+# .desktop — required by AppImage
+cat > "$APPDIR/usr/share/applications/$DESKTOP_ID.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Devreye Alma Paneli
+Name=Commissioning and Maintenance Panel
 GenericName=Commissioning Panel
-Comment=Tren seti devreye alma ve dogrulama paneli
-Exec=DevreyeAlmaPaneli
-Icon=devreyealmapaneli
+Comment=Train set commissioning and verification panel
+Exec=$APP_BINARY_NAME
+Icon=$DESKTOP_ID
 Categories=Network;System;
 Terminal=false
 DESKTOP
-cp "$APPDIR/usr/share/applications/devreyealmapaneli.desktop" "$APPDIR/"
+cp "$APPDIR/usr/share/applications/$DESKTOP_ID.desktop" "$APPDIR/"
 
-# İkon. Uygulamanın kendi ikonu (icons/app.png) henüz yok; o gelene kadar
-# arayüzün favicon'u kullanılıyor. appimagetool .desktop içindeki Icon
-# anahtarına karşılık bir dosya bekliyor; hiç ikon koymamak bazı
-# sürümlerinde build'i durduruyor.
-IKON="$UYGULAMA_KOK/icons/app.png"
-if [ ! -f "$IKON" ]; then
-  IKON="$UYGULAMA_KOK/static/piton-favicon.png"
-  echo "!! icons/app.png yok — arayüz favicon'u kullanılıyor: $IKON"
+# Icon. The application has no icon of its own (icons/app.png) yet; until it
+# does, the UI favicon is used. appimagetool expects a file matching the Icon
+# key in the .desktop file; shipping no icon at all stops the build on some
+# of its versions.
+ICON="$APP_ROOT/icons/app.png"
+if [ ! -f "$ICON" ]; then
+  ICON="$APP_ROOT/static/piton-favicon.png"
+  echo "!! icons/app.png is missing — using the UI favicon: $ICON"
 fi
-if [ -f "$IKON" ]; then
-  cp "$IKON" "$APPDIR/usr/share/icons/hicolor/256x256/apps/devreyealmapaneli.png"
-  cp "$IKON" "$APPDIR/devreyealmapaneli.png"
-  # .DirIcon: masaüstü ortamlarının ilk baktığı yer
-  cp "$IKON" "$APPDIR/.DirIcon"
+if [ -f "$ICON" ]; then
+  cp "$ICON" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$DESKTOP_ID.png"
+  cp "$ICON" "$APPDIR/$DESKTOP_ID.png"
+  # .DirIcon: the first place desktop environments look
+  cp "$ICON" "$APPDIR/.DirIcon"
 else
-  echo "!! ikon bulunamadı — AppImage ikonsuz üretiliyor"
+  echo "!! no icon found — building the AppImage without one"
 fi
 
-# AppRun — AppImage açılışında çalışan giriş noktası
-cat > "$APPDIR/AppRun" <<'APPRUN'
+# AppRun — the entry point that runs when the AppImage starts
+cat > "$APPDIR/AppRun" <<APPRUN
 #!/bin/sh
-KOK="$(dirname "$(readlink -f "$0")")"
-exec "$KOK/usr/bin/DevreyeAlmaPaneli" "$@"
+APPDIR_ROOT="\$(dirname "\$(readlink -f "\$0")")"
+exec "\$APPDIR_ROOT/usr/bin/$APP_BINARY_NAME" "\$@"
 APPRUN
 chmod +x "$APPDIR/AppRun"
 
-ARAC="$CALISMA/appimagetool"
+TOOL="$WORK_DIR/appimagetool"
 if [ -n "${APPIMAGETOOL_BIN:-}" ]; then
-  # Elde hazır araç varsa indirme yapma (çevrimdışı build / test).
-  echo "==> hazır appimagetool kullanılıyor: $APPIMAGETOOL_BIN"
-  cp "$APPIMAGETOOL_BIN" "$ARAC"
+  # Skip the download when a tool is already at hand (offline build / test).
+  echo "==> using the provided appimagetool: $APPIMAGETOOL_BIN"
+  cp "$APPIMAGETOOL_BIN" "$TOOL"
 else
-  echo "==> appimagetool ${APPIMAGETOOL_SURUM} indiriliyor"
-  curl -fsSL --retry 3 -o "$ARAC" "$APPIMAGETOOL_URL"
+  echo "==> downloading appimagetool ${APPIMAGETOOL_VERSION}"
+  curl -fsSL --retry 3 -o "$TOOL" "$APPIMAGETOOL_URL"
 fi
-GERCEK="$(sha256sum "$ARAC" | cut -d' ' -f1)"
+ACTUAL_SHA256="$(sha256sum "$TOOL" | cut -d' ' -f1)"
 if [ -n "$APPIMAGETOOL_SHA256" ]; then
-  if [ "$GERCEK" != "$APPIMAGETOOL_SHA256" ]; then
-    echo "!! appimagetool sha256 uyuşmuyor"
-    echo "   beklenen: $APPIMAGETOOL_SHA256"
-    echo "   gelen   : $GERCEK"
+  if [ "$ACTUAL_SHA256" != "$APPIMAGETOOL_SHA256" ]; then
+    echo "!! appimagetool sha256 mismatch"
+    echo "   expected: $APPIMAGETOOL_SHA256"
+    echo "   actual  : $ACTUAL_SHA256"
     exit 1
   fi
-  echo "   sha256 doğrulandı"
+  echo "   sha256 verified"
 else
-  echo "!! APPIMAGETOOL_SHA256 boş — doğrulama yapılmadı."
-  echo "   Sabitlemek için bu değeri kullan: $GERCEK"
+  echo "!! APPIMAGETOOL_SHA256 is empty — nothing was verified."
+  echo "   To pin it, use this value: $ACTUAL_SHA256"
 fi
-chmod +x "$ARAC"
+chmod +x "$TOOL"
 
-echo "==> AppImage üretiliyor"
-mkdir -p "$(dirname "$CIKTI")"
-# CI'da FUSE yok: appimagetool'u kendi içeriğini açarak çalıştırıyoruz.
-ARCH=x86_64 "$ARAC" --appimage-extract-and-run \
-  "$APPDIR" "$CIKTI"
+echo "==> building the AppImage"
+mkdir -p "$(dirname "$OUTPUT")"
+# No FUSE on CI: appimagetool is run by extracting its own contents.
+ARCH=x86_64 "$TOOL" --appimage-extract-and-run \
+  "$APPDIR" "$OUTPUT"
 
-chmod +x "$CIKTI"
-echo "==> hazır: $CIKTI ($(du -h "$CIKTI" | cut -f1))"
+chmod +x "$OUTPUT"
+echo "==> ready: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"

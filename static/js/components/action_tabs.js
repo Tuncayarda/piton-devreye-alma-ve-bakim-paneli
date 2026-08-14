@@ -1,32 +1,36 @@
-// İşlem ekranları arasındaki ortak yerel gezinme.
+// The shared local navigation between the operation screens.
 //
-// Bu alan bir süreç göstergesi değildir: kullanıcı bakım sırasında ağ, cihaz
-// ayarları ve yazılım ekranlarına istediği sırada geçebilir. Ekran seçimi
-// uygulamanın mevcut `gorunum` durumuyla yönetilir.
+// This bar is not a progress indicator: during maintenance the user moves
+// between the network, device settings and software screens in any order. The
+// screen choice is driven by the application's current `view` state.
 
 import { el } from '../core/dom.js';
-import { durum, ata } from '../core/durum.js';
+import { state, patch } from '../core/store.js';
+import { t } from '../core/i18n.js';
 
-const SEKMELER = [
-  { id: 'ip', ad: 'Ağ ve IP' },
-  { id: 'cfg', ad: 'Cihaz Ayarları' },
-  { id: 'fw', ad: 'Yazılım' },
+// The KEY is stored, not the text: this table is built when the module
+// loads, which is before the catalogue has arrived, so a resolved label here
+// would freeze as the key and never change with the language.
+const TABS = [
+  { id: 'ip', labelKey: 'tabs.networkAndIp' },
+  { id: 'config', labelKey: 'tabs.deviceSettings' },
+  { id: 'firmware', labelKey: 'tabs.firmware' },
 ];
 
-export function ciz() {
+export function render() {
   return el('nav', {
-    sinif: 'islem-sekmeleri',
-    'aria-label': 'İşlem alanları',
+    class: 'action-tabs',
+    'aria-label': t('tabs.operationAreas'),
   }, [
-    el('div', { sinif: 'islem-sekme-listesi' }, SEKMELER.map(sekme => {
-      const aktif = durum.gorunum === sekme.id;
+    el('div', { class: 'action-tab-list' }, TABS.map(tab => {
+      const active = state.view === tab.id;
       return el('button', {
         type: 'button',
-        sinif: `islem-sekmesi${aktif ? ' aktif' : ''}`,
-        veri: { aktif: aktif ? '1' : '0', gorunum: sekme.id },
-        'aria-current': aktif ? 'page' : null,
-        metin: sekme.ad,
-        onclick: aktif ? null : () => ata({ gorunum: sekme.id }),
+        class: `action-tab${active ? ' active' : ''}`,
+        dataset: { active: active ? '1' : '0', view: tab.id },
+        'aria-current': active ? 'page' : null,
+        text: t(tab.labelKey),
+        onclick: active ? null : () => patch({ view: tab.id }),
       });
     })),
   ]);

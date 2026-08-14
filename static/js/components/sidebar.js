@@ -1,145 +1,157 @@
-// Ana menü: içeriğin solunda duran dar ikon rayı.
+// The main menu: a narrow icon rail to the left of the content.
 //
-// Menü önce 250 piksellik bir sütundu: beş satır için ekranın altıda birini
-// sürekli kaplıyordu. Sonra köşeden açılan balon menü denendi; yer
-// kaplamıyordu ama bulunması ve kullanılması zordu — alan değiştirmek
-// düğmeyi bulmak, açmak ve dağılmayı beklemek demekti.
+// The menu started as a 250 pixel column: for five rows it permanently took a
+// sixth of the screen. A popover from the corner was tried next; it took no
+// room but was hard to find and to use — switching area meant finding the
+// button, opening it and waiting for it to unfold.
 //
-// Ray ikisinin ortası: 56 piksel, her zaman ekranda, tek tıklamada geçiş.
-// Alan adları ikonun üstüne gelince yanda beliren balonda yazar; adları
-// kalıcı görmek isteyen rayı alttaki düğmeyle genişletir (bu tercih
-// `durum.kenarAcik` içinde tutulur, oturum boyunca korunur).
+// The rail is the middle ground: 56 pixels, always on screen, one click to
+// switch. Area names appear in a bubble beside the icon on hover; whoever
+// wants the names permanently widens the rail with the button at the bottom
+// (that preference lives in `state.sidebarOpen` and survives the session).
 //
-// Cihaz kategorileri burada ayrı hedefler değildir. Cihazlar ekranındaki
-// süzgeçler aynı işi bağlamı kaybetmeden yapar. IP, cihaz ayarları ve yazılım
-// ekranları da tek bir "İşlemler" alanının görünümleridir; menü süreç adımı
-// gibi davranmaz ve kullanıcı bu ekranlar arasında istediği sırada geçebilir.
+// Device categories are not separate targets here. The filters on the devices
+// screen do the same job without losing context. The IP, device settings and
+// software screens are views of a single "Operations" area too; the menu does
+// not behave like a process step and the user can move between those screens
+// in any order.
 
-import { el, doldur, ikon, $ } from '../core/dom.js';
-import { durum, ata } from '../core/durum.js';
+import { el, fill, icon, $ } from '../core/dom.js';
+import { t } from '../core/i18n.js';
+import { state, patch } from '../core/store.js';
 
-const ISLEM_GORUNUMLERI = new Set(['ip', 'cfg', 'fw']);
+const OPERATION_VIEWS = new Set(['ip', 'config', 'firmware']);
 
-const ANA_ALANLAR = [
+const MAIN_AREAS = [
   {
-    ad: 'Genel bakış', gorunum: 'genel',
-    aktif: g => g === 'genel',
-    ikon: ['M3 10.5L10 4l7 6.5', 'M5.5 9.5V16h9V9.5'],
+    labelKey: 'nav.overview', view: 'overview',
+    active: v => v === 'overview',
+    icon: ['M3 10.5L10 4l7 6.5', 'M5.5 9.5V16h9V9.5'],
   },
   {
-    ad: 'Cihazlar', gorunum: 'cihaz',
-    aktif: g => g === 'cihaz',
-    ikon: ['M4 4.5h12v4H4z', 'M4 11.5h12v4H4z', 'M6.5 6.5h.01M6.5 13.5h.01'],
-    yama: { kategori: 'tum', altTip: null, filtre: 'tumu' },
+    labelKey: 'nav.devices', view: 'devices',
+    active: v => v === 'devices',
+    icon: ['M4 4.5h12v4H4z', 'M4 11.5h12v4H4z', 'M6.5 6.5h.01M6.5 13.5h.01'],
+    patchState: { category: 'all', subtype: null, filter: 'all' },
   },
   {
-    ad: 'İşlemler', gorunum: 'ip',
-    aktif: g => ISLEM_GORUNUMLERI.has(g),
-    ikon: ['M5 5h10v10H5z', 'M8 8h4M10 6v4'],
+    labelKey: 'nav.operations', view: 'ip',
+    active: v => OPERATION_VIEWS.has(v),
+    icon: ['M5 5h10v10H5z', 'M8 8h4M10 6v4'],
   },
   {
-    ad: 'Doğrulama ve raporlar', gorunum: 'dog',
-    aktif: g => g === 'dog',
-    ikon: ['M6 3.5h8v13H6z', 'M8 7h4M8 10h4M8 13h2.5'],
+    labelKey: 'nav.verification', view: 'checklist',
+    active: v => v === 'checklist',
+    icon: ['M6 3.5h8v13H6z', 'M8 7h4M8 10h4M8 13h2.5'],
   },
   {
-    ad: 'Geçmiş', gorunum: 'gecmis',
-    aktif: g => g === 'gecmis',
-    ikon: ['M10 4a6 6 0 1 1-5.2 3', 'M3.5 4.5v3h3', 'M10 7v3.5l2.5 1.5'],
+    labelKey: 'nav.history', view: 'history',
+    active: v => v === 'history',
+    icon: ['M10 4a6 6 0 1 1-5.2 3', 'M3.5 4.5v3h3', 'M10 7v3.5l2.5 1.5'],
   },
 ];
 
-const YONETIM_ALANLARI = [
+const ADMIN_AREAS = [
   {
-    ad: 'PISCU ve PBX', gorunum: 'piscu', yonetim: true,
-    ikon: ['M4 6h12v8H4z', 'M7 9h6M7 11.5h3'],
+    labelKey: 'nav.piscu', view: 'piscu', admin: true,
+    icon: ['M4 6h12v8H4z', 'M7 9h6M7 11.5h3'],
   },
   {
-    ad: 'MQTT izleme', gorunum: 'mqtt', yonetim: true,
-    ikon: ['M4 14a6 6 0 0 1 6-6', 'M4 14a10 10 0 0 1 10-10', 'M4.5 14h.01'],
+    labelKey: 'nav.mqtt', view: 'mqtt', admin: true,
+    icon: ['M4 14a6 6 0 0 1 6-6', 'M4 14a10 10 0 0 1 10-10', 'M4.5 14h.01'],
   },
   {
-    ad: 'Proje ve cihaz listesi', gorunum: 'admin', yonetim: true,
-    ikon: ['M5 4.5h10v11H5z', 'M7.5 8h5M7.5 11h5'],
+    labelKey: 'nav.project', view: 'admin', admin: true,
+    icon: ['M5 4.5h10v11H5z', 'M7.5 8h5M7.5 11h5'],
   },
 ];
 
-function alanlar() {
-  return durum.rol === 'admin'
-    ? [...ANA_ALANLAR, ...YONETIM_ALANLARI] : ANA_ALANLAR;
+function areas() {
+  return state.role === 'admin'
+    ? [...MAIN_AREAS, ...ADMIN_AREAS] : MAIN_AREAS;
 }
 
-function seciliMi(o) {
-  return o.aktif ? o.aktif(durum.gorunum) : durum.gorunum === o.gorunum;
+function isSelected(area) {
+  return area.active ? area.active(state.view) : state.view === area.view;
 }
 
-// Ray her durum değişiminde baştan kurulmaz. Tarama sürerken çizim
-// saniyede bir geliyor; düğmeleri her turda yeniden yaratmak, imlecin
-// altındaki ad balonunu her seferinde sıfırdan açtırıyordu (titreme).
-// Yapı bir kez kurulur, sonrasında yalnız seçili işareti güncellenir.
-let kurulu = null;
+// The rail is not rebuilt on every state change. While a scan runs the render
+// arrives once a second; recreating the buttons every round reopened the name
+// bubble under the cursor from scratch each time (flicker). The structure is
+// built once and only the selected marker is updated afterwards.
+let built = null;
 
-function menuDugmesi(o) {
+function menuButton(area) {
   return el('button', {
-    type: 'button', sinif: 'kenar-oge',
-    veri: { yonetim: o.yonetim ? '1' : '0' },
-    // Ad daralmış rayda balon olarak görünür; ekran okuyucu için de
-    // düğmenin kendi etiketi burada.
-    'aria-label': o.ad,
-    onclick: () => ata({
-      gorunum: o.gorunum,
-      ...(o.yama || {}),
+    type: 'button', class: 'sidebar-item',
+    dataset: { admin: area.admin ? '1' : '0' },
+    // The name shows as a bubble on the narrow rail; this is also the
+    // button's own label for a screen reader.
+    'aria-label': t(area.labelKey),
+    onclick: () => patch({
+      view: area.view,
+      ...(area.patchState || {}),
     }),
   }, [
-    el('span', { sinif: 'kenar-ikon' }, [ikon(o.ikon, 17)]),
-    el('span', { sinif: 'kenar-ad', metin: o.ad }),
+    el('span', { class: 'sidebar-icon' }, [icon(area.icon, 17)]),
+    el('span', { class: 'sidebar-name', text: t(area.labelKey) }),
   ]);
 }
 
-function kur(kok) {
-  const liste = alanlar();
-  const dugmeler = liste.map(menuDugmesi);
-  // Yönetim araçları saha akışının parçası değil; aradaki çizgi bunu
-  // daralmış rayda da gösteriyor.
-  const icerik = [];
-  liste.forEach((o, i) => {
-    if (o.yonetim && !liste[i - 1].yonetim) {
-      icerik.push(el('span', { sinif: 'kenar-ayrac', 'aria-hidden': 'true' }));
+function build(root) {
+  const list = areas();
+  const buttons = list.map(menuButton);
+  // The admin tools are not part of the field flow; the divider shows that
+  // on the narrow rail too.
+  const content = [];
+  list.forEach((area, i) => {
+    if (area.admin && !list[i - 1].admin) {
+      content.push(el('span', {
+        class: 'sidebar-divider', 'aria-hidden': 'true',
+      }));
     }
-    icerik.push(dugmeler[i]);
+    content.push(buttons[i]);
   });
 
-  const genisletIkon = el('span', { sinif: 'kenar-genislet-ikon' }, [
-    ikon(['M7.5 5.5L12 10l-4.5 4.5'], 15),
+  const expandIcon = el('span', { class: 'sidebar-expand-icon' }, [
+    icon(['M7.5 5.5L12 10l-4.5 4.5'], 15),
   ]);
-  const genislet = el('button', {
-    type: 'button', sinif: 'kenar-genislet',
-    onclick: () => ata({ kenarAcik: !durum.kenarAcik }),
-  }, [genisletIkon]);
+  const expand = el('button', {
+    type: 'button', class: 'sidebar-expand',
+    onclick: () => patch({ sidebarOpen: !state.sidebarOpen }),
+  }, [expandIcon]);
 
-  doldur(kok, [
-    el('nav', { sinif: 'kenar-liste', 'aria-label': 'Ana alanlar' }, icerik),
-    genislet,
+  fill(root, [
+    el('nav', {
+      class: 'sidebar-list', 'aria-label': t('nav.mainAreas'),
+    }, content),
+    expand,
   ]);
-  kurulu = { rol: durum.rol, liste, dugmeler, genislet };
+  built = { role: state.role, list, buttons, expand };
 }
 
-export function ciz() {
-  const kok = $('#kenar');
-  if (!kok || !durum.meta) return;
+// Drop the cached structure so the next render rebuilds it — the labels are
+// baked into the buttons, so a language switch has to start over.
+export function reset() {
+  built = null;
+}
 
-  if (!kurulu || kurulu.rol !== durum.rol || !kok.firstChild) kur(kok);
+export function render() {
+  const root = $('#sidebar');
+  if (!root || !state.meta) return;
 
-  const genis = !!durum.kenarAcik;
-  kok.dataset.genis = genis ? '1' : '0';
-  kurulu.genislet.setAttribute('aria-expanded', String(genis));
-  kurulu.genislet.setAttribute(
-    'aria-label', genis ? 'Menüyü daralt' : 'Menüyü genişlet');
-  kurulu.genislet.title = genis ? 'Menüyü daralt' : 'Alan adlarını göster';
+  if (!built || built.role !== state.role || !root.firstChild) build(root);
 
-  kurulu.liste.forEach((o, i) => {
-    const d = kurulu.dugmeler[i];
-    if (seciliMi(o)) d.setAttribute('aria-current', 'page');
-    else d.removeAttribute('aria-current');
+  const wide = !!state.sidebarOpen;
+  root.dataset.wide = wide ? '1' : '0';
+  built.expand.setAttribute('aria-expanded', String(wide));
+  built.expand.setAttribute(
+    'aria-label', wide ? t('nav.collapse') : t('nav.expand'));
+  built.expand.title = wide ? t('nav.collapse') : t('nav.showNames');
+
+  built.list.forEach((area, i) => {
+    const button = built.buttons[i];
+    if (isSelected(area)) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
   });
 }

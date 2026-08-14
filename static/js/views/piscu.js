@@ -1,93 +1,102 @@
-// PISCU & Asterisk PBX ekranı.
+// The PISCU & Asterisk PBX screen.
 //
-// SIP tablosu, PBX'e sorularak değil cihazların kendi bildirdiği
-// değerlerden kurulur (ARI hesabı tanımlı değil). Bu, ekranda açıkça
-// yazılır — "kayıtlı" gibi görünüp aslında doğrulanmamış bir bilgi
-// göstermek sahte veridir.
+// The SIP table is not built by asking the PBX but from the values the
+// devices report themselves (no ARI account is defined). That is stated
+// plainly on screen — showing something as "registered" when it is in fact
+// unverified would be fake data.
 
-import { el, doldur } from '../core/dom.js';
+import { el, fill } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
-import { deger, DURUM_ETIKET } from '../core/bicim.js';
+import { state, patch } from '../core/store.js';
+import { value, stateLabel } from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-export async function tazele() {
+export async function refresh() {
   try {
-    ata({ piscuDurum: await api.piscu(durum.setNo) });
+    patch({ piscuState: await api.piscu(state.setNo) });
   } catch {
-    ata({ piscuDurum: null });
+    patch({ piscuState: null });
   }
 }
 
-export function ciz(kok) {
-  const v = durum.piscuDurum;
-  const parcalar = [];
+export function render(root) {
+  const data = state.piscuState;
+  const parts = [];
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    el('div', {}, [el('h2', { metin: 'PISCU & Asterisk PBX' })]),
-    el('div', { sinif: 'eylemler' }, [
-      el('button', { type: 'button', sinif: 'btn', metin: 'Yenile', onclick: tazele }),
+  parts.push(el('div', { class: 'page-head' }, [
+    el('div', {}, [el('h2', { text: t('piscu.piscuAsteriskPbx') })]),
+    el('div', { class: 'actions' }, [
+      el('button', {
+        type: 'button', class: 'btn', text: t('piscu.refresh'), onclick: refresh,
+      }),
     ]),
   ]));
 
-  if (!v) {
-    parcalar.push(el('p', { sinif: 'uyari', metin: 'PISCU bilgileri alınamadı' }));
-    doldur(kok, parcalar);
+  if (!data) {
+    parts.push(el('p', {
+      class: 'warning', text: t('piscu.piscuInformationCouldNotBe'),
+    }));
+    fill(root, parts);
     return;
   }
 
-  parcalar.push(el('p', { sinif: 'bilgi', metin: v.not }));
+  parts.push(el('p', { class: 'info', text: data.note }));
 
-  const kart = (baslik, satirlar, bosMetin) => el('div', { sinif: 'kart kose' }, [
-    el('h3', { stil: 'margin-bottom:12px', metin: baslik }),
-    ...(satirlar.length ? satirlar
-      : [el('div', { sinif: 'mono soluk', stil: 'font-size:11px', metin: bosMetin })]),
+  const card = (title, rows, emptyText) => el('div', {
+    class: 'card corner',
+  }, [
+    el('h3', { style: 'margin-bottom:12px', text: title }),
+    ...(rows.length ? rows : [el('div', {
+      class: 'mono text-dim', style: 'font-size:11px', text: emptyText,
+    })]),
   ]);
 
-  const istemciler = v.istemciler.map(c => el('div', {
-    stil: 'display:grid;grid-template-columns:minmax(0,1fr) 104px 96px;gap:10px;'
-      + 'padding:7px 0;border-bottom:1px solid var(--cizgi-hafif);'
-      + 'font-family:var(--f-mono);font-size:11px',
+  const clients = data.clients.map(client => el('div', {
+    style: 'display:grid;grid-template-columns:minmax(0,1fr) 104px 96px;'
+      + 'gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);'
+      + 'font-family:var(--font-mono);font-size:11px',
   }, [
-    el('span', { sinif: 'kirp', metin: c.ad }),
-    el('span', { sinif: 'orta', metin: c.ip }),
+    el('span', { class: 'truncate', text: client.name }),
+    el('span', { class: 'text-mid', text: client.ip }),
     el('span', {
-      veri: { durum: c.durum }, stil: 'color:var(--durum-renk)',
-      title: c.aciklama || '',
-      metin: c.surum ? `v${c.surum}` : (DURUM_ETIKET[c.durum] || ''),
+      dataset: { state: client.state }, style: 'color:var(--state-colour)',
+      title: client.detail || '',
+      text: client.version
+        ? `v${client.version}`
+        : stateLabel(client.state, ' '),
     }),
   ]));
 
-  const sipler = v.sipler.map(s => el('div', {
-    stil: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;gap:10px;'
-      + 'padding:7px 0;border-bottom:1px solid var(--cizgi-hafif);'
-      + 'font-family:var(--f-mono);font-size:11px',
+  const extensions = data.extensions.map(entry => el('div', {
+    style: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;'
+      + 'gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);'
+      + 'font-family:var(--font-mono);font-size:11px',
   }, [
-    el('span', { stil: 'color:var(--accent)', metin: s.no }),
-    el('span', { sinif: 'kirp', metin: s.ad }),
-    el('span', { sinif: 'orta', metin: deger(s.cihazinBildirdigi) }),
+    el('span', { style: 'color:var(--accent)', text: entry.extension }),
+    el('span', { class: 'truncate', text: entry.name }),
+    el('span', { class: 'text-mid', text: value(entry.reportedExtension) }),
     el('span', {
-      veri: { durum: s.durum }, stil: 'color:var(--durum-renk)',
-      metin: DURUM_ETIKET[s.durum] || '',
+      dataset: { state: entry.state }, style: 'color:var(--state-colour)',
+      text: stateLabel(entry.state, ' '),
     }),
   ]));
 
-  parcalar.push(el('div', { sinif: 'genel-izgara' }, [
-    kart('MQTT / Uygulama İstemcileri', istemciler,
-      'PISCU ve HMI okunmadı'),
-    kart('SIP Dahili Numaraları', [
+  parts.push(el('div', { class: 'overview-grid' }, [
+    card('MQTT / application clients', clients, 'PISCU and HMI not read'),
+    card('SIP extensions', [
       el('div', {
-        sinif: 'etiket',
-        stil: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;'
+        class: 'label',
+        style: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;'
           + 'gap:10px;padding-bottom:6px',
       }, [
-        el('span', { metin: 'Beklenen' }),
-        el('span', { metin: 'Cihaz' }),
-        el('span', { metin: 'Bildirilen' }),
-        el('span', { metin: 'Durum' }),
+        el('span', { text: t('piscu.expected') }),
+        el('span', { text: t('piscu.device') }),
+        el('span', { text: t('piscu.reported') }),
+        el('span', { text: t('piscu.state') }),
       ]),
-      ...sipler,
-    ], 'SIP tanımlı cihaz yok'),
+      ...extensions,
+    ], 'No device has SIP defined'),
   ]));
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }

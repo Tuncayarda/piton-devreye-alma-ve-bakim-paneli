@@ -1,156 +1,175 @@
-// Proje & Cihaz Listesi (admin).
+// Project & device list (admin).
 //
-// Bu ekranda cihaz kullanıcı adı/parolası KAYDEDİLEMEZ. Eski panellerdeki
-// "kimlik bilgilerini dosyaya kaydet" / "parola kayıtlı" alanları
-// bilinçli olarak yoktur; tek yapılabilen, bellekteki kimlikleri unutmaktır.
+// A device username/password CANNOT be saved on this screen. The "save
+// credentials to a file" / "password stored" fields of older panels are
+// deliberately absent; the only thing possible here is forgetting what is in
+// memory.
 
-import { el, doldur } from '../core/dom.js';
+import { el, fill } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum } from '../core/durum.js';
-import { basari, hata } from '../parts/bildirim.js';
-import { deger } from '../core/bicim.js';
+import { state } from '../core/store.js';
+import { showSuccess, showError } from '../components/toast.js';
+import { value } from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-const KOLON = 'minmax(140px,1.3fr) minmax(120px,1fr) 76px 110px 96px';
+const COLUMNS = 'minmax(140px,1.3fr) minmax(120px,1fr) 76px 110px 96px';
 
-// Set numarası sahada sabit bir listeden gelmiyor (49, 112 gibi numaralar
-// da var); hazır düğme ızgarası yerine elle yazılan bir alan duruyor.
-// Aralığı sunucu bildirir, çünkü doğrulamayı da o yapıyor.
-function setKutusu(meta, setDegis) {
+// In the field the set number does not come from a fixed list (49 and 112
+// exist too); instead of a grid of ready-made buttons there is a typed field.
+// The server reports the range, because the server does the validation.
+function setBox(meta, changeSet) {
   const min = meta.setMin || 1;
   const max = meta.setMax || 254;
 
-  const alan = el('input', {
-    sinif: 'alan', type: 'number', inputmode: 'numeric',
+  const field = el('input', {
+    class: 'field', type: 'number', inputmode: 'numeric',
     min: String(min), max: String(max), step: '1',
-    autocomplete: 'off', stil: 'width:90px;text-align:center',
-    value: String(durum.setNo), 'aria-label': 'Tren seti numarası',
+    autocomplete: 'off', style: 'width:90px;text-align:center',
+    value: String(state.setNo), 'aria-label': t('admin.trainSetNumber'),
   });
 
-  const uygula = () => {
-    const n = Number(alan.value.trim());
-    if (!Number.isInteger(n) || n < min || n > max) {
-      hata(`Set numarası ${min} ile ${max} arasında olmalı`);
-      alan.value = String(durum.setNo);
+  const apply = () => {
+    const next = Number(field.value.trim());
+    if (!Number.isInteger(next) || next < min || next > max) {
+      showError(t('topbar.setOutOfRange', { min, max }));
+      field.value = String(state.setNo);
       return;
     }
-    if (n !== durum.setNo) setDegis(n);
+    if (next !== state.setNo) changeSet(next);
   };
-  alan.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); uygula(); }
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); apply(); }
   });
 
-  return el('div', { stil: 'margin-top:12px' }, [
-    el('div', { stil: 'display:flex;align-items:center;gap:8px' }, [
-      alan,
+  return el('div', { style: 'margin-top:12px' }, [
+    el('div', { style: 'display:flex;align-items:center;gap:8px' }, [
+      field,
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Uygula', onclick: uygula,
+        type: 'button', class: 'btn', text: t('admin.apply'), onclick: apply,
       }),
     ]),
     el('p', {
-      sinif: 'mono soluk',
-      stil: 'margin-top:9px;font-size:10.5px;line-height:1.6',
-      metin: `Geçerli aralık ${min}–${max}. Cihaz adresleri 10.n.1.x `
-        + 'biçiminde çözülür.',
+      class: 'mono text-dim',
+      style: 'margin-top:9px;font-size:10.5px;line-height:1.6',
+      text: t('admin.validRange', { min, max }),
     }),
   ]);
 }
 
-export function ciz(kok, setDegis) {
-  const meta = durum.meta;
+export function render(root, changeSet) {
+  const meta = state.meta;
   if (!meta) return;
-  const parcalar = [];
+  const parts = [];
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    el('div', {}, [el('h2', { metin: 'Proje & Cihaz Listesi' })]),
+  parts.push(el('div', { class: 'page-head' }, [
+    el('div', {}, [el('h2', { text: t('admin.projectDeviceList') })]),
   ]));
 
-  parcalar.push(el('div', { sinif: 'proje-izgara' }, [
-    el('div', { sinif: 'kart kose' }, [
-      el('div', { stil: 'display:flex;align-items:center;gap:9px' }, [
-        el('span', { sinif: 'nokta', stil: 'background:var(--yesil)', 'aria-hidden': 'true' }),
+  parts.push(el('div', { class: 'project-grid' }, [
+    el('div', { class: 'card corner' }, [
+      el('div', { style: 'display:flex;align-items:center;gap:9px' }, [
         el('span', {
-          stil: 'font-family:var(--f-baslik);font-weight:600;font-size:18px;'
-            + 'letter-spacing:.06em;text-transform:uppercase',
-          metin: meta.proje,
+          class: 'dot', style: 'background:var(--ok)', 'aria-hidden': 'true',
         }),
-        el('span', { stil: 'margin-left:auto' , sinif: 'etiket', metin: 'Yüklü' }),
+        el('span', {
+          style: 'font-family:var(--font-heading);font-weight:600;'
+            + 'font-size:18px;letter-spacing:.06em;text-transform:uppercase',
+          text: meta.project,
+        }),
+        el('span', {
+          style: 'margin-left:auto', class: 'label', text: t('admin.loaded'),
+        }),
       ]),
       el('div', {
-        sinif: 'mono orta',
-        stil: 'margin-top:9px;font-size:10.5px;line-height:1.7',
+        class: 'mono text-mid',
+        style: 'margin-top:9px;font-size:10.5px;line-height:1.7',
       }, [
-        el('div', { metin: meta.dosya }),
-        el('div', { metin: `PISCU / broker: ${deger(meta.piscuIp)}` }),
+        el('div', { text: meta.file }),
+        el('div', {
+        text: t('admin.piscuBroker', { ip: value(meta.piscuIp) }),
+      }),
       ]),
     ]),
-    el('div', { sinif: 'kart kose' }, [
-      el('h4', { metin: 'Kimlik Bilgileri' }),
+    el('div', { class: 'card corner' }, [
+      el('h4', { text: t('admin.credentials') }),
       el('p', {
-        sinif: 'mono orta',
-        stil: 'margin-top:9px;font-size:10.5px;line-height:1.7',
-        metin: 'Cihaz kullanıcı adı ve parolaları yalnızca bu uygulama '
-          + 'açık kaldığı sürece bellekte tutulur. Dosyaya, .env\'e ya da '
-          + 'tarayıcı deposuna hiçbir koşulda yazılmaz.',
+        class: 'mono text-mid',
+        style: 'margin-top:9px;font-size:10.5px;line-height:1.7',
+        text: t('admin.deviceUsernamesAndPasswordsAre'),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-tehlike', stil: 'margin-top:12px',
-        metin: 'Bellekteki Kimlikleri Unut',
+        type: 'button', class: 'btn btn-danger', style: 'margin-top:12px',
+        text: t('admin.forgetCredentials'),
         onclick: async () => {
           try {
-            await api.kimlikHepsiniUnut();
-            basari('Bellekteki bütün kimlikler unutuldu');
-          } catch (e) { hata(e.message); }
+            await api.forgetAllCredentials();
+            showSuccess(t('admin.everyCredentialInMemoryWas'));
+          } catch (e) { showError(e.message); }
         },
       }),
     ]),
-    el('div', { sinif: 'kart kose' }, [
-      el('h4', { metin: 'Tren Seti (n)' }),
-      setKutusu(meta, setDegis),
+    el('div', { class: 'card corner' }, [
+      el('h4', { text: t('admin.trainSetN') }),
+      setBox(meta, changeSet),
     ]),
   ]));
 
-  parcalar.push(el('div', { sinif: 'admin-izgara' }, [
-    el('div', { sinif: 'kart' }, [
-      el('div', { sinif: 'kart-basi' }, [
-        el('h4', { metin: 'Cihaz–Port Eşleme' }),
-        el('span', { sinif: 'etiket', metin: 'switch / port / IP şablonu' }),
+  parts.push(el('div', { class: 'admin-grid' }, [
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card-head' }, [
+        el('h4', { text: t('admin.devicePortMapping') }),
+        el('span', { class: 'label', text: t('admin.switchPortIpTemplate') }),
       ]),
-      el('div', { sinif: 'tablo-sar', stil: 'margin-top:0' }, [
-        el('div', { sinif: 'tablo', stil: '--tablo-min:600px' }, [
-          el('div', { sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}` },
-            ['Name', 'Type / SubType', 'Port', 'IP Şablonu', 'PBXExtension']
-              .map(b => el('span', { metin: b }))),
-          ...durum.cihazlar.map(c => el('div', {
-            sinif: 'tablo-satir', stil: `--tablo-kolon:${KOLON}`,
+      el('div', { class: 'table-wrap', style: 'margin-top:0' }, [
+        el('div', { class: 'table', style: '--table-min:600px' }, [
+          el('div', {
+            class: 'table-head', style: `--table-columns:${COLUMNS}`,
+          }, ['col.name', 'col.typeSubtype', 'col.port', 'col.ipTemplate',
+              'col.pbxExtension']
+            .map(key => el('span', { text: key ? t(key) : '' }))),
+          ...state.devices.map(device => el('div', {
+            class: 'table-row', style: `--table-columns:${COLUMNS}`,
           }, [
-            el('span', { sinif: 'mono kirp', stil: 'font-size:11px', metin: c.ad }),
-            el('span', { sinif: 'mono acik kirp', stil: 'font-size:11px', metin: c.tipEtiket }),
             el('span', {
-              sinif: 'mono', stil: 'font-size:11px;color:var(--turuncu)',
-              metin: c.port || '—',
+              class: 'mono truncate', style: 'font-size:11px',
+              text: device.name,
             }),
-            el('span', { sinif: 'mono orta', stil: 'font-size:11px', metin: c.ipSablonu }),
             el('span', {
-              sinif: 'mono', stil: 'font-size:11px;color:var(--accent)',
-              metin: c.pbxExtension || '—',
+              class: 'mono text-bright truncate', style: 'font-size:11px',
+              text: device.typeLabel,
+            }),
+            el('span', {
+              class: 'mono', style: 'font-size:11px;color:var(--auth)',
+              text: device.port || '—',
+            }),
+            el('span', {
+              class: 'mono text-mid', style: 'font-size:11px',
+              text: device.ipTemplate,
+            }),
+            el('span', {
+              class: 'mono', style: 'font-size:11px;color:var(--accent)',
+              text: device.pbxExtension || '—',
             }),
           ])),
         ]),
       ]),
     ]),
 
-    el('div', { sinif: 'kart' }, [
-      el('h4', { metin: 'Kategori Tanımı' }),
-      el('div', { stil: 'margin-top:11px' }, meta.kategoriler.map(k => el('div', {
-        stil: 'display:flex;gap:10px;padding:6px 0;'
-          + 'border-bottom:1px solid var(--cizgi-hafif);'
-          + 'font-family:var(--f-mono);font-size:11px',
-      }, [
-        el('span', { stil: 'width:82px;flex:none', metin: k.kod }),
-        el('span', { sinif: 'orta', stil: 'flex:1', metin: k.tipler }),
-      ]))),
+    el('div', { class: 'card' }, [
+      el('h4', { text: t('admin.categoryDefinition') }),
+      el('div', { style: 'margin-top:11px' },
+        meta.categories.map(category => el('div', {
+          style: 'display:flex;gap:10px;padding:6px 0;'
+            + 'border-bottom:1px solid var(--line-soft);'
+            + 'font-family:var(--font-mono);font-size:11px',
+        }, [
+          el('span', { style: 'width:82px;flex:none', text: category.code }),
+          el('span', {
+            class: 'text-mid', style: 'flex:1', text: category.types,
+          }),
+        ]))),
     ]),
   ]));
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }

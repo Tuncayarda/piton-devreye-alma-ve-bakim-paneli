@@ -1,141 +1,170 @@
-// Biçimlendirme ve etiketleme.
+// Formatting and labelling.
 //
-// Veri yoksa her yerde aynı işaret kullanılır: —
-// "Bu cihazda uygulanmıyor" ile "okunamadı" ayrı metinlerdir; ikisini
-// birleştirmek kullanıcıya yanlış bilgi verir.
+// One marker is used everywhere data is missing: —
+// "not applicable on this device" and "could not be read" are different
+// texts; merging them tells the user something untrue.
 
-export const YOK = '—';
+import { t } from './i18n.js';
 
-export function deger(v) {
-  if (v === null || v === undefined || v === '') return YOK;
+export const NONE = '—';
+
+export function value(v) {
+  if (v === null || v === undefined || v === '') return NONE;
   return String(v);
 }
 
-export const DURUM_ETIKET = {
-  yesil: 'Erişilebilir',
-  turuncu: 'Giriş bilgisi gerekli',
-  kirmizi: 'Erişilemiyor',
-  gri: 'Henüz okunmadı',
+export const STATE_LABEL = {
+  ok: 'state.ok',
+  auth: 'state.auth',
+  failed: 'state.failed',
+  unknown: 'state.unknown',
 };
 
-export const DOGRULAMA_ETIKET = {
-  dogrulandi: 'Temel veri okundu',
-  kimlik_bekliyor: 'Kullanıcı adı veya parola gerekli',
-  dogrulanamadi: 'Kontrol tamamlanamadı',
-  okunmadi: 'Henüz okunmadı',
-  uygulanmiyor: 'Bu cihazda uygulanmıyor',
+export const VERIFICATION_LABEL = {
+  verified: 'verify.verified',
+  auth_required: 'verify.authrequired',
+  unverified: 'verify.unverified',
+  not_read: 'verify.notread',
+  not_applicable: 'verify.notapplicable',
 };
 
-// DeviceMap'teki tür adları cihaz protokolünün parçasıdır ve İngilizce
-// kalabilir. Kullanıcı yüzünde yalnız genel sınıfları Türkçeleştiriyoruz;
-// ürün/model adlarına (PISCU, UIC, Intercom gibi) dokunmuyoruz.
-const TIP_PARCA = {
-  Announcement: 'Anons',
-  Camera: 'Kamera',
-  Compartment: 'Kompartıman',
-  Corridor: 'Koridor',
-  Front: 'Ön',
-  Landing: 'Sahanlık',
+// The type names in DeviceMap are part of the device protocol. This table
+// exists for the few that need a friendlier wording on screen;
+// product/model names (PISCU, UIC, Intercom) are left alone.
+const TYPE_WORDS = {
+  Announcement: 'Announcement',
+  Camera: 'Camera',
+  Compartment: 'Compartment',
+  Corridor: 'Corridor',
+  Front: 'Front',
+  Landing: 'Landing',
 };
 
-export function tipEtiketi(etiket) {
-  return String(etiket || '')
+export function typeLabel(label) {
+  return String(label || '')
     .split('/')
-    .map(p => p.trim())
-    .map(p => TIP_PARCA[p] || p)
+    .map(part => part.trim())
+    .map(part => TYPE_WORDS[part] || part)
     .join(' / ');
 }
 
-export const IS_DURUM_ETIKET = {
-  bekliyor: 'Bekliyor',
-  calisiyor: 'Çalışıyor',
-  tamam: 'Tamamlandı',
-  iptal: 'İptal edildi',
-  hata: 'Hata',
+export const JOB_STATE_LABEL = {
+  queued: 'jobstate.queued',
+  running: 'jobstate.running',
+  done: 'jobstate.done',
+  cancelled: 'jobstate.cancelled',
+  failed: 'jobstate.failed',
 };
 
-export const IS_SONUC_ETIKET = {
-  basarili: 'Başarılı',
-  uyari: 'Uyarı',
-  basarisiz: 'Tamamlanamadı',
-  durduruldu: 'Durduruldu',
+export const JOB_OUTCOME_LABEL = {
+  success: 'outcome.success',
+  warning: 'outcome.warning',
+  failed: 'outcome.failed',
+  stopped: 'outcome.stopped',
 };
 
-export const IS_SONUC_RENK = {
-  basarili: 'yesil',
-  uyari: 'turuncu',
-  basarisiz: 'kirmizi',
-  durduruldu: 'turuncu',
+// Domain state -> presentation token. The tokens are the CSS custom
+// properties (--ok, --auth, …); this table is the seam that keeps the domain
+// vocabulary and the stylesheet independent of each other.
+export const JOB_OUTCOME_COLOUR = {
+  success: 'ok',
+  warning: 'auth',
+  failed: 'failed',
+  stopped: 'auth',
 };
 
-export const SATIR_DURUM_ETIKET = {
-  bekliyor: 'Bekliyor',
-  calisiyor: 'Çalışıyor',
-  // IP atama koşusunda ara durum: cihaza yazıldı, cihaz reset attı ama
-  // yeni adresinde cevap verdiği son doğrulama turunda anlaşılıyor.
-  // "Tamam" demek yanlış olurdu (bkz. core/ip_atama.YAZILDI).
-  yazildi: 'Yazıldı',
-  tamam: 'Tamam',
-  kimlik: 'Kimlik',
-  // Betik çıktısındaki "[!]" satırları: koşu sürüyor ama bir şey ters
-  // gitti. Hepsini yeşil "Tamam" göstermek, 200 satırlık çıktıda asıl
-  // sebebi görünmez kılıyordu.
-  uyari: 'Uyarı',
-  hata: 'Hata',
-  atlandi: 'Atlandı',
+export const ROW_STATE_LABEL = {
+  queued: 'rowstate.queued',
+  running: 'rowstate.running',
+  // An intermediate state in an IP assignment run: written to the device and
+  // the device reset, but whether it answers on its new address is only known
+  // in the final verification pass. "Done" would be wrong
+  // (see panel/ip_assign/progress.py WRITTEN).
+  written: 'rowstate.written',
+  done: 'rowstate.done',
+  auth: 'rowstate.auth',
+  // "[!]" lines in the script output: the run continues but something went
+  // wrong. Showing them all as a green "Done" hid the real cause in 200 lines
+  // of output.
+  warning: 'rowstate.warning',
+  failed: 'rowstate.failed',
+  skipped: 'rowstate.skipped',
 };
 
-export const SATIR_RENK = {
-  bekliyor: 'gri',
-  calisiyor: 'mavi',
-  // Çalışıyorla aynı renk ama nabız atmaz: iş o satırda bitti, teyidi
-  // bekliyor. Turuncu kullanılmadı — turuncu bu panelde "bir şey ters
-  // gitti" demek ve yazılmış bir port ters giden bir şey değil.
-  yazildi: 'mavi',
-  // Satır altındaki adımların çoğu ne başarı ne hata: ne yapıldığını
-  // anlatan kayıtlar.
-  bilgi: 'gri',
-  tamam: 'yesil',
-  kimlik: 'turuncu',
-  uyari: 'turuncu',
-  hata: 'kirmizi',
-  atlandi: 'gri',
+export const ROW_COLOUR = {
+  queued: 'unknown',
+  running: 'busy',
+  // Same colour as running but without the pulse: the job finished on that
+  // row and is awaiting confirmation. Amber was not used — amber means
+  // "something went wrong" in this panel, and a written port has not.
+  written: 'busy',
+  // Most steps under a row are neither success nor failure: they record what
+  // was done.
+  info: 'unknown',
+  done: 'ok',
+  auth: 'auth',
+  warning: 'auth',
+  failed: 'failed',
+  skipped: 'unknown',
 };
 
-export function saat(ts) {
-  if (!ts) return YOK;
-  const d = new Date(ts * 1000);
-  return d.toLocaleTimeString('tr-TR', { hour12: false });
+// Device state -> presentation token, same seam as above.
+export const STATE_COLOUR = {
+  ok: 'ok',
+  auth: 'auth',
+  failed: 'failed',
+  unknown: 'unknown',
+};
+
+// One locale for the whole panel, so a machine's regional settings cannot
+// change what two people reading the same screen see.
+export const LOCALE = 'en-GB';
+
+export function clockTime(ts) {
+  if (!ts) return NONE;
+  return new Date(ts * 1000).toLocaleTimeString(LOCALE, { hour12: false });
 }
 
-export function tazelik(ts) {
-  if (!ts) return YOK;
-  const fark = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  if (fark < 60) return `${fark} sn`;
-  if (fark < 3600) return `${Math.floor(fark / 60)} dk`;
-  return `${Math.floor(fark / 3600)} sa`;
+export function age(ts) {
+  if (!ts) return NONE;
+  const seconds = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  return `${Math.floor(seconds / 3600)} h`;
 }
 
-export function yuzde(a, b) {
-  if (!b) return '0%';
-  return `${Math.round((a / b) * 100)}%`;
+export function percent(part, total) {
+  if (!total) return '0%';
+  return `${Math.round((part / total) * 100)}%`;
 }
 
-export function boyut(bayt) {
-  if (!bayt) return YOK;
-  if (bayt < 1024) return `${bayt} B`;
-  if (bayt < 1024 * 1024) return `${(bayt / 1024).toFixed(1)} KB`;
-  return `${(bayt / 1024 / 1024).toFixed(2)} MB`;
+export function fileSize(bytes) {
+  if (!bytes) return NONE;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
-// Cihaz satırında gösterilecek "sürüm" değeri: okunmadıysa boş bırakılır,
-// varsayılan bir sürüm uydurulmaz.
-export function surumOf(cihaz) {
-  const a = cihaz.sonuc && cihaz.sonuc.alanlar;
-  return (a && (a.surum || a.model)) || '';
+// The "version" shown on a device row: left empty when unread, never
+// invented.
+// The tables above hold message KEYS. These readers turn a domain code into
+// text in the language selected right now — a table of ready-made strings
+// would have frozen at whatever language was loaded when the module ran.
+const lookup = (table) => (code, fallback = '') => (
+  table[code] ? t(table[code]) : (fallback || code || ''));
+
+export const stateLabel = lookup(STATE_LABEL);
+export const verificationLabel = lookup(VERIFICATION_LABEL);
+export const jobStateLabel = lookup(JOB_STATE_LABEL);
+export const jobOutcomeLabel = lookup(JOB_OUTCOME_LABEL);
+export const rowStateLabel = lookup(ROW_STATE_LABEL);
+
+export function versionOf(device) {
+  const fields = device.result && device.result.fields;
+  return (fields && (fields.version || fields.model)) || '';
 }
 
-export function calismaOf(cihaz) {
-  const a = cihaz.sonuc && cihaz.sonuc.alanlar;
-  return (a && a.calisma) || '';
+export function uptimeOf(device) {
+  const fields = device.result && device.result.fields;
+  return (fields && fields.uptime) || '';
 }

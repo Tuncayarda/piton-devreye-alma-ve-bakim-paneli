@@ -1,5 +1,5 @@
-# Deterministik masaüstü artefaktı bütün platformlarda aynı baytları taşır.
-static/masaustu.html text eol=lf
-# SVG ham Base64 olarak masaüstü artefaktına gömülür. Windows checkout'unun
-# CRLF dönüşümü aynı görseli farklı baytlara çevirmemeli.
+# The deterministic desktop artefact carries identical bytes on every platform.
+static/desktop.html text eol=lf
+# The SVG is embedded into the desktop artefact as raw Base64. A Windows
+# checkout's CRLF conversion must not turn the same image into different bytes.
 static/piton-logo.svg text eol=lf

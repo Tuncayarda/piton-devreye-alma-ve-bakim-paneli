@@ -1,238 +1,262 @@
-// Oturumluk işlem geçmişi.
+// The session's job history.
 //
-// Bu görünüm yeni bir kayıt üretmez ve tarayıcı deposuna hiçbir şey yazmaz.
-// Yalnız global durumdaki `isler` dizisini düzenler; uygulama kapatıldığında
-// sunucunun bellek içi iş listesiyle birlikte geçmiş de kaybolur.
+// This view creates no record of its own and writes nothing to browser
+// storage. It only arranges the `jobs` array in global state; when the
+// application closes, the history goes with the server's in-memory job list.
 
-import { el, doldur } from '../core/dom.js';
-import { durum, ata } from '../core/durum.js';
-import { YOK, IS_SONUC_ETIKET, IS_SONUC_RENK } from '../core/bicim.js';
+import { el, fill } from '../core/dom.js';
+import { state, patch } from '../core/store.js';
+import {
+  NONE, jobOutcomeLabel, JOB_OUTCOME_COLOUR, LOCALE,
+} from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-const DEVAM_EDEN = new Set(['bekliyor', 'calisiyor']);
-const SONUCLANAN = new Set(['tamam', 'iptal', 'hata']);
+const IN_PROGRESS = new Set(['queued', 'running']);
+const FINISHED = new Set(['done', 'cancelled', 'failed']);
 
-const DURUM_RENK = {
-  bekliyor: 'gri',
-  calisiyor: 'mavi',
-  tamam: 'yesil',
-  iptal: 'turuncu',
-  hata: 'kirmizi',
+const STATE_COLOUR = {
+  queued: 'unknown',
+  running: 'busy',
+  done: 'ok',
+  cancelled: 'auth',
+  failed: 'failed',
 };
 
-const DURUM_METNI = {
-  bekliyor: 'Sırada',
-  calisiyor: 'Çalışıyor',
-  tamam: 'Tamamlandı',
-  iptal: 'Durduruldu',
-  hata: 'Başarısız',
+const STATE_TEXT = {
+  queued: 'Queued',
+  running: 'Running',
+  done: 'Finished',
+  cancelled: 'Stopped',
+  failed: 'Failed',
 };
 
-const TUR_ADI = {
-  tarama: 'Sistem taraması',
-  ip: 'IP atama',
-  ipfab: 'Fabrika IP adresine döndürme',
-  cfg: 'Cihaz ayarlarını uygulama',
-  fw: 'Yazılım yükleme',
-  excel: 'Excel raporu oluşturma',
+// Keyed by the server's stable `kind` value, never by the display title: the
+// title carries a switch or device name and gets reworded, and a screen that
+// decided by matching it went blank the moment the wording changed.
+const KIND_NAME = {
+  scan: 'System scan',
+  ip: 'IP assignment',
+  ipfactory: 'Reset to the factory IP',
+  config: 'Apply device settings',
+  firmware: 'Firmware install',
+  checklist: 'Generate the Excel report',
 };
 
-const KOLON = 'minmax(235px,1.7fr) minmax(120px,.8fr) 105px '
+const UNKNOWN_KIND = 'Job';
+
+const COLUMNS = 'minmax(235px,1.7fr) minmax(120px,.8fr) 105px '
   + 'minmax(125px,.8fr) minmax(210px,1.4fr) 105px';
 
-function isAdi(j) {
-  if (j.tur === 'tarama' && j.otomatik) return 'Otomatik sistem taraması';
-  return TUR_ADI[j.tur] || String(j.baslik || 'İşlem').replace(
-    'Konfigürasyon', 'Cihaz ayarları');
+function jobName(job) {
+  if (job.kind === 'scan' && job.auto) return 'Automatic system scan';
+  return KIND_NAME[job.kind] || String(job.title || UNKNOWN_KIND);
 }
 
-// Sunucudaki başlığın ilk bölümü çoğunlukla işlem türüdür. Türü yukarıda
-// tutarlı bir dille yazdığımız için burada yalnız kapsamı (switch, port ya da
-// cihaz sayısı) gösteririz.
-function isKapsami(j) {
-  const parcalar = String(j.baslik || '').split(' · ').slice(1);
-  if (parcalar[0] === `Set ${j.setNo}`) parcalar.shift();
-  return parcalar.join(' · ');
+// The first part of the server's title is usually the job kind. Because the
+// kind is written above in consistent wording, only the scope (switch, ports
+// or device count) is shown here.
+function jobScope(job) {
+  const parts = String(job.title || '').split(' · ').slice(1);
+  if (parts[0] === `Set ${job.setNo}`) parts.shift();
+  return parts.join(' · ');
 }
 
-function zaman(ts) {
-  if (!ts) return YOK;
-  return new Date(ts * 1000).toLocaleTimeString('tr-TR', {
+function timeText(ts) {
+  if (!ts) return NONE;
+  return new Date(ts * 1000).toLocaleTimeString(LOCALE, {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
   });
 }
 
-function sure(j) {
-  if (!j.baslama) return 'Henüz başlamadı';
-  const son = j.bitis || Date.now() / 1000;
-  const saniye = Math.max(0, Math.round(son - j.baslama));
-  if (saniye < 60) return `${saniye} sn`;
-  const dakika = Math.floor(saniye / 60);
-  const kalan = saniye % 60;
-  if (dakika < 60) return kalan ? `${dakika} dk ${kalan} sn` : `${dakika} dk`;
-  const saat = Math.floor(dakika / 60);
-  return `${saat} sa ${dakika % 60} dk`;
+function durationText(job) {
+  if (!job.startedAt) return 'Not started yet';
+  const end = job.finishedAt || Date.now() / 1000;
+  const seconds = Math.max(0, Math.round(end - job.startedAt));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours} h ${minutes % 60} min`;
 }
 
-function durumMetni(j) {
-  if (j.iptalIstendi && DEVAM_EDEN.has(j.durum)) return 'Durduruluyor…';
-  return DURUM_METNI[j.durum] || 'Bilinmiyor';
+function stateText(job) {
+  if (job.cancelRequested && IN_PROGRESS.has(job.state)) return 'Stopping…';
+  return STATE_TEXT[job.state] || 'Unknown';
 }
 
-function sonucMetni(j) {
-  if (DEVAM_EDEN.has(j.durum)) {
-    return j.asama || (j.durum === 'bekliyor'
-      ? 'İşlem sırasını bekliyor' : 'İşlem yürütülüyor');
+function outcomeText(job) {
+  if (IN_PROGRESS.has(job.state)) {
+    return job.phase || (job.state === 'queued'
+      ? 'Waiting its turn' : 'Running');
   }
-  if (j.hata) return j.hata;
+  if (job.error) return job.error;
 
-  const s = j.sayilar || {};
-  const basarili = Number(s.basarili || 0);
-  const bekleyen = Number(s.erisimBekleyen || 0);
-  const hatali = Number(s.hatali || 0);
-  const atlanan = Number(s.atlanan || 0);
-  const toplam = Number(s.toplam || 0);
-  if (!toplam) {
-    if (j.durum === 'iptal') return 'İşlem tamamlanmadan durduruldu';
-    if (j.durum === 'hata') return 'İşlem tamamlanamadı';
-    return 'İşlem başarıyla tamamlandı';
+  const counts = job.counts || {};
+  const ok = Number(counts.ok || 0);
+  const auth = Number(counts.auth || 0);
+  const failed = Number(counts.failed || 0);
+  const skipped = Number(counts.skipped || 0);
+  const total = Number(counts.total || 0);
+  if (!total) {
+    if (job.state === 'cancelled') return 'Stopped before it finished';
+    if (job.state === 'failed') return 'The job could not be completed';
+    return 'The job finished successfully';
   }
 
-  const parcalar = [];
-  const sonucEtiketi = IS_SONUC_ETIKET[j.sonuc];
-  if (sonucEtiketi) parcalar.push(sonucEtiketi);
-  parcalar.push(`${basarili} başarılı`);
-  if (bekleyen) parcalar.push(`${bekleyen} cihaz için giriş bilgisi gerekli`);
-  if (hatali) parcalar.push(`${hatali} başarısız`);
-  if (atlanan) parcalar.push(`${atlanan} atlandı`);
-  return parcalar.join(' · ');
+  const parts = [];
+  const outcomeLabel = job.outcome ? jobOutcomeLabel(job.outcome) : '';
+  if (outcomeLabel) parts.push(outcomeLabel);
+  parts.push(`${ok} successful`);
+  if (auth) parts.push(`${auth} device(s) need credentials`);
+  if (failed) parts.push(`${failed} failed`);
+  if (skipped) parts.push(`${skipped} skipped`);
+  return parts.join(' · ');
 }
 
-function isSatiri(j) {
-  const oran = Math.round(Number(j.ilerleme || 0) * 100);
-  const kapsam = isKapsami(j);
-  const renk = DURUM_RENK[j.durum] || 'gri';
-  const sonucRengi = IS_SONUC_RENK[j.sonuc] || renk;
-  const baslangic = j.baslama || j.olusturma;
+function jobRow(job) {
+  const percent = Math.round(Number(job.progress || 0) * 100);
+  const scope = jobScope(job);
+  const colour = STATE_COLOUR[job.state] || 'unknown';
+  const outcomeColour = JOB_OUTCOME_COLOUR[job.outcome] || colour;
+  const startedAt = job.startedAt || job.createdAt;
 
   return el('div', {
-    sinif: 'tablo-satir', stil: `--tablo-kolon:${KOLON}`,
+    class: 'table-row', style: `--table-columns:${COLUMNS}`,
   }, [
     el('span', {
-      stil: 'display:flex;flex-direction:column;gap:3px;min-width:0',
+      style: 'display:flex;flex-direction:column;gap:3px;min-width:0',
     }, [
-      el('span', { sinif: 'acik', stil: 'font-size:12.5px', metin: isAdi(j) }),
-      kapsam ? el('span', {
-        sinif: 'mono soluk kirp', stil: 'font-size:10.5px',
-        title: kapsam, metin: kapsam,
+      el('span', {
+        class: 'text-bright', style: 'font-size:12.5px', text: jobName(job),
+      }),
+      scope ? el('span', {
+        class: 'mono text-dim truncate', style: 'font-size:10.5px',
+        title: scope, text: scope,
       }) : null,
-      j.otomatik ? el('span', {
-        sinif: 'rozet', stil: 'align-self:flex-start', metin: 'Otomatik',
+      job.auto ? el('span', {
+        class: 'badge', style: 'align-self:flex-start', text: t('history.automatic'),
       }) : null,
     ]),
-    el('span', { stil: 'display:flex;align-items:center;gap:8px;min-width:0' }, [
-      el('span', { sinif: 'nokta', veri: { durum: renk }, 'aria-hidden': 'true' }),
+    el('span', {
+      style: 'display:flex;align-items:center;gap:8px;min-width:0',
+    }, [
       el('span', {
-        sinif: 'durum-yazi', veri: { durum: renk }, stil: 'font-size:12px',
-        metin: DEVAM_EDEN.has(j.durum)
-          ? `${durumMetni(j)} · %${oran}` : durumMetni(j),
+        class: 'dot', dataset: { state: colour }, 'aria-hidden': 'true',
+      }),
+      el('span', {
+        class: 'state-text', dataset: { state: colour },
+        style: 'font-size:12px',
+        text: IN_PROGRESS.has(job.state)
+          ? `${stateText(job)} · %${percent}` : stateText(job),
       }),
     ]),
     el('span', {
-      sinif: 'mono orta', stil: 'font-size:11px',
-      metin: `Tren seti ${j.setNo ?? YOK}`,
+      class: 'mono text-mid', style: 'font-size:11px',
+      text: t('history.trainSet', { set: job.setNo ?? NONE }),
     }),
     el('span', {
-      stil: 'display:flex;flex-direction:column;gap:3px',
+      style: 'display:flex;flex-direction:column;gap:3px',
     }, [
-      el('span', { sinif: 'mono acik', stil: 'font-size:11px', metin: zaman(baslangic) }),
-      el('span', { sinif: 'mono soluk', stil: 'font-size:10px', metin: sure(j) }),
+      el('span', {
+        class: 'mono text-bright', style: 'font-size:11px',
+        text: timeText(startedAt),
+      }),
+      el('span', {
+        class: 'mono text-dim', style: 'font-size:10px',
+        text: durationText(job),
+      }),
     ]),
     el('span', {
-      sinif: 'durum-yazi', veri: { durum: sonucRengi },
-      stil: 'font-size:11.5px;line-height:1.45',
-      title: sonucMetni(j), metin: sonucMetni(j),
+      class: 'state-text', dataset: { state: outcomeColour },
+      style: 'font-size:11.5px;line-height:1.45',
+      title: outcomeText(job), text: outcomeText(job),
     }),
     el('button', {
-      type: 'button', sinif: 'btn btn-kucuk', metin: 'Ayrıntıları aç',
-      onclick: () => ata({ acikIs: j.id, kuyrukAcik: true, kilitAcik: false }),
+      type: 'button', class: 'btn btn-small', text: t('history.openTheDetails'),
+      onclick: () => patch({
+        openJob: job.id, queueOpen: true, lockedOpen: false,
+      }),
     }),
   ]);
 }
 
-function bolum(ad, aciklama, isler, bosMetni) {
-  return el('section', { stil: 'margin-top:20px' }, [
-    el('div', { sinif: 'kart-basi' }, [
-      el('h3', { metin: ad }),
-      el('span', { sinif: 'rozet', metin: String(isler.length) }),
-      el('span', { sinif: 'sayfa-alt', stil: 'margin:0', metin: aciklama }),
+function section(title, description, jobs, emptyText) {
+  return el('section', { style: 'margin-top:20px' }, [
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: title }),
+      el('span', { class: 'badge', text: String(jobs.length) }),
+      el('span', { class: 'page-sub', style: 'margin:0', text: description }),
     ]),
-    el('div', { sinif: 'tablo-sar', stil: 'margin-top:0' }, [
-      el('div', { sinif: 'tablo', stil: '--tablo-min:1040px' }, [
+    el('div', { class: 'table-wrap', style: 'margin-top:0' }, [
+      el('div', { class: 'table', style: '--table-min:1040px' }, [
         el('div', {
-          sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}`, role: 'row',
-        }, ['İşlem', 'Durum', 'Tren seti', 'Başlangıç ve süre', 'Sonuç', ''].map(
-          ad_ => el('span', { metin: ad_ }))),
-        ...(isler.length
-          ? isler.map(isSatiri)
-          : [el('div', { sinif: 'tablo-bos', metin: bosMetni })]),
+          class: 'table-head', style: `--table-columns:${COLUMNS}`,
+          role: 'row',
+        }, ['col.job', 'col.state', 'col.trainSet', 'col.startAndDuration',
+            'col.outcome', '']
+          .map(key => el('span', { text: key ? t(key) : '' }))),
+        ...(jobs.length
+          ? jobs.map(jobRow)
+          : [el('div', { class: 'table-empty', text: emptyText })]),
       ]),
     ]),
   ]);
 }
 
-function filtreler(devam, sonuc) {
-  const secenekler = [
-    { id: 'tumu', ad: `Tümü (${devam.length + sonuc.length})` },
-    { id: 'devam', ad: `Devam eden (${devam.length})` },
-    { id: 'sonuc', ad: `Sonuçlanan (${sonuc.length})` },
+function filters(active, finished) {
+  const options = [
+    { id: 'all', label: `All (${active.length + finished.length})` },
+    { id: 'active', label: `In progress (${active.length})` },
+    { id: 'finished', label: `Finished (${finished.length})` },
   ];
   return el('div', {
-    stil: 'display:flex;gap:2px;border:1px solid var(--cizgi-kuvvetli)',
-    role: 'group', 'aria-label': 'Geçmiş filtresi',
-  }, secenekler.map(f => el('button', {
-    type: 'button', sinif: 'btn btn-kucuk',
-    stil: 'border:0;letter-spacing:.02em;text-transform:none;'
-      + 'font-family:var(--f-govde);font-size:12.5px'
-      + (durum.gecmisFiltresi === f.id
-        ? ';background:var(--accent);color:var(--derin)' : ''),
-    'aria-pressed': String(durum.gecmisFiltresi === f.id),
-    metin: f.ad,
-    onclick: () => ata({ gecmisFiltresi: f.id }),
+    style: 'display:flex;gap:2px;border:1px solid var(--line-strong)',
+    role: 'group', 'aria-label': t('history.historyFilter'),
+  }, options.map(option => el('button', {
+    type: 'button', class: 'btn btn-small',
+    style: 'border:0;letter-spacing:.02em;text-transform:none;'
+      + 'font-family:var(--font-body);font-size:12.5px'
+      + (state.historyFilter === option.id
+        ? ';background:var(--accent);color:var(--deep)' : ''),
+    'aria-pressed': String(state.historyFilter === option.id),
+    text: option.label,
+    onclick: () => patch({ historyFilter: option.id }),
   })));
 }
 
-export function ciz(kok) {
-  const uygun = (durum.isler || []).filter(
-    j => DEVAM_EDEN.has(j.durum) || SONUCLANAN.has(j.durum));
-  const sirali = uygun.slice().sort((a, b) =>
-    (b.bitis || b.baslama || b.olusturma || 0)
-      - (a.bitis || a.baslama || a.olusturma || 0));
-  const devam = sirali.filter(j => DEVAM_EDEN.has(j.durum));
-  const sonuc = sirali.filter(j => SONUCLANAN.has(j.durum));
+export function render(root) {
+  const eligible = (state.jobs || []).filter(
+    job => IN_PROGRESS.has(job.state) || FINISHED.has(job.state));
+  const sorted = eligible.slice().sort((a, b) =>
+    (b.finishedAt || b.startedAt || b.createdAt || 0)
+      - (a.finishedAt || a.startedAt || a.createdAt || 0));
+  const active = sorted.filter(job => IN_PROGRESS.has(job.state));
+  const finished = sorted.filter(job => FINISHED.has(job.state));
 
-  const parcalar = [
-    el('div', { sinif: 'sayfa-basi' }, [
-      el('h2', { metin: 'Geçmiş' }),
-      filtreler(devam, sonuc),
+  const parts = [
+    el('div', { class: 'page-head' }, [
+      el('h2', { text: t('nav.history') }),
+      filters(active, finished),
     ]),
   ];
 
-  if (durum.gecmisFiltresi !== 'sonuc') {
-    parcalar.push(bolum(
-      'Devam eden işlemler',
-      'Kuyrukta bekleyen ve şu anda yürütülen işlemler',
-      devam,
-      'Şu anda devam eden işlem yok.',
+  if (state.historyFilter !== 'finished') {
+    parts.push(section(
+      'Jobs in progress',
+      'Jobs waiting in the queue and the one running now',
+      active,
+      'No job is in progress right now.',
     ));
   }
-  if (durum.gecmisFiltresi !== 'devam') {
-    parcalar.push(bolum(
-      'Sonuçlanan işlemler',
-      'Tamamlanan, durdurulan veya hata ile sonuçlanan işlemler',
-      sonuc,
-      'Bu oturumda henüz sonuçlanan işlem yok.',
+  if (state.historyFilter !== 'active') {
+    parts.push(section(
+      'Finished jobs',
+      'Jobs that completed, were stopped or ended in an error',
+      finished,
+      'No job has finished this session yet.',
     ));
   }
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }

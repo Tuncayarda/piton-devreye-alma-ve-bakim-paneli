@@ -1,0 +1,728 @@
+/* The IP assignment screen: the switch front panel, the run
+   settings card and the assignment plan.
+
+   Split out of views.css because it was more than half of it. No
+   selector here appears in views.css, so loading this file after it
+   changes nothing in the cascade. */
+
+#v-ip { max-width: 1580px; margin: 0 auto; }
+
+/* The heading and the action stack on the right align at the top. With
+   `flex-end` the heading dropped below a two-line action column and no longer
+   sat on the same line as the headings of the other operation screens. */
+.ip-page-head {
+  align-items: flex-start;
+  margin-bottom: 0;
+  padding-top: 2px;
+}
+
+.ip-header-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ip-readiness {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mid);
+}
+.ip-readiness i {
+  width: 6px; height: 6px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(66, 148, 224, .09);
+}
+.ip-readiness[data-state="ready"] i {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, .09);
+}
+.ip-readiness[data-state="error"] { color: #e8817f; }
+.ip-readiness[data-state="error"] i {
+  background: var(--failed);
+  box-shadow: 0 0 0 3px rgba(218, 54, 51, .1);
+}
+.ip-start-btn {
+  min-height: 40px;
+  padding: 9px 19px;
+  box-shadow: 0 8px 22px rgba(6, 10, 13, .24);
+}
+.ip-empty-state {
+  min-height: 88px;
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.ip-loading > i {
+  width: 13px; height: 13px;
+  border: 1px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ip-spin .75s linear infinite;
+}
+@keyframes ip-spin { to { transform: rotate(360deg); } }
+
+/* One run panel on the left, the front panels of the two switches stacked on
+   its right. The right column is as wide as a panel; the run panel takes what
+   is left. */
+.ip-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 480px;
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
+}
+.ip-panel-area { min-width: 0; }
+
+.ip-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.ip-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  min-width: 0;
+}
+.ip-section-head h3 { margin-top: 1px; }
+.ip-section-head p,
+.ip-card-head p {
+  margin: 5px 0 0;
+  color: var(--text-mid);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.ip-section-count {
+  flex: none;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+
+/* The settings card has three clear layers: targets, protections, summary. */
+.ip-settings-card {
+  position: sticky;
+  top: 8px;
+  min-width: 0;
+  padding: 0;
+  background:
+    linear-gradient(145deg, rgba(66, 148, 224, .035), transparent 42%),
+    var(--panel);
+}
+.ip-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 17px 19px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(214, 235, 255, .018);
+}
+.ip-card-head h3 { margin-top: 1px; }
+.ip-form-section,
+.setting-section {
+  min-width: 0;
+  margin: 0;
+  border: 0;
+}
+.ip-port-area { padding: 18px 19px; }
+.ip-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+.ip-field-count {
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+.ip-settings-card .field {
+  min-height: 39px;
+  background: var(--deep);
+}
+.ip-settings-card #port-warning { margin: 7px 0 0; }
+.ip-field-help {
+  margin: 7px 0 0;
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.setting-section {
+  padding: 18px 19px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ip-sub-head { margin-bottom: 3px; }
+.ip-sub-head p {
+  margin: 5px 0 0;
+  color: var(--text-mid);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 45px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  background: rgba(11, 17, 22, .34);
+}
+.setting-row:hover { border-color: var(--line); }
+.setting-row .label {
+  margin: 0;
+  color: var(--text-mid);
+  line-height: 1.4;
+}
+.setting-row select.field { width: auto; min-width: 138px; max-width: 180px; }
+.ip-medium-field { width: 148px; }
+.ip-field-error {
+  margin: -2px 0 2px;
+  padding: 0 9px;
+  color: #e8817f;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+/* Both `.ip-field-help[data-state=...]` rules were removed: nothing sets a
+   data-state on that class, so neither ever matched. The evidence line's
+   colour comes from the element it is rendered next to. */
+
+.setting-summary {
+  margin: 0;
+  padding: 17px 19px 19px;
+  border-top: 1px solid var(--line);
+  background: rgba(11, 17, 22, .28);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+}
+.ip-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ip-ready-badge {
+  border-color: var(--ok-soft);
+  color: var(--ok);
+}
+.ip-waiting-badge { border-color: var(--auth-soft); color: var(--auth); }
+.ip-error-badge { border-color: var(--failed-soft); color: #e8817f; }
+.ip-run-error {
+  margin: 0 0 8px;
+  padding: 7px 8px;
+  border-left: 2px solid var(--failed);
+  background: rgba(218, 54, 51, .06);
+  color: #e8817f;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+.setting-summary .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.setting-summary .row:last-child { border-bottom: 0; }
+.setting-summary .row.protected { color: var(--auth); }
+
+/* The test tool: on its own strip below the summary, away from the run button. */
+.ip-test-area {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 12px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.ip-test-area .btn {
+  padding: 4px 10px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+}
+.setting-summary b {
+  max-width: 65%;
+  font-weight: 400;
+  color: var(--text-bright);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.setting-summary b.accent-text { color: var(--accent); }
+.setting-summary b.text-dim { color: var(--text-mid); }
+
+/* Panels sit side by side where there is room and stack when there is not. */
+/* The panels always stack: putting two switches side by side narrowed both
+   and made the port map unreadable. */
+.panel-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.ip-panel-empty {
+  min-height: 190px;
+  padding: 24px;
+  border: 1px dashed var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.ip-panel-empty p { margin: 6px 0 0; color: var(--text-mid); font-size: 12px; }
+
+.front-panel {
+  min-width: 0;
+  /* The column width is tuned to the port map (see .ip-grid) and the card
+     fills it. Leaving it narrow squeezed the map, and in a wide column the
+     28 ports floated in the middle of the box. */
+  width: auto;
+  max-width: 100%;
+  padding: 0;
+  background:
+    linear-gradient(180deg, rgba(214, 235, 255, .018), transparent 40%),
+    var(--panel);
+  transition: border-color .14s ease, background .14s ease, transform .14s ease;
+}
+/* The two panels look equal. Marking the active switch with a border colour,
+   an inner strip and a badge on top of that weakened the cards; which switch
+   the run is on is already readable from the run summary and the blue marks
+   on the selected ports. */
+.front-panel:hover { border-color: var(--line-strong); }
+.ip-switch-head {
+  min-height: 67px;
+  padding: 14px 16px 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.ip-switch-identity { min-width: 0; }
+.ip-switch-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ip-switch-name i {
+  width: 7px; height: 7px;
+  flex: none;
+  background: var(--text-faint);
+}
+.front-panel[data-active="1"] .ip-switch-name i {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(66, 148, 224, .1);
+}
+.ip-switch-name h4 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-switch-identity > .mono {
+  display: block;
+  margin: 5px 0 0 15px;
+  color: var(--text-mid);
+  font-size: 10.5px;
+}
+.ip-switch-badges {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.ip-source-badge { color: var(--text-mid); }
+.ip-source-badge.live { border-color: var(--ok-soft); color: var(--ok); }
+
+/* How many seconds ago the data was read; past 15 s it counts as stale. */
+.ip-freshness {
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  align-self: center;
+}
+.ip-freshness[data-stale="1"] { color: var(--auth); }
+
+/* The automatic refresh of the front panels — it can be paused. */
+.ip-section-action { display: flex; align-items: center; gap: 8px; flex: none; }
+.ip-refresh-btn {
+  padding: 3px 9px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+  border-color: var(--line); color: var(--text-mid);
+}
+.ip-refresh-btn[aria-pressed="true"] {
+  border-color: var(--ok-soft); color: var(--ok);
+}
+.ip-switch-guidance {
+  margin: 11px 16px 0;
+  color: var(--text-mid);
+  font-size: 11px;
+  line-height: 1.45;
+}
+/* Why the panel could not be read, plus the credentials warning: a one-line
+   note, not a box. Two boxes with the same sentence for two switches
+   overwhelmed the panel. */
+.ip-panel-note {
+  margin: 9px 16px 0;
+  padding-left: 9px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-mid);
+  font-family: var(--font-mono); font-size: 10px; line-height: 1.5;
+}
+.ip-panel-note.warning-tone {
+  border-left-color: var(--auth); color: var(--auth);
+}
+.ip-credential-btn {
+  padding: 3px 9px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+  border-color: var(--auth-soft); color: var(--auth);
+}
+.ip-credential-btn:hover:not(:disabled) {
+  background: rgba(210, 153, 34, .12); border-color: var(--auth);
+}
+
+/* The front panel sits in a dark chassis and keeps the physical port order. */
+.pm-case {
+  margin: 14px 16px 0;
+  padding: 14px 13px 10px;
+  border: 1px solid var(--line);
+  background: var(--deep);
+  box-shadow: inset 0 1px 12px rgba(0, 0, 0, .18);
+}
+.pm-wrap { overflow-x: auto; padding-bottom: 2px; }
+/* The grid is as wide as its content and sits centred in the chassis. It used
+   to fill the chassis edge to edge with `min-width:100%`, leaving the ports
+   floating in the middle of a 500-pixel box. */
+.pm-grid {
+  width: max-content;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(var(--pm-columns, 6), 52px) 12px 52px;
+  gap: 4px 3px;
+  align-items: center;
+}
+.pm-divider { height: 100%; border-left: 1px dashed var(--line-strong); }
+.pm-empty { min-height: 12px; }
+
+.pm-port {
+  min-height: 49px;
+  width: 100%;
+  padding: 3px 2px 2px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-mid);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  transition: border-color .12s ease, background .12s ease, color .12s ease;
+}
+.pm-port svg { display: block; width: 36px; height: 36px; }
+.pm-port .shell { fill: transparent; stroke: rgba(214, 235, 255, .38); stroke-width: 1.3; }
+.pm-port .inner { fill: none; stroke: rgba(214, 235, 255, .28); stroke-width: 1; }
+.pm-port .cross { fill: none; stroke: rgba(214, 235, 255, .28); stroke-width: .9; }
+.pm-port .key { fill: rgba(214, 235, 255, .38); }
+.pm-port .pin { fill: rgba(214, 235, 255, .42); }
+.pm-port:hover:not(:disabled):not([aria-disabled="true"]) {
+  border-color: var(--line-strong);
+  background: rgba(214, 235, 255, .04);
+  color: var(--text);
+}
+.pm-port:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.pm-port[aria-disabled="true"] { cursor: not-allowed; }
+
+/* No device defined: not selectable, kept so its place is not a hole. */
+.pm-port.empty { opacity: .38; cursor: not-allowed; }
+
+/* ── the connector's COLOUR: the port's present state ──
+   The distinction and the colours match the Switch Management Panel, so
+   whoever looks at the same switch from two applications sees one thing. */
+.pm-port.feed .shell { stroke: var(--ok); fill: rgba(63, 185, 80, .13); }
+.pm-port.feed .inner, .pm-port.feed .cross { stroke: var(--ok); }
+.pm-port.feed .key, .pm-port.feed .pin { fill: var(--ok); }
+
+.pm-port.link .shell { stroke: var(--accent); fill: rgba(66, 148, 224, .12); }
+.pm-port.link .inner, .pm-port.link .cross { stroke: var(--accent); }
+.pm-port.link .key, .pm-port.link .pin { fill: var(--accent); }
+
+.pm-port.off .shell { stroke: rgba(218, 54, 51, .6); fill: rgba(218, 54, 51, .08); }
+.pm-port.off .inner, .pm-port.off .cross { stroke: rgba(218, 54, 51, .6); }
+.pm-port.off .key { fill: rgba(218, 54, 51, .6); }
+.pm-port.off .pin { fill: rgba(224, 92, 89, .55); }
+
+/* Port up but PoE off: the line works, there is just no power — red pins. */
+.pm-port.unpowered .pin { fill: rgba(224, 92, 89, .88); }
+
+/* ── the BORDER: the port's role in the run ──
+   The colour already says what state the port is in, so the role is shown
+   with a border; folding both into one colour made "is it up, or is it
+   selected?" impossible to tell. */
+.pm-port.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: rgba(66, 148, 224, .06);
+  color: var(--accent);
+}
+
+/* The port the computer is on: if the run touches it, the link is cut. */
+.pm-port.pc {
+  border-color: var(--auth);
+  box-shadow: inset 0 0 0 1px var(--auth);
+  color: var(--auth); cursor: not-allowed;
+}
+
+/* The port linking the two switches is out of the run; dashed border. */
+.pm-port.link-port {
+  border: 1px dashed rgba(214, 235, 255, .62);
+  color: var(--text-bright); cursor: not-allowed;
+}
+
+.pm-footer {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.pm-sample {
+  display: block;
+  width: 9px; height: 9px;
+  flex: none;
+  border: 1px solid rgba(214, 235, 255, .42);
+  border-radius: 50%;
+}
+/* The role samples explain the border and the state samples the colour —
+   the same split as on the panel. */
+.pm-sample.selected {
+  border-radius: 2px; border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.pm-sample.pc {
+  border-radius: 2px; border-color: var(--auth);
+  box-shadow: inset 0 0 0 1px var(--auth);
+}
+.pm-sample.link-port {
+  border-radius: 2px; border-style: dashed;
+  border-color: rgba(214, 235, 255, .62);
+}
+.pm-sample.feed { border-color: var(--ok); background: rgba(63, 185, 80, .35); }
+.pm-sample.link { border-color: var(--accent); background: rgba(66, 148, 224, .3); }
+.pm-sample.off { border-color: var(--failed); background: rgba(218, 54, 51, .35); }
+.pm-sample.empty { opacity: .38; }
+
+/* The legend sits once below the section, not inside the panel cards. */
+.panel-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 13px;
+  margin: 12px 0 0;
+  padding: 11px 2px 0;
+  border-top: 1px solid var(--line);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+}
+.panel-legend span { display: flex; align-items: center; gap: 6px; }
+
+/* The plan below is scanned by state badges rather than by fading rows. */
+.ip-plan-section {
+  margin-top: 28px;
+  padding-top: 23px;
+  border-top: 1px solid var(--line);
+}
+.ip-plan-metrics {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-mid);
+}
+.ip-plan-metrics span {
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+}
+.ip-plan-metrics b { color: var(--text); font-weight: 500; }
+.ip-plan-table { margin-top: 0; }
+.ip-plan-table .table-head { background: #182129; }
+.ip-plan-row { min-height: 43px; }
+.ip-plan-row[data-actionable="1"] {
+  box-shadow: inset 2px 0 0 rgba(66, 148, 224, .58);
+}
+.ip-plan-row[data-actionable="0"] { background: rgba(17, 26, 32, .62); }
+.ip-plan-row[data-actionable="0"] .ip-device-name,
+.ip-plan-row[data-actionable="0"] .ip-address { color: var(--text-dim); }
+.ip-port-badge {
+  width: fit-content;
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.ip-device-name { font-size: 11.5px; }
+.ip-group-name { font-size: 11px; color: var(--text-mid); }
+.ip-address { font-size: 11px; }
+.ip-target-ip { color: var(--accent); }
+.ip-state-badge {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.ip-state-badge i { width: 5px; height: 5px; background: var(--text-faint); }
+.ip-state-badge.included { border-color: var(--accent-line); color: var(--accent); }
+.ip-state-badge.included i { background: var(--accent); }
+
+@media (max-width: 920px) {
+  .ip-grid { grid-template-columns: minmax(0, 1fr); }
+  .ip-settings-card { position: static; }
+  /* When it falls to one column the panel must not stretch the page; the map
+     is already drawn for 480px. */
+  .ip-panel-area { max-width: 480px; }
+}
+
+@media (max-width: 720px) {
+  .ip-page-head { align-items: stretch; }
+  .ip-header-action { width: 100%; align-items: stretch; }
+  .ip-readiness { align-self: flex-end; }
+  .ip-start-btn { width: 100%; }
+  .ip-grid { gap: 20px; margin-top: 20px; }
+  .panel-stack { grid-template-columns: minmax(0, 1fr); }
+  .ip-section-head { gap: 10px; }
+  .ip-section-count { display: none; }
+  .ip-plan-section { margin-top: 23px; padding-top: 20px; }
+}
+
+@media (max-width: 540px) {
+  .ip-card-head,
+  .ip-port-area,
+  .setting-section,
+  .setting-summary { padding-left: 15px; padding-right: 15px; }
+  .setting-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .setting-row select.field,
+  .ip-medium-field { width: 100%; max-width: none; }
+  .ip-switch-head { flex-direction: column; }
+  .ip-switch-badges { justify-content: flex-start; }
+  .pm-case { margin-left: 12px; margin-right: 12px; }
+  .panel-legend { padding-left: 12px; padding-right: 12px; }
+  .ip-plan-section > .ip-section-head { flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ip-loading > i { animation: none; }
+}
+
+.legend {
+  display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px;
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);
+}
+.legend i {
+  display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+}
+
+/* ──────────────────────────────── IP maintenance view / disclosure ─ */
+.ip-collapsible > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.ip-collapsible > summary::-webkit-details-marker { display: none; }
+.ip-collapsible-summary::after,
+.ip-technical-summary::after {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  flex: none;
+  margin-left: auto;
+  border: 1px solid var(--line);
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 400;
+}
+.ip-collapsible[open] > .ip-collapsible-summary::after,
+.ip-collapsible[open] > .ip-technical-summary::after { content: "−"; }
+.ip-collapsible-summary:hover::after,
+.ip-technical-summary:hover::after { border-color: var(--accent); color: var(--accent); }
+.ip-panel-tools {
+  justify-content: flex-end;
+  padding: 0 0 10px;
+}
+.ip-technical {
+  margin-top: 18px;
+  padding: 0;
+}
+.ip-technical-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 17px;
+  color: var(--text-bright);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.ip-technical-summary .text-dim {
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.ip-technical-body {
+  padding: 5px 17px 16px;
+  border-top: 1px solid var(--line-soft);
+}
+.ip-technical-body > .row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--text-mid);
+  font-size: 12px;
+}
+.ip-technical-body > .row b {
+  max-width: 65%;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.ip-technical-body > .row.protected { color: var(--auth); }
+
+@media (max-width: 560px) {
+  .ip-technical-summary .text-dim { display: none; }
+}

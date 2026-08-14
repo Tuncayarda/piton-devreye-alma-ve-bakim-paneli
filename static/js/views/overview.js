@@ -1,210 +1,238 @@
-// Genel bakış — sistem özeti, dikkat gerekenler ve bu oturumdaki işlemler.
+// Overview — the system summary, what needs attention, and this session's
+// jobs.
 //
-// Bütün sayılar o anki tarama görüntüsünden gelir. Hiç tarama yapılmadıysa
-// sayılar sıfır değil, "okunmadı" olarak görünür: 0 aktif cihaz ile
-// "henüz sormadık" farklı şeyler.
+// Every number comes from the current scan snapshot. With no scan yet the
+// numbers do not read zero but "not read": 0 reachable devices and "we have
+// not asked yet" are different things.
 //
-// Sayfada aynı bilgi iki kez durmaz. Eski "Sistem Özeti" kartı kategori
-// listesinin aynısını başka adlarla tekrarlıyordu (Anons zinciri = Anons
-// Ekipmanları, Video sistemi = Video Sistemi …); yerine müdahale gerektiren
-// durumları söyleyen kısa kontrol özeti geldi.
+// The same information never appears twice on the page. The old "System
+// summary" card repeated the category list under different names (Anons
+// chain = Announcement equipment, video system = Video system …); a short check
+// summary that names the situations needing action took its place.
 //
-// Sayfadaki her sayı tıklanabilir: sayıyı görüp arkasındaki cihaz listesini
-// elle bulmak fazladan bir adımdı.
+// Every number on the page is clickable: seeing a number and then hunting for
+// the device list behind it was an extra step.
 
-import { el, doldur } from '../core/dom.js';
-import { durum, ata } from '../core/durum.js';
+import { el, fill } from '../core/dom.js';
+import { state, patch } from '../core/store.js';
 import {
-  yuzde, saat, tazelik, IS_DURUM_ETIKET, IS_SONUC_ETIKET, YOK,
-} from '../core/bicim.js';
+  percent, clockTime, age, jobStateLabel, jobOutcomeLabel, NONE,
+} from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-// Kutucuklar: büyük sayı + neyin içinde olduğu + doluluk çubuğu.
-// Çubuğun altında açıklama yazısı yok; sayı ile çubuk zaten aynı şeyi
-// söylüyordu, alt satır yalnız gürültü yapıyordu.
-function kpi(ad, dgr, birim, renk, oran, git, ipucu) {
+// The tiles: a big number, what it sits within, and a fill bar. There is no
+// caption under the bar; the number and the bar already said the same thing
+// and the extra line was only noise.
+function kpi(name, amount, unit, colour, ratio, go, hint) {
   return el('button', {
-    type: 'button', sinif: 'kpi kose', title: ipucu || '', onclick: git,
+    type: 'button', class: 'kpi corner', title: hint || '', onclick: go,
   }, [
-    el('div', { sinif: 'ad', metin: ad }),
-    el('div', { sinif: 'deger-sar' }, [
-      el('span', { sinif: 'deger', stil: `color:var(--${renk})`, metin: String(dgr) }),
-      birim ? el('span', { sinif: 'birim', metin: birim }) : null,
+    el('div', { class: 'name', text: name }),
+    el('div', { class: 'value-wrap' }, [
+      el('span', {
+        class: 'value', style: `color:var(--${colour})`, text: String(amount),
+      }),
+      unit ? el('span', { class: 'unit', text: unit }) : null,
     ]),
-    el('div', { sinif: 'cubuk' }, [
-      el('i', { stil: `width:${oran};background:var(--${renk})` }),
+    el('div', { class: 'bar' }, [
+      el('i', { style: `width:${ratio};background:var(--${colour})` }),
     ]),
   ]);
 }
 
-// Cihaz listesine belirli bir süzgeçle gider.
-function listeye(filtre) {
-  ata({ gorunum: 'cihaz', kategori: 'tum', altTip: null, filtre });
+// Goes to the device list with a given filter.
+function goToList(filter) {
+  patch({ view: 'devices', category: 'all', subtype: null, filter });
 }
 
-export function ciz(kok, guncelle) {
-  const cihazlar = durum.cihazlar;
-  const n = cihazlar.length;
-  const s = durum.sayilar;
-  const taramaVar = !!durum.sonTarama;
-  const surumlu = cihazlar.filter(
-    c => c.sonuc.alanlar && c.sonuc.alanlar.surum).length;
+export function render(root, refreshNow) {
+  const devices = state.devices;
+  const total = devices.length;
+  const counts = state.counts;
+  const scanned = !!state.lastScan;
+  const withVersion = devices.filter(
+    d => d.result.fields && d.result.fields.version).length;
 
-  const parcalar = [];
+  const parts = [];
 
-  // Başlıktaki tarama zamanı, sayfadaki bütün sayıların ne kadar taze
-  // olduğunu söyler; sayılara bakmadan önce görülmesi gereken tek şey bu.
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
+  // The scan time in the heading says how fresh every number on the page is;
+  // it is the one thing to see before looking at the numbers.
+  parts.push(el('div', { class: 'page-head' }, [
     el('div', {}, [
-      el('h2', { metin: 'Sistem durumu' }),
+      el('h2', { text: t('overview.systemState') }),
       el('div', {
-        sinif: 'sayfa-alt',
-        metin: taramaVar
-          ? `Son tarama ${saat(durum.sonTarama)} · ${tazelik(durum.sonTarama)} önce`
-          : 'Cihazlar henüz okunmadı',
+        class: 'page-sub',
+        text: scanned
+          ? `Last scan ${clockTime(state.lastScan)} · `
+            + `${age(state.lastScan)} ago`
+          : 'The devices have not been read yet',
       }),
     ]),
-    el('div', { sinif: 'eylemler' }, [
+    el('div', { class: 'actions' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Doğrulama ve raporlar',
-        onclick: () => ata({ gorunum: 'dog' }),
+        type: 'button', class: 'btn', text: t('nav.verification'),
+        onclick: () => patch({ view: 'checklist' }),
       }),
     ]),
   ]));
 
-  parcalar.push(el('div', { sinif: 'kpi-izgara' }, [
-    kpi('Toplam cihaz', n, 'kayıt', 'accent', '100%',
-      () => listeye('tumu'), 'Bütün cihazları listele'),
-    kpi('Erişilebilir', taramaVar ? s.basarili : YOK, `/ ${n}`, 'yesil',
-      yuzde(s.basarili, n),
-      () => listeye('aktif'), 'Erişilebilen cihazları listele'),
-    kpi('Giriş bilgisi gerekli', taramaVar ? s.erisimBekleyen : YOK, `/ ${n}`,
-      'turuncu', yuzde(s.erisimBekleyen, n),
-      () => ata({ kilitAcik: true, kuyrukAcik: false }),
-      'Kullanıcı adı veya parola gereken cihazları aç'),
-    kpi('İncelenecek', taramaVar ? s.hatali : YOK, `/ ${n}`, 'kirmizi',
-      yuzde(s.hatali, n),
-      () => listeye('sorunlu'), 'Kontrolü tamamlanamayan cihazları listele'),
+  parts.push(el('div', { class: 'kpi-grid' }, [
+    kpi('Total devices', total, 'records', 'accent', '100%',
+      () => goToList('all'), 'List every device'),
+    kpi('Reachable', scanned ? counts.ok : NONE, `/ ${total}`, 'ok',
+      percent(counts.ok, total),
+      () => goToList('active'), 'List the reachable devices'),
+    kpi('Credentials needed', scanned ? counts.auth : NONE, `/ ${total}`,
+      'auth', percent(counts.auth, total),
+      () => patch({ lockedOpen: true, queueOpen: false }),
+      'Open the devices needing a username or password'),
+    kpi('Needs review', scanned ? counts.failed : NONE, `/ ${total}`, 'failed',
+      percent(counts.failed, total),
+      () => goToList('problem'), 'List the devices whose check did not finish'),
   ]));
 
-  // ── kategori durumu + sağ sütun ──
-  // Kategorinin hangi tipleri kapsadığı satırın ipucunda durur; ayrı bir
-  // sütun olarak her satırda yazınca liste okunmuyordu.
-  const katKart = el('div', { sinif: 'kart kose' }, [
-    el('div', { sinif: 'kart-basi' }, [
-      el('h3', { metin: 'Kategori özeti' }),
-      el('span', { stil: 'flex:1' }),
-      el('span', { sinif: 'etiket', metin: 'Erişilebilir / toplam' }),
+  // ── category status + the right-hand column ──
+  // Which types a category covers lives in the row's tooltip; written as a
+  // separate column on every row, the list became unreadable.
+  const categoryCard = el('div', { class: 'card corner' }, [
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('overview.categorySummary') }),
+      el('span', { style: 'flex:1' }),
+      el('span', { class: 'label', text: t('overview.reachableTotal') }),
     ]),
-    ...(durum.meta ? durum.meta.kategoriler : []).map(k => {
-      const ds = k.id === 'tum' ? cihazlar : cihazlar.filter(c => c.kategori === k.id);
-      const aktif = ds.filter(c => c.sonuc.durum === 'yesil').length;
-      const barRenk = !ds.length ? 'gri'
-        : aktif === ds.length ? 'yesil' : aktif ? 'turuncu' : 'gri';
+    ...(state.meta ? state.meta.categories : []).map(category => {
+      const members = category.id === 'all'
+        ? devices
+        : devices.filter(d => d.category === category.id);
+      const reachable = members.filter(d => d.result.state === 'ok').length;
+      const barColour = !members.length ? 'unknown'
+        : reachable === members.length ? 'ok'
+          : reachable ? 'auth' : 'unknown';
       return el('button', {
-        type: 'button', sinif: 'kat-satir', title: `${k.ad} — ${k.tipler}`,
-        onclick: () => ata({
-          gorunum: 'cihaz', kategori: k.id, altTip: null, filtre: 'tumu',
+        type: 'button', class: 'category-row',
+        title: t('overview.categoryTooltip',
+                     { category: category.name, types: category.types }),
+        onclick: () => patch({
+          view: 'devices', category: category.id, subtype: null,
+          filter: 'all',
         }),
       }, [
-        el('span', { sinif: 'ad', metin: k.ad }),
-        el('span', { sinif: 'bar' }, [
+        el('span', { class: 'name', text: category.name }),
+        el('span', { class: 'bar' }, [
           el('i', {
-            stil: `width:${yuzde(aktif, ds.length)};background:var(--${barRenk})`,
+            style: `width:${percent(reachable, members.length)};`
+              + `background:var(--${barColour})`,
           }),
         ]),
         el('span', {
-          sinif: 'mono acik', stil: 'font-size:11px;text-align:right',
-          metin: `${aktif}/${ds.length}`,
+          class: 'mono text-bright', style: 'font-size:11px;text-align:right',
+          text: `${reachable}/${members.length}`,
         }),
       ]);
     }),
   ]);
 
-  // ── kontrol özeti ──
-  // Kart yalnız yapılacak iş varken satır gösterir; her satır o işi
-  // yapacağı yere götürür.
-  const adimSatir = (renk, ad, not, eylemAd, eylem) => el('div', {
-    sinif: 'adim-satir',
+  // ── check summary ──
+  // The card only shows a row when there is work to do; each row leads to
+  // where that work is done.
+  const stepRow = (colour, name, note, actionLabel, action) => el('div', {
+    class: 'step-row',
   }, [
-    el('span', { sinif: 'nokta', stil: `background:var(--${renk})`, 'aria-hidden': 'true' }),
-    el('span', { sinif: 'metin' }, [
-      el('span', { sinif: 'ad', metin: ad }),
-      not ? el('span', { sinif: 'not', metin: not }) : null,
+    el('span', {
+      class: 'dot', style: `background:var(--${colour})`,
+      'aria-hidden': 'true',
+    }),
+    el('span', { class: 'text' }, [
+      el('span', { class: 'name', text: name }),
+      note ? el('span', { class: 'note', text: note }) : null,
     ]),
     el('button', {
-      type: 'button', sinif: 'btn btn-kucuk', metin: eylemAd, onclick: eylem,
+      type: 'button', class: 'btn btn-small', text: actionLabel,
+      onclick: action,
     }),
   ]);
 
-  const adimlar = [];
-  if (!taramaVar) {
-    adimlar.push(adimSatir('accent', 'Henüz tarama yapılmadı',
-      'Setteki cihazların güncel durumunu görmek için taramayı başlatın.',
-      'Şimdi tara', () => guncelle && guncelle()));
+  const steps = [];
+  if (!scanned) {
+    steps.push(stepRow('accent', 'No scan has run yet',
+      'Start a scan to see the current state of the devices in this set.',
+      'Scan now', () => refreshNow && refreshNow()));
   } else {
-    if (s.erisimBekleyen) {
-      adimlar.push(adimSatir('turuncu',
-        `${s.erisimBekleyen} cihaz için giriş bilgisi gerekli`,
-        'Girilen bilgiler yalnız bu oturumda bellekte tutulur.',
-        'Bilgileri gir', () => ata({ kilitAcik: true, kuyrukAcik: false })));
+    if (counts.auth) {
+      steps.push(stepRow('auth',
+        `${counts.auth} device(s) need credentials`,
+        'What you enter is kept in memory for this session only.',
+        'Enter credentials',
+        () => patch({ lockedOpen: true, queueOpen: false })));
     }
-    if (s.hatali) {
-      adimlar.push(adimSatir('kirmizi',
-        `${s.hatali} cihazın kontrolü tamamlanamadı`,
-        'Bağlantı, IP, besleme veya cihaz yanıtı incelenmeli.',
-        'Listeyi aç', () => listeye('sorunlu')));
+    if (counts.failed) {
+      steps.push(stepRow('failed',
+        `The check did not finish on ${counts.failed} device(s)`,
+        'Check the connection, the IP, the power or the device response.',
+        'Open the list', () => goToList('problem')));
     }
-    if (!adimlar.length) {
-      adimlar.push(adimSatir('yesil', 'Erişim taraması tamamlandı',
-        'IP ve SIP uyumunu doğrulama ekranından inceleyebilirsiniz.',
-        'Sonuçları aç', () => ata({ gorunum: 'dog' })));
+    if (!steps.length) {
+      steps.push(stepRow('ok', 'The access scan finished',
+        'IP and SIP consistency can be reviewed on the verification screen.',
+        'Open the results', () => patch({ view: 'checklist' })));
     }
   }
 
-  const adimKart = el('div', { sinif: 'kart kose' }, [
-    el('h3', { stil: 'margin-bottom:4px', metin: 'Kontrol özeti' }),
-    ...adimlar,
-    // Sürüm okuma, doğrulamadan ayrı bir ölçü: cihaz yanıt verse de
-    // sürümünü vermeyebiliyor.
-    el('div', { sinif: 'adim-dip' }, [
-      el('span', { metin: 'Sürüm bilgisi alınan cihaz' }),
+  const stepCard = el('div', { class: 'card corner' }, [
+    el('h3', { style: 'margin-bottom:4px', text: t('overview.checkSummary') }),
+    ...steps,
+    // Reading the version is a separate measure from verification: a device
+    // may answer and still not report its version.
+    el('div', { class: 'step-footer' }, [
+      el('span', { text: t('overview.devicesReportingAVersion') }),
       el('span', {
-        sinif: 'mono acik',
-        metin: taramaVar ? `${surumlu}/${n}` : `${YOK}/${n}`,
+        class: 'mono text-bright',
+        text: scanned ? `${withVersion}/${total}` : `${NONE}/${total}`,
       }),
     ]),
   ]);
 
-  const gecmisKart = el('div', { sinif: 'kart kose' }, [
-    el('h3', { stil: 'margin-bottom:11px', metin: 'Bu oturumdaki son işlemler' }),
-    ...(durum.isler.length
-      ? durum.isler.slice(-6).reverse().map(j => el('div', {
-          stil: 'display:flex;gap:10px;padding:6px 0;font-family:var(--f-mono);'
-            + 'font-size:10.5px;line-height:1.5',
+  const historyCard = el('div', { class: 'card corner' }, [
+    el('h3', {
+      style: 'margin-bottom:11px', text: t('overview.recentJobsThisSession'),
+    }),
+    ...(state.jobs.length
+      ? state.jobs.slice(-6).reverse().map(job => el('div', {
+          style: 'display:flex;gap:10px;padding:6px 0;'
+            + 'font-family:var(--font-mono);font-size:10.5px;line-height:1.5',
         }, [
-          el('span', { sinif: 'soluk', stil: 'flex:none', metin: saat(j.olusturma) }),
           el('span', {
-            sinif: 'nokta',
-            veri: { durum: j.durum === 'hata' ? 'kirmizi' : j.durum === 'tamam' ? 'yesil' : 'turuncu' },
-            stil: 'margin-top:5px',
+            class: 'text-dim', style: 'flex:none',
+            text: clockTime(job.createdAt),
+          }),
+          el('span', {
+            class: 'dot',
+            dataset: {
+              state: job.state === 'failed' ? 'failed'
+                : job.state === 'done' ? 'ok' : 'auth',
+            },
+            style: 'margin-top:5px',
             'aria-hidden': 'true',
           }),
           el('span', {
-            sinif: 'acik',
-            metin: `${j.baslik} — ${IS_SONUC_ETIKET[j.sonuc]
-              || IS_DURUM_ETIKET[j.durum] || j.durum}`,
+            class: 'text-bright',
+            text: t('overview.jobOutcome', {
+              job: job.title,
+              outcome: jobOutcomeLabel(job.outcome,
+                                       jobStateLabel(job.state)),
+            }),
           }),
         ]))
       : [el('div', {
-        sinif: 'bos-durum', metin: 'Bu oturumda henüz işlem yapılmadı.',
+        class: 'empty-state', text: t('overview.noJobHasRunThis'),
       })]),
   ]);
 
-  parcalar.push(el('div', { sinif: 'genel-izgara' }, [
-    katKart,
-    el('div', { stil: 'display:flex;flex-direction:column;gap:18px' },
-      [adimKart, gecmisKart]),
+  parts.push(el('div', { class: 'overview-grid' }, [
+    categoryCard,
+    el('div', { style: 'display:flex;flex-direction:column;gap:18px' },
+      [stepCard, historyCard]),
   ]));
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }

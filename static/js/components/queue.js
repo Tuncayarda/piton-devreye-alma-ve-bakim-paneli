@@ -1,296 +1,317 @@
-// İşlem kuyruğu paneli.
+// The job queue panel.
 //
-// İş satırlarında yalnızca sunucunun ürettiği güvenli metin gösterilir:
-// parola, başlık ya da ham yığın izi buraya hiç gelmez.
+// Job rows show only the safe text the server produced: a password, a header
+// or a raw stack trace never reaches here.
 
-import { el, doldur, ikon, $ } from '../core/dom.js';
+import { el, fill, icon, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
+import { state, patch } from '../core/store.js';
 import {
-  IS_DURUM_ETIKET, IS_SONUC_ETIKET, IS_SONUC_RENK,
-  SATIR_DURUM_ETIKET, SATIR_RENK, saat,
-} from '../core/bicim.js';
-import { bildir, hata } from './bildirim.js';
+  jobStateLabel, jobOutcomeLabel, JOB_OUTCOME_COLOUR, rowStateLabel,
+  ROW_COLOUR, clockTime,
+} from '../core/format.js';
+import { notify, showError } from './toast.js';
+import { t } from '../core/i18n.js';
 
-const IS_RENK = {
-  bekliyor: 'gri', calisiyor: 'mavi', tamam: 'yesil',
-  iptal: 'turuncu', hata: 'kirmizi',
+const JOB_COLOUR = {
+  queued: 'unknown', running: 'busy', done: 'ok',
+  cancelled: 'auth', failed: 'failed',
 };
 
-// Liste yalnız gerçekten değiştiğinde yeniden kurulur. Cihaz okuması her
-// birkaç saniyede durumu tazeliyor; kuyruk o turlarda değişmemiş olsa da
-// baştan çiziliyordu ve açık bir işin onlarca satırı her seferinde
-// yeniden yaratılıyordu.
-let sonImza = null;
+// The list is only rebuilt when it really changed. The device read refreshes
+// the state every few seconds; the queue was redrawn on those rounds even
+// when unchanged, and the dozens of rows of an open job were recreated every
+// time.
+let lastSignature = null;
 
-// Adımları açılmış satırlar — `${isId}:${satirId}`. VARSAYILAN KAPALI:
-// IP atama koşusunda on iki port var, her birinin altında sekiz on adım;
-// hepsi açık başlasa kuyruk yüz satırlık bir döküme dönerdi. Kullanıcı
-// hangi portun nerede olduğunu merak ettiğinde o satıra basar.
-const acikSatir = new Set();
+// Rows whose steps are expanded — `${jobId}:${rowId}`. CLOSED BY DEFAULT: an
+// IP assignment run has twelve ports with eight to ten steps under each; all
+// open, the queue would be a hundred-row dump. When the user wonders where a
+// port got to, they press that row.
+const expandedRows = new Set();
 
-function satirAcKapat(anahtar) {
-  if (acikSatir.has(anahtar)) acikSatir.delete(anahtar);
-  else acikSatir.add(anahtar);
-  ciz();
-  // Liste baştan kuruluyor: basılan düğme yok olup yerine yenisi geliyor
-  // ve odak gövdeye düşüyordu. Klavyeyle gezen kişi bir satırı açtıktan
-  // sonra Tab'a bastığında listenin başına dönüyordu.
-  const yeni = $(`[data-anahtar="${CSS.escape(anahtar)}"]`);
-  if (yeni) yeni.focus();
+function toggleRow(key) {
+  if (expandedRows.has(key)) expandedRows.delete(key);
+  else expandedRows.add(key);
+  render();
+  // The list is rebuilt: the pressed button disappears, a new one takes its
+  // place and focus fell to the body. Someone navigating by keyboard was sent
+  // back to the top of the list after expanding a row.
+  const rebuilt = $(`[data-row-key="${CSS.escape(key)}"]`);
+  if (rebuilt) rebuilt.focus();
 }
 
-export function ciz() {
-  const liste = $('#kuyruk-liste');
-  if (!liste) return;
-  const isler = durum.isler || [];
+export function render() {
+  const list = $('#queue-list');
+  if (!list) return;
+  const jobs = state.jobs || [];
 
-  const calisan = isler.filter(j => j.durum === 'bekliyor' || j.durum === 'calisiyor');
-  const sayac = $('#kuyruk-sayac');
-  if (sayac) {
-    sayac.textContent = String(calisan.length);
-    sayac.hidden = calisan.length === 0;
+  const active = jobs.filter(
+    j => j.state === 'queued' || j.state === 'running');
+  const badge = $('#queue-count');
+  if (badge) {
+    badge.textContent = String(active.length);
+    badge.hidden = active.length === 0;
   }
-  const btn = $('#kuyruk-btn');
-  if (btn) btn.setAttribute('aria-expanded', String(!!durum.kuyrukAcik));
-  $('#kuyruk-panel').hidden = !durum.kuyrukAcik;
+  const button = $('#queue-btn');
+  if (button) button.setAttribute('aria-expanded', String(!!state.queueOpen));
+  $('#queue-panel').hidden = !state.queueOpen;
 
-  // Panel kapalıyken liste hiç kurulmaz; açılınca kurulur.
-  if (!durum.kuyrukAcik) { sonImza = null; return; }
+  // While the panel is closed the list is never built; it is built on open.
+  if (!state.queueOpen) { lastSignature = null; return; }
 
-  const imza = `${durum.acikIs || ''}|${[...acikSatir].sort().join(',')}`
-    + `|${JSON.stringify(isler)}`;
-  if (imza === sonImza) return;
-  sonImza = imza;
+  const signature = `${state.openJob || ''}`
+    + `|${[...expandedRows].sort().join(',')}`
+    + `|${JSON.stringify(jobs)}`;
+  if (signature === lastSignature) return;
+  lastSignature = signature;
 
-  doldur(liste, isler.slice().reverse().map(isKart));
+  fill(list, jobs.slice().reverse().map(jobCard));
 }
 
-function isKart(j) {
-  const acik = durum.acikIs === j.id;
-  const s = j.sayilar || {};
-  const oran = Math.round((j.ilerleme || 0) * 100);
-  const surüyor = j.durum === 'bekliyor' || j.durum === 'calisiyor';
-  // Durdurma anında bitmez: worker o sırada bir cihazın zaman aşımını
-  // bekliyor olabilir. Bu aralıkta durum "Durduruluyor…" yazar, düğme de
-  // basılamaz olur — yoksa kullanıcı hiçbir şey olmadı sanıp tekrar basıyor.
-  const duruyor = surüyor && j.iptalIstendi;
-  const sonucRengi = IS_SONUC_RENK[j.sonuc];
-  const renk = duruyor ? 'turuncu'
-    : (!surüyor && sonucRengi ? sonucRengi : (IS_RENK[j.durum] || 'gri'));
-  const etiket = duruyor
+function jobCard(job) {
+  const expanded = state.openJob === job.id;
+  const counts = job.counts || {};
+  const percent = Math.round((job.progress || 0) * 100);
+  const active = job.state === 'queued' || job.state === 'running';
+  // Stopping is not instant: the worker may be waiting out a device timeout.
+  // In that gap the status reads "Durduruluyor…" and the button is disabled —
+  // otherwise the user thinks nothing happened and presses again.
+  const stopping = active && job.cancelRequested;
+  const outcomeColour = JOB_OUTCOME_COLOUR[job.outcome];
+  const colour = stopping ? 'auth'
+    : (!active && outcomeColour
+      ? outcomeColour
+      : (JOB_COLOUR[job.state] || 'unknown'));
+  const label = stopping
     ? 'Durduruluyor…'
-    : (surüyor
-      ? `${IS_DURUM_ETIKET[j.durum] || j.durum} · %${oran}`
-      : (IS_SONUC_ETIKET[j.sonuc] || IS_DURUM_ETIKET[j.durum] || j.durum));
+    : (active
+      ? `${jobStateLabel(job.state)} · %${percent}`
+      : (jobOutcomeLabel(job.outcome, jobStateLabel(job.state))));
 
-  return el('div', { sinif: 'is-kart', veri: { durum: j.durum } }, [
-    el('div', { sinif: 'is-kart-basi' }, [
+  return el('div', { class: 'job-card', dataset: { state: job.state } }, [
+    el('div', { class: 'job-card-head' }, [
       el('button', {
-        type: 'button', sinif: 'is-basi',
-        'aria-expanded': String(acik),
-        onclick: () => ata({ acikIs: acik ? null : j.id }),
+        type: 'button', class: 'job-head',
+        'aria-expanded': String(expanded),
+        onclick: () => patch({ openJob: expanded ? null : job.id }),
       }, [
         el('span', {
-          sinif: 'nokta', veri: { durum: renk },
+          class: 'dot', dataset: { state: colour },
           'aria-hidden': 'true',
         }),
-        el('span', { stil: 'min-width:0;flex:1' }, [
-          el('span', { sinif: 'ad', metin: j.baslik }),
+        el('span', { style: 'min-width:0;flex:1' }, [
+          el('span', { class: 'name', text: job.title }),
           el('span', {
-            sinif: 'alt', veri: { durum: renk },
-            stil: 'color:var(--durum-renk)',
-            metin: etiket,
+            class: 'sub', dataset: { state: colour },
+            style: 'color:var(--state-colour)',
+            text: label,
           }),
-          // Aşama: yüzde tek başına "neredeyim" sorusunu cevaplamıyor.
-          // "Port 14 işleniyor (3/6)" ile "%50" bir arada okununca koşu
-          // izlenebilir hale geliyor.
-          surüyor && j.asama
-            ? el('span', { sinif: 'is-asama', metin: j.asama })
+          // The phase: a percentage alone does not answer "where am I".
+          // "Port 14 running (3/6)" read next to "50%" makes the run
+          // followable.
+          active && job.phase
+            ? el('span', { class: 'job-phase', text: job.phase })
             : null,
         ]),
         el('span', {
-          sinif: 'is-sayac',
-          'aria-label': `${s.basarili ?? 0} başarılı, `
-            + `${s.erisimBekleyen ?? 0} giriş bilgisi gerekli, `
-            + `${s.hatali ?? 0} başarısız`,
+          class: 'job-counts',
+          'aria-label': t('queue.countsLabel', {
+            ok: counts.ok ?? 0, auth: counts.auth ?? 0,
+            failed: counts.failed ?? 0,
+          }),
         }, [
-          el('span', { stil: 'color:var(--yesil)', metin: String(s.basarili ?? 0) }),
-          el('span', { stil: 'color:var(--turuncu)', metin: String(s.erisimBekleyen ?? 0) }),
-          el('span', { stil: 'color:var(--kirmizi)', metin: String(s.hatali ?? 0) }),
+          el('span', {
+            style: 'color:var(--ok)', text: String(counts.ok ?? 0),
+          }),
+          el('span', {
+            style: 'color:var(--auth)', text: String(counts.auth ?? 0),
+          }),
+          el('span', {
+            style: 'color:var(--failed)', text: String(counts.failed ?? 0),
+          }),
         ]),
       ]),
-      surüyor
+      active
         ? el('button', {
-            type: 'button', sinif: 'btn btn-x',
-            disabled: duruyor,
-            title: duruyor ? 'Durduruluyor…' : 'İşlemi durdur',
-            'aria-label': duruyor
-              ? `${j.baslik} durduruluyor` : `${j.baslik} işlemini durdur`,
+            type: 'button', class: 'btn btn-close',
+            disabled: stopping,
+            title: stopping ? 'Stopping…' : 'Stop the job',
+            'aria-label': stopping
+              ? `${job.title} durduruluyor`
+              : t('queue.stopJob', { job: job.title }),
             onclick: async () => {
               try {
-                await api.isIptal(j.id);
-                bildir(`${j.baslik} durduruluyor…`);
-              } catch (e) { hata(e.message); }
+                await api.jobCancel(job.id);
+                notify(t('queue.stopping', { job: job.title }));
+              } catch (e) { showError(e.message); }
             },
           }, ['⏹'])
         : el('button', {
-            type: 'button', sinif: 'btn btn-x',
-            title: 'Kuyruktan kaldır',
-            'aria-label': `${j.baslik} işlemini kuyruktan kaldır`,
+            type: 'button', class: 'btn btn-close',
+            title: t('queue.removeFromTheQueue'),
+            'aria-label': t('queue.removeJob', { job: job.title }),
             onclick: async () => {
-              try { await api.isSil(j.id); } catch (e) { hata(e.message); }
+              try {
+                await api.jobRemove(job.id);
+              } catch (e) { showError(e.message); }
             },
           }, ['×']),
     ]),
 
-    // İlerleme çubuğu: sayı okumadan "ne kadar kaldı" görünsün.
-    surüyor ? el('div', { sinif: 'is-cubuk' }, [
-      el('i', { stil: `width:${oran}%`, veri: { durum: renk } }),
+    // The progress bar: "how much is left" visible without reading a number.
+    active ? el('div', { class: 'job-bar' }, [
+      el('i', { style: `width:${percent}%`, dataset: { state: colour } }),
     ]) : null,
 
-    j.hata ? el('div', {
-      sinif: 'uyari', stil: 'margin:8px 11px', metin: j.hata,
+    job.error ? el('div', {
+      class: 'warning', style: 'margin:8px 11px', text: job.error,
     }) : null,
 
-    acik ? el('div', { sinif: 'is-satirlar' },
-      (j.satirlar || []).map(q => satirCiz(q, j.id))) : null,
+    expanded ? el('div', { class: 'job-rows' },
+      (job.rows || []).map(row => renderRow(row, job.id))) : null,
   ]);
 }
 
-function satirCiz(q, isId) {
-  const renk = SATIR_RENK[q.durum] || 'gri';
-  const adimlar = q.adimlar || [];
-  const anahtar = `${isId}:${q.cihazId}`;
-  const acik = adimlar.length > 0 && acikSatir.has(anahtar);
+function renderRow(row, jobId) {
+  const colour = ROW_COLOUR[row.state] || 'unknown';
+  const steps = row.steps || [];
+  const key = `${jobId}:${row.deviceId}`;
+  const expanded = steps.length > 0 && expandedRows.has(key);
 
-  // Alt satırda yalnız IP var. Hata sebebi ("zaman aşımı", "adb connect
-  // reddedildi" gibi) kuyruğu okunmaz hale getiriyordu; ayrıntı cihaz
-  // detayında ve satırın title'ında duruyor.
+  // The sub-line carries the IP only. An error reason ("timed out", "adb
+  // connect reddedildi") made the queue unreadable; the detail lives in the
+  // device detail and in the row's title.
   //
-  // Dosya satırında (üretilen Excel) alt satır IP değil, dosyayı açan iki
-  // düğmedir: dosyayı üreten ekranda bırakıp kullanıcıyı Finder/Gezgin'de
-  // dosya aramaya göndermenin bir gerekçesi yok.
-  const govde = [
-    el('span', { sinif: 'nokta', veri: { durum: renk }, 'aria-hidden': 'true' }),
-    el('span', { sinif: 'is-govde' }, [
-      el('span', { sinif: 'ad', metin: q.ad }),
-      q.dosya
-        ? el('span', { sinif: 'dosya-eylem' }, [
-            dosyaDugmesi('Dosyayı aç', isId, q.cihazId, false),
-            dosyaDugmesi('Klasörde göster', isId, q.cihazId, true),
+  // On a file row (the generated Excel) the sub-line is not the IP but the
+  // two buttons that open the file: there is no reason to leave the user on
+  // the screen that produced the file and send them hunting in Finder.
+  const body = [
+    el('span', {
+      class: 'dot', dataset: { state: colour }, 'aria-hidden': 'true',
+    }),
+    el('span', { class: 'job-row-body' }, [
+      el('span', { class: 'name', text: row.name }),
+      row.file
+        ? el('span', { class: 'file-actions' }, [
+            fileButton('Open the file', jobId, row.deviceId, false),
+            fileButton('Show in folder', jobId, row.deviceId, true),
           ])
-        : (q.ip ? el('span', { sinif: 'alt', metin: q.ip }) : null),
+        : (row.ip ? el('span', { class: 'sub', text: row.ip }) : null),
     ]),
     el('span', {
-      sinif: 'durum', veri: { durum: renk }, stil: 'color:var(--durum-renk)',
-      metin: SATIR_DURUM_ETIKET[q.durum] || q.durum,
+      class: 'state', dataset: { state: colour },
+      style: 'color:var(--state-colour)',
+      text: rowStateLabel(row.state),
     }),
   ];
 
-  // Adımı olmayan satır (dosya satırı, cihaz taraması) eskisi gibi düz
-  // kalır: içinde düğme olan bir satırı düğmeye çevirmek geçersiz HTML
-  // üretirdi, hem de açacak bir şey yok.
-  if (!adimlar.length) {
+  // A row with no steps (a file row, a device scan) stays flat as before:
+  // turning a row that contains buttons into a button would produce invalid
+  // HTML, and there is nothing to expand anyway.
+  if (!steps.length) {
     return el('div', {
-      sinif: 'is-satir', veri: { islem: q.durum }, title: q.not || '',
-    }, govde);
+      class: 'job-row', dataset: { rowState: row.state },
+      title: row.note || '',
+    }, body);
   }
 
-  return el('div', { sinif: 'is-satir-kutu' }, [
+  return el('div', { class: 'job-row-box' }, [
     el('button', {
-      type: 'button', sinif: 'is-satir is-satir-btn',
-      veri: { islem: q.durum, acik: String(acik), anahtar },
-      title: q.not || '',
-      'aria-expanded': String(acik),
-      // Düğmenin kendi metnini ezdiği için durum da tekrarlanır: yoksa
-      // ekran okuyucu satırı "Port 11 · 8 adım" diye okuyup satırın
-      // hangi durumda olduğunu hiç söylemezdi.
-      'aria-label': `${q.ad} · ${SATIR_DURUM_ETIKET[q.durum] || q.durum}`
-        + ` — ${adimlar.length} adım`,
-      onclick: () => satirAcKapat(anahtar),
-    }, [...govde, el('span', { sinif: 'is-ok', 'aria-hidden': 'true' })]),
-    acik
-      ? el('div', { sinif: 'is-adimlar' }, adimlar.map(adimCiz))
+      type: 'button', class: 'job-row job-row-btn',
+      dataset: { rowState: row.state, expanded: String(expanded), rowKey: key },
+      title: row.note || '',
+      'aria-expanded': String(expanded),
+      // The button overrides its own text content, so the state is repeated:
+      // without it a screen reader would read the row as "Port 11 · 8 steps"
+      // and never say what state it is in.
+      'aria-label': `${row.name} · ${rowStateLabel(row.state)}`
+        + ` — ${t('queue.stepCount', { name: '', steps: steps.length })}`,
+      onclick: () => toggleRow(key),
+    }, [...body, el('span', { class: 'job-chevron', 'aria-hidden': 'true' })]),
+    expanded
+      ? el('div', { class: 'job-steps' }, steps.map(renderStep))
       : null,
   ]);
 }
 
-// Satırın altındaki tek adım: "cihaz bulundu: 10.1.1.12", "IP yazılıyor".
-// Saat de yazılır — bir portun nerede takıldığı çoğu zaman iki adım
-// arasında geçen süreden anlaşılıyor.
-function adimCiz(a) {
-  return el('div', { sinif: 'is-adim', veri: { islem: a.durum || 'bilgi' } }, [
+// A single step under a row: "device found: 10.1.1.12", "writing the IP". The
+// time is written too — where a port got stuck is usually clear from how long
+// passed between two steps.
+function renderStep(step) {
+  return el('div', {
+    class: 'job-step', dataset: { rowState: step.state || 'info' },
+  }, [
     el('span', {
-      sinif: 'nokta', veri: { durum: SATIR_RENK[a.durum] || 'gri' },
+      class: 'dot', dataset: { state: ROW_COLOUR[step.state] || 'unknown' },
       'aria-hidden': 'true',
     }),
-    el('span', { sinif: 'is-adim-metin', metin: a.metin }),
-    el('span', { sinif: 'is-adim-saat', metin: saat(a.zaman) }),
+    el('span', { class: 'job-step-text', text: step.text }),
+    el('span', { class: 'job-step-time', text: clockTime(step.at) }),
   ]);
 }
 
-// Simgeler geometriden çizilir; yazı tipi karakteri ya da emoji üç
-// işletim sisteminde üç ayrı şey gösterirdi.
-const SIMGE = {
-  ac: ['M4 10.5v4.5h12v-4.5', 'M10 3.5v8', 'M7 8.5l3 3 3-3'],
-  klasor: ['M3 5.5h5l1.4 2H17v8H3z'],
+// The icons are drawn from geometry; a font glyph or an emoji would show
+// three different things on three operating systems.
+const ICONS = {
+  open: ['M4 10.5v4.5h12v-4.5', 'M10 3.5v8', 'M7 8.5l3 3 3-3'],
+  folder: ['M3 5.5h5l1.4 2H17v8H3z'],
 };
 
-function dosyaDugmesi(etiket, isId, satirId, klasor) {
+function fileButton(label, jobId, rowId, reveal) {
   return el('button', {
-    type: 'button', sinif: 'btn btn-kucuk dosya-btn',
-    title: etiket, 'aria-label': etiket,
+    type: 'button', class: 'btn btn-small file-btn',
+    title: label, 'aria-label': label,
     onclick: async () => {
       try {
-        await api.isDosya(isId, satirId, klasor);
-      } catch (e) { hata(e.message); }
+        await api.jobFile(jobId, rowId, reveal);
+      } catch (e) { showError(e.message); }
     },
   }, [
-    ikon(klasor ? SIMGE.klasor : SIMGE.ac, 13),
-    el('span', { metin: klasor ? 'Klasör' : 'Aç' }),
+    icon(reveal ? ICONS.folder : ICONS.open, 13),
+    el('span', { text: reveal ? 'Folder' : 'Open' }),
   ]);
 }
 
-export function acKapat() {
-  ata({ kuyrukAcik: !durum.kuyrukAcik, kilitAcik: false });
+export function toggle() {
+  patch({ queueOpen: !state.queueOpen, lockedOpen: false });
 }
 
-// "Kuyruğa eklendi" haberi. Panel açılmadığı için haberin görüneceği tek
-// yer düğmenin kendisi: rozet zaten sayıyı gösteriyor, bu da gözü oraya
-// çeken kısa bir vurgu. Zamanlayıcı tek: arka arkaya basıldığında vurgu
-// yeniden başlar, üst üste binmez.
-let vurguZaman = null;
+// The "added to the queue" news. Because the panel does not open, the only
+// place the news can show is the button itself: the badge already carries the
+// count, and this is a short flash that draws the eye there. One timer:
+// pressed repeatedly the flash restarts rather than stacking.
+let flashTimer = null;
 
-export function isaretle() {
-  const btn = $('#kuyruk-btn');
-  if (!btn) return;
-  clearTimeout(vurguZaman);
-  btn.removeAttribute('data-yeni');
-  // Niteliği hemen geri koymak animasyonu yeniden başlatmaz; arada bir
-  // yerleşim hesabı zorlamak gerekiyor. requestAnimationFrame de işi
-  // görürdü ama pencere boyanmıyorken hiç çalışmıyor — geri bildirim
-  // çizime bağlı kalmamalı.
-  void btn.offsetWidth;
-  btn.setAttribute('data-yeni', '1');
-  vurguZaman = setTimeout(() => btn.removeAttribute('data-yeni'), 2600);
+export function flash() {
+  const button = $('#queue-btn');
+  if (!button) return;
+  clearTimeout(flashTimer);
+  button.removeAttribute('data-flash');
+  // Putting the attribute straight back does not restart the animation; a
+  // layout calculation has to be forced in between. requestAnimationFrame
+  // would do it too, but it never runs while the window is not painting —
+  // feedback must not depend on a paint.
+  void button.offsetWidth;
+  button.setAttribute('data-flash', '1');
+  flashTimer = setTimeout(() => button.removeAttribute('data-flash'), 2600);
 }
 
-// `yenilenen`: hafif yenilemenin kaç cihaza gittiği. İş yokken alt barda
-// yazılır — yenilemenin yalnız doğrulanmış cihazları okuduğu, sayıyı
-// görünce belli olsun.
-export function ozetMetni(yenilenen = 0) {
-  const j = (durum.isler || []).find(
-    x => x.durum === 'calisiyor' || x.durum === 'bekliyor');
-  if (j && j.iptalIstendi) return `${j.baslik} · durduruluyor…`;
-  if (!j) {
-    // "Henüz tarama yapılmadı" artık bir eksiklik değil, birkaç saniyelik
-    // bir ara durum: tarama açılışta kendiliğinden başlıyor.
-    if (!durum.sonTarama) return 'İlk tarama bekleniyor…';
-    const taze = `Son tarama ${saat(durum.sonTarama)}`;
-    return yenilenen
-      ? `${taze} · ${yenilenen} cihaz yeniden okundu`
-      : `${taze} · yeniden okunabilecek cihaz yok`;
+// `refreshed`: how many devices the light refresh reached. Written in the
+// footer when no job is running — seeing the number makes it clear that the
+// refresh only reads verified devices.
+export function summaryText(refreshed = 0) {
+  const job = (state.jobs || []).find(
+    j => j.state === 'running' || j.state === 'queued');
+  if (job && job.cancelRequested) return `${job.title} · durduruluyor…`;
+  if (!job) {
+    // "No scan yet" is no longer a gap but a few seconds of transition: the
+    // scan starts on its own at start-up.
+    if (!state.lastScan) return 'Waiting for the first scan…';
+    const fresh = `Last scan ${clockTime(state.lastScan)}`;
+    return refreshed
+      ? `${fresh} · ${refreshed} device(s) re-read`
+      : `${fresh} · no device could be re-read`;
   }
-  return `${j.baslik} · %${Math.round((j.ilerleme || 0) * 100)}`;
+  return `${job.title} · %${Math.round((job.progress || 0) * 100)}`;
 }

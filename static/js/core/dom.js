@@ -1,128 +1,148 @@
-// DOM yardımcıları.
+// DOM helpers.
 //
-// Cihazdan gelen hiçbir metin innerHTML ile basılmaz. Bütün metinler
-// textContent üzerinden yazılır; bu dosyadaki `el()` başka bir yol
-// sunmaz. Bir cihazın adı "<img onerror=...>" olsa bile ekranda aynen
-// o metin görünür, çalışmaz.
+// No text coming from a device is ever written with innerHTML. Everything
+// goes through textContent, and `el()` below offers no other route. A device
+// named "<img onerror=...>" shows up on screen as exactly that text and does
+// not run.
 
-export function el(etiket, ozellik = {}, cocuklar = []) {
-  const d = document.createElement(etiket);
-  for (const [k, v] of Object.entries(ozellik)) {
-    if (v === null || v === undefined || v === false) continue;
-    if (k === 'metin') { d.textContent = String(v); continue; }
-    if (k === 'sinif') { d.className = String(v); continue; }
-    if (k === 'stil') { d.setAttribute('style', String(v)); continue; }
-    if (k === 'veri') {
-      for (const [dk, dv] of Object.entries(v)) {
-        if (dv !== null && dv !== undefined) d.dataset[dk] = String(dv);
+export function el(tag, attributes = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value === null || value === undefined || value === false) continue;
+    if (key === 'text') { node.textContent = String(value); continue; }
+    if (key === 'class') { node.className = String(value); continue; }
+    if (key === 'style') {
+      node.setAttribute('style', String(value));
+      continue;
+    }
+    if (key === 'dataset') {
+      for (const [dataKey, dataValue] of Object.entries(value)) {
+        if (dataValue !== null && dataValue !== undefined) {
+          node.dataset[dataKey] = String(dataValue);
+        }
       }
       continue;
     }
-    if (k.startsWith('on') && typeof v === 'function') {
-      d.addEventListener(k.slice(2), v);
+    if (key.startsWith('on') && typeof value === 'function') {
+      node.addEventListener(key.slice(2), value);
       continue;
     }
-    if (v === true) { d.setAttribute(k, ''); continue; }
-    d.setAttribute(k, String(v));
+    if (value === true) { node.setAttribute(key, ''); continue; }
+    node.setAttribute(key, String(value));
   }
-  for (const c of [].concat(cocuklar)) {
-    if (c === null || c === undefined || c === false) continue;
-    d.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  for (const child of [].concat(children)) {
+    if (child === null || child === undefined || child === false) continue;
+    node.append(
+      child instanceof Node ? child : document.createTextNode(String(child)));
   }
-  return d;
+  return node;
 }
 
-export function temizle(kok) {
-  while (kok.firstChild) kok.removeChild(kok.firstChild);
-  return kok;
+export function clear(root) {
+  while (root.firstChild) root.removeChild(root.firstChild);
+  return root;
 }
 
-export function doldur(kok, cocuklar) {
-  temizle(kok);
-  for (const c of [].concat(cocuklar)) {
-    if (c === null || c === undefined || c === false) continue;
-    kok.append(c instanceof Node ? c : document.createTextNode(String(c)));
+export function fill(root, children) {
+  clear(root);
+  for (const child of [].concat(children)) {
+    if (child === null || child === undefined || child === false) continue;
+    root.append(
+      child instanceof Node ? child : document.createTextNode(String(child)));
   }
-  return kok;
+  return root;
 }
 
-export const $ = (secici, kok = document) => kok.querySelector(secici);
+export const $ = (selector, root = document) => root.querySelector(selector);
 
-// Yeniden çizim sırasında kaydırma konumunu korur.
+// Keeps the scroll position across a redraw.
 //
-// Ekranlar her durum değişiminde baştan kuruluyor. `doldur()` kabı
-// boşaltınca tarayıcı scrollTop'u sıfırlıyor ve içerik geri gelince o
-// sıfır kalıyordu: 5 saniyelik hafif yenileme uzun listeyi her turda
-// başa atıyordu. Konumu önce alıp sonra geri koyuyoruz.
-export function kaydirmayiKoru(dis, ciz) {
-  const disUst = dis ? dis.scrollTop : 0;
-  const icler = dis
-    ? [...dis.querySelectorAll('.tablo-sar')].map(
+// Screens are rebuilt on every state change. `fill()` empties the container,
+// the browser resets scrollTop, and when the content comes back that zero
+// stays: a light refresh every few seconds threw a long list back to the top
+// each round. So the position is captured first and restored afterwards.
+export function preserveScroll(outer, draw) {
+  const outerTop = outer ? outer.scrollTop : 0;
+  const innerPositions = outer
+    ? [...outer.querySelectorAll('.table-wrap')].map(
       e => [e.scrollLeft, e.scrollTop])
     : [];
 
-  ciz();
+  draw();
 
-  if (!dis) return;
-  // Yerleşim yeni içerikle oturduktan sonra geri koy.
-  const uygula = () => {
-    if (disUst && dis.scrollHeight > dis.clientHeight) dis.scrollTop = disUst;
-    const yeniler = dis.querySelectorAll('.tablo-sar');
-    for (let i = 0; i < yeniler.length && i < icler.length; i += 1) {
-      const [sol, ust] = icler[i];
-      if (sol) yeniler[i].scrollLeft = sol;
-      if (ust) yeniler[i].scrollTop = ust;
+  if (!outer) return;
+  // Restore once the layout has settled with the new content.
+  const apply = () => {
+    if (outerTop && outer.scrollHeight > outer.clientHeight) {
+      outer.scrollTop = outerTop;
+    }
+    const current = outer.querySelectorAll('.table-wrap');
+    for (let i = 0; i < current.length && i < innerPositions.length; i += 1) {
+      const [left, top] = innerPositions[i];
+      if (left) current[i].scrollLeft = left;
+      if (top) current[i].scrollTop = top;
     }
   };
-  uygula();
-  requestAnimationFrame(uygula);
+  apply();
+  requestAnimationFrame(apply);
 }
 
-// SVG öğeleri ayrı bir ad alanında yaşıyor: createElement('svg') geçerli
-// bir SVG üretmez, sayfada görünmez. Bu yüzden el() değil bu iki yardımcı.
+// SVG elements live in their own namespace: createElement('svg') does not
+// produce valid SVG and shows nothing. Hence these two helpers rather than
+// el().
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-export function svg(nitelik = {}, cocuklar = []) {
-  const s = document.createElementNS(SVG_NS, 'svg');
-  const varsayilan = {
+export function svg(attributes = {}, children = []) {
+  const node = document.createElementNS(SVG_NS, 'svg');
+  const merged = {
     viewBox: '0 0 20 20', width: '15', height: '15',
-    'aria-hidden': 'true', ...nitelik,
+    'aria-hidden': 'true', ...attributes,
   };
-  for (const [k, v] of Object.entries(varsayilan)) {
-    if (v !== null && v !== undefined) s.setAttribute(k, String(v));
-  }
-  for (const [etiket, ozellik] of cocuklar) {
-    const c = document.createElementNS(SVG_NS, etiket);
-    for (const [k, v] of Object.entries(ozellik || {})) {
-      if (v !== null && v !== undefined) c.setAttribute(k, String(v));
+  for (const [key, value] of Object.entries(merged)) {
+    if (value !== null && value !== undefined) {
+      node.setAttribute(key, String(value));
     }
-    s.append(c);
   }
-  return s;
+  for (const [childTag, childAttributes] of children) {
+    const child = document.createElementNS(SVG_NS, childTag);
+    for (const [key, value] of Object.entries(childAttributes || {})) {
+      if (value !== null && value !== undefined) {
+        child.setAttribute(key, String(value));
+      }
+    }
+    node.append(child);
+  }
+  return node;
 }
 
-// Çizgisel ikon — yol verileri sabittir, dışarıdan gelmez.
-export function ikon(yollar, boyut = 15) {
+// A line icon — the path data is fixed and never comes from outside.
+export function icon(paths, size = 15) {
   return svg({
-    width: boyut, height: boyut, fill: 'none', stroke: 'currentColor',
+    width: size, height: size, fill: 'none', stroke: 'currentColor',
     'stroke-width': '1.5', 'stroke-linecap': 'round',
-  }, [].concat(yollar).map(d => ['path', { d }]));
+  }, [].concat(paths).map(d => ['path', { d }]));
 }
 
-// Odak tuzağı — diyalog açıkken Tab pencerenin dışına çıkmasın.
-export function odakTuzagi(kap, kapat) {
-  const secici = 'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
-  function tus(e) {
-    if (e.key === 'Escape') { e.preventDefault(); kapat(); return; }
-    if (e.key !== 'Tab') return;
-    const odaklanabilir = [...kap.querySelectorAll(secici)]
-      .filter(x => !x.disabled && x.offsetParent !== null);
-    if (!odaklanabilir.length) return;
-    const ilk = odaklanabilir[0];
-    const son = odaklanabilir[odaklanabilir.length - 1];
-    if (e.shiftKey && document.activeElement === ilk) { e.preventDefault(); son.focus(); }
-    else if (!e.shiftKey && document.activeElement === son) { e.preventDefault(); ilk.focus(); }
+// Focus trap — Tab must not leave an open dialog.
+export function focusTrap(container, close) {
+  const selector =
+    'button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])';
+  function trap(event) {
+    if (event.key === 'Escape') { event.preventDefault(); close(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = [...container.querySelectorAll(selector)]
+      .filter(node => !node.disabled && node.offsetParent !== null);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
-  kap.addEventListener('keydown', tus);
-  return () => kap.removeEventListener('keydown', tus);
+  container.addEventListener('keydown', trap);
+  return () => container.removeEventListener('keydown', trap);
 }

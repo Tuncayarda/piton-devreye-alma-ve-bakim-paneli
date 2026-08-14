@@ -1,24 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller yapılandırması — Devreye Alma Paneli.
+"""PyInstaller configuration — Commissioning and Maintenance Panel.
 
     pip install -r docs/requirements-build.txt
-    pyinstaller DevreyeAlmaPaneli.spec               # klasör (onedir)
-    DAP_ONEFILE=1 pyinstaller DevreyeAlmaPaneli.spec # tek dosya (portable)
+    pyinstaller CommissioningPanel.spec               # folder (onedir)
+    DAP_ONEFILE=1 pyinstaller CommissioningPanel.spec # single file (portable)
 
-Windows'ta onefile için:  set DAP_ONEFILE=1 && pyinstaller ...
+On Windows, for onefile:  set DAP_ONEFILE=1 && pyinstaller ...
 
-Çıktı:
-    dist/DevreyeAlmaPaneli/            onedir
-    dist/DevreyeAlmaPaneli(.exe)       onefile
-    dist/Devreye Alma Paneli.app       macOS (yalnız onedir)
+Output:
+    dist/CommissioningPanel/                    onedir
+    dist/CommissioningPanel(.exe)               onefile
+    dist/Commissioning and Maintenance Panel.app  macOS (onedir only)
 
-Notlar:
-  • Sürüm tek yerden gelir: core/ayar.py içindeki APP_VERSION.
-  • Panel, projedeki üç veri dosyasını ve kardeş projelerdeki üç betiği
-    çalışma anında okur. Bunlar paketin KÖKÜNE kopyalanır; ayar.veri_dosyasi()
-    paketlenmiş durumda oraya bakar (bkz. core/ayar.py).
-  • Pencere motorunun (PyObjC / PyQt / pythonnet) veri dosyaları collect_all
-    ile toplanır — aksi halde paket açılıyor ama pencere açılmıyor.
+Notes:
+  • The version comes from one place: APP_VERSION in panel/settings.py.
+  • The panel reads three data files and three field scripts at runtime.
+    They are copied to the ROOT of the bundle; panel.settings.data_file()
+    looks there when frozen (see panel/settings.py).
+  • The window engine's data files (PyObjC / PyQt / pythonnet) are gathered
+    with collect_all — otherwise the package unpacks but no window opens.
 """
 import os
 import re
@@ -27,213 +27,222 @@ from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
 
-# ───────────────────────────────────────────────────────── build ortamı ──
-# Dağıtım build'leri 3.12 ile alınır (bkz. docs/BUILD_RELEASE.md). Başka
-# sürümle denemek için DAP_PYTHON_SERBEST=1.
-HEDEF_PYTHON = (3, 12)
-if (sys.version_info[:2] != HEDEF_PYTHON
-        and os.environ.get("DAP_PYTHON_SERBEST") != "1"):
+# ────────────────────────────────────────────────────── build environment ──
+# Distribution builds are made with 3.12 (see docs/BUILD_RELEASE.md). To try
+# another version, set DAP_ALLOW_ANY_PYTHON=1.
+TARGET_PYTHON = (3, 12)
+if (sys.version_info[:2] != TARGET_PYTHON
+        and os.environ.get("DAP_ALLOW_ANY_PYTHON") != "1"):
     raise SystemExit(
-        f"[spec] Build Python {HEDEF_PYTHON[0]}.{HEDEF_PYTHON[1]} ile "
-        f"alınmalı, çalışan sürüm "
+        f"[spec] the build must use Python "
+        f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}, running version is "
         f"{sys.version_info.major}.{sys.version_info.minor}.\n"
-        f"        Bilerek başka sürüm kullanıyorsan: "
-        f"DAP_PYTHON_SERBEST=1 pyinstaller DevreyeAlmaPaneli.spec")
+        f"        If another version is intentional: "
+        f"DAP_ALLOW_ANY_PYTHON=1 pyinstaller CommissioningPanel.spec")
 
-KOK = Path(SPECPATH)
-ADI = "DevreyeAlmaPaneli"
-GORUNEN_AD = "Devreye Alma Paneli"
+ROOT = Path(SPECPATH)
+INTERNAL_NAME = "CommissioningPanel"
+DISPLAY_NAME = "Commissioning and Maintenance Panel"
 ONEFILE = os.environ.get("DAP_ONEFILE") == "1"
+BUNDLE_IDENTIFIER = "com.piton.commissioningpanel"
 
 
-def surum() -> str:
-    """Sürümü core/ayar.py'den okur — tek kaynak orası.
+def read_version() -> str:
+    """Reads the version from panel/settings.py — the single source.
 
-    Modülü import etmiyoruz: import requests gerektirir ve build ortamında
-    bulunmayabilir. Tek satırlık bir sabit, düz metin olarak okumak yeterli.
+    The module is not imported: that would need `requests`, which may not be
+    installed in the build environment. Reading one constant as plain text
+    is enough.
     """
-    kaynak = (KOK / "core" / "ayar.py").read_text(encoding="utf-8")
-    m = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']', kaynak, re.M)
-    if not m:
-        raise SystemExit("[spec] core/ayar.py içinde APP_VERSION bulunamadı")
-    return m.group(1)
+    source_text = (ROOT / "panel" / "settings.py").read_text(encoding="utf-8")
+    match = re.search(r'^APP_VERSION\s*=\s*["\']([^"\']+)["\']',
+                      source_text, re.M)
+    if not match:
+        raise SystemExit("[spec] APP_VERSION not found in panel/settings.py")
+    return match.group(1)
 
 
-SURUM = surum()
-# Windows sürüm kaynağı yalnız sayı kabul eder; "0.9.0-dev" gibi ön sürüm
-# ekleri atılır (görünen sürüm metni SURUM olarak kalır).
-_SAYILAR = re.findall(r"\d+", SURUM.split("-")[0].split("+")[0])
-SURUM_DORTLU = tuple(int(x) for x in (_SAYILAR + ["0", "0", "0", "0"])[:4])
+VERSION = read_version()
+# The Windows version resource accepts numbers only; pre-release suffixes
+# such as "0.9.0-dev" are dropped (the visible version text stays VERSION).
+_VERSION_NUMBERS = re.findall(r"\d+", VERSION.split("-")[0].split("+")[0])
+VERSION_QUAD = tuple(int(x) for x in (_VERSION_NUMBERS + ["0"] * 4)[:4])
 
-# ────────────────────────────────────── uygulamayla giden veri dosyaları ──
-# (kaynaktaki yol, paketteki ad). Paketin köküne konur; eksik olan build'i
-# durdurur — sessizce yarım paket üretmek, sahada "DeviceMap bulunamadı"
-# diye açılmayan bir uygulama demek.
-BETIKLER = KOK / "betikler"           # panelin çalışma anında yüklediği motorlar
-VERI_DOSYALARI = [
-    (KOK / "DeviceMap.json", "DeviceMap.json"),
-    (KOK / "Yatakli_Saha_Cihaz_Dogrulama.xlsx",
-     "Yatakli_Saha_Cihaz_Dogrulama.xlsx"),
-    (BETIKLER / "switch_api.py", "switch_api.py"),
-    (BETIKLER / "device_verify.py", "device_verify.py"),
-    (BETIKLER / "intercom_ip_assign.py", "intercom_ip_assign.py"),
+# ───────────────────────────────────────── data files shipped with the app ──
+# (path in the source tree, name inside the bundle). Placed at the bundle
+# root; a missing one stops the build — quietly producing a half package
+# means an app that will not open in the field with "DeviceMap not found".
+FIELD_SCRIPTS_DIR = ROOT / "field_scripts"   # engines loaded at runtime
+DATA_FILES = [
+    (ROOT / "DeviceMap.json", "DeviceMap.json"),
+    (ROOT / "Field_Device_Verification.xlsx",
+     "Field_Device_Verification.xlsx"),
+    (FIELD_SCRIPTS_DIR / "switch_api.py", "switch_api.py"),
+    (FIELD_SCRIPTS_DIR / "device_verify.py", "device_verify.py"),
+    (FIELD_SCRIPTS_DIR / "intercom_ip_assign.py", "intercom_ip_assign.py"),
 ]
 
-veri = [("static", "static")]
-eksik = []
-for kaynak_yol, paket_adi in VERI_DOSYALARI:
-    if kaynak_yol.exists():
-        veri.append((str(kaynak_yol), "."))
+data = [("static", "static")]
+missing = []
+for source_path, bundle_name in DATA_FILES:
+    if source_path.exists():
+        data.append((str(source_path), "."))
     else:
-        eksik.append(str(kaynak_yol))
-if eksik:
-    raise SystemExit("[spec] pakete girecek dosyalar bulunamadı:\n  "
-                     + "\n  ".join(eksik))
+        missing.append(str(source_path))
+if missing:
+    raise SystemExit("[spec] files to be packaged were not found:\n  "
+                     + "\n  ".join(missing))
 
-# ────────────────────────────────────────────── platform bağımlılıkları ──
-# Pencere motorunun paketleri: yalnız .py dosyaları değil, veri ve ikili
-# dosyaları da gerekiyor. collect_all üçünü birden toplar.
-ekstra_veri, ekstra_ikili, ekstra_gizli = [], [], []
+# ──────────────────────────────────────────────── platform dependencies ──
+# Packages of the window engine: not only .py files, but data and binary
+# files too. collect_all gathers all three at once.
+extra_data, extra_binaries, extra_hidden_imports = [], [], []
 
 
-def topla(paket: str, zorunlu: bool = False) -> None:
+def collect_package(package: str, required: bool = False) -> None:
     try:
-        v, ikili, gizli = collect_all(paket)
-    except Exception as exc:                       # paket kurulu değil
-        if zorunlu:
-            raise SystemExit(f"[spec] '{paket}' gerekli ama toplanamadı: {exc}")
-        print(f"[spec] atlandı (kurulu değil): {paket}")
+        collected_data, binaries, hidden = collect_all(package)
+    except Exception as exc:                       # package is not installed
+        if required:
+            raise SystemExit(
+                f"[spec] '{package}' is required but could not be "
+                f"collected: {exc}")
+        print(f"[spec] skipped (not installed): {package}")
         return
-    ekstra_veri.extend(v)
-    ekstra_ikili.extend(ikili)
-    ekstra_gizli.extend(gizli)
+    extra_data.extend(collected_data)
+    extra_binaries.extend(binaries)
+    extra_hidden_imports.extend(hidden)
 
 
-topla("webview", zorunlu=True)
+collect_package("webview", required=True)
 if sys.platform == "darwin":
-    for p in ("objc", "Foundation", "AppKit", "WebKit", "Quartz", "Security"):
-        topla(p)
+    for package_name in ("objc", "Foundation", "AppKit", "WebKit", "Quartz",
+                         "Security"):
+        collect_package(package_name)
 elif sys.platform == "win32":
-    topla("clr_loader")
-    topla("pythonnet")
-    ekstra_gizli += ["webview.platforms.winforms",
-                     "webview.platforms.edgechromium"]
+    collect_package("clr_loader")
+    collect_package("pythonnet")
+    extra_hidden_imports += ["webview.platforms.winforms",
+                             "webview.platforms.edgechromium"]
 else:
-    for p in ("PyQt6", "PyQt6.QtWebEngineWidgets", "PyQt6.QtWebEngineCore"):
-        topla(p)
-    ekstra_gizli += ["webview.platforms.qt"]
+    for package_name in ("PyQt6", "PyQt6.QtWebEngineWidgets",
+                         "PyQt6.QtWebEngineCore"):
+        collect_package(package_name)
+    extra_hidden_imports += ["webview.platforms.qt"]
 
-# Çalışma anında içe aktarılan ama koddan görünmeyen paketler. openpyxl
-# Excel çıktısı, paho MQTT telemetrisi için; ikisi de yalnız kullanıldığı
-# anda import ediliyor, PyInstaller bu yüzden kendiliğinden bulmuyor.
-for p in ("openpyxl", "paho"):
-    topla(p)
+# Packages imported at runtime but invisible to static analysis. openpyxl is
+# for the Excel output, paho for MQTT telemetry; both are imported only at
+# the moment they are used, so PyInstaller does not find them on its own.
+for package_name in ("openpyxl", "paho"):
+    collect_package(package_name)
 
-# ─────────────────────────────────────────────────────────────── simgeler ──
-ICNS = KOK / "icons" / "app.icns"
-ICO = KOK / "icons" / "app.ico"
-exe_ikon = str(ICO) if (sys.platform == "win32" and ICO.exists()) else None
+# ─────────────────────────────────────────────────────────────────── icons ──
+ICNS = ROOT / "icons" / "app.icns"
+ICO = ROOT / "icons" / "app.ico"
+exe_icon = str(ICO) if (sys.platform == "win32" and ICO.exists()) else None
 if sys.platform == "darwin" and ICNS.exists():
-    exe_ikon = str(ICNS)
+    exe_icon = str(ICNS)
 
-# ──────────────────────────────────────────── Windows sürüm bilgisi (exe) ──
-version_dosyasi = None
+# ─────────────────────────────────────────── Windows version resource (exe) ──
+version_file = None
 if sys.platform == "win32":
-    version_dosyasi = KOK / "build" / "version_info.txt"
-    version_dosyasi.parent.mkdir(parents=True, exist_ok=True)
-    version_dosyasi.write_text(f"""\
+    version_file = ROOT / "build" / "version_info.txt"
+    version_file.parent.mkdir(parents=True, exist_ok=True)
+    version_file.write_text(f"""\
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers={SURUM_DORTLU}, prodvers={SURUM_DORTLU},
+    filevers={VERSION_QUAD}, prodvers={VERSION_QUAD},
     mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,
     date=(0, 0)),
   kids=[
-    StringFileInfo([StringTable('041f04b0', [
+    StringFileInfo([StringTable('040904b0', [
       StringStruct('CompanyName', 'Piton Technology'),
-      StringStruct('FileDescription', '{GORUNEN_AD}'),
-      StringStruct('FileVersion', '{SURUM}'),
-      StringStruct('InternalName', '{ADI}'),
-      StringStruct('OriginalFilename', '{ADI}.exe'),
-      StringStruct('ProductName', '{GORUNEN_AD}'),
-      StringStruct('ProductVersion', '{SURUM}'),
+      StringStruct('FileDescription', '{DISPLAY_NAME}'),
+      StringStruct('FileVersion', '{VERSION}'),
+      StringStruct('InternalName', '{INTERNAL_NAME}'),
+      StringStruct('OriginalFilename', '{INTERNAL_NAME}.exe'),
+      StringStruct('ProductName', '{DISPLAY_NAME}'),
+      StringStruct('ProductVersion', '{VERSION}'),
       StringStruct('LegalCopyright', 'Piton Technology')])]),
-    VarFileInfo([VarStruct('Translation', [1055, 1200])])
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]
 )
-""", encoding="utf-8")   # 1055 = Türkçe, 1200 = Unicode
+""", encoding="utf-8")   # 1033 = en-US, 1200 = Unicode
 
-# ──────────────────────────────────────────────────────────────── analiz ──
-analiz = Analysis(
+# ────────────────────────────────────────────────────────────── analysis ──
+analysis = Analysis(
     ["app.py"],
-    pathex=[str(KOK)],
-    binaries=ekstra_ikili,
-    datas=veri + ekstra_veri,
-    hiddenimports=["panel_api", "masaustu", "tools.masaustu_paketi"] + ekstra_gizli,
+    pathex=[str(ROOT)],
+    binaries=extra_binaries,
+    datas=data + extra_data,
+    hiddenimports=["panel.api", "panel.desktop"] + extra_hidden_imports,
     hookspath=[],
     runtime_hooks=[],
-    # tests/ pakete girmez: sahaya giden uygulamada test altyapısı ve
-    # sahte cihaz sunucuları bulunmaz.
+    # tests/ stays out of the package: the application shipped to the field
+    # carries no test scaffolding and no fake device servers.
     excludes=["tkinter", "test", "pydoc_data", "tests"],
     noarchive=False,
 )
-pyz = PYZ(analiz.pure, analiz.zipped_data)
+pyz = PYZ(analysis.pure, analysis.zipped_data)
 
-ORTAK = dict(
-    name=ADI,
+COMMON = dict(
+    name=INTERNAL_NAME,
     debug=False,
     strip=False,
     upx=False,
-    console=False,                 # Windows: konsol penceresi açılmasın
-    # Windows'ta uygulama manifestine yönetici isteği gömülür: çift
-    # tıklandığında UAC penceresi ÖNCE çıkar, panel doğrudan yükseltilmiş
-    # açılır. Panel ARP önbelleğini temizliyor ve cihazlara IP yazıyor;
-    # bunlar sıradan kullanıcı yetkisiyle sessizce yarım çalışıyordu.
-    # Yine de tek güvence bu değil: yetkisiz başlatılan her yolda (betikten
-    # çalıştırma, eski kısayol) app.py kullanıcıya pencere çıkarıp
-    # yükseltme sunuyor (bkz. yetki.py). Windows dışında yok sayılır.
+    console=False,                 # Windows: do not open a console window
+    # On Windows an administrator request is embedded in the application
+    # manifest: on a double click the UAC prompt appears FIRST and the panel
+    # opens elevated straight away. The panel clears the ARP cache and writes
+    # IP addresses to devices; with ordinary user rights those silently did
+    # half their job. That is not the only safeguard: on every unelevated
+    # start path (running from a script, an old shortcut) app.py shows the
+    # user a window offering to elevate (see panel/elevation/). Ignored off
+    # Windows.
     uac_admin=True,
     disable_windowed_traceback=False,
-    icon=exe_ikon,
-    version=str(version_dosyasi) if version_dosyasi else None,
+    icon=exe_icon,
+    version=str(version_file) if version_file else None,
 )
 
 if ONEFILE:
-    # Tek dosya: taşınabilir ama her açılışta kendini geçici klasöre açar,
-    # bu yüzden başlangıç birkaç saniye daha uzun sürer.
-    exe = EXE(pyz, analiz.scripts, analiz.binaries, analiz.zipfiles,
-              analiz.datas, [], exclude_binaries=False, **ORTAK)
-    son = exe
+    # Single file: portable, but it unpacks itself into a temporary folder on
+    # every launch, so startup takes a few seconds longer.
+    exe = EXE(pyz, analysis.scripts, analysis.binaries, analysis.zipfiles,
+              analysis.datas, [], exclude_binaries=False, **COMMON)
+    final = exe
 else:
-    exe = EXE(pyz, analiz.scripts, [], exclude_binaries=True, **ORTAK)
-    son = COLLECT(exe, analiz.binaries, analiz.zipfiles, analiz.datas,
-                  strip=False, upx=False, name=ADI)
+    exe = EXE(pyz, analysis.scripts, [], exclude_binaries=True, **COMMON)
+    final = COLLECT(exe, analysis.binaries, analysis.zipfiles, analysis.datas,
+                    strip=False, upx=False, name=INTERNAL_NAME)
 
-# macOS'ta .app paketi: Dock'ta uygulama adı ve simgesi düzgün görünsün.
+# The .app bundle on macOS: so the name and icon look right in the Dock.
 if sys.platform == "darwin" and not ONEFILE:
     app = BUNDLE(
-        son,
-        name=f"{GORUNEN_AD}.app",
+        final,
+        name=f"{DISPLAY_NAME}.app",
         icon=str(ICNS) if ICNS.exists() else None,
-        bundle_identifier="com.piton.devreyealmapaneli",
-        version=SURUM,
+        bundle_identifier=BUNDLE_IDENTIFIER,
+        version=VERSION,
         info_plist={
-            "CFBundleName": GORUNEN_AD,
-            "CFBundleDisplayName": GORUNEN_AD,
-            "CFBundleShortVersionString": SURUM,
-            "CFBundleVersion": SURUM,
+            "CFBundleName": DISPLAY_NAME,
+            "CFBundleDisplayName": DISPLAY_NAME,
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
-            # 11.0 (Big Sur): setup-python'un arm64 derlemeleri ve PyObjC 10
-            # bunun altını desteklemiyor. Daha eski bir değer yazmak
-            # doğrulanmamış bir söz vermek olurdu.
+            # 11.0 (Big Sur): setup-python's arm64 builds and PyObjC 10 do
+            # not support anything below it. Writing an older value would be
+            # an unverified promise.
             "LSMinimumSystemVersion": "11.0",
             "NSHumanReadableCopyright": "Piton Technology",
-            # Panel tren setindeki cihazları yerel ağda okuyor; macOS 14+ bu
-            # izni kullanıcıya sorar ve açıklamayı buradan okur.
+            # The panel reads the devices of a train set on the local
+            # network; macOS 14+ asks the user for this permission and shows
+            # this description.
             "NSLocalNetworkUsageDescription":
-                "Uygulama, tren setindeki cihazları (switch, intercom, kamera, "
-                "PISCU) doğrulamak için yerel ağ erişimini kullanır.",
-            # Arayüz soketsiz pywebview köprüsünü kullanır. Bu izin, tren
-            # cihazlarının HTTPS sunmayan yerel HTTP uçları içindir.
+                "The application uses local network access to verify the "
+                "devices of a train set (switch, intercom, camera, PISCU).",
+            # The UI uses the socketless pywebview bridge. This exception is
+            # for the plain-HTTP local endpoints of the train devices.
             "NSAppTransportSecurity": {
                 "NSAllowsLocalNetworking": True,
                 "NSAllowsArbitraryLoads": True,

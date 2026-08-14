@@ -6,7 +6,7 @@ __pycache__/
 venv/
 env/
 
-# ── PyInstaller / paketleme ───────────────────────────────────────
+# ── PyInstaller / packaging ───────────────────────────────────────
 build/
 dist/
 release/
@@ -16,17 +16,17 @@ AppDir/
 squashfs-root/
 appimagetool*.AppImage
 installer-output/
-# WebView2 bootstrapper build sırasında indirilir, depoya girmez
+# The WebView2 bootstrapper is downloaded during the build; never committed
 packaging/windows/redist/
 
-# ── uygulama çıktıları ────────────────────────────────────────────
-# Loglar kullanıcı dizinine yazılır; yine de yanlışlıkla kopyalanana karşı
+# ── application output ────────────────────────────────────────────
+# Logs are written to the user's directory; this guards against a stray copy
 *.log
 *.log.[0-9]
-# Doldurulmuş kontrol listeleri (depodaki dosya yalnızca boş şablondur)
-Yatakli_Saha_Cihaz_Dogrulama_set*.xlsx
+# Filled-in checklists (the file in the repository is the empty template)
+Field_Device_Verification_set*.xlsx
 
-# ── hassas dosyalar ───────────────────────────────────────────────
+# ── sensitive files ───────────────────────────────────────────────
 .env
 .env.*
 !.env.example
@@ -37,13 +37,13 @@ Yatakli_Saha_Cihaz_Dogrulama_set*.xlsx
 id_rsa*
 secrets.*
 
-# ── işletim sistemi ───────────────────────────────────────────────
+# ── operating system ──────────────────────────────────────────────
 .DS_Store
 ._*
 Thumbs.db
 desktop.ini
 
-# ── düzenleyici ───────────────────────────────────────────────────
+# ── editor ────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp

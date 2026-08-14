@@ -5,6 +5,65 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v0.9.7 — 14 Ağustos 2026
+
+`dap-v0.9.1-dev` etiketinden bu yana yayımlanan ilk sürümdür: v0.9.2, v0.9.3,
+v0.9.5 ve v0.9.6 için hazırlanan bütün değişiklikler bu paketin içindedir.
+
+### Uygulama artık Türkçe ve İngilizce
+
+- Arayüzün tamamı **iki dilli**. Dil, rol seçim ekranında ve üst barda duran
+  **TR / EN** düğmesiyle değiştiriliyor; seçim kaydediliyor ve uygulama bir
+  daha aynı dille açılıyor.
+- İlk açılışta işletim sisteminin dili kullanılıyor: sistem Türkçeyse panel
+  Türkçe açılıyor.
+- Çeviri yalnız etiketleri değil **hata mesajlarını, işlem kuyruğu
+  satırlarını ve iş başlıklarını** da kapsıyor. Dil süren bir koşunun
+  ortasında değiştirilirse kuyruktaki satırlar da o anda yeni dile geçiyor.
+- Bütün metinler tek bir sözlük dosyasında toplandı; bir ifadeyi düzeltmek
+  için uygulamanın yeniden derlenmesi gerekmiyor.
+
+### Dikkat: bu sürümde taşınmayanlar
+
+- **Uygulama adı ve dosya adları değişti.** Paketler artık
+  `CommissioningPanel-<sürüm>-…` adıyla yayımlanıyor, Windows kurulumu
+  `Commissioning Panel` klasörüne yapılıyor. Eski sürümün kısayolu yeni
+  kuruluma işaret etmez; kısayolu yeniden oluşturun. Eski kurulumu Windows
+  "Uygulamalar" listesinden ayrıca kaldırabilirsiniz.
+- **Konfigürasyon ekranında kayıtlı hedef değerler taşınmıyor.** Ayarların
+  saklandığı klasör uygulama adıyla birlikte değiştiği için, önceki
+  sürümlerde girilmiş varsayılanlar bu sürümde boş gelir ve bir kez yeniden
+  girilmelidir. (Parolalar hiçbir zaman diske yazılmıyordu, onlarda değişen
+  bir şey yok.)
+- **Excel şablonu yenilendi:** dosya adı `Field_Device_Verification.xlsx`,
+  sayfa adı `Checklist` ve sütun başlıkları İngilizce oldu. Eski şablondan
+  elle doldurulmuş dosyalarınız varsa saklayın; yeni şablonla birleşmezler.
+
+### IP atama koşusu daha güvenilir raporluyor
+
+- Koşunun ilerlemesi artık saha betiğinin **yazdığı cümlelerden** değil,
+  betiğin ürettiği **yapılandırılmış olaylardan** okunuyor. Daha önce bir
+  cümlenin kelimesi değiştiğinde ilerleme çubuğu ve port satırları sessizce
+  bozuluyordu; artık metin serbestçe değişebiliyor.
+- Port satırlarının durumu, adım geçmişi ve yüzdesi bu olaylardan geliyor;
+  ham çıktı eskisi gibi tek satırdan açılan koşu günlüğünde duruyor.
+
+### Kontrol listesi
+
+- Excel sütunları koda **sabit kimliklerle** bağlandı. Başlık metni artık
+  ekranda görünen bir etikettir; başlığı değiştirmek sütunu boşaltmıyor.
+
+### Düzeltmeler
+
+- IP ekranındaki ön panel lejandında **"besliyor" örneği 320 piksel
+  yüksekliğinde çerçeveli bir kutu olarak çiziliyordu**; MQTT ekranının
+  kutusuyla aynı sınıf adını paylaşmasından kaynaklanıyordu.
+- Doğrulama ekranındaki tablo, sayfa yenilendiğinde bazı sütunları
+  "erişilemez" sayabiliyordu.
+- Masaüstü paketinin bütünlük denetimi, birden çok stil dosyası kullanılınca
+  hatalı biçimde başarısız oluyordu.
+- Panelin HTTP başlığı ve birkaç iç yol hâlâ eski uygulama adını taşıyordu.
+
 ## v0.9.6 — Yayımlanmamış
 
 ### Fabrika adresinde toplama yeniden yazıldı
@@ -131,7 +190,7 @@ Bu sürüm için hazırlanan değişiklikler `dap-v0.9.1-dev` etiketinden sonra
 eklenmiştir.
 
 > `dap-v0.9.2` ve `dap-v0.9.3` etiketleri hiç oluşturulmadı. Bu iki
-> sürümün değişiklikleri de ilk kez `dap-v0.9.5` ile yayımlanacaktır;
+> sürümün değişiklikleri ilk kez `dap-v0.9.7` ile yayımlanmıştır;
 > bölümler yalnız neyin ne zaman eklendiğini göstermek için ayrı duruyor.
 
 ### Tarama ve canlı yenileme

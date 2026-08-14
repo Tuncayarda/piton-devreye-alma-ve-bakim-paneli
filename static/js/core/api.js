@@ -1,138 +1,153 @@
-// Yerel API istemcisi.
+// The local API client.
 //
-// Parola YALNIZCA `kimlikDene()` çağrısının gövdesinde, tek seferlik
-// olarak yola çıkar. Hiçbir yerde saklanmaz, global duruma yazılmaz,
-// başka bir isteğe eklenmez. Sunucu da onu geri döndürmez.
+// A password travels ONLY in the body of `tryCredentials()`, once. It is
+// never stored, never written to global state, never attached to another
+// request. The server does not send it back either.
 
-import { tasima } from "./transport.js";
+import { transport } from "./transport.js";
 
-class ApiHatasi extends Error {
-  constructor(mesaj, kod, govde) {
-    super(mesaj);
-    this.kod = kod;
-    this.govde = govde || {};
+class ApiError extends Error {
+  constructor(message, status, body) {
+    super(message);
+    this.status = status;
+    this.body = body || {};
   }
 }
 
-export function apiOlustur(tasiyici = tasima) {
-  async function istek(yontem, yol, giden = {}) {
-    let zarf;
+export function createApi(carrier = transport) {
+  async function request(method, path, payload = {}) {
+    let envelope;
     try {
-      zarf = await tasiyici.istek(yontem, yol, giden);
+      envelope = await carrier.request(method, path, payload);
       if (
-        !zarf || typeof zarf.ok !== "boolean" ||
-        !Number.isInteger(zarf.status)
-      ) throw new Error("geçersiz yanıt");
+        !envelope || typeof envelope.ok !== "boolean" ||
+        !Number.isInteger(envelope.status)
+      ) throw new Error("invalid response");
     } catch {
-      throw new ApiHatasi("Panel servisine ulaşılamadı", 0, {});
+      throw new ApiError("The panel service is unreachable", 0, {});
     }
-    const govde = zarf.body && typeof zarf.body === "object" &&
-        !Array.isArray(zarf.body)
-      ? zarf.body
+    const body = envelope.body && typeof envelope.body === "object" &&
+        !Array.isArray(envelope.body)
+      ? envelope.body
       : {};
-    if (!zarf.ok) {
-      throw new ApiHatasi(
-        govde.hata || `İstek başarısız (${zarf.status})`,
-        zarf.status,
-        govde,
+    if (!envelope.ok) {
+      throw new ApiError(
+        body.error || `The request failed (${envelope.status})`,
+        envelope.status,
+        body,
       );
     }
-    return govde;
+    return body;
   }
 
-  const get = (yol, sorgu = {}) => {
-    const p = new URLSearchParams();
-    for (const [k, v] of Object.entries(sorgu)) {
-      if (v !== null && v !== undefined && v !== "") p.set(k, String(v));
+  const get = (path, query = {}) => {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== null && value !== undefined && value !== "") {
+        params.set(key, String(value));
+      }
     }
-    const q = p.toString();
-    return istek("GET", yol + (q ? `?${q}` : ""));
+    const encoded = params.toString();
+    return request("GET", path + (encoded ? `?${encoded}` : ""));
   };
 
-  const post = (yol, govde = {}) => istek("POST", yol, govde);
+  const post = (path, body = {}) => request("POST", path, body);
 
   return {
-    ApiHatasi,
+    ApiError,
 
-    surum: () => get("/api/surum"),
-    proje: (set) => get("/api/proje", { set }),
-    durum: (set) => get("/api/durum", { set }),
-    cihaz: (set, id) => get("/api/cihaz", { set, id }),
-    kilit: (set) => get("/api/kilit", { set }),
-    kontrol: (set) => get("/api/kontrol", { set }),
+    version: () => get("/api/version"),
+    // The message catalogue. Fetched before the first paint; the POST comes
+    // back with the whole new catalogue so nothing renders half-translated.
+    language: () => get("/api/language"),
+    setLanguage: (code) => post("/api/language", { language: code }),
+    project: (set) => get("/api/project", { set }),
+    state: (set) => get("/api/state", { set }),
+    device: (set, id) => get("/api/device", { set, id }),
+    checklist: (set) => get("/api/checklist", { set }),
 
-    isler: () => get("/api/isler"),
-    is: (id) => get("/api/is", { id }),
-    isIptal: (id) => post("/api/is/iptal", { id }),
-    isSil: (id) => post("/api/is/sil", { id }),
-    // Açılacak dosyanın yolu istemcide yok; sunucu iş kaydından okur.
-    isDosya: (id, satir, klasor = false) =>
-      post("/api/is/dosya", { id, satir, klasor }),
+    jobs: () => get("/api/jobs"),
+    job: (id) => get("/api/job", { id }),
+    jobCancel: (id) => post("/api/job/cancel", { id }),
+    jobRemove: (id) => post("/api/job/remove", { id }),
+    // The client does not hold the path to open; the server reads it from
+    // the job record.
+    jobFile: (id, row, reveal = false) =>
+      post("/api/job/file", { id, row, reveal }),
 
-    // `otomatik`: arayüzün dakikalık keşif turu. Kuyrukta elle başlatılan
-    // taramadan ayrılır ve geçmişte birikmez (bkz. core/isler _budama).
-    tarama: (set, otomatik = false) => post("/api/tarama", { set, otomatik }),
-    yenile: (set, cihazlar) => post("/api/yenile", { set, cihazlar }),
+    // `auto`: the UI's minute-long discovery round. Told apart from a
+    // manually started scan and pruned from history (see jobs.queue).
+    scan: (set, auto = false) => post("/api/scan", { set, auto }),
+    refresh: (set, devices) => post("/api/refresh", { set, devices }),
 
-    // Parolanın tek geçtiği yer. Çağıran taraf, yanıt döner dönmez formu
-    // temizler; değeri saklamaz.
-    kimlikDene: (set, cihazId, kullanici, parola, grubaUygula) =>
-      post("/api/kimlik", { set, cihazId, kullanici, parola, grubaUygula }),
-    kimlikUnut: (set, cihazId) => post("/api/kimlik/unut", { set, cihazId }),
-    kimlikHepsiniUnut: () => post("/api/kimlik/unut", { hepsi: true }),
+    // The only place a password appears. The caller clears the form the
+    // moment the reply arrives and keeps nothing.
+    tryCredentials: (set, deviceId, username, password, applyToGroup) =>
+      post("/api/credentials", {
+        set,
+        deviceId,
+        username,
+        password,
+        applyToGroup,
+      }),
+    forgetCredentials: (set, deviceId) =>
+      post("/api/credentials/forget", { set, deviceId }),
+    forgetAllCredentials: () => post("/api/credentials/forget", { all: true }),
 
-    adminGiris: (parola) => post("/api/admin/giris", { parola }),
+    adminLogin: (password) => post("/api/admin/login", { password }),
 
-    // `gruplar`: virgülle ayrılmış grup adları — koşuya birden çok cihaz
-    // grubu girebiliyor.
-    ipPlan: (set, gruplar, portlar, sw) =>
-      get("/api/ip/plan", { set, gruplar, portlar, switch: sw }),
+    // `groups`: comma-separated group names — a run can target several
+    // device groups.
+    ipPlan: (set, groups, ports, sw) =>
+      get("/api/ip/plan", { set, groups, ports, switch: sw }),
     ipPanel: (set, sw) => get("/api/ip/panel", { set, switch: sw }),
-    // Koşunun dokunmaması gereken portlar: bilgisayarın yeri ve switch'ler
-    // arası bağlantılar. Hepsi MAC tablolarından bulunur, hiçbiri sorulmaz.
-    ipKorunan: (set) => get("/api/ip/korunan", { set }),
-    // Tanı: aday adreslerde hangi cihaz var. Cihaz kendi dahilisini
-    // söylediği için "bu adres kimin" sorusu kesin cevaplanır. Salt okuma.
-    ipHarita: (set, sw, grup, fabrikaIp) =>
-      get("/api/ip/harita", { set, switch: sw, grup, fabrikaIp }),
-    ipKosu: (govde) => post("/api/ip/kosu", govde),
-    // Test akışı: seçili cihazlara "IP'ni fabrika adresine çevir" isteği.
-    ipFabrika: (govde) => post("/api/ip/fabrika", govde),
+    // Ports the run must not touch: the computer's location and the
+    // switch-to-switch links. All found from MAC tables, none asked for.
+    ipProtected: (set) => get("/api/ip/protected", { set }),
+    // Diagnostics: which device sits on which candidate address. The device
+    // reports its own extension, so "whose address is this" is answered
+    // exactly. Read-only.
+    ipAddressMap: (set, sw, group, factoryIp) =>
+      get("/api/ip/address-map", { set, switch: sw, group, factoryIp }),
+    ipRun: (body) => post("/api/ip/run", body),
+    // Test flow: ask the selected devices to move to the factory address.
+    ipFactoryReset: (body) => post("/api/ip/factory-reset", body),
 
-    konfig: (set, id, grup) => get("/api/konfig", { set, id, grup }),
-    // Cihaza gitmeyen hızlı uç: alan listesi + hedefler. Grup değişince
-    // ekran bunu bekler, yavaş cihaz okumasını değil.
-    konfigAlanlar: (set, id, grup) =>
-      get("/api/konfig/alanlar", { set, id, grup }),
-    konfigSifirla: (set, cihazId, grup) =>
-      post("/api/konfig/sifirla", { set, cihazId, grup }),
-    // kapsam: 'grup' = değer bütün gruba yazılır, 'cihaz' = yalnız o cihaza.
-    konfigHedef: (set, cihazId, alan, deger, grup, kapsam = "cihaz") =>
-      post("/api/konfig/hedef", { set, cihazId, alan, deger, grup, kapsam }),
-    konfigUygula: (set, grup, cihazlar) =>
-      post("/api/konfig/uygula", { set, grup, cihazlar }),
+    config: (set, id, group) => get("/api/config", { set, id, group }),
+    // A fast endpoint that never reaches the device: field list + targets.
+    // On a group change the screen waits for this, not the slow device read.
+    configFields: (set, id, group) =>
+      get("/api/config/fields", { set, id, group }),
+    configReset: (set, deviceId, group) =>
+      post("/api/config/reset", { set, deviceId, group }),
+    // scope: 'group' = the value goes to the whole group, 'device' = only
+    // that device.
+    configTarget: (set, deviceId, field, value, group, scope = "device") =>
+      post("/api/config/target", { set, deviceId, field, value, group, scope }),
+    configApply: (set, group, devices) =>
+      post("/api/config/apply", { set, group, devices }),
 
-    // İmaj cihaz başına seçilir. `cihazlar` verilirse yalnız o cihazlara,
-    // verilmezse gruptaki bütün cihazlara atanır/silinir.
-    firmware: (set, grup) => get("/api/firmware", { set, grup }),
-    // Dosya seçici işletim sisteminde açılır: tarayıcı gerçek yolu vermiyor.
-    // İstek, kullanıcı pencereyi kapatana kadar sürer — zaman aşımı yok.
-    firmwareSec: (set, grup, cihazlar, surum) =>
-      post("/api/firmware/sec", { set, grup, cihazlar, surum }),
-    firmwareSurum: (set, grup, cihazlar, surum) =>
-      post("/api/firmware/surum", { set, grup, cihazlar, surum }),
-    firmwareSil: (set, grup, cihazlar) =>
-      post("/api/firmware/sil", { set, grup, cihazlar }),
-    firmwareYukle: (set, grup, cihazlar) =>
-      post("/api/firmware/yukle", { set, grup, cihazlar }),
+    // An image is chosen per device. With `devices` given only those are
+    // assigned/cleared, otherwise every device in the group.
+    firmware: (set, group) => get("/api/firmware", { set, group }),
+    // The file picker opens in the OS: the browser does not reveal the real
+    // path. The request lasts until the user closes the window — no timeout.
+    firmwarePick: (set, group, devices, version) =>
+      post("/api/firmware/pick", { set, group, devices, version }),
+    firmwareVersion: (set, group, devices, version) =>
+      post("/api/firmware/version", { set, group, devices, version }),
+    firmwareRemove: (set, group, devices) =>
+      post("/api/firmware/remove", { set, group, devices }),
+    firmwareInstall: (set, group, devices) =>
+      post("/api/firmware/install", { set, group, devices }),
 
-    excel: (set) => post("/api/excel", { set }),
+    checklistExport: (set) => post("/api/checklist/export", { set }),
 
     piscu: (set) => get("/api/piscu", { set }),
     mqtt: () => get("/api/mqtt"),
-    mqttBasla: (set) => post("/api/mqtt/basla", { set }),
-    mqttDur: () => post("/api/mqtt/dur"),
+    mqttStart: (set) => post("/api/mqtt/start", { set }),
+    mqttStop: () => post("/api/mqtt/stop"),
   };
 }
 
-export const api = apiOlustur();
+export const api = createApi();

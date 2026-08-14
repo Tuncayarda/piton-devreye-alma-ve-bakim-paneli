@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Yataklı — saha cihaz doğrulama.
+"""Field device verification.
 
-Excel şablonunu kopyalar, sahadaki cihazlardan toplanan verilerle
-"YAZILIM KONTROL" sütunlarını doldurur ve yeni bir dosya olarak kaydeder.
-Şablon dosyaya asla yazılmaz.
+Copies the Excel template, fills the SOFTWARE CHECK columns with data
+collected from the devices in the field, and saves the result as a new file.
+The template itself is never written to.
 
-Veri kaynakları (CIHAZ_ENDPOINTLERI.md):
-  MQTT  ALFA/DeviceMap     -> bütün cihazlar için ortak alanlar
-  MQTT  ALFA/AppStatus/#   -> PISCU ve HMI sürüm + donanım kimliği
+Data sources (docs/CIHAZ_ENDPOINTLERI.md):
+  MQTT  ALFA/DeviceMap     -> fields shared by every device
+  MQTT  ALFA/AppStatus/#   -> PISCU and HMI version + hardware id
   HTTP  /api/v1/system/... -> Announcement (Amplifier / Handset / Intercom)
   ISAPI /System/...        -> Camera, NVR
   HTTP  /stat/basicInfo    -> KYLAND switch
   ADB   getprop            -> LCD / Compartment
 
-Kullanım:
-    python3 device_verify.py                       # .env değerleriyle
-    python3 device_verify.py -n 3                  # set no 3
-    python3 device_verify.py --only Camera NVR     # sadece bu tipler
-    python3 device_verify.py --dry-run             # ağa çıkma, planı göster
-    python3 device_verify.py --list                # hedef IP listesini bas
+Columns are addressed by a stable ID, never by the heading printed in the
+sheet (see COLUMN_HEADINGS). A reworded heading must not empty a column.
+
+Usage:
+    python3 device_verify.py                       # with the .env values
+    python3 device_verify.py -n 3                  # set number 3
+    python3 device_verify.py --only Camera NVR     # these types only
+    python3 device_verify.py --dry-run             # stay off the network
+    python3 device_verify.py --list                # print the target IPs
 """
 from __future__ import annotations
 
@@ -42,20 +45,80 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HERE = Path(__file__).resolve().parent
 
-# Excel'de doldurulacak sütunların başlıkları (satır 4'ten okunur)
+# ── column contract ──────────────────────────────────────────────────────
+# id -> the heading that id carries in the shipped template (read from row 4).
+# The panel keeps the same table in panel/checklist/columns.py; the two must
+# be changed together.
+COL_SECTION = "section"
+COL_SWITCH = "switch"
+COL_PORT = "port"
+COL_DEVICE_DEFINITION = "deviceDefinition"
+COL_IP_TEMPLATE = "ipTemplate"
+COL_EXPECTED_IP = "expectedIp"
+COL_EXPECTED_VERSION = "expectedVersion"
+COL_EXPECTED_SIP_EXTENSION = "expectedSipExtension"
+COL_DEVICE_NAME = "deviceName"
+COL_CONNECTION_INFO = "connectionInfo"
+COL_VERSION = "version"
+COL_DEVICE_NUMBER = "deviceNumber"
+COL_STATUS_DESCRIPTION = "statusDescription"
+COL_UPTIME = "uptime"
+COL_SPEAKER_VOLUME = "speakerVolume"
+COL_MIC_VOLUME = "micVolume"
+COL_SPEAKER_GAIN = "speakerGain"
+COL_MIC_GAIN = "micGain"
+COL_SIP_PBX = "sipPbx"
+COL_SIP_EXTENSION = "sipExtension"
+COL_SIP_OUTBOUND = "sipOutbound"
+COL_TIMEZONE = "timezone"
+COL_NETWORK_TIME = "networkTime"
+
+COLUMN_HEADINGS = {
+    COL_SECTION: "Section",
+    COL_SWITCH: "Switch",
+    COL_PORT: "Port",
+    COL_DEVICE_DEFINITION: "Device definition",
+    COL_IP_TEMPLATE: "IP template",
+    COL_EXPECTED_IP: "Expected IP",
+    COL_EXPECTED_VERSION: "Expected version",
+    COL_EXPECTED_SIP_EXTENSION: "Expected SIP extension",
+    COL_DEVICE_NAME: "Device name",
+    COL_CONNECTION_INFO: "Connection info",
+    COL_VERSION: "Version",
+    COL_DEVICE_NUMBER: "Device number",
+    COL_STATUS_DESCRIPTION: "Status description",
+    COL_UPTIME: "Uptime",
+    COL_SPEAKER_VOLUME: "Speaker volume",
+    COL_MIC_VOLUME: "Microphone volume",
+    COL_SPEAKER_GAIN: "Speaker gain",
+    COL_MIC_GAIN: "Microphone gain",
+    COL_SIP_PBX: "SIP PBX IP",
+    COL_SIP_EXTENSION: "SIP extension",
+    COL_SIP_OUTBOUND: "SIP outbound number",
+    COL_TIMEZONE: "Time zone",
+    COL_NETWORK_TIME: "Network/time check",
+}
+COLUMN_FOR_HEADING = {heading: column
+                      for column, heading in COLUMN_HEADINGS.items()}
+
+# Columns this script fills in; everything else is filled in by hand.
 FILLABLE = [
-    "Cihaz İsmi", "Bağlantı Bilgisi", "Versiyon", "Cihaz Numarası",
-    "Durum Açıklaması", "Çalışma Süresi", "Hoparlör Ses Seviyesi",
-    "Mikrofon Ses Seviyesi", "Hoparlör Gain", "Mikrofon Gain",
-    "SIP PBX IP", "SIP Dahili No", "SIP Arama No",
-    "Saat Dilimi", "Ağ/Zaman Kontrolü",
+    COL_DEVICE_NAME, COL_CONNECTION_INFO, COL_VERSION, COL_DEVICE_NUMBER,
+    COL_STATUS_DESCRIPTION, COL_UPTIME, COL_SPEAKER_VOLUME, COL_MIC_VOLUME,
+    COL_SPEAKER_GAIN, COL_MIC_GAIN, COL_SIP_PBX, COL_SIP_EXTENSION,
+    COL_SIP_OUTBOUND, COL_TIMEZONE, COL_NETWORK_TIME,
 ]
 HEADER_ROW = 4
-COL_IP_TEMPLATE = "IP Şablonu"
 NA_FILL = "FFE7E6E6"
 
-# cihaz yanıtlarındaki alan adları üreticiye göre değişiyor;
-# pick() bu adayları sırayla dener (tam ad -> son parça eşleşmesi).
+# Values written into the status column; the summary formulas at the bottom
+# of the sheet count them.
+STATUS_ACTIVE = "Active"
+STATUS_INACTIVE = "Inactive"
+NETWORK_TIME_OK = "OK"
+
+# Field names in device responses vary by manufacturer; pick() tries these
+# candidates in turn (exact name -> trailing-segment match).
 K_VERSION = ("firmwareversion", "firmware", "swversion", "softwareversion",
              "appversion", "fwversion", "version", "buildversion", "build")
 K_SERIAL = ("serialnumber", "serialno", "serial", "sn", "devicesn",
@@ -80,7 +143,7 @@ K_OUTBOUND = ("pbxoutextension", "pbx_out_extension", "pbxoutext",
               "destination", "dialnumber", "targetnumber", "callnumber",
               "callext", "outbound", "pbxout")
 
-# Announcement cihazlarında denenecek API uçları (JSON dönen hepsi birleştirilir)
+# API endpoints tried on Announcement devices (every JSON answer is merged)
 ANNOUNCEMENT_ENDPOINTS = [
     "system/settings", "system/modes", "system/info", "system/status",
     "system/sip", "system/network", "system/audio",
@@ -94,9 +157,9 @@ K_EXTENSION = ("pbxextension", "pbx_extension", "sipextension",
                "sip_extension", "extension", "ext")
 
 
-# --------------------------------------------------------------- yardımcı --
+# ---------------------------------------------------------------- helpers --
 def load_env(path: Path) -> dict:
-    """Basit .env okuyucu (harici bağımlılık yok)."""
+    """A simple .env reader (no external dependency)."""
     env = {}
     if not path.exists():
         return env
@@ -110,7 +173,7 @@ def load_env(path: Path) -> dict:
 
 
 def resolve(ip_template: str, set_no) -> str:
-    """IP şablonundaki 'n' yerine set numarasını koyar.
+    """Replaces the 'n' in an IP template with the set number.
 
     10.n.1.24, set 3  ->  10.3.1.24
     """
@@ -119,7 +182,7 @@ def resolve(ip_template: str, set_no) -> str:
 
 
 def flatten(obj, prefix="") -> dict:
-    """İç içe JSON'u {kucukharfli.anahtar: deger} sözlüğüne indirger."""
+    """Flattens nested JSON into a {lowercase.key: value} dictionary."""
     out = {}
     if isinstance(obj, dict):
         for k, v in obj.items():
@@ -140,15 +203,15 @@ def _norm(s: str) -> str:
 
 
 def pick(flat: dict, *candidates, exclude=()):
-    """Aday anahtar adlarından ilk eşleşen değeri döndürür.
+    """Returns the first matching value among the candidate key names.
 
-    Üç aşama, gevşeyerek:
-      1. tam anahtar eşleşmesi          pbxIp            -> pbxip
-      2. son parça eşleşmesi            sip.pbxIp        -> pbxip
-      3. alt dize eşleşmesi (>=7 harf)  data.sipOutboundExtension -> outboundextension
+    Three passes, loosening as they go:
+      1. exact key match             pbxIp            -> pbxip
+      2. trailing-segment match      sip.pbxIp        -> pbxip
+      3. substring match (>=7 chars) data.sipOutboundExtension -> outboundextension
 
-    `exclude` içindeki parçaları taşıyan anahtarlar 3. aşamada elenir; böylece
-    "extension" araması yanlışlıkla "outboundExtension" değerini almaz.
+    Keys carrying any fragment from `exclude` are dropped in pass 3, so a
+    search for "extension" does not pick up "outboundExtension" by mistake.
     """
     def ok(v):
         return v not in ("", None) and str(v).strip() != ""
@@ -188,7 +251,7 @@ def pct(v):
 
 
 def num(v):
-    """Gain gibi sayısal alanlar — Excel'e sayı olarak yazılır (0 dahil)."""
+    """Numeric fields such as gain — written to Excel as numbers (0 too)."""
     if v in (None, ""):
         return None
     try:
@@ -199,19 +262,19 @@ def num(v):
 
 
 def status_text(status: dict | None) -> str:
-    """Aktif / Pasif. Arıza bayrakları ayrıştırılmaz.
+    """Active / Inactive. Fault flags are not broken out.
 
-    DeviceMap'teki 'Has Network Failure' ve 'Has Power Failure' bayrakları
-    tutarlı doldurulmuyor (kapalı cihazların bir kısmında set, bir kısmında
-    değil), o yüzden parantezli sebep yazmıyoruz.
+    The 'Has Network Failure' and 'Has Power Failure' flags in DeviceMap are
+    not filled consistently (set on some powered-down devices and not on
+    others), so no parenthesised reason is written.
     """
     if not status:
         return ""
-    return "Aktif" if status.get("NoError") else "Pasif"
+    return STATUS_ACTIVE if status.get("NoError") else STATUS_INACTIVE
 
 
 def uptime_text(seconds) -> str:
-    """Saniyeyi SS:DD:ss biçimine çevirir (örn. 03:25:41)."""
+    """Converts seconds to HH:MM:SS (e.g. 03:25:41)."""
     try:
         u = int(float(seconds))
     except (TypeError, ValueError):
@@ -228,26 +291,27 @@ def xml_tag(root, tag):
     return None
 
 
-# cihazlardan gelen ham alan adları (--debug-fields ile dosyaya yazılır)
+# Raw field names coming from the devices (written out with --debug-fields)
 RAW: dict = {}
 
-# ALFA/AppStatus/... altındaki retained uygulama durumu mesajları
+# Retained application status messages under ALFA/AppStatus/...
 APP_STATUS: dict = {}          # ClientId -> payload
 
 
-# ------------------------------------------------------------ toplayıcılar --
+# ------------------------------------------------------------- collectors --
 def fetch_device_map(broker: str, port: int, topic: str, timeout: float):
-    """PISCU üzerindeki retained ALFA/DeviceMap mesajını okur."""
+    """Reads the retained ALFA/DeviceMap message from PISCU."""
     try:
         import paho.mqtt.client as mqtt
         from paho.mqtt.enums import CallbackAPIVersion
     except ImportError:
-        print("  [!] paho-mqtt kurulu değil, canlı DeviceMap atlanıyor "
+        print("  [!] paho-mqtt is not installed, skipping the live DeviceMap "
               "(pip install paho-mqtt)")
         return None
 
     box, deadline = {}, timeout
-    cl = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="vip_saha_dogrulama")
+    cl = mqtt.Client(CallbackAPIVersion.VERSION2,
+                     client_id="commissioning_panel_verify")
     cl.on_connect = lambda c, u, f, rc, p=None: c.subscribe(topic)
     cl.on_message = lambda c, u, msg: box.setdefault("payload", msg.payload)
     try:
@@ -263,22 +327,23 @@ def fetch_device_map(broker: str, port: int, topic: str, timeout: float):
         print(f"  [!] MQTT: {exc}")
         return None
     if "payload" not in box:
-        print(f"  [!] MQTT: '{topic}' retained mesajı gelmedi")
+        print(f"  [!] MQTT: no retained '{topic}' message arrived")
         return None
     return json.loads(box["payload"])
 
 
 def fetch_app_status(broker: str, port: int, prefix: str, timeout: float) -> dict:
-    """ALFA/AppStatus/# altındaki retained uygulama mesajlarını toplar.
+    """Collects the retained application messages under ALFA/AppStatus/#.
 
-    Örnek yük: {"ClientId": "ClientManager_PISCU_YATAKLI_1", "DeviceIP": ...,
-                "HWID": ..., "Status": ..., "Version": "1.2.7"}
+    Example payload: {"ClientId": "ClientManager_PISCU_YATAKLI_1",
+                      "DeviceIP": ..., "HWID": ..., "Status": ...,
+                      "Version": "1.2.7"}
     """
     try:
         import paho.mqtt.client as mqtt
         from paho.mqtt.enums import CallbackAPIVersion
     except ImportError:
-        print("  [!] paho-mqtt kurulu değil, AppStatus okunamıyor")
+        print("  [!] paho-mqtt is not installed, AppStatus cannot be read")
         return {}
 
 
@@ -292,13 +357,14 @@ def fetch_app_status(broker: str, port: int, prefix: str, timeout: float) -> dic
         key = data.get("ClientId") or msg.topic.rsplit("/", 1)[-1]
         found[key] = data
 
-    cl = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="vip_appstatus")
+    cl = mqtt.Client(CallbackAPIVersion.VERSION2,
+                     client_id="commissioning_panel_appstatus")
     cl.on_connect = lambda c, u, f, rc, p=None: c.subscribe(f"{prefix}/#")
     cl.on_message = on_message
     try:
         cl.connect(broker, port, keepalive=10)
         cl.loop_start()
-        time.sleep(timeout)               # retained mesajlar hemen düşer
+        time.sleep(timeout)               # retained messages arrive at once
         cl.loop_stop()
         cl.disconnect()
     except Exception as exc:
@@ -308,11 +374,11 @@ def fetch_app_status(broker: str, port: int, prefix: str, timeout: float) -> dic
 
 
 def app_status_for(ip: str, keyword: str) -> dict | None:
-    """Cihazın AppStatus kaydını bulur.
+    """Finds the device's AppStatus record.
 
-    Önce DeviceIP eşleşmesi. Anahtar kelimeye (ClientId) düşmek yalnızca
-    mesajda DeviceIP hiç yoksa geçerli — aksi halde başka bir setin
-    (ör. 10.1.1.4) kaydı bu setin satırına yazılırdı.
+    DeviceIP is matched first. Falling back to the keyword (ClientId) is only
+    valid when the message carries no DeviceIP at all — otherwise another
+    set's record (10.1.1.4, say) would be written onto this set's row.
     """
     for data in APP_STATUS.values():
         if str(data.get("DeviceIP", "")).strip() == ip:
@@ -325,9 +391,9 @@ def app_status_for(ip: str, keyword: str) -> dict | None:
 
 
 def read_http_api(ip: str, cfg, tag: str) -> dict:
-    """Cihazın /api/v1/... uçlarını gezip dönen tüm JSON'ları birleştirir.
+    """Walks the device's /api/v1/... endpoints and merges every JSON answer.
 
-    Bu API'yi Announcement cihazları da PISCU da sunuyor (versiyon 1.2.x).
+    Both Announcement devices and PISCU serve this API (version 1.2.x).
     """
     base = f"http://{ip}:{cfg.arduino_port}/api/v1"
     endpoints = cfg.announcement_endpoints or ANNOUNCEMENT_ENDPOINTS
@@ -343,39 +409,41 @@ def read_http_api(ip: str, cfg, tag: str) -> dict:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
-    if not flat:                     # hiçbir uç cevap vermedi
-        raise first_error or RuntimeError(f"{tag} API yanıt vermedi")
+    if not flat:                     # no endpoint answered
+        raise first_error or RuntimeError(f"the {tag} API did not answer")
     RAW.setdefault(ip, {})[tag] = seen
     return flat
 
 
 def common_http_fields(flat: dict) -> dict:
-    """Her cihazda aynı olan üç alan: versiyon, seri no, uptime."""
+    """The three fields every device shares: version, serial, uptime."""
     return {
-        "Versiyon":                  pick(flat, *K_VERSION),
-        "Cihaz Numarası":            pick(flat, *K_SERIAL),
-        "Çalışma Süresi": uptime_text(pick(flat, *K_UPTIME)),
+        COL_VERSION:       pick(flat, *K_VERSION),
+        COL_DEVICE_NUMBER: pick(flat, *K_SERIAL),
+        COL_UPTIME:        uptime_text(pick(flat, *K_UPTIME)),
     }
 
 
 def fetch_announcement(ip: str, cfg) -> dict:
-    """Amplifier / Handset / Intercom — Arduino tabanlı HTTP API."""
+    """Amplifier / Handset / Intercom — the Arduino-based HTTP API."""
     flat = read_http_api(ip, cfg, "announcement")
     return {
-        "Versiyon":                  pick(flat, *K_VERSION),
-        "Cihaz Numarası":            pick(flat, *K_SERIAL),
-        "Çalışma Süresi": uptime_text(pick(flat, *K_UPTIME)),
-        # "gain" ve "level" alanları ses seviyesiyle karışmasın diye elenir
-        "Hoparlör Ses Seviyesi":     pct(pick(flat, *K_SPEAKER, exclude=("gain",))),
-        "Mikrofon Ses Seviyesi":     pct(pick(flat, *K_MIC, exclude=("gain",))),
-        "Hoparlör Gain":             num(pick(flat, *K_SPEAKER_GAIN)),
-        "Mikrofon Gain":             num(pick(flat, *K_MIC_GAIN)),
-        "SIP PBX IP":                pick(flat, *K_PBX),
-        # "extension" araması outboundExtension'a kaymasın diye elemeli
-        "SIP Dahili No":             pick(flat, *K_EXTENSION,
-                                          exclude=("outbound", "outext",
-                                                   "pbxout", "dial", "target")),
-        "SIP Arama No":              pick(flat, *K_OUTBOUND),
+        COL_VERSION:       pick(flat, *K_VERSION),
+        COL_DEVICE_NUMBER: pick(flat, *K_SERIAL),
+        COL_UPTIME:        uptime_text(pick(flat, *K_UPTIME)),
+        # "gain" and "level" fields are excluded so they cannot be mistaken
+        # for the volume
+        COL_SPEAKER_VOLUME: pct(pick(flat, *K_SPEAKER, exclude=("gain",))),
+        COL_MIC_VOLUME:     pct(pick(flat, *K_MIC, exclude=("gain",))),
+        COL_SPEAKER_GAIN:   num(pick(flat, *K_SPEAKER_GAIN)),
+        COL_MIC_GAIN:       num(pick(flat, *K_MIC_GAIN)),
+        COL_SIP_PBX:        pick(flat, *K_PBX),
+        # excluded so a search for "extension" does not drift to
+        # outboundExtension
+        COL_SIP_EXTENSION:  pick(flat, *K_EXTENSION,
+                                 exclude=("outbound", "outext",
+                                          "pbxout", "dial", "target")),
+        COL_SIP_OUTBOUND:   pick(flat, *K_OUTBOUND),
     }
 
 
@@ -388,16 +456,16 @@ def fetch_isapi(ip: str, cfg) -> dict:
     r = requests.get(f"{base}/System/deviceInfo", auth=auth,
                      timeout=cfg.timeout, verify=False)
     root = ET.fromstring(r.content)
-    out["Versiyon"] = xml_tag(root, "firmwareVersion")
-    out["Cihaz Numarası"] = xml_tag(root, "serialNumber")
+    out[COL_VERSION] = xml_tag(root, "firmwareVersion")
+    out[COL_DEVICE_NUMBER] = xml_tag(root, "serialNumber")
 
     try:
         r = requests.get(f"{base}/System/time", auth=auth,
                          timeout=cfg.timeout, verify=False)
         if xml_tag(ET.fromstring(r.content), "timeZone") != cfg.expected_tz:
-            problems.append("Saat")
+            problems.append("Time")
     except Exception:
-        problems.append("Saat")
+        problems.append("Time")
 
     try:
         r = requests.get(f"{base}/System/time/ntpServers/1", auth=auth,
@@ -425,11 +493,12 @@ def fetch_isapi(ip: str, cfg) -> dict:
                     mask = sub
                     break
         if mask != cfg.expected_mask:
-            problems.append("Maske")
+            problems.append("Mask")
     except Exception:
-        problems.append("Maske")
+        problems.append("Mask")
 
-    out["Ağ/Zaman Kontrolü"] = "Uygun" if not problems else ", ".join(problems)
+    out[COL_NETWORK_TIME] = (NETWORK_TIME_OK if not problems
+                             else ", ".join(problems))
     return out
 
 
@@ -441,41 +510,41 @@ def fetch_switch(ip: str, cfg) -> dict:
     r.raise_for_status()
     try:
         flat = flatten(r.json())
-    except ValueError:                       # JSON değilse ham metni ayrıştır
+    except ValueError:                       # not JSON: parse the raw text
         flat = flatten(dict(re.findall(r'"?([A-Za-z_]+)"?\s*[:=]\s*"?([^",\n}]+)',
                                        r.text)))
     RAW.setdefault(ip, {})["switch"] = flat
     out = common_http_fields(flat)
-    out.pop("Cihaz Numarası", None)      # switch seri no'su toplanmıyor (gri)
+    out.pop(COL_DEVICE_NUMBER, None)     # the switch serial is not collected
     return out
 
 
 def app_status_fields(ip: str, cfg, keyword: str) -> dict:
-    """ALFA/AppStatus mesajından yazılım sürümü ve donanım kimliği.
+    """Firmware version and hardware id from the ALFA/AppStatus message.
 
-    Uygulama çalıştıran cihazlar (PISCU, HMI) kendi durumlarını buraya
-    yayınlıyor:
+    Devices running the application (PISCU, HMI) publish their own state
+    here:
       ClientManager_PISCU_YATAKLI_1  ip=10.n.1.1  v=1.2.7  hwid=604A17F3
       ClientManager_MCP_YATAKLI_1    ip=10.n.1.4  v=1.2.5  hwid=34DA8534
     """
     rec = app_status_for(ip, keyword)
     if not rec:
-        raise RuntimeError(f"{cfg.app_status_prefix}/... altında {keyword} "
-                           f"mesajı bulunamadı")
+        raise RuntimeError(f"no {keyword} message found under "
+                           f"{cfg.app_status_prefix}/...")
     RAW.setdefault(ip, {})[f"appstatus_{keyword.lower()}"] = rec
     return {
-        "Versiyon":       rec.get("Version"),
-        "Cihaz Numarası": rec.get("HWID"),
+        COL_VERSION:       rec.get("Version"),
+        COL_DEVICE_NUMBER: rec.get("HWID"),
     }
 
 
 def fetch_piscu(ip: str, cfg) -> dict:
-    """PISCU — ClientManager_PISCU_* uygulama durumu."""
+    """PISCU — the ClientManager_PISCU_* application status."""
     return app_status_fields(ip, cfg, "PISCU")
 
 
 def fetch_hmi(ip: str, cfg) -> dict:
-    """HMI — ClientManager_MCP_* uygulama durumu (SSH gerekmiyor)."""
+    """HMI — the ClientManager_MCP_* application status (no SSH needed)."""
     return app_status_fields(ip, cfg, "MCP")
 
 
@@ -486,31 +555,33 @@ def _adb(target: str, *args, timeout: int) -> str:
 
 
 def fetch_compartment_lcd(ip: str, cfg) -> dict:
-    """LCD / Compartment — Android, ADB üzerinden."""
+    """LCD / Compartment — Android, over ADB."""
     target = f"{ip}:{cfg.adb_port}"
     subprocess.run(["adb", "connect", target], capture_output=True,
                    text=True, timeout=cfg.adb_timeout)
     try:
-        # NOT: "Versiyon" şimdilik toplanmıyor — şablonda gri.
-        # ro.build.display.id Android build kimliği (C33P-V1.5-...),
-        # DeviceMap Status.Version ise doğru kaynak değil. Uygulama
-        # sürümünün nereden okunacağı netleşince buraya eklenecek.
+        # NOTE: the version is not collected for now — grey in the template.
+        # ro.build.display.id is the Android build id (C33P-V1.5-...), and
+        # DeviceMap Status.Version is not the right source either. This will
+        # be added once it is clear where the app version should be read
+        # from.
         out = {
-            "Cihaz Numarası": _adb(target, "shell", "getprop", "ro.serialno",
-                                   timeout=cfg.adb_timeout),
-            "Saat Dilimi":    _adb(target, "shell", "getprop", "persist.sys.timezone",
-                                   timeout=cfg.adb_timeout),
+            COL_DEVICE_NUMBER: _adb(target, "shell", "getprop", "ro.serialno",
+                                    timeout=cfg.adb_timeout),
+            COL_TIMEZONE:      _adb(target, "shell", "getprop",
+                                    "persist.sys.timezone",
+                                    timeout=cfg.adb_timeout),
         }
         raw = _adb(target, "shell", "cat", "/proc/uptime", timeout=cfg.adb_timeout)
         if raw:
-            out["Çalışma Süresi"] = uptime_text(raw.split()[0])
+            out[COL_UPTIME] = uptime_text(raw.split()[0])
         return {k: v for k, v in out.items() if v}
     finally:
         subprocess.run(["adb", "disconnect", target], capture_output=True,
                        text=True, timeout=cfg.adb_timeout)
 
 
-# hangi tip hangi toplayıcıyı kullanır (DeviceMap dışı ek sorgu)
+# Which type uses which collector (an extra query beyond DeviceMap)
 COLLECTORS = {
     ("Switch", None):              fetch_switch,
     ("PISCU", None):               fetch_piscu,
@@ -523,12 +594,12 @@ COLLECTORS = {
     ("NVR", None):                 fetch_isapi,
     ("LCD", "Compartment"):        fetch_compartment_lcd,
 }
-# yalnızca DeviceMap'ten beslenenler: PISCU, ICU, HMI, AP, LED, LCD/Landing, UIC
+# Fed from DeviceMap only: PISCU, ICU, HMI, AP, LED, LCD/Landing, UIC
 
 
-# ------------------------------------------------------------------- akış --
+# ------------------------------------------------------------------- flow --
 def build_index(device_map: dict) -> dict:
-    """IP şablonu -> cihaz kaydı."""
+    """IP template -> device record."""
     idx = {}
     for sw in device_map.get("Switches", []) or []:
         idx.setdefault("__trainset__", sw.get("TrainSet"))
@@ -549,7 +620,7 @@ def build_index(device_map: dict) -> dict:
 
 
 def map_train_set(index: dict):
-    """DeviceMap'in hangi sete ait olduğunu döndürür (yoksa None)."""
+    """Which set this DeviceMap belongs to (None when absent)."""
     return index.get("__trainset__")
 
 
@@ -558,8 +629,9 @@ def devices_only(index: dict) -> dict:
 
 
 def remove_file(path: Path, tries: int = 4) -> bool:
-    """Dosyayı ısrarla siler. Açık dosyayı silmeyen sistemlerde önce
-    yeniden adlandırıp öyle siler; başarısızsa boyutunu sıfırlar."""
+    """Deletes a file persistently. On systems that will not delete an open
+    file it renames first and deletes that; failing everything, it truncates
+    the file to zero bytes."""
 
     for attempt in range(tries):
         if not path.exists():
@@ -569,8 +641,8 @@ def remove_file(path: Path, tries: int = 4) -> bool:
             return True
         except OSError:
             pass
-        try:                                  # kilitli dosyayı kenara al
-            tmp = path.with_name(f"{path.name}.eski{os.getpid()}{attempt}")
+        try:                                  # move the locked file aside
+            tmp = path.with_name(f"{path.name}.old{os.getpid()}{attempt}")
             path.rename(tmp)
             try:
                 tmp.unlink()
@@ -579,7 +651,7 @@ def remove_file(path: Path, tries: int = 4) -> bool:
             return True
         except OSError:
             time.sleep(0.3)
-    try:                                      # son çare: içeriği boşalt
+    try:                                      # last resort: empty it
         with open(path, "wb"):
             pass
         return True
@@ -588,24 +660,24 @@ def remove_file(path: Path, tries: int = 4) -> bool:
 
 
 def clear_output(cfg, out_path: Path) -> bool:
-    """Çıktıyı ve varsa ofis kilit dosyalarını temizler."""
+    """Removes the output and any office lock files next to it."""
     for lock in (out_path.with_name(f".~lock.{out_path.name}#"),
                  out_path.with_name(f"~${out_path.name}")):
         if lock.exists():
             remove_file(lock)
     if remove_file(out_path):
         return True
-    print(f"\n[HATA] Eski çıktı silinemedi: {out_path.name}")
-    print( "       Dosya Excel / LibreOffice'te açık olabilir.")
-    print( "       Kapatıp scripti tekrar çalıştır.")
+    print(f"\n[ERROR] Could not delete the old output: {out_path.name}")
+    print("        The file may be open in Excel / LibreOffice.")
+    print("        Close it and run the script again.")
     return False
 
 
 def prepare_output(cfg, n) -> Path | None:
-    """Çıktı yolunu belirler ve eski dosyayı baştan siler.
+    """Works out the output path and deletes the old file up front.
 
-    Ağa çıkmadan önce çağrılır — dosya silinemiyorsa 3 dakika bekleyip
-    en sonda hata almak yerine hemen anlaşılır.
+    Called before going onto the network — if the file cannot be deleted, that
+    is clear immediately instead of after a three-minute wait.
     """
     out_path = cfg.output or cfg.template.with_name(
         f"{cfg.template.stem}_set{n}{cfg.template.suffix}")
@@ -616,37 +688,37 @@ def prepare_output(cfg, n) -> Path | None:
 
 def parse_args(env: dict):
     p = argparse.ArgumentParser(
-        description="Yataklı saha cihaz doğrulama — Excel doldurucu",
+        description="Field device verification — Excel filler",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    g = p.add_argument_group("dosyalar")
+    g = p.add_argument_group("files")
     g.add_argument("--template", type=Path,
-                   default=HERE / "Yatakli_Saha_Cihaz_Dogrulama.xlsx",
-                   help="Şablon Excel (asla üzerine yazılmaz)")
+                   default=HERE / "Field_Device_Verification.xlsx",
+                   help="template Excel (never written over)")
     g.add_argument("--output", type=Path, default=None,
-                   help="Çıktı dosyası (varsayılan: şablon_set<N>.xlsx, "
-                        "varsa üzerine yazılır)")
+                   help="output file (default: template_set<N>.xlsx, "
+                        "overwritten if it exists)")
     g.add_argument("--device-map", type=Path,
                    default=Path(env.get("DEVICE_MAP_FILE") or HERE / "DeviceMap.json"),
-                   help="Yerel DeviceMap.json")
-    g.add_argument("--sheet", default="Kontrol Listesi")
+                   help="local DeviceMap.json")
+    g.add_argument("--sheet", default="Checklist")
 
-    g = p.add_argument_group("set / ağ")
+    g = p.add_argument_group("set / network")
     g.add_argument("-n", "--set", dest="set_no",
                    default=env.get("TRAIN_SET_NO", "1"),
-                   help="Set numarası — IP şablonundaki 'n' (2. oktet)")
+                   help="set number — the 'n' in the IP template (2nd octet)")
     g.add_argument("--piscu-ip", default=None,
-                   help="MQTT broker IP (varsayılan: DeviceMap'teki PISCU)")
+                   help="MQTT broker IP (default: the PISCU in DeviceMap)")
     g.add_argument("--mqtt-port", type=int, default=int(env.get("PISCU_MQTT_PORT", 1883)))
     g.add_argument("--mqtt-topic", default=env.get("PISCU_DEVICE_MAP_TOPIC", "ALFA/DeviceMap"))
     g.add_argument("--app-status-prefix",
                    default=env.get("PISCU_APP_STATUS_PREFIX", "ALFA/AppStatus"),
-                   help="Uygulama durumu topic öneki")
+                   help="application status topic prefix")
     g.add_argument("--app-status-timeout", type=float, default=3.0)
     g.add_argument("--no-mqtt", action="store_true",
-                   help="Canlı DeviceMap çekme, yerel dosyayı kullan")
+                   help="do not fetch the live DeviceMap; use the local file")
 
-    g = p.add_argument_group("portlar / kimlik")
+    g = p.add_argument_group("ports / credentials")
     g.add_argument("--arduino-port", type=int, default=int(env.get("ARDUINO_HTTP_PORT", 80)))
     g.add_argument("--video-port", type=int, default=int(env.get("VIDEO_HTTP_PORT", 80)))
     g.add_argument("--kyland-port", type=int, default=int(env.get("KYLAND_HTTP_PORT", 80)))
@@ -656,53 +728,59 @@ def parse_args(env: dict):
     g.add_argument("--kyland-user", default=env.get("KYLAND_USERNAME", "admin"))
     g.add_argument("--kyland-pass", default=env.get("KYLAND_PASSWORD", ""))
 
-    g = p.add_argument_group("beklenen değerler")
+    g = p.add_argument_group("expected values")
     g.add_argument("--expected-tz", default=env.get("EXPECTED_TIMEZONE", "CST-3:00:00"),
-                   help="Kamera/NVR saat dilimi")
+                   help="camera/NVR time zone")
     g.add_argument("--ntp-ip", default=None,
-                   help="Beklenen NTP sunucusu (varsayılan: PISCU IP)")
-    # Yataklı cihazları 255.255.0.0 bildiriyor (Gaziray'da 255.0.0.0 idi).
+                   help="expected NTP server (default: the PISCU IP)")
+    # The sleeper-coach devices report 255.255.0.0 (it was 255.0.0.0 on the
+    # earlier project).
     g.add_argument("--expected-mask",
                    default=env.get("EXPECTED_SUBNET_MASK", "255.255.0.0"),
-                   help="Kamera/NVR için beklenen subnet mask")
+                   help="expected subnet mask for camera/NVR")
 
-    g = p.add_argument_group("çalışma")
-    g.add_argument("--timeout", type=float, default=5.0, help="HTTP zaman aşımı (sn)")
+    g = p.add_argument_group("run")
+    g.add_argument("--timeout", type=float, default=5.0, help="HTTP timeout (s)")
     g.add_argument("--adb-timeout", type=int, default=15)
     g.add_argument("--mqtt-timeout", type=float, default=5.0)
-    g.add_argument("--workers", type=int, default=12, help="Eşzamanlı sorgu sayısı")
-    g.add_argument("--only", nargs="+", metavar="TIP",
-                   help="Sadece bu Type değerleri sorgulansın (örn. Camera NVR)")
-    g.add_argument("--skip", nargs="+", metavar="TIP", default=[],
-                   help="Bu Type değerleri atlansın")
-    g.add_argument("--dry-run", action="store_true", help="Ağa çıkma, planı göster")
-    g.add_argument("--list", action="store_true", help="Hedef IP listesini bas ve çık")
+    g.add_argument("--workers", type=int, default=12,
+                   help="number of concurrent queries")
+    g.add_argument("--only", nargs="+", metavar="TYPE",
+                   help="query these Type values only (e.g. Camera NVR)")
+    g.add_argument("--skip", nargs="+", metavar="TYPE", default=[],
+                   help="skip these Type values")
+    g.add_argument("--dry-run", action="store_true",
+                   help="stay off the network; show the plan")
+    g.add_argument("--list", action="store_true",
+                   help="print the target IP list and exit")
     g.add_argument("--debug-fields", action="store_true",
-                   help="Cihazlardan gelen ham alan adlarını JSON olarak kaydet")
-    g.add_argument("--announcement-endpoints", nargs="+", metavar="YOL",
+                   help="save the raw field names from the devices as JSON")
+    g.add_argument("--announcement-endpoints", nargs="+", metavar="PATH",
                    default=None,
-                   help="Announcement cihazlarında denenecek /api/v1/<yol> "
-                        f"uçları (varsayılan: {' '.join(ANNOUNCEMENT_ENDPOINTS)})")
+                   help="/api/v1/<path> endpoints tried on Announcement "
+                        f"devices (default: {' '.join(ANNOUNCEMENT_ENDPOINTS)})")
 
     return p.parse_args()
+
+
 def main() -> int:
     env = load_env(HERE / ".env")
     env.update({k: v for k, v in os.environ.items() if k in env})
     cfg = parse_args(env)
 
     if not cfg.template.exists():
-        print(f"[HATA] Şablon bulunamadı: {cfg.template}")
+        print(f"[ERROR] Template not found: {cfg.template}")
         return 1
     if not cfg.device_map.exists():
-        print(f"[HATA] DeviceMap bulunamadı: {cfg.device_map}")
+        print(f"[ERROR] DeviceMap not found: {cfg.device_map}")
         return 1
 
     n = cfg.set_no
     local_map = json.loads(cfg.device_map.read_text(encoding="utf-8"))
     index = build_index(local_map)
-    map_is_live = False              # telemetri bu sete mi ait?
+    map_is_live = False              # does the telemetry belong to this set?
 
-    # PISCU / NTP varsayılanları
+    # PISCU / NTP defaults
     piscu_tmpl = next((ip for ip, d in devices_only(index).items()
                        if d["Type"] == "PISCU"), None)
     cfg.piscu_ip = cfg.piscu_ip or (resolve(piscu_tmpl, n) if piscu_tmpl else None)
@@ -710,58 +788,65 @@ def main() -> int:
 
     print(f"Set no           : {n}")
     print(f"PISCU / broker   : {cfg.piscu_ip}")
-    print(f"Şablon           : {cfg.template.name}")
+    print(f"Template         : {cfg.template.name}")
     print(f"DeviceMap        : {cfg.device_map.name}  "
-          f"({len(devices_only(index))} kayıt, set "
+          f"({len(devices_only(index))} records, set "
           f"{map_train_set(index) or '?'})")
 
-    # Çıktı dosyasını en baştan hazırla — açıksa boşuna ağa çıkma
+    # Prepare the output file first — if it is open, do not bother with the
+    # network at all
     out_path = prepare_output(cfg, n)
     if out_path is None:
         return 1
     if not (cfg.dry_run or cfg.list):
-        print(f"Çıktı            : {out_path.name}")
+        print(f"Output           : {out_path.name}")
 
-    # 1) canlı DeviceMap
+    # 1) live DeviceMap
     if not cfg.no_mqtt and not cfg.dry_run and not cfg.list and cfg.piscu_ip:
-        print("\n[1/3] Canlı DeviceMap (MQTT)...")
+        print("\n[1/3] Live DeviceMap (MQTT)...")
         live = fetch_device_map(cfg.piscu_ip, cfg.mqtt_port,
                                 cfg.mqtt_topic, cfg.mqtt_timeout)
         if live:
             index = build_index(live)
             ts = map_train_set(index)
-            print(f"  -> {len(devices_only(index))} kayıt alındı "
+            print(f"  -> {len(devices_only(index))} records received "
                   f"(set {ts or '?'})")
             if ts is not None and str(ts) != str(n):
-                print(f"  [!] Broker set {ts} bildiriyor, istenen {n}. "
-                      f"Telemetri kullanılmayacak.")
+                print(f"  [!] The broker reports set {ts}, {n} was asked for. "
+                      f"The telemetry will not be used.")
             else:
                 map_is_live = True
         else:
-            print("  -> canlı telemetri yok")
+            print("  -> no live telemetry")
 
         APP_STATUS.update(fetch_app_status(cfg.piscu_ip, cfg.mqtt_port,
                                            cfg.app_status_prefix,
                                            cfg.app_status_timeout))
-        print(f"  AppStatus: {len(APP_STATUS)} uygulama mesajı "
+        print(f"  AppStatus: {len(APP_STATUS)} application message(s) "
               f"({cfg.app_status_prefix}/#)")
         for key, data in sorted(APP_STATUS.items()):
             print(f"    · {key:<34} ip={data.get('DeviceIP', '—'):<12} "
                   f"v={data.get('Version', '—'):<8} "
                   f"hwid={data.get('HWID', '—'):<12} {data.get('Status', '')}")
 
-    # 2) Şablonu belleğe al — dosyaya ancak en sonda dokunulur
+    # 2) Load the template into memory — the file is touched only at the end
     wb = openpyxl.load_workbook(cfg.template)
     ws = wb[cfg.sheet]
 
-    col = {ws.cell(HEADER_ROW, c).value: c
-           for c in range(1, ws.max_column + 1) if ws.cell(HEADER_ROW, c).value}
-    missing = [h for h in FILLABLE + [COL_IP_TEMPLATE] if h not in col]
+    # Heading -> id -> index. Headings live in the sheet; ids live in the
+    # code, and only ids are used below.
+    col = {}
+    for index_ in range(1, ws.max_column + 1):
+        column = COLUMN_FOR_HEADING.get(
+            str(ws.cell(HEADER_ROW, index_).value or "").strip())
+        if column:
+            col[column] = index_
+    missing = [c for c in FILLABLE + [COL_IP_TEMPLATE] if c not in col]
     if missing:
-        print(f"[HATA] Şablonda bulunamayan sütun: {missing}")
+        print(f"[ERROR] Column not found in the template: {missing}")
         return 1
 
-    # 3) hedefleri çıkar
+    # 3) work out the targets
     targets = []
     for row in range(HEADER_ROW + 1, ws.max_row + 1):
         tmpl = ws.cell(row, col[COL_IP_TEMPLATE]).value
@@ -778,52 +863,53 @@ def main() -> int:
         targets.append((row, str(tmpl), resolve(str(tmpl), n), dev))
 
     if cfg.list or cfg.dry_run:
-        print(f"\nHedefler ({len(targets)}):")
+        print(f"\nTargets ({len(targets)}):")
         for row, tmpl, ip, dev in targets:
             fn = COLLECTORS.get((dev["Type"], dev["SubType"]))
-            src = fn.__name__.replace("fetch_", "") if fn else "sadece DeviceMap"
+            src = fn.__name__.replace("fetch_", "") if fn else "DeviceMap only"
             kind = f"{dev['Type']}/{dev['SubType'] or '-'}"
-            print(f"  satır {row:>3}  {ip:<14} {kind:<26} "
+            print(f"  row {row:>3}  {ip:<14} {kind:<26} "
                   f"{dev['Name']:<22} <- {src}")
-        print(f"\nÇıktı olacaktı: {out_path.name}")
+        print(f"\nThe output would have been: {out_path.name}")
         return 0
 
-    # 4) ortak alanlar (DeviceMap) + türe özel sorgular
-    print(f"\n[2/3] {len(targets)} cihaz sorgulanıyor "
-          f"({cfg.workers} eşzamanlı)...")
+    # 4) shared fields (DeviceMap) + type-specific queries
+    print(f"\n[2/3] Querying {len(targets)} device(s) "
+          f"({cfg.workers} at a time)...")
 
     def work(target):
         row, tmpl, ip, dev = target
-        # Cihaz İsmi kimlik bilgisidir, her zaman yazılır.
-        values = {"Cihaz İsmi": dev["Name"]}
+        # The device name is identity data and is always written.
+        values = {COL_DEVICE_NAME: dev["Name"]}
 
-        # Status alanları YALNIZCA telemetri bu sete aitse yazılır.
-        # Aksi halde başka bir setin (ör. 10.1.1.x) verisi 10.2.1.x
-        # satırlarına sızar.
+        # Status fields are written ONLY if the telemetry belongs to this
+        # set. Otherwise another set's data (10.1.1.x, say) leaks into the
+        # 10.2.1.x rows.
         if map_is_live:
             status = dev.get("Status") or {}
-            values["Durum Açıklaması"] = status_text(status)
-            # PISCU, kapalı cihazların SON BİLİNEN sürüm/seri/uptime
-            # değerlerini hatırlar. Bunlar o anki gerçeği yansıtmadığı için
-            # yalnızca cihaz Aktif'ken yazılır — aksi halde bağlı olmayan
-            # bir intercom sürüm bildiriyormuş gibi görünür.
+            values[COL_STATUS_DESCRIPTION] = status_text(status)
+            # PISCU remembers the LAST KNOWN version/serial/uptime of
+            # powered-down devices. Those do not reflect the present, so they
+            # are written only while the device is Active — otherwise an
+            # unplugged intercom looks like it is reporting a version.
             if status.get("NoError"):
                 values.update({
-                    "Bağlantı Bilgisi": ip,
-                    "Cihaz Numarası":   dev.get("SerialNumber") or "",
-                    "Çalışma Süresi":   uptime_text(status.get("Uptime")),
-                    "Versiyon":         status.get("Version") or "",
+                    COL_CONNECTION_INFO: ip,
+                    COL_DEVICE_NUMBER:   dev.get("SerialNumber") or "",
+                    COL_UPTIME:          uptime_text(status.get("Uptime")),
+                    COL_VERSION:         status.get("Version") or "",
                 })
-        # NOT: DeviceMap'teki PBXExtension bir *tanım* değeridir, cihazdan
-        # okunmuş değer değil. Şablonda "Beklenen SIP Dahili No" sütununda
-        # durur; buraya yalnızca cihazın kendi bildirdiği değer yazılır.
+        # NOTE: PBXExtension in DeviceMap is a *definition* value, not one
+        # read from the device. It belongs in the "Expected SIP extension"
+        # column of the template; only what the device reports itself is
+        # written here.
         fn = COLLECTORS.get((dev["Type"], dev["SubType"]))
         err = None
         if fn:
             try:
                 got = fn(ip, cfg) or {}
                 if any(v not in (None, "") for v in got.values()):
-                    values["Bağlantı Bilgisi"] = ip     # cihaz gerçekten cevapladı
+                    values[COL_CONNECTION_INFO] = ip   # the device did answer
                 for k, v in got.items():
                     if v not in (None, ""):
                         values[k] = v
@@ -838,35 +924,34 @@ def main() -> int:
             if err:
                 errors.append((ip, dev["Name"], err))
 
-    # 5) Excel'e yaz — yalnızca o tür için geçerli sütunlara
+    # 5) Write to Excel — only into columns valid for that device type
     written = 0
     for row, values in results:
-        for header, value in values.items():
-            if header not in FILLABLE or value in (None, ""):
+        for column, value in values.items():
+            if column not in FILLABLE or value in (None, ""):
                 continue
-            cell = ws.cell(row, col[header])
+            cell = ws.cell(row, col[column])
             if (cell.fill and cell.fill.fgColor
                     and cell.fill.fgColor.rgb == NA_FILL):
-                continue                     # gri = bu tür için geçersiz alan
+                continue                 # grey = invalid field for this type
             cell.value = value
             written += 1
 
-    # 6) ağ taraması — eşleşmeyen cihazlar
-    # 6) yazmadan hemen önce dosyayı tekrar sil, sonra sıfırdan oluştur
+    # 6) Delete the file once more right before writing, then create it fresh
     if not clear_output(cfg, out_path):
         return 1
     wb.save(out_path)
 
     if cfg.debug_fields:
-        dbg = out_path.with_suffix(".alanlar.json")
+        dbg = out_path.with_suffix(".fields.json")
         dbg.write_text(json.dumps(RAW, ensure_ascii=False, indent=2, default=str),
                        encoding="utf-8")
-        print(f"  ham alan adları -> {dbg.name}")
+        print(f"  raw field names -> {dbg.name}")
 
-    print(f"\n[3/3] Kaydedildi: {out_path.name}")
-    print(f"  {len(results)} satır, {written} hücre dolduruldu")
+    print(f"\n[3/3] Saved: {out_path.name}")
+    print(f"  {len(results)} rows, {written} cells filled")
     if errors:
-        print(f"  {len(errors)} cihaza ulaşılamadı:")
+        print(f"  {len(errors)} device(s) unreachable:")
         for ip, name, err in errors:
             print(f"    - {ip:<14} {name:<22} {err[:70]}")
     return 0

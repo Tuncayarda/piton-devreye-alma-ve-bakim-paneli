@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""Yataklı — Intercom IP otomatik atama.
+"""Automatic intercom IP assignment.
 
-Aynı fabrika IP'siyle gelen intercomlar switch portlarına bağlıyken, PoE
-portlarını sırayla tek tek açarak her cihaza DeviceMap'te o porta tanımlı
-IP'yi atar.
+Intercoms arrive on the same factory IP wired to switch ports. Enabling PoE
+ports one at a time, each device is given the IP DeviceMap assigns to its port.
 
-Akış (her hedef port için):
-  1. Aralıktaki bütün PoE portları KAPAT, yalnızca hedef portu AÇ
-  2. Cihazın açılmasını bekle, aday IP'lerde /api/v1/system/settings ara
-  3. Bulunan cihaz yanlış IP'deyse doğru IP'yi yaz
-  4. Cihaz (ESP32) reset atar — hedef IP'de tekrar görünmesini bekle
-  5. Sıradaki porta geç
-Bitince aralıktaki bütün portlar tekrar açılır.
+Flow (per target port):
+  1. Turn OFF every PoE port in range, turn ON only the target port
+  2. Wait for boot, look for /api/v1/system/settings on candidate IPs
+  3. If the device sits on the wrong IP, write the right one
+  4. The device (ESP32) resets — wait for it on the target IP
+  5. Move to the next port
+Afterwards every port in range is turned back on.
 
-Kullanım:
+Besides the human-readable log the script prints machine-readable progress
+events (see `emit_event`). Those events, not the prose, are the contract with
+the panel — see panel/ip_assign/progress.py.
+
+Usage:
     python3 intercom_ip_assign.py --ports 11 12 13 14
     python3 intercom_ip_assign.py --ports 11-14 --default-ip 10.1.1.12
     python3 intercom_ip_assign.py --ports 11-22 -n 2 --dry-run
@@ -40,8 +43,42 @@ HERE = Path(__file__).resolve().parent
 
 POE_ON, POE_OFF = "1", "0"
 
+# ───────────────────────────────────────────────── progress event protocol ──
+# Every line starting with this prefix is one JSON object describing what the
+# run just did. The panel reads ONLY these lines to build queue rows, phases
+# and the percentage; the surrounding prose is for the operator and the log.
+#
+# Prose used to be the contract, which meant a reworded sentence silently
+# broke the panel's progress bar. Keep the event names and field names below
+# stable, and change the prose freely.
+EVENT_PREFIX = "@EVT "
 
-# --------------------------------------------------------------- yardımcı --
+# Phase identifiers (must match panel/ip_assign/progress.py PHASES).
+PHASE_BASELINE = "baseline"
+PHASE_RESTORE = "restore"
+PHASE_VERIFY = "verify"
+
+# Step identifiers within one port (must match PORT_STEPS in the panel).
+STEP_POE_ON = "poe_on"
+STEP_SEARCHING = "searching"
+STEP_DEVICE_FOUND = "device_found"
+STEP_WRITING_IP = "writing_ip"
+STEP_VERIFYING = "verifying"
+
+
+def emit_event(event: str, **fields) -> None:
+    """Print one machine-readable progress event.
+
+    Written as a single line so a line-buffered reader never sees half an
+    event, and with sorted keys so the output is stable across runs.
+    """
+    payload = {"event": event}
+    payload.update(fields)
+    print(EVENT_PREFIX + json.dumps(payload, ensure_ascii=False,
+                                    sort_keys=True))
+
+
+# --------------------------------------------------------------- helpers --
 def load_env(path: Path) -> dict:
     env = {}
     if not path.exists():
@@ -50,24 +87,25 @@ def load_env(path: Path) -> dict:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
-        k, v = line.split("=", 1)
-        env[k.strip()] = v.strip().strip('"').strip("'")
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip().strip('"').strip("'")
     return env
 
 
-def resolve(tmpl: str, set_no) -> str:
-    return re.sub(r"(?<![0-9a-zA-Z])n(?![0-9a-zA-Z])", str(set_no), tmpl or "")
+def resolve(template: str, set_no) -> str:
+    return re.sub(r"(?<![0-9a-zA-Z])n(?![0-9a-zA-Z])", str(set_no),
+                  template or "")
 
 
 def parse_ports(values: list[str]) -> list[int]:
-    """['11','12'] veya ['11-14'] -> [11, 12, 13, 14]"""
+    """['11','12'] or ['11-14'] -> [11, 12, 13, 14]"""
     ports = []
-    for v in values:
-        if "-" in v:
-            a, b = v.split("-", 1)
-            ports.extend(range(int(a), int(b) + 1))
+    for value in values:
+        if "-" in value:
+            first, last = value.split("-", 1)
+            ports.extend(range(int(first), int(last) + 1))
         else:
-            ports.append(int(v))
+            ports.append(int(value))
     return sorted(set(ports))
 
 
@@ -76,10 +114,10 @@ POE_READ_ENDPOINTS = ["stat/poeStatus", "stat/poePort", "stat/portList"]
 
 
 def switch_request(cfg, method: str, endpoint: str, **kw):
-    """Switch'e istek atar; geçici hatalarda tekrar dener.
+    """Send a switch request, retrying on transient failures.
 
-    KYLAND'ın web sunucusu PoE anahtarlaması sırasında birkaç saniye
-    cevap vermeyebiliyor; tek seferlik hata bütün koşuyu düşürmemeli.
+    KYLAND's web server can stop answering for a few seconds while PoE is
+    switching; one blip must not fail the whole run.
     """
     url = f"http://{cfg.switch_ip}:{cfg.kyland_port}/{endpoint}"
     last = None
@@ -89,21 +127,22 @@ def switch_request(cfg, method: str, endpoint: str, **kw):
                                  auth=HTTPBasicAuth(cfg.kyland_user,
                                                     cfg.kyland_pass),
                                  timeout=cfg.timeout, **kw)
-            # 4xx kalıcı hatadır (uç yok / yetki yok) — tekrar denemek anlamsız
+            # 4xx is permanent (no endpoint / no permission) — no point retrying
             if 400 <= r.status_code < 500:
                 r.raise_for_status()
             r.raise_for_status()
             return r
         except requests.HTTPError as exc:
-            if exc.response is not None and 400 <= exc.response.status_code < 500:
-                raise                        # beklemeden çık
+            if (exc.response is not None
+                    and 400 <= exc.response.status_code < 500):
+                raise                        # give up without waiting
             last = exc
         except requests.RequestException as exc:
             last = exc
         if attempt < cfg.switch_retries:
             wait = cfg.switch_retry_wait * (attempt + 1)
-            print(f"    (switch cevap vermedi, {wait:.0f} sn sonra "
-                  f"tekrar denenecek — {type(last).__name__})")
+            print(f"    (switch did not answer, retrying in {wait:.0f} s "
+                  f"— {type(last).__name__})")
             time.sleep(wait)
     raise last
 
@@ -123,81 +162,79 @@ def norm_mac(value) -> str | None:
 
 WINDOWS = sys.platform == "win32"
 
-# Konsol araçlarının çıktısı Windows'ta OEM kod sayfasıyla yazılıyor
-# (Türkçe kurulumda cp857), Python'un `text=True` ile seçtiği ANSI kod
-# sayfasıyla (cp1254) değil. "ı" harfinin baytı cp1254'te tanımsız ve
-# UnicodeDecodeError ne OSError ne SubprocessError — aşağıdaki
-# `except`ler yakalamıyor, istisna koşuyu düşürüyordu. Aranan her şey
-# ASCII olduğu için errors="replace" hiçbir bilgi kaybettirmez.
-_KOD_SAYFASI = "oem" if WINDOWS else "utf-8"
-# Konsolsuz Windows derlemesinde her komut bir konsol penceresi açıyordu.
-_PENCERESIZ = {"creationflags": 0x08000000} if WINDOWS else {}   # NO_WINDOW
+# Console tools write in the OEM code page on Windows (cp857 on a Turkish
+# install), not the ANSI one Python picks with `text=True` (cp1254). The byte
+# for "ı" is undefined in cp1254, and UnicodeDecodeError is neither OSError
+# nor SubprocessError — the handlers below missed it and the run died.
+# Everything searched for is ASCII, so errors="replace" loses nothing.
+_CODE_PAGE = "oem" if WINDOWS else "utf-8"
+# On a console-less Windows build every command flashed a console window.
+_NO_WINDOW = {"creationflags": 0x08000000} if WINDOWS else {}   # NO_WINDOW
 
 
-def _coz(ham) -> str:
+def _decode(raw) -> str:
     try:
-        return (ham or b"").decode(_KOD_SAYFASI, errors="replace")
-    except LookupError:               # kod sayfası bu Python'da yoksa
-        return (ham or b"").decode("latin-1", errors="replace")
+        return (raw or b"").decode(_CODE_PAGE, errors="replace")
+    except LookupError:               # code page missing in this Python
+        return (raw or b"").decode("latin-1", errors="replace")
 
 
-def komut_ciktisi(cmd, timeout: float = 3.0):
-    """Komutu çalıştırıp (returncode, stdout+stderr) döndürür.
+def command_output(cmd, timeout: float = 3.0):
+    """Run a command, return (returncode, stdout+stderr).
 
-    Çıktı bayt alınıp burada çözülür; kod sayfası ne olursa olsun istisna
-    atmaz. Çalıştırılamadıysa (None, "") döner.
+    Output is captured as bytes and decoded here, so no code page raises.
+    Returns (None, "") if the command could not be run.
     """
     try:
-        r = subprocess.run(cmd, capture_output=True, timeout=timeout,
-                           **_PENCERESIZ)
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout,
+                                **_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
         return None, ""
-    return r.returncode, _coz(r.stdout) + _coz(r.stderr)
+    return result.returncode, _decode(result.stdout) + _decode(result.stderr)
 
 
-# Hem "5c:01:3b:..." (POSIX) hem "5c-01-3b-..." (Windows arp) biçimi.
-_MAC_KALIBI = re.compile(r"(?:[0-9a-fA-F]{1,2}[:-]){5}[0-9a-fA-F]{1,2}")
+# Both "5c:01:3b:..." (POSIX) and "5c-01-3b-..." (Windows arp).
+_MAC_PATTERN = re.compile(r"(?:[0-9a-fA-F]{1,2}[:-]){5}[0-9a-fA-F]{1,2}")
 
 
 def host_mac(ip: str) -> str | None:
-    """İşletim sisteminin ARP tablosundan IP'nin MAC'ini okur.
+    """Read an IP's MAC from the OS ARP table.
 
-    Cihazla az önce HTTP konuşulduğu için ARP kaydı tazedir.
+    The entry is fresh because HTTP was just spoken to the device.
 
-    Windows'ta komut da çıktı da farklı: `arp -n` diye bir seçenek yok
-    (`-a` var) ve MAC tire ile yazılıyor. İkisi de karşılanmadığı için
-    Windows'ta bu işlev hep None dönüyor, MAC ile port doğrulaması
-    sessizce hiç çalışmıyordu.
+    Windows differs in both command and output: there is no `arp -n` (only
+    `-a`) and MACs use dashes. Missing both, this returned None forever there
+    and MAC-based port verification silently never ran.
     """
-    komutlar = ([["arp", "-a", ip]] if WINDOWS
+    commands = ([["arp", "-a", ip]] if WINDOWS
                 else [["arp", "-n", ip], ["ip", "neigh", "show", ip]])
-    for cmd in komutlar:
-        _kod, out = komut_ciktisi(cmd)
-        m = _MAC_KALIBI.search(out)
-        if m:
-            return norm_mac(m.group(0))
+    for cmd in commands:
+        _code, out = command_output(cmd)
+        match = _MAC_PATTERN.search(out)
+        if match:
+            return norm_mac(match.group(0))
     return None
 
 
-# ─────────────────────────────────────────────────────── ARP önbelleği ────
-# Bütün intercomlar aynı fabrika adresiyle (10.n.1.12) geliyor ve her biri
-# ayrı MAC taşıyor. Bir cihaza IP yazılıp sıradaki port açıldığında işletim
-# sisteminin ARP tablosunda o adres HÂLÂ önceki cihazın MAC'ini gösteriyor:
+# ─────────────────────────────────────────────────────────── ARP cache ────
+# Every intercom arrives on the same factory address (10.n.1.12) with its own
+# MAC. Once one is given an IP and the next port opens, the OS ARP table still
+# maps that address to the PREVIOUS device's MAC:
 #
-#     ARP tablosu   10.1.1.12 -> 5c:01:3b:53:a4:73   (çoktan .13'e taşındı)
-#     gerçek        10.1.1.12 -> 5c:01:3b:53:65:ff
+#     ARP table   10.1.1.12 -> 5c:01:3b:53:a4:73   (already moved to .13)
+#     reality     10.1.1.12 -> 5c:01:3b:53:65:ff
 #
-# HTTP yoklaması o eski MAC'e gidiyor, cevap gelmiyor ve cihaz "bulunamadı"
-# sayılıyor. macOS'ta kayıt 20 dakika yaşıyor; koşunun tur tur uzamasının,
-# arp-scan'in cihazı görüp betiğin görememesinin sebebi bu. host_mac() de
-# aynı bayat kaydı okuduğu için MAC doğrulaması yanlış portu bildiriyor.
+# The HTTP probe goes to the stale MAC, gets nothing, and the device counts as
+# "not found". On macOS the entry lives 20 minutes — this is why runs dragged
+# on and why arp-scan saw devices the script could not. host_mac() reads the
+# same stale entry, so MAC verification reports the wrong port too.
 #
-# Kayıt silinince çekirdek yeniden ARP sorar ve doğru MAC'i öğrenir.
-_ARP_UYARI_VERILDI = False
+# Deleting the entry makes the kernel re-ARP and learn the right MAC.
+_ARP_WARNING_SHOWN = False
 
 
-def yonetici_mi() -> bool:
-    """Windows'ta yükseltilmiş (Yönetici) çalışıyor muyuz?"""
+def is_admin() -> bool:
+    """Are we running elevated (Administrator) on Windows?"""
     try:
         import ctypes
 
@@ -206,83 +243,84 @@ def yonetici_mi() -> bool:
         return False
 
 
-def arp_yetki_ipucu() -> str:
-    """Yetki yoksa kullanıcının ne yapması gerektiği — platforma göre."""
+def arp_permission_hint() -> str:
+    """What the user should do when permission is missing, per platform."""
     if WINDOWS:
-        return ("uygulamayı sağ tıklayıp \"Yönetici olarak çalıştır\" ile "
-                "başlatın")
-    return "terminalde bir kez: sudo -v    (ya da uygulamayı sudo ile başlatın)"
+        return ("right-click the application and start it with "
+                "\"Run as administrator\"")
+    return "run once in a terminal: sudo -v    (or start the app with sudo)"
 
 
-def arp_silebilir() -> bool:
-    """ARP kaydı silme yetkimiz var mı?
+def can_flush_arp() -> bool:
+    """May we delete ARP entries?
 
-    Doğrudan yetkiye bakılır; "sil" denemesinin çıktısına bakmak
-    yanıltıyor: kaydı olmayan bir adres yetkisizken de "cannot locate"
-    diyor ve mekanizma çalışıyor sanılıyordu.
+    Permission is checked directly; judging by a delete attempt's output
+    misleads — an address with no entry says "cannot locate" even without
+    permission, which read as "the mechanism works".
 
-    Windows'ta eskiden KOŞULSUZ False dönüyordu: `os.geteuid` orada yok,
-    AttributeError yakalanıp "yetki yok" sayılıyordu. Yani Yönetici
-    olarak çalıştırılsa bile ARP önbelleği hiç temizlenmiyor, üstüne
-    kullanıcıya Windows'ta bulunmayan `sudo -v` öneriliyordu. Oradaki
-    karşılığı yükseltilmiş süreç: `arp -d` Yönetici ister.
+    This used to return False unconditionally on Windows: `os.geteuid` does
+    not exist there, the AttributeError was caught and treated as "no
+    permission". So even run as Administrator the ARP cache was never
+    flushed, and the user was told to run `sudo -v`, which Windows has no
+    such thing as. The equivalent there is an elevated process: `arp -d`
+    needs Administrator.
     """
     if WINDOWS:
-        return yonetici_mi()
+        return is_admin()
     try:
         if os.geteuid() == 0:
             return True
-    except AttributeError:                 # geteuid'i olmayan platform
+    except AttributeError:                 # platform without geteuid
         return False
     try:
-        # -n hiçbir zaman parola sormaz; zaman damgası tazeyse 0 döner.
+        # -n never prompts for a password; returns 0 if the timestamp is fresh.
         return subprocess.run(["sudo", "-n", "true"], capture_output=True,
                               timeout=5).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
 
-def arp_unut(ips, cfg=None) -> bool:
-    """Verilen adresleri ARP önbelleğinden siler. Dönüş: silebildi mi.
+def arp_forget(ips, cfg=None) -> bool:
+    """Delete the given addresses from the ARP cache. Returns whether it could.
 
-    Silme yönlendirme soketine yazmak demek, yani root ister. Uygulama
-    root değilse `sudo -n` denenir: kullanıcı koşudan önce bir kez
-    `sudo -v` çalıştırdıysa bu çalışır ve her başarılı çağrı sudo'nun
-    zaman damgasını tazelediği için koşu boyunca yeterlidir.
+    Deleting means writing to the routing socket, so it needs root. If the app
+    is not root, `sudo -n` is tried: it works when the user ran `sudo -v` once
+    before the run, and each success refreshes sudo's timestamp, which is
+    enough for the whole run.
     """
-    global _ARP_UYARI_VERILDI
+    global _ARP_WARNING_SHOWN
     if cfg is not None and not getattr(cfg, "arp_flush", True):
         return False
-    if not arp_silebilir():
-        if not _ARP_UYARI_VERILDI:
-            _ARP_UYARI_VERILDI = True
-            yetki = "Yönetici" if WINDOWS else "root"
-            print(f"[!] ARP önbelleği temizlenemiyor ({yetki} gerekiyor). "
-                  "Aynı fabrika adresindeki cihazlar")
-            print("    eski MAC'e yazıldığı için 'cihaz bulunamadı' hatası "
-                  "verir. Koşudan önce")
-            print(f"    {arp_yetki_ipucu()}")
+    if not can_flush_arp():
+        if not _ARP_WARNING_SHOWN:
+            _ARP_WARNING_SHOWN = True
+            required = "Administrator" if WINDOWS else "root"
+            print(f"[!] Cannot flush the ARP cache ({required} required). "
+                  "Devices sharing the factory address")
+            print("    are addressed by their old MAC, so they fail with "
+                  "'device not found'. Before the run,")
+            print(f"    {arp_permission_hint()}")
         return False
     for ip in ips:
-        for cmd in _arp_sil_komutlari(ip):
-            kod, ciktilar = komut_ciktisi(cmd, timeout=5)
-            if kod is None:
+        for cmd in _arp_delete_commands(ip):
+            code, output = command_output(cmd, timeout=5)
+            if code is None:
                 continue
-            # "cannot locate" / "no entry" = silinecek kayıt yoktu.
-            # Metin eşleşmesi yerel ayara bağlı (Türkçe Windows başka
-            # yazar); tutmazsa yalnız sıradaki komut da denenir, zarar yok.
-            if (kod == 0 or "no entry" in ciktilar
-                    or "cannot locate" in ciktilar):
+            # "cannot locate" / "no entry" = there was nothing to delete.
+            # Text matching is locale dependent (Turkish Windows differs); if
+            # it misses, the next command is simply tried too — harmless.
+            if (code == 0 or "no entry" in output
+                    or "cannot locate" in output):
                 break
     return True
 
 
-def _arp_sil_komutlari(ip: str) -> list[list[str]]:
-    """Bir adresin ARP kaydını silmenin platforma göre yolları.
+def _arp_delete_commands(ip: str) -> list[list[str]]:
+    """Platform-specific ways to drop one address's ARP entry.
 
-    Windows'ta `ip neigh` yok, `sudo` yok; `arp -d` yükseltilmiş süreçte
-    çalışıyor. `netsh` yedek: bazı sürümlerde `arp -d` komşu önbelleğini
-    değil yalnız eski ARP tablosunu görüyor.
+    Windows has no `ip neigh` and no `sudo`; `arp -d` works in an elevated
+    process. `netsh` is the fallback: on some builds `arp -d` only sees the
+    legacy ARP table, not the neighbour cache.
     """
     if WINDOWS:
         return [["arp", "-d", ip],
@@ -308,28 +346,28 @@ _MAC_CACHE = {"endpoint": None, "table": {}, "at": 0.0, "dead": False}
 
 
 def _find_port(obj):
-    """Kayıt içindeki port numarasını iç içe yapılarda da bulur.
+    """Find the port number in a record, including nested structures.
 
-    KYLAND {"mac": "...", "portList": [{"pid": 11}]} gibi döndürebiliyor;
-    üst seviyede 'pid' aramak yetmiyor.
+    KYLAND can return {"mac": "...", "portList": [{"pid": 11}]}; looking for
+    'pid' at the top level is not enough.
     """
     if isinstance(obj, dict):
         for key, value in obj.items():
-            k = key.lower()
-            if k in ("pid", "port", "portid", "portno", "pname"):
+            lowered = key.lower()
+            if lowered in ("pid", "port", "portid", "portno", "pname"):
                 digits = re.sub(r"\D", "", str(value))
                 if digits:
                     return int(digits)
         for value in obj.values():
             if isinstance(value, (dict, list)):
-                got = _find_port(value)
-                if got is not None:
-                    return got
+                found = _find_port(value)
+                if found is not None:
+                    return found
     elif isinstance(obj, list):
         for item in obj:
-            got = _find_port(item)
-            if got is not None:
-                return got
+            found = _find_port(item)
+            if found is not None:
+                return found
     return None
 
 
@@ -346,10 +384,11 @@ def _parse_mac_table(data) -> dict:
 
 
 def switch_mac_table(cfg) -> dict:
-    """Switch'in MAC tablosu: {mac: port}.
+    """The switch's MAC table: {mac: port}.
 
-    Çalışan uç bir kez keşfedilip saklanır; PoE değiştiği için tablo kısa
-    ömürlüdür (mac_cache_ttl). Hiçbir uç çalışmıyorsa bir daha denenmez.
+    The working endpoint is discovered once and remembered; the table is
+    short-lived because PoE keeps changing (mac_cache_ttl). If no endpoint
+    works, it is not retried.
     """
     if _MAC_CACHE["dead"]:
         return {}
@@ -361,90 +400,91 @@ def switch_mac_table(cfg) -> dict:
                  else [cfg.mac_endpoint] if cfg.mac_endpoint else MAC_ENDPOINTS)
     for endpoint in endpoints:
         try:
-            table = _parse_mac_table(switch_request(cfg, "GET", endpoint).json())
+            table = _parse_mac_table(
+                switch_request(cfg, "GET", endpoint).json())
         except Exception:
             continue
         if table:
             if _MAC_CACHE["endpoint"] != endpoint:
-                print(f"    MAC tablosu: {endpoint} ({len(table)} kayıt)")
+                print(f"    MAC table: {endpoint} ({len(table)} entries)")
             _MAC_CACHE.update(endpoint=endpoint, table=table,
                               at=time.monotonic())
             return table
 
     _MAC_CACHE["dead"] = True
-    print("    [!] Switch MAC tablosu okunamadı "
-          f"({', '.join(endpoints)}) — MAC doğrulaması kapatıldı, "
-          "uptime yöntemine dönülüyor")
+    print("    [!] Could not read the switch MAC table "
+          f"({', '.join(endpoints)}) — MAC verification disabled, "
+          "falling back to the uptime method")
     return {}
 
 
 def verify_port(ip: str, expected_port: int, cfg) -> tuple[bool | None, str]:
-    """Bu IP'deki cihaz gerçekten beklenen portta mı?
+    """Is the device on this IP really on the expected port?
 
-    Döner: (True doğrulandı / False yanlış port / None doğrulanamadı, açıklama)
-    Tahmin yerine kesin bilgi: host ARP -> MAC, switch MAC tablosu -> port.
+    Returns: (True verified / False wrong port / None unverifiable, reason)
+    Facts, not guesses: host ARP -> MAC, switch MAC table -> port.
     """
     if not cfg.verify_mac:
-        return None, "mac doğrulama kapalı"
+        return None, "MAC verification disabled"
     mac = host_mac(ip)
     if not mac:
-        return None, "ARP'ta MAC yok"
+        return None, "no MAC in ARP"
     table = switch_mac_table(cfg)
     if not table:
-        return None, "switch MAC tablosu okunamadı"
+        return None, "switch MAC table unreadable"
     port = table.get(mac)
     if port is None:
-        return None, f"MAC {mac} tabloda yok"
+        return None, f"MAC {mac} not in the table"
     return port == expected_port, f"MAC {mac} -> port {port}"
 
 
 def port_link(cfg, port: int):
-    """Switch'e göre portun linki ayakta mı? True/False/None (okunamadı).
+    """Is the port's link up per the switch? True/False/None (unreadable).
 
-    Cihazın gerçekten elektriği alıp hattı kurduğunun switch tarafındaki
-    kanıtı. HTTP yoklamasından önce buna bakmak, "daha açılmamış cihazı
-    aramakla" geçen süreyi ortadan kaldırıyor.
+    Switch-side proof that the device really has power and has brought the
+    line up. Checking this before probing over HTTP removes the time spent
+    looking for a device that has not booted yet.
     """
     try:
-        r = switch_request(cfg, "GET", "stat/portMode")
-        satirlar = r.json().get("portMode", [])
+        response = switch_request(cfg, "GET", "stat/portMode")
+        rows = response.json().get("portMode", [])
     except Exception:
         return None
-    if not isinstance(satirlar, list):
+    if not isinstance(rows, list):
         return None
-    for p in satirlar:
-        if isinstance(p, dict) and str(p.get("pid")) == str(port):
-            return str(p.get("linkStat", "")).lower() == "up"
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("pid")) == str(port):
+            return str(row.get("linkStat", "")).lower() == "up"
     return None
 
 
-def link_bekle(cfg, port: int, sure: float):
-    """Port link'i ayağa kalkana kadar bekler. Döner: (durum, geçen sn).
+def wait_for_link(cfg, port: int, timeout: float):
+    """Wait until the port link comes up. Returns (state, elapsed seconds).
 
-    durum True  — bağlandı
-          False — verilen sürede bağlanmadı
-          None  — switch link durumunu vermiyor (eski davranışa dönülür)
+    state True  — linked
+          False — did not link within the timeout
+          None  — the switch does not report link state (fall back)
 
-    Koşunun ilk portunda link zaten ayakta olabilir: o port kapanmamıştı,
-    cihaz da yeniden başlamadı. Bu durum geçen süreden (≈0 sn) anlaşılır
-    ve çağıran taraf farkı yazdırır.
+    On the run's first port the link may already be up: that port was never
+    closed and the device never rebooted. The elapsed time (~0 s) shows it and
+    the caller prints the difference.
     """
-    basla = time.monotonic()
-    ilk = port_link(cfg, port)
-    if ilk is None:
+    started = time.monotonic()
+    initial = port_link(cfg, port)
+    if initial is None:
         return None, 0.0
-    if ilk is True:
+    if initial is True:
         return True, 0.0
     while True:
         if port_link(cfg, port):
-            return True, time.monotonic() - basla
-        if time.monotonic() - basla >= sure:
-            return False, time.monotonic() - basla
+            return True, time.monotonic() - started
+        if time.monotonic() - started >= timeout:
+            return False, time.monotonic() - started
         time.sleep(cfg.poll_interval)
 
 
 def _poe_rows(data) -> list[dict]:
-    """Yanıtın içinden 'pid' taşıyan kayıt listesini bulur."""
+    """Find the list of records carrying a 'pid' inside the response."""
     if isinstance(data, dict):
         for value in data.values():
             if (isinstance(value, list) and value
@@ -454,11 +494,11 @@ def _poe_rows(data) -> list[dict]:
 
 
 def poe_read(cfg) -> list[dict]:
-    """Switch'ten güncel PoE port durumlarını okur.
+    """Read current PoE port states from the switch.
 
-    Okuma ve yazma uçları farklı: yazma POST /stat/poePort, okuma ise
-    /stat/poeStatus. Firmware'e göre değiştiği için sırayla denenir ve
-    retCode yerine gövdedeki veriye bakılır.
+    Read and write endpoints differ: writes go to POST /stat/poePort, reads to
+    /stat/poeStatus. It varies by firmware, so they are tried in turn and the
+    body is inspected rather than retCode.
     """
     errors = []
     for endpoint in ([cfg.poe_read_endpoint] if cfg.poe_read_endpoint
@@ -472,69 +512,70 @@ def poe_read(cfg) -> list[dict]:
         rows = _poe_rows(data)
         if rows:
             if cfg.verbose:
-                print(f"    PoE durumu {endpoint} ucundan okundu "
-                      f"({len(rows)} port)")
+                print(f"    PoE state read from the {endpoint} endpoint "
+                      f"({len(rows)} ports)")
             return [{"pid": int(x["pid"]),
-                     "poeMode":  str(x.get("poeMode", x.get("mode", POE_ON))),
+                     "poeMode": str(x.get("poeMode", x.get("mode", POE_ON))),
                      "priority": str(x.get("priority", "0")),
                      "maxPower": str(x.get("maxPower", "154"))} for x in rows]
         errors.append(f"{endpoint}: retCode={data.get('retCode')!r}, "
-                      f"anahtarlar={list(data)[:6]}")
+                      f"keys={list(data)[:6]}")
 
-    raise RuntimeError("PoE durumu okunamadı -> " + " | ".join(errors))
+    raise RuntimeError("could not read the PoE state -> " + " | ".join(errors))
 
 
 def poe_apply(cfg, ports_state: list[dict], enabled_in_range: set[int],
               managed: set[int]) -> None:
-    """PoE durumunu yazar.
+    """Write the PoE state.
 
-    Aralık (managed) içindeki portlardan yalnızca enabled_in_range açık olur;
-    aralık dışındaki portların mevcut ayarlarına dokunulmaz.
+    Within the managed range only enabled_in_range stays on; ports outside the
+    range keep their current settings.
     """
     fields = []
-    for p in ports_state:
-        pid = int(p["pid"])
+    for row in ports_state:
+        pid = int(row["pid"])
         if pid in managed:
             mode = POE_ON if pid in enabled_in_range else POE_OFF
         else:
-            mode = str(p.get("poeMode", POE_ON))
+            mode = str(row.get("poeMode", POE_ON))
         fields.append(f"mode_{pid}={mode}"
-                      f"&priority_{pid}={p.get('priority', '0')}"
-                      f"&maxPower_{pid}={p.get('maxPower', '154')}")
+                      f"&priority_{pid}={row.get('priority', '0')}"
+                      f"&maxPower_{pid}={row.get('maxPower', '154')}")
     payload = "&".join(fields)
 
     if cfg.dry_run:
-        onoff = {pid: (POE_ON if pid in enabled_in_range else POE_OFF)
-                 for pid in sorted(managed)}
-        print(f"    [dry-run] PoE: {onoff}")
+        states = {pid: (POE_ON if pid in enabled_in_range else POE_OFF)
+                  for pid in sorted(managed)}
+        print(f"    [dry-run] PoE: {states}")
         return
 
-    r = switch_request(cfg, "POST", "stat/poePort",
-                       headers={"Content-Type":
-                                "application/x-www-form-urlencoded; charset=UTF-8",
-                                "X-Requested-With": "XMLHttpRequest"},
-                       data=payload)
-    ret = r.json().get("retCode")
+    response = switch_request(
+        cfg, "POST", "stat/poePort",
+        headers={"Content-Type":
+                 "application/x-www-form-urlencoded; charset=UTF-8",
+                 "X-Requested-With": "XMLHttpRequest"},
+        data=payload)
+    ret = response.json().get("retCode")
     if ret not in (["success"], "success"):
-        raise RuntimeError(f"poePort yazma başarısız: {ret}")
+        raise RuntimeError(f"poePort write failed: {ret}")
 
 
 # ------------------------------------------------------------- intercom ----
 def read_settings(ip: str, cfg) -> dict | None:
-    """Cihaz ayaklandıysa ayarlarını döndürür, yoksa None."""
+    """Return the device's settings if it is up, else None."""
     try:
-        r = requests.get(
+        response = requests.get(
             f"http://{ip}:{cfg.arduino_port}/api/v1/system/settings",
             timeout=cfg.probe_timeout)
-        if r.ok:
-            return r.json()
+        if response.ok:
+            return response.json()
     except requests.RequestException:
         pass
     return None
 
 
 def probe_all(candidates: list[str], cfg) -> dict:
-    """Cevap veren adayları döndürür {ip: settings} — paralel."""
+    """Return the candidates that answered, {ip: settings} — in parallel."""
     candidates = list(candidates)
     if not candidates:
         return {}
@@ -555,27 +596,27 @@ def uptime_of(settings: dict):
 
 def find_device(candidates: list[str], cfg, deadline: float,
                 baseline: dict | None = None):
-    """Portu yeni açılan cihazı bulur.
+    """Find the device whose port was just powered on.
 
-    Ayırt etme sırası:
-      1. UPTIME — port yeni açıldığı için cihazımızın uptime'ı küçüktür.
-         Birden fazla cevap gelirse en küçük uptime'lı seçilir. Bu, aynı
-         IP'de iki cihaz varken de doğru olanı bulur.
-      2. Baseline dışı olmak — uptime alınamıyorsa yedek ölçüt.
+    How they are told apart:
+      1. UPTIME — the port just opened, so our device's uptime is small. With
+         several answers the smallest uptime wins, which also picks correctly
+         when two devices share one IP.
+      2. Not in the baseline — the fallback when uptime is unavailable.
 
-    Baseline = aralıktaki portlar kapalıyken cevap verenler; yönetilmeyen
-    portlardaki cihazlar oradadır ve onlara dokunulmamalıdır.
+    Baseline = whoever answered while the range's ports were off; those sit on
+    unmanaged ports and must not be touched.
     """
     baseline = baseline or {}
     end = time.monotonic() + deadline
     while time.monotonic() < end:
         found = probe_all(candidates, cfg)
         if len(found) > 1:
-            print(f"    [!] {len(found)} cihaz cevap verdi: "
-                  f"{', '.join(found)} — en yeni açılan seçilecek")
+            print(f"    [!] {len(found)} devices answered: "
+                  f"{', '.join(found)} — the most recently booted wins")
 
-        # Fabrika IP'sindeki cihaz kesinlikle yapılandırılmamış bir
-        # intercomdur; ona öncelik verilir. Sonra en küçük uptime.
+        # A device on the factory IP is definitely an unconfigured intercom;
+        # it wins. Then the smallest uptime.
         factory = getattr(cfg, "factory_ip", None)
         fresh = [(0 if ip == factory else 1, uptime_of(s), ip, s)
                  for ip, s in found.items()
@@ -585,15 +626,15 @@ def find_device(candidates: list[str], cfg, deadline: float,
             fresh.sort(key=lambda x: (x[0], x[1]))
             _, _, ip, settings = fresh[0]
             if ip == factory:
-                print("    (fabrika IP'si — yapılandırılmamış cihaz)")
+                print("    (factory IP — unconfigured device)")
             return ip, settings
 
-        # uptime alınamıyorsa bile fabrika IP'si güçlü bir işarettir
+        # Even without uptime the factory IP is a strong signal
         if factory in found and factory not in baseline:
-            print("    (fabrika IP'si — yapılandırılmamış cihaz)")
+            print("    (factory IP — unconfigured device)")
             return factory, found[factory]
 
-        for ip, settings in found.items():          # uptime yoksa baseline
+        for ip, settings in found.items():          # no uptime -> baseline
             if ip not in baseline:
                 return ip, settings
 
@@ -602,11 +643,11 @@ def find_device(candidates: list[str], cfg, deadline: float,
 
 
 def wait_gone(ips, cfg, deadline: float) -> list[str]:
-    """Verilen IP'ler susana kadar bekler; kalanları döndürür.
+    """Wait until the given IPs go quiet; return the ones still answering.
 
-    Bir cihaza IP yazıldıktan sonra reset atar ve uptime'ı sıfırlanır.
-    Sıradaki porta geçerken bu cihaz hâlâ ayaktaysa 'en taze cihaz'
-    sanılıp üzerine yazılır. Bu yüzden önce gerçekten sustuğu doğrulanır.
+    After an IP is written the device resets and its uptime restarts. Moving
+    to the next port while it is still up would make it look like the
+    "freshest device" and get overwritten. So silence is confirmed first.
     """
     ips = list(ips)
     if not ips:
@@ -621,11 +662,11 @@ def wait_gone(ips, cfg, deadline: float) -> list[str]:
 
 
 def wait_until_quiet(candidates: list[str], cfg, deadline: float) -> dict:
-    """Portlar kapatıldıktan sonra cihazların gerçekten sustuğunu bekler.
+    """Wait for devices to actually go quiet after the ports are closed.
 
-    PoE kesilse de cihaz birkaç saniye daha cevap verebilir; hemen okunan
-    baseline yanlış olur ve o IP'deki cihaz sonradan 'dokunma' listesine
-    girip atlanır. Cevap sayısı sabitlenene kadar beklenir.
+    A device can keep answering for seconds after PoE is cut; a baseline read
+    immediately would be wrong and that IP's device would end up on the "do
+    not touch" list and be skipped. Wait until the answer count settles.
     """
     end = time.monotonic() + deadline
     last, stable = None, 0
@@ -634,7 +675,7 @@ def wait_until_quiet(candidates: list[str], cfg, deadline: float) -> dict:
         keys = set(now)
         if keys == last:
             stable += 1
-            if stable >= 2:              # üst üste aynı -> oturdu
+            if stable >= 2:              # unchanged twice -> settled
                 return now
         else:
             stable = 0
@@ -644,14 +685,14 @@ def wait_until_quiet(candidates: list[str], cfg, deadline: float) -> dict:
 
 
 def write_ip(ip: str, settings: dict, new_ip: str, cfg) -> None:
-    """Cihaza yeni IP yazar — doğrulanmış uç: POST /api/v1/network/ip
+    """Write a new IP — verified endpoint: POST /api/v1/network/ip
 
-    Gövde tam ağ bloğudur; IP dışındaki değerler cihazın mevcut
-    ayarlarından korunur (netmask / gateway / ntpIp / useDhcp).
-    Yazımdan sonra cihaz yeniden başlayabilir, bağlantı kesilebilir.
+    The body is the full network block; everything but the IP is preserved
+    from the device's current settings (netmask / gateway / ntpIp / useDhcp).
+    After the write the device may reboot and the connection may drop.
     """
-    # Cihazın kendi web arayüzü yalnızca bu üç alanı gönderiyor. Fazladan
-    # alan göndermek firmware'de sessizce reddedilmeye yol açabiliyor.
+    # The device's own web UI sends only these three fields. Extra fields can
+    # make the firmware reject the write silently.
     payload = {
         "ip":      new_ip,
         "netmask": settings.get("netmask") or cfg.netmask,
@@ -665,467 +706,518 @@ def write_ip(ip: str, settings: dict, new_ip: str, cfg) -> None:
     if cfg.dry_run:
         print(f"    [dry-run] {ip} -> POST /{cfg.write_endpoint}: {payload}")
         return
-    r = requests.post(f"http://{ip}:{cfg.arduino_port}/{cfg.write_endpoint}",
-                      json=payload,
-                      headers={"Content-Type": "application/json"},
-                      timeout=cfg.timeout)
-    r.raise_for_status()
+    response = requests.post(
+        f"http://{ip}:{cfg.arduino_port}/{cfg.write_endpoint}",
+        json=payload, headers={"Content-Type": "application/json"},
+        timeout=cfg.timeout)
+    response.raise_for_status()
 
-    # HTTP 200 tek başına yetmez; gövdede hata bildirimi olabilir
+    # HTTP 200 alone is not enough; the body may report an error
     try:
-        body = r.json()
+        body = response.json()
     except ValueError:
         body = {}
     if isinstance(body, dict):
         blob = json.dumps(body).lower()
-        if any(w in blob for w in ("error", "fail", "invalid", "reject")):
-            raise RuntimeError(f"cihaz yazmayı reddetti: {body}")
+        if any(word in blob for word in ("error", "fail", "invalid", "reject")):
+            raise RuntimeError(f"the device rejected the write: {body}")
 
 
-# ------------------------------------------------------------------- akış --
+# ---------------------------------------------------------------- flow --
 def parse_args(env):
-    p = argparse.ArgumentParser(
-        description="Intercom IP otomatik atama (PoE port sırayla açma)",
+    parser = argparse.ArgumentParser(
+        description="Automatic intercom IP assignment "
+                    "(opening PoE ports one at a time)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument("--ports", nargs="+", required=True, metavar="P",
-                   help="Hedef port(lar): '11 12 13 14' veya '11-14'")
-    p.add_argument("-n", "--set", dest="set_no",
-                   default=env.get("TRAIN_SET_NO", "1"),
-                   help="Set numarası — IP şablonundaki 'n'")
-    p.add_argument("--device-map", type=Path,
-                   default=Path(env.get("DEVICE_MAP_FILE")
-                                or HERE / "DeviceMap.json"))
-    p.add_argument("--switch-ip", default=None,
-                   help="Switch IP (varsayılan: DeviceMap'te bu portların "
-                        "bağlı olduğu switch)")
-    p.add_argument("--factory-ip",
-                   default=env.get("INTERCOM_FACTORY_IP", "10.n.1.12"),
-                   help="Intercomların fabrika çıkışı beklediği IP. "
-                        "'n' set numarasıyla çözülür; sabit bir adres de "
-                        "yazılabilir. Bu adreste cevap veren cihaz "
-                        "yapılandırılmamış intercom sayılır.")
-    p.add_argument("--default-ip", nargs="+", default=[], metavar="IP",
-                   help="Ek aday IP'ler. Fabrika IP'si ve DeviceMap'teki "
-                        "bütün Intercom adresleri zaten aday listesindedir.")
-    p.add_argument("--fresh-uptime", type=float, default=180.0,
-                   help="Aynı IP'de iki cihaz varsa, uptime'ı bu değerin "
-                        "altındaki 'yeni açılmış' sayılır (sn)")
-    p.add_argument("--max-passes", type=int, default=0,
-                   help="En fazla kaç tur denensin (0 = sınırsız, "
-                        "hepsi tamamlanana kadar)")
-    p.add_argument("--stall-limit", type=int, default=2,
-                   help="Üst üste hiç ilerleme olmayan tur sayısı bu değere "
-                        "ulaşınca durur")
-    p.add_argument("--retry-backoff", type=float, default=1.5,
-                   help="İlerleme olmayan her turda bekleme sürelerinin "
-                        "çarpanı (1.0 = artırma)")
-    p.add_argument("--kyland-port", type=int,
-                   default=int(env.get("KYLAND_HTTP_PORT", 80)))
-    p.add_argument("--kyland-user", default=env.get("KYLAND_USERNAME", "admin"))
-    p.add_argument("--kyland-pass", default=env.get("KYLAND_PASSWORD", ""))
-    p.add_argument("--arduino-port", type=int,
-                   default=int(env.get("ARDUINO_HTTP_PORT", 80)))
-    p.add_argument("--write-endpoint", default="api/v1/network/ip",
-                   help="Ağ ayarlarının yazıldığı uç")
-    p.add_argument("--netmask", default=env.get("EXPECTED_SUBNET_MASK",
-                                                "255.255.0.0"),
-                   help="Cihaz bildirmezse kullanılacak netmask")
-    p.add_argument("--gateway", default=None,
-                   help="Cihaz bildirmezse gateway (varsayılan: switch IP)")
-    p.add_argument("--ntp-ip", default=None,
-                   help="Cihaz bildirmezse NTP IP (varsayılan: PISCU)")
-    p.add_argument("--backup-dir", type=Path, default=None,
-                   help="Her cihazın ayarlarını yazmadan önce buraya yedekle")
-    # ESP32'lerin açılışı en fazla ~10 sn. Aşağıdakiler ÜST SINIR; cihaz
-    # cevap verir vermez beklemeden devam edilir. Yavaş bir cihaz çıkarsa
-    # --retry-backoff zaten her takılan turda süreleri 1.5 katına çıkarır.
-    p.add_argument("--link-wait", type=float, default=25.0,
-                   help="Port açıldıktan sonra switch'te link'in ayağa "
-                        "kalkmasını bekleme süresi (sn). Cihaz aranmaya "
-                        "ancak link kurulunca başlanır.")
-    p.add_argument("--find-wait", type=float, default=10.0,
-                   help="Link kurulduktan SONRA cihazı arama süresi (sn)")
-    p.add_argument("--boot-wait", type=float, default=15.0,
-                   help="Link durumu okunamıyorsa cihazı arama süresi (sn) "
-                        "— ESP32 açılışı ~10 sn")
-    p.add_argument("--confirm-wait", type=float, default=30.0,
-                   help="IP yazıldıktan (reset) sonra doğrulama süresi (sn) "
-                        "— reset + açılış ~10 sn")
-    p.add_argument("--settle", type=float, default=2.0,
-                   help="PoE değişikliği sonrası bekleme (sn)")
-    p.add_argument("--baseline-wait", type=float, default=12.0,
-                   help="Portlar kapatıldıktan sonra cihazların susmasını "
-                        "bekleme süresi (sn)")
-    p.add_argument("--poll-interval", type=float, default=1.0)
-    p.add_argument("--probe-timeout", type=float, default=1.5,
-                   help="Tek IP yoklamasının zaman aşımı (sn)")
-    p.add_argument("--timeout", type=float, default=8.0,
-                   help="Switch/yazma istekleri zaman aşımı (sn)")
-    p.add_argument("--switch-retries", type=int, default=3,
-                   help="Switch cevap vermezse kaç kez tekrar denensin")
-    p.add_argument("--switch-retry-wait", type=float, default=5.0,
-                   help="Switch tekrar denemeleri arası bekleme (sn, artar)")
-    p.add_argument("--no-verify-mac", dest="verify_mac", action="store_false",
-                   help="MAC ile port doğrulamasını kapat (uptime tahminine "
-                        "geri dön)")
-    p.add_argument("--mac-endpoint", default=None,
-                   help=f"Switch MAC tablosu ucu "
-                        f"(denenenler: {', '.join(MAC_ENDPOINTS)})")
-    p.add_argument("--mac-cache-ttl", type=float, default=4.0,
-                   help="MAC tablosunun önbellekte kalma süresi (sn)")
-    p.add_argument("--no-defer-verify", dest="defer_verify",
-                   action="store_false",
-                   help="Her portta reset sonrası doğrulamayı bekle "
-                        "(varsayılan: doğrulama sona bırakılır)")
-    p.add_argument("--post-write-wait", type=float, default=2.0,
-                   help="IP yazdıktan sonra reset beklemeye başlama gecikmesi")
-    p.add_argument("--reset-wait", type=float, default=15.0,
-                   help="Yazma sonrası cihazın eski IP'den düşmesi için "
-                        "beklenecek süre (reset kanıtı)")
-    p.add_argument("--full-net-payload", action="store_true",
-                   help="Ağ yazımına useDhcp ve ntpIp alanlarını da ekle "
-                        "(varsayılan: web arayüzüyle aynı — ip/netmask/gateway)")
-    p.add_argument("--no-persist-check", dest="persist_check",
-                   action="store_false",
-                   help="Sonda güç çevirip ayarların kalıcı olduğunu doğrulama")
-    p.add_argument("--no-arp-flush", dest="arp_flush", action="store_false",
-                   help="Yoklamadan önce ARP önbelleğini temizleme. Aynı "
-                        "fabrika adresindeki cihazlarda temizlik şart: "
-                        "kapatılırsa eski MAC'e yazılıp cihaz bulunamaz.")
-    p.add_argument("--poe-read-endpoint", default=None,
-                   help=f"PoE durumunun okunacağı uç "
-                        f"(denenenler: {', '.join(POE_READ_ENDPOINTS)})")
-    p.add_argument("--switch-port-count", type=int, default=None,
-                   help="Okuma hiç çalışmazsa varsayılan port sayısı (ör. 24)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Hiçbir şeye yazma, planı ve adımları göster")
-    p.add_argument("-v", "--verbose", action="store_true")
-    return p.parse_args()
+    parser.add_argument("--ports", nargs="+", required=True, metavar="P",
+                        help="target port(s): '11 12 13 14' or '11-14'")
+    parser.add_argument("-n", "--set", dest="set_no",
+                        default=env.get("TRAIN_SET_NO", "1"),
+                        help="set number — the 'n' in the IP template")
+    parser.add_argument("--device-map", type=Path,
+                        default=Path(env.get("DEVICE_MAP_FILE")
+                                     or HERE / "DeviceMap.json"))
+    parser.add_argument("--switch-ip", default=None,
+                        help="switch IP (default: the switch these ports are "
+                             "attached to in DeviceMap)")
+    parser.add_argument("--factory-ip",
+                        default=env.get("INTERCOM_FACTORY_IP", "10.n.1.12"),
+                        help="the IP intercoms are expected on out of the "
+                             "factory. 'n' is resolved with the set number; a "
+                             "fixed address may be given instead. A device "
+                             "answering here counts as an unconfigured "
+                             "intercom.")
+    parser.add_argument("--default-ip", nargs="+", default=[], metavar="IP",
+                        help="extra candidate IPs. The factory IP and every "
+                             "Intercom address in DeviceMap are already "
+                             "candidates.")
+    parser.add_argument("--fresh-uptime", type=float, default=180.0,
+                        help="when two devices share an IP, the one with an "
+                             "uptime below this counts as 'just booted' (s)")
+    parser.add_argument("--max-passes", type=int, default=0,
+                        help="how many passes at most (0 = unlimited, until "
+                             "everything is done)")
+    parser.add_argument("--stall-limit", type=int, default=2,
+                        help="stop after this many consecutive passes with no "
+                             "progress")
+    parser.add_argument("--retry-backoff", type=float, default=1.5,
+                        help="multiplier applied to the waits on every pass "
+                             "without progress (1.0 = no increase)")
+    parser.add_argument("--kyland-port", type=int,
+                        default=int(env.get("KYLAND_HTTP_PORT", 80)))
+    parser.add_argument("--kyland-user",
+                        default=env.get("KYLAND_USERNAME", "admin"))
+    parser.add_argument("--kyland-pass", default=env.get("KYLAND_PASSWORD", ""))
+    parser.add_argument("--arduino-port", type=int,
+                        default=int(env.get("ARDUINO_HTTP_PORT", 80)))
+    parser.add_argument("--write-endpoint", default="api/v1/network/ip",
+                        help="endpoint the network settings are written to")
+    parser.add_argument("--netmask",
+                        default=env.get("EXPECTED_SUBNET_MASK", "255.255.0.0"),
+                        help="netmask to use when the device does not report one")
+    parser.add_argument("--gateway", default=None,
+                        help="gateway when the device does not report one "
+                             "(default: the switch IP)")
+    parser.add_argument("--ntp-ip", default=None,
+                        help="NTP IP when the device does not report one "
+                             "(default: PISCU)")
+    parser.add_argument("--backup-dir", type=Path, default=None,
+                        help="back up every device's settings here before "
+                             "writing")
+    # An ESP32 boots in ~10 s at most. The values below are UPPER BOUNDS; the
+    # run continues as soon as the device answers. For a slow device
+    # --retry-backoff already stretches them 1.5x on every stalled pass.
+    parser.add_argument("--link-wait", type=float, default=25.0,
+                        help="how long to wait for the switch link to come up "
+                             "after the port is opened (s). The device is not "
+                             "searched for until the link is up.")
+    parser.add_argument("--find-wait", type=float, default=10.0,
+                        help="how long to search for the device AFTER the link "
+                             "is up (s)")
+    parser.add_argument("--boot-wait", type=float, default=15.0,
+                        help="how long to search for the device when the link "
+                             "state is unreadable (s) — an ESP32 boots in ~10 s")
+    parser.add_argument("--confirm-wait", type=float, default=30.0,
+                        help="verification window after the IP is written "
+                             "(reset) (s) — reset + boot is ~10 s")
+    parser.add_argument("--settle", type=float, default=2.0,
+                        help="wait after a PoE change (s)")
+    parser.add_argument("--baseline-wait", type=float, default=12.0,
+                        help="how long to wait for devices to go quiet after "
+                             "the ports are closed (s)")
+    parser.add_argument("--poll-interval", type=float, default=1.0)
+    parser.add_argument("--probe-timeout", type=float, default=1.5,
+                        help="timeout of a single IP probe (s)")
+    parser.add_argument("--timeout", type=float, default=8.0,
+                        help="timeout of switch/write requests (s)")
+    parser.add_argument("--switch-retries", type=int, default=3,
+                        help="how many retries when the switch does not answer")
+    parser.add_argument("--switch-retry-wait", type=float, default=5.0,
+                        help="wait between switch retries (s, grows)")
+    parser.add_argument("--no-verify-mac", dest="verify_mac",
+                        action="store_false",
+                        help="turn off MAC-based port verification (fall back "
+                             "to the uptime guess)")
+    parser.add_argument("--mac-endpoint", default=None,
+                        help=f"switch MAC table endpoint "
+                             f"(tried: {', '.join(MAC_ENDPOINTS)})")
+    parser.add_argument("--mac-cache-ttl", type=float, default=4.0,
+                        help="how long the MAC table stays cached (s)")
+    parser.add_argument("--no-defer-verify", dest="defer_verify",
+                        action="store_false",
+                        help="wait for the post-reset verification on every "
+                             "port (default: verification is deferred to the "
+                             "end)")
+    parser.add_argument("--post-write-wait", type=float, default=2.0,
+                        help="delay before waiting for the reset after the IP "
+                             "is written")
+    parser.add_argument("--reset-wait", type=float, default=15.0,
+                        help="how long to wait for the device to drop off its "
+                             "old IP after the write (proof of the reset)")
+    parser.add_argument("--full-net-payload", action="store_true",
+                        help="also send useDhcp and ntpIp in the network write "
+                             "(default: same as the web UI — ip/netmask/gateway)")
+    parser.add_argument("--no-persist-check", dest="persist_check",
+                        action="store_false",
+                        help="skip the final power cycle that proves the "
+                             "settings are persistent")
+    parser.add_argument("--no-arp-flush", dest="arp_flush", action="store_false",
+                        help="do not flush the ARP cache before probing. The "
+                             "flush is essential for devices sharing the "
+                             "factory address: without it the old MAC is "
+                             "addressed and the device is not found.")
+    parser.add_argument("--poe-read-endpoint", default=None,
+                        help=f"endpoint the PoE state is read from "
+                             f"(tried: {', '.join(POE_READ_ENDPOINTS)})")
+    parser.add_argument("--switch-port-count", type=int, default=None,
+                        help="fallback port count when the read never works "
+                             "(e.g. 24)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="write nothing; show the plan and the steps")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    return parser.parse_args()
 
 
 def main() -> int:
     env = load_env(HERE / ".env")
     cfg = parse_args(env)
-    n = cfg.set_no
+    set_no = cfg.set_no
     ports = parse_ports(cfg.ports)
 
-    dm = json.loads(cfg.device_map.read_text(encoding="utf-8"))
+    device_map = json.loads(cfg.device_map.read_text(encoding="utf-8"))
 
-    # Port -> hedef IP eşlemesi (yalnızca Intercom kayıtları)
+    # Port -> target IP mapping (Intercom records only)
     plan: dict[int, dict] = {}
-    switch_tmpl = None
-    for sw in dm.get("Switches", []):
-        for dv in sw.get("Devices", []):
-            if dv.get("SubType") != "Intercom":
+    switch_template = None
+    for switch in device_map.get("Switches", []):
+        for device in switch.get("Devices", []):
+            if device.get("SubType") != "Intercom":
                 continue
             try:
-                port = int(str(dv.get("Port")).strip())
+                port = int(str(device.get("Port")).strip())
             except (TypeError, ValueError):
                 continue
             if port in ports:
-                plan[port] = {"name": dv.get("Name", ""),
-                              "target": resolve(dv.get("IP", ""), n)}
-                switch_tmpl = sw.get("IP", "")
+                plan[port] = {"name": device.get("Name", ""),
+                              "target": resolve(device.get("IP", ""), set_no)}
+                switch_template = switch.get("IP", "")
 
     missing = [p for p in ports if p not in plan]
     if missing:
-        print(f"[HATA] Şu portlarda DeviceMap'te Intercom tanımlı değil: "
+        print(f"[ERROR] No Intercom is defined in DeviceMap on these ports: "
               f"{missing}")
-        print("       Bu script şimdilik yalnızca Intercom portlarıyla çalışır.")
+        print("        This script works with Intercom ports only for now.")
         return 1
 
-    cfg.switch_ip = cfg.switch_ip or resolve(switch_tmpl, n)
+    cfg.switch_ip = cfg.switch_ip or resolve(switch_template, set_no)
     cfg.gateway = cfg.gateway or cfg.switch_ip
     if not cfg.ntp_ip:
-        for sw in dm.get("Switches", []):
-            for dv in sw.get("Devices", []):
-                if dv.get("Type") == "PISCU":
-                    cfg.ntp_ip = resolve(dv.get("IP", ""), n)
+        for switch in device_map.get("Switches", []):
+            for device in switch.get("Devices", []):
+                if device.get("Type") == "PISCU":
+                    cfg.ntp_ip = resolve(device.get("IP", ""), set_no)
     targets = [plan[p]["target"] for p in ports]
-    # Aday IP'ler: hedefler + DeviceMap'teki BÜTÜN intercom adresleri +
-    # kullanıcının verdiği ekstralar. Cihaz fabrika/eski IP'siyle başka bir
-    # intercomun adresinde durabilir; sadece kendi hedefine bakmak yetmez.
-    all_intercom = [resolve(dv.get("IP", ""), n)
-                    for sw in dm.get("Switches", [])
-                    for dv in sw.get("Devices", [])
-                    if dv.get("SubType") == "Intercom"]
-    cfg.factory_ip = resolve(cfg.factory_ip, n)
+    # Candidate IPs: targets + EVERY intercom address in DeviceMap + whatever
+    # the user added. A device may sit on another intercom's address with its
+    # factory/old IP; looking only at its own target is not enough.
+    all_intercoms = [resolve(device.get("IP", ""), set_no)
+                     for switch in device_map.get("Switches", [])
+                     for device in switch.get("Devices", [])
+                     if device.get("SubType") == "Intercom"]
+    cfg.factory_ip = resolve(cfg.factory_ip, set_no)
     candidates = list(dict.fromkeys(
-        [cfg.factory_ip] + targets + all_intercom
-        + [resolve(ip, n) for ip in cfg.default_ip]))
+        [cfg.factory_ip] + targets + all_intercoms
+        + [resolve(ip, set_no) for ip in cfg.default_ip]))
 
-    print(f"Set no    : {n}")
-    print(f"Switch    : {cfg.switch_ip}")
-    print(f"Portlar   : {ports}")
-    for p in ports:
-        print(f"   port {p:>2}  ->  {plan[p]['target']:<14} ({plan[p]['name']})")
-    print(f"Fabrika IP: {cfg.factory_ip}   "
-          f"(bu adreste cevap veren = yapılandırılmamış intercom)")
-    print(f"Aday IP'ler: {', '.join(candidates)}")
+    print(f"Set no      : {set_no}")
+    print(f"Switch      : {cfg.switch_ip}")
+    print(f"Ports       : {ports}")
+    for port in ports:
+        print(f"   port {port:>2}  ->  {plan[port]['target']:<14} "
+              f"({plan[port]['name']})")
+    print(f"Factory IP  : {cfg.factory_ip}   "
+          f"(whoever answers here = unconfigured intercom)")
+    print(f"Candidate IPs: {', '.join(candidates)}")
 
-    # ARP temizliği koşunun tek turda bitmesinin şartı; yetki yoksa
-    # kullanıcı bunu koşu bitince değil, en başta öğrensin.
+    # Flushing ARP is what lets the run finish in one pass; if permission is
+    # missing the user should learn it at the start, not at the end.
     if cfg.arp_flush and not cfg.dry_run:
-        if arp_unut([cfg.factory_ip], cfg):
-            print("ARP       : önbellek temizlenebiliyor")
+        if arp_forget([cfg.factory_ip], cfg):
+            print("ARP         : the cache can be flushed")
     if cfg.dry_run:
-        print("\n[dry-run] Hiçbir değişiklik yapılmayacak.\n")
+        print("\n[dry-run] Nothing will be changed.\n")
 
     try:
         state = poe_read(cfg)
     except Exception as exc:
         count = cfg.switch_port_count or (24 if cfg.dry_run else None)
         if count is None:
-            print(f"[HATA] Switch PoE durumu okunamadı ({cfg.switch_ip})")
-            print(f"       {exc}")
-            print( "       Doğru ucu biliyorsan: --poe-read-endpoint stat/xxx")
-            print( "       Ya da port sayısını ver: --switch-port-count 24")
+            print(f"[ERROR] Could not read the switch PoE state ({cfg.switch_ip})")
+            print(f"        {exc}")
+            print("        If you know the endpoint: --poe-read-endpoint stat/xxx")
+            print("        Or give the port count: --switch-port-count 24")
             return 1
-        print(f"[!] PoE durumu okunamadı, {count} portluk varsayılan "
-              f"kullanılıyor ({exc})")
+        print(f"[!] PoE state unreadable, falling back to {count} ports "
+              f"({exc})")
         state = [{"pid": i, "poeMode": POE_ON, "priority": "0",
                   "maxPower": "154"} for i in range(1, count + 1)]
     known_pids = {int(p["pid"]) for p in state}
     unknown = [p for p in ports if p not in known_pids]
     if unknown:
-        print(f"[HATA] Switch'te olmayan port: {unknown}")
+        print(f"[ERROR] Port not present on the switch: {unknown}")
         return 1
     managed = set(ports)
 
-    def do_port(port: int, baseline: dict, label: str,
+    def do_port(port: int, baseline: dict, index: int, count: int,
                 assigned: set[str]) -> tuple[bool, str]:
         target = plan[port]["target"]
-        print(f"\n{label} Port {port} -> {target} ({plan[port]['name']})")
+        print(f"\n[{index}/{count}] Port {port} -> {target} "
+              f"({plan[port]['name']})")
+        emit_event("port_started", port=port, target=target, index=index,
+                   total=count)
 
-        # Aralıktaki portlar kapatılır ve hedef port AYNI yazımda açılır:
-        # switch'e tek istek gider, biri kapanırken diğeri açılır.
-        print(f"    aralıktaki portlar kapatılıyor, {port} açılıyor...")
+        # Ports in range are closed and the target opened in the SAME write:
+        # one request to the switch, one closing as the other opens.
+        print(f"    closing the ports in range, opening {port}...")
+        emit_event("port_step", port=port, step=STEP_POE_ON,
+                   detail=f"closing the ports in range, opening {port}")
         try:
             poe_apply(cfg, state, {port}, managed)
         except Exception as exc:
-            return False, f"switch hatası: {type(exc).__name__}"
+            return False, f"switch error: {type(exc).__name__}"
         if cfg.dry_run:
             return True, ""
         time.sleep(cfg.settle)
 
-        # Yoklamadan ÖNCE ARP önbelleği temizlenir: bu adreslerin kaydı
-        # önceki cihazın MAC'ini gösteriyor olabilir (bkz. arp_unut).
-        arp_unut({cfg.factory_ip, target}
-                 | {plan[p]["target"] for p in ports}, cfg)
+        # Flush ARP BEFORE probing: these addresses may still map to the
+        # previous device's MAC (see arp_forget).
+        arp_forget({cfg.factory_ip, target}
+                   | {plan[p]["target"] for p in ports}, cfg)
 
-        # Körlemesine saymak yerine switch'e sorulur: port bağlandı mı?
-        # Link "up" olduğu an cihaz elektriği aldı ve hattı kurdu demektir;
-        # arama penceresi ancak o zaman başlar. Eskiden port açılır açılmaz
-        # 15 sn'lik pencere işlemeye başlıyor, cihaz daha açılmadan süre
-        # tükeniyordu — turların çoğu buradan çıkıyordu.
-        bagli, gecen = link_bekle(cfg, port, cfg.link_wait)
-        if bagli is True:
-            nasil = ("link zaten ayaktaydı" if gecen < 0.5
-                     else f"port bağlandı ({gecen:.1f} sn)")
-            print(f"    {nasil} — cihaz aranıyor "
-                  f"(en fazla {cfg.find_wait:.0f} sn)...")
-            arama_suresi = cfg.find_wait
-        elif bagli is None:
-            print(f"    (link durumu okunamadı) cihaz aranıyor "
-                  f"(en fazla {cfg.boot_wait:.0f} sn)...")
-            arama_suresi = cfg.boot_wait
+        # Ask the switch instead of counting blindly: is the port linked?
+        # "up" means the device has power and brought the line up, and only
+        # then does the search window start. Previously the 15 s window began
+        # the moment the port opened and expired before the device booted —
+        # most extra passes came from this.
+        linked, elapsed = wait_for_link(cfg, port, cfg.link_wait)
+        if linked is True:
+            how = ("the link was already up" if elapsed < 0.5
+                   else f"port linked ({elapsed:.1f} s)")
+            print(f"    {how} — searching for the device "
+                  f"(at most {cfg.find_wait:.0f} s)...")
+            search_window = cfg.find_wait
+        elif linked is None:
+            print(f"    (link state unreadable) searching for the device "
+                  f"(at most {cfg.boot_wait:.0f} s)...")
+            search_window = cfg.boot_wait
         else:
-            print(f"    [!] Port {gecen:.0f} sn'de bağlanmadı — kablo/cihaz "
-                  f"kontrolü gerekebilir")
-            return False, "port bağlanmadı (link up olmadı)"
+            print(f"    [!] The port did not link in {elapsed:.0f} s — the "
+                  f"cable or the device may need checking")
+            emit_event("port_note", port=port, level="warning",
+                       text=f"the port did not link in {elapsed:.0f} s")
+            return False, "the port did not link (no link up)"
+        emit_event("port_step", port=port, step=STEP_SEARCHING,
+                   detail="searching for the device")
 
-        # Atanmış IP'ler aday listesinden çıkarılır (fabrika IP'si hariç).
+        # Already-assigned IPs drop out of the candidate list (factory IP aside).
         search = [ip for ip in candidates
                   if ip not in assigned or ip == cfg.factory_ip]
 
-        # MAC doğrulaması: yanlış porttaki cihazlar elenip arama sürdürülür
+        # MAC verification: devices on the wrong port are excluded and the
+        # search continues
         blocked, found_ip, settings = [], None, None
-        end = time.monotonic() + arama_suresi
+        end = time.monotonic() + search_window
         while True:
-            kalan = max(1.0, end - time.monotonic())
-            ip, st = find_device([c for c in search if c not in blocked],
-                                 cfg, kalan, baseline)
+            remaining = max(1.0, end - time.monotonic())
+            ip, found_settings = find_device(
+                [c for c in search if c not in blocked], cfg, remaining,
+                baseline)
             if ip is None:
-                return False, "cihaz bulunamadı"
-            ok, why = verify_port(ip, port, cfg)
-            if ok is False:
-                print(f"    [!] {ip} bu portta değil ({why}) — eleniyor")
+                return False, "device not found"
+            verified, why = verify_port(ip, port, cfg)
+            if verified is False:
+                print(f"    [!] {ip} is not on this port ({why}) — dropped")
+                emit_event("port_note", port=port, level="warning",
+                           text=f"{ip} is not on this port ({why}) — dropped")
                 blocked.append(ip)
                 if time.monotonic() >= end:
-                    return False, "doğru porttaki cihaz bulunamadı"
+                    return False, "no device found on the right port"
                 continue
-            found_ip, settings = ip, st
-            print(f"    cihaz bulundu: {ip}"
-                  + (f"  [{why}]" if ok else f"  ({why})"))
+            found_ip, settings = ip, found_settings
+            print(f"    device found: {ip}"
+                  + (f"  [{why}]" if verified else f"  ({why})"))
+            emit_event("port_step", port=port, step=STEP_DEVICE_FOUND,
+                       detail=f"device found: {ip}")
             break
 
         if found_ip == target:
-            print("    IP zaten doğru")
+            print("    the IP is already correct")
+            emit_event("port_written", port=port, reason="already_correct",
+                       target=target)
             return True, ""
 
         if cfg.backup_dir:
             cfg.backup_dir.mkdir(parents=True, exist_ok=True)
-            bp = cfg.backup_dir / f"port{port}_{found_ip}.json"
-            bp.write_text(json.dumps(settings, ensure_ascii=False, indent=2),
-                          encoding="utf-8")
-            print(f"    yedek: {bp.name}")
+            backup = cfg.backup_dir / f"port{port}_{found_ip}.json"
+            backup.write_text(
+                json.dumps(settings, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+            print(f"    backup: {backup.name}")
 
-        print(f"    IP yazılıyor: {found_ip} -> {target}")
+        print(f"    writing the IP: {found_ip} -> {target}")
+        emit_event("port_step", port=port, step=STEP_WRITING_IP,
+                   detail=f"writing the IP: {found_ip} -> {target}")
         try:
             write_ip(found_ip, settings, target, cfg)
         except requests.RequestException as exc:
-            print(f"    (yazma yanıtı alınamadı: {exc.__class__.__name__} "
-                  f"— reset atmış olabilir, doğrulanıyor)")
+            print(f"    (no write response: {exc.__class__.__name__} "
+                  f"— it may have reset, verifying)")
 
         if cfg.defer_verify:
-            # Sıradaki porta geçmek bu cihazın gücünü keser. Önce yazının
-            # işlendiğine dair kanıt bekleriz: cihaz eski IP'den düşmeli
-            # (reset attı demektir). Sadece HTTP 200'e güvenmek yetmez.
+            # Moving to the next port cuts this device's power. First wait for
+            # proof the write landed: the device must drop off its old IP,
+            # meaning it reset. Trusting HTTP 200 alone is not enough.
             time.sleep(cfg.post_write_wait)
-            kalan = wait_gone([found_ip], cfg, cfg.reset_wait)
-            if kalan:
-                print(f"    [!] {found_ip} hâlâ eski IP'de — yazma "
-                      f"işlenmemiş olabilir")
-                return False, f"{found_ip} reset atmadı"
-            print(f"    yazıldı (reset doğrulandı), IP kontrolü sona bırakıldı")
+            still_there = wait_gone([found_ip], cfg, cfg.reset_wait)
+            if still_there:
+                print(f"    [!] {found_ip} is still on the old IP — the write "
+                      f"may not have been applied")
+                return False, f"{found_ip} did not reset"
+            print("    written (reset confirmed), the IP check is deferred "
+                  "to the end")
+            emit_event("port_written", port=port, reason="written",
+                       target=target)
             return True, ""
 
-        print(f"    doğrulama: {target} bekleniyor "
-              f"(reset + en fazla {cfg.confirm_wait:.0f} sn)...")
-        # Hedef adresin ARP kaydı da bayat olabilir: cihaz oraya YENİ
-        # taşındı, önbellekte ise başka bir cihazın MAC'i durabilir.
-        arp_unut([target], cfg)
-        ok_ip, _ = find_device([target], cfg, cfg.confirm_wait)
-        if ok_ip == target:
+        print(f"    verification: waiting for {target} "
+              f"(reset + at most {cfg.confirm_wait:.0f} s)...")
+        emit_event("port_step", port=port, step=STEP_VERIFYING,
+                   detail=f"verification: waiting for {target}")
+        # The target's ARP entry can be stale too: the device just moved there
+        # while the cache may still hold another device's MAC.
+        arp_forget([target], cfg)
+        confirmed_ip, _ = find_device([target], cfg, cfg.confirm_wait)
+        if confirmed_ip == target:
             print(f"    [OK] Port {port} -> {target}")
+            emit_event("port_ok", port=port, target=target)
             return True, ""
-        return False, f"{target} cevap vermedi"
+        return False, f"{target} did not answer"
 
     done, failed = [], {}
     try:
-        # Yönetilen portların hepsi kapalıyken kim cevap veriyor?
-        # Bunlar yönetilmeyen portlardaki cihazlar — dokunulmamalı.
+        # Who answers while every managed port is off? Those are devices on
+        # unmanaged ports — do not touch them.
         baseline = {}
         if not cfg.dry_run:
-            print("\nTemel tarama (aralıktaki portlar kapalı)...")
+            print("\nBaseline scan (the ports in range are off)...")
+            emit_event("phase", phase=PHASE_BASELINE)
             poe_apply(cfg, state, set(), managed)
             time.sleep(cfg.settle)
-            # PoE kesildikten sonra cihazlar hemen susmaz; oturana kadar bekle
+            # Devices do not go quiet the instant PoE is cut; wait for settle
             baseline = wait_until_quiet(candidates, cfg, cfg.baseline_wait)
-            print(f"    aralık dışında {len(baseline)} cihaz açık"
+            print(f"    {len(baseline)} device(s) up outside the range"
                   + (f": {', '.join(baseline)}" if baseline else ""))
             if cfg.factory_ip in baseline:
-                print(f"    [!] {cfg.factory_ip} (fabrika IP) aralık dışında "
-                      f"cevap veriyor — yapılandırılmamış bir intercom "
-                      f"başka bir portta olabilir")
+                print(f"    [!] {cfg.factory_ip} (factory IP) answers from "
+                      f"outside the range — an unconfigured intercom may be "
+                      f"on another port")
 
-        # Hepsi tamamlanana kadar tur at. Bir turda hiç ilerleme olmazsa
-        # bekleme süreleri artırılır; üst üste stall-limit kadar ilerleme
-        # olmazsa durulur (sonsuz döngüye girmesin).
+        # Keep passing until everything is done. A pass with no progress
+        # stretches the waits; stall-limit consecutive stalled passes stop the
+        # run so it cannot loop forever.
         pending = list(ports)
-        assigned: set[str] = set()      # tamamlanan hedef IP'ler — dokunulmaz
+        assigned: set[str] = set()      # completed target IPs — do not touch
         turn, stalled = 0, 0
         while pending:
             turn += 1
             if cfg.max_passes and turn > cfg.max_passes:
-                print(f"\n[!] Tur sınırına ulaşıldı ({cfg.max_passes}), "
-                      f"kalan: {pending}")
+                print(f"\n[!] Pass limit reached ({cfg.max_passes}), "
+                      f"remaining: {pending}")
                 break
             if turn > 1:
-                print(f"\n=== Tur {turn} — kalan portlar: {pending}"
-                      f"  (bekleme: boot {cfg.boot_wait:.0f}s / "
-                      f"doğrulama {cfg.confirm_wait:.0f}s) ===")
+                print(f"\n=== Pass {turn} — remaining ports: {pending}"
+                      f"  (waits: boot {cfg.boot_wait:.0f}s / "
+                      f"verify {cfg.confirm_wait:.0f}s) ===")
+            emit_event("pass_started", **{"pass": turn})
 
             before = len(pending)
-            nxt = []
-            for i, port in enumerate(pending, start=1):
-                ok, err = do_port(port, baseline, f"[{i}/{len(pending)}]",
-                                  assigned)
+            next_round = []
+            for index, port in enumerate(pending, start=1):
+                ok, error = do_port(port, baseline, index, len(pending),
+                                    assigned)
                 if ok:
                     done.append(port)
                     assigned.add(plan[port]["target"])
                     failed.pop(port, None)
                 else:
-                    print(f"    [!] Port {port}: {err}")
-                    failed[port] = err
-                    nxt.append(port)
-            pending = nxt
+                    print(f"    [!] Port {port}: {error}")
+                    emit_event("port_failed", port=port, reason=error)
+                    failed[port] = error
+                    next_round.append(port)
+            pending = next_round
 
             if len(pending) < before:
-                stalled = 0                      # ilerleme var, devam
+                stalled = 0                      # progress, keep going
                 continue
             stalled += 1
             if stalled >= cfg.stall_limit:
-                print(f"\n[!] {stalled} turdur ilerleme yok, duruluyor. "
-                      f"Kalan: {pending}")
+                print(f"\n[!] No progress for {stalled} pass(es), stopping. "
+                      f"Remaining: {pending}")
                 break
             if cfg.retry_backoff > 1:
-                # Arama pencereleri her ilerlemesiz turda uzar; link
-                # beklemesi de öyle, çünkü yavaş açılan bir cihaz ikisini
-                # de aşabiliyor.
+                # Search windows grow on every stalled pass, and so does the
+                # link wait — a slow device can exceed both.
                 cfg.boot_wait *= cfg.retry_backoff
                 cfg.confirm_wait *= cfg.retry_backoff
                 cfg.find_wait *= cfg.retry_backoff
                 cfg.link_wait *= cfg.retry_backoff
     except KeyboardInterrupt:
-        print("\n\n[İPTAL] Kullanıcı durdurdu — portlar geri açılıyor...")
+        print("\n\n[CANCELLED] Stopped by the user — reopening the ports...")
     finally:
-        print(f"\nAralıktaki tüm portlar tekrar açılıyor: {ports}")
-        for deneme in range(3):
+        print(f"\nReopening every port in range: {ports}")
+        emit_event("phase", phase=PHASE_RESTORE)
+        for attempt in range(3):
             try:
                 poe_apply(cfg, state, managed, managed)
                 break
             except Exception as exc:
-                print(f"[!] Portlar geri açılamadı ({deneme + 1}/3): "
+                print(f"[!] Could not reopen the ports ({attempt + 1}/3): "
                       f"{type(exc).__name__}")
                 time.sleep(5)
         else:
-            print( "[!] PORTLAR KAPALI KALMIŞ OLABİLİR — elle aç:")
+            emit_event("ports_left_closed", switch=cfg.switch_ip)
+            print("[!] THE PORTS MAY HAVE BEEN LEFT CLOSED — open them by hand:")
             print(f"    http://{cfg.switch_ip}/poePort.html")
 
-    # ---------------------------------------------------- son doğrulama ----
+    # ------------------------------------------------- final verification ----
     if not cfg.dry_run:
-        print(f"\nSon doğrulama ({cfg.boot_wait:.0f} sn'ye kadar "
-              f"tüm cihazların açılması bekleniyor)...")
-        # Portlar yeni açıldı, cihazlar yeni adreslerine oturdu; ARP
-        # kayıtlarının hepsi bayat olabilir.
-        arp_unut(targets, cfg)
+        print(f"\nFinal verification (waiting up to {cfg.boot_wait:.0f} s for "
+              f"every device to come up)...")
+        emit_event("phase", phase=PHASE_VERIFY)
+        # The ports just reopened and devices settled on their new addresses;
+        # every ARP entry may be stale.
+        arp_forget(targets, cfg)
         end = time.monotonic() + cfg.confirm_wait
         seen = {}
         while time.monotonic() < end:
-            seen = probe_all(targets, cfg)      # paralel, ~1 sn
+            seen = probe_all(targets, cfg)      # parallel, ~1 s
             if len(seen) == len(targets):
                 break
             time.sleep(cfg.poll_interval)
-        # doğrulama sona bırakıldıysa tutmayanlar hâlâ düzeltilebilir
-        eksik_port = [p for p in ports if plan[p]["target"] not in seen]
-        if eksik_port and cfg.defer_verify:
-            print(f"    {len(eksik_port)} port doğrulanamadı, tekrar "
-                  f"deneniyor: {eksik_port}")
-            for p_ in eksik_port:
-                failed.setdefault(p_, "son doğrulamada cevap yok")
+        # With verification deferred, stragglers can still be fixed
+        missing_ports = [p for p in ports if plan[p]["target"] not in seen]
+        if missing_ports and cfg.defer_verify:
+            print(f"    {len(missing_ports)} port(s) unverified, retrying: "
+                  f"{missing_ports}")
+            for port in missing_ports:
+                failed.setdefault(port, "no answer in the final verification")
 
-        print(f"\n{'port':>5}  {'hedef IP':<14} durum")
+        print(f"\n{'port':>5}  {'target IP':<14} state")
         print("  " + "-" * 44)
         for port in ports:
-            t = plan[port]["target"]
-            if t in seen:
-                print(f"{port:>5}  {t:<14} OK")
+            target = plan[port]["target"]
+            if target in seen:
+                print(f"{port:>5}  {target:<14} OK")
+                emit_event("summary_row", port=port, target=target,
+                           status="ok", reason="")
             else:
-                print(f"{port:>5}  {t:<14} EKSİK — {failed.get(port, 'cevap yok')}")
+                reason = failed.get(port, "no answer")
+                print(f"{port:>5}  {target:<14} MISSING — {reason}")
+                emit_event("summary_row", port=port, target=target,
+                           status="missing", reason=reason)
 
-        # ---------------------------------------- kalıcılık kontrolü ----
-        # Ayar RAM'e yazılıp flash'a inmemişse cihaz güç kesilince eski
-        # IP'sine döner. Tek kesin kanıt: hepsini bir kez güç çevirip
-        # tekrar bakmak.
+        # ------------------------------------------ persistence check ----
+        # If the setting landed in RAM but never reached flash, the device
+        # returns to its old IP on power loss. The only proof is to cycle the
+        # power once and look again.
         if cfg.persist_check and seen:
-            print("\nKalıcılık kontrolü (portlar bir kez güç çevriliyor)...")
+            print("\nPersistence check (the ports are power cycled once)...")
             try:
                 poe_apply(cfg, state, set(), managed)
                 time.sleep(cfg.settle + 2)
                 poe_apply(cfg, state, managed, managed)
             except Exception as exc:
-                print(f"    [!] Güç çevrimi yapılamadı: {type(exc).__name__}")
+                print(f"    [!] Could not cycle the power: {type(exc).__name__}")
             else:
                 end = time.monotonic() + cfg.confirm_wait
                 while time.monotonic() < end:
@@ -1133,33 +1225,34 @@ def main() -> int:
                     if len(seen) == len(targets):
                         break
                     time.sleep(cfg.poll_interval)
-                kalici = [p for p in ports if plan[p]["target"] in seen]
-                print(f"    güç çevriminden sonra {len(kalici)}/{len(ports)} "
-                      f"hedef IP ayakta")
-                if len(kalici) < len(ports):
-                    print( "    [!] Bazı ayarlar KALICI DEĞİL — cihaz güç "
-                           "kesilince eski IP'sine dönüyor.")
-                    print( "        Yazma isteği kabul ediliyor ama flash'a "
-                           "inmiyor olabilir; --full-net-payload ile deneyin.")
+                persisted = [p for p in ports if plan[p]["target"] in seen]
+                print(f"    {len(persisted)}/{len(ports)} target IP(s) up "
+                      f"after the power cycle")
+                if len(persisted) < len(ports):
+                    print("    [!] Some settings are NOT PERSISTENT — the "
+                          "device returns to its old IP when power is cut.")
+                    print("        The write request is accepted but may not "
+                          "reach flash; try --full-net-payload.")
 
         if cfg.factory_ip not in targets:
             if read_settings(cfg.factory_ip, cfg) is not None:
-                print(f"\n[!] {cfg.factory_ip} hâlâ cevap veriyor — "
-                      f"yapılandırılmamış bir intercom kaldı")
+                print(f"\n[!] {cfg.factory_ip} still answers — an "
+                      f"unconfigured intercom is left")
 
-        eksik = [p for p in ports if plan[p]["target"] not in seen]
-        if eksik:
-            print(f"\n{len(eksik)} port tamamlanmadı: {eksik}")
-            print( "Sonraki adım — yalnızca bunları tekrar dene:")
+        incomplete = [p for p in ports if plan[p]["target"] not in seen]
+        if incomplete:
+            print(f"\n{len(incomplete)} port(s) not completed: {incomplete}")
+            print("Next step — retry only these:")
             print(f"    python3 {Path(__file__).name} --ports "
-                  f"{' '.join(map(str, eksik))} --boot-wait 45 --confirm-wait 60")
-            print( "Cihaz hiç bulunamıyorsa açık portla birlikte kontrol et:")
-            print( "    sudo arp-scan --interface=en6 -l")
+                  f"{' '.join(map(str, incomplete))} "
+                  f"--boot-wait 45 --confirm-wait 60")
+            print("If the device is never found, check it with the port open:")
+            print("    sudo arp-scan --interface=en6 -l")
             return 1
-        print(f"\nHepsi tamam: {len(ports)}/{len(ports)} port")
+        print(f"\nAll done: {len(ports)}/{len(ports)} ports")
         return 0
 
-    print(f"\n[dry-run] {len(done)}/{len(ports)} port planlandı")
+    print(f"\n[dry-run] {len(done)}/{len(ports)} ports planned")
     return 0
 
 
@@ -1167,7 +1260,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except KeyboardInterrupt:
-        print("\n\n[İPTAL] Kullanıcı durdurdu.")
-        print("Portların açık olduğundan emin ol: "
+        print("\n\n[CANCELLED] Stopped by the user.")
+        print("Make sure the ports are open: "
               "http://10.n.1.101/poePort.html")
         sys.exit(130)

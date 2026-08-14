@@ -1,201 +1,218 @@
-// Cihaz detay çekmecesi (sağdan açılır).
+// The device detail drawer (slides in from the right).
 //
-// Okunmamış alanlar için "—", o cihazda geçerli olmayan alanlar için
-// "Bu cihazda uygulanmıyor" yazılır. İkisi aynı şey değildir.
+// Unread fields show "—", fields that do not apply on that device show
+// "not applicable on this device". The two are not the same thing.
 
-import { el, doldur, odakTuzagi, $ } from '../core/dom.js';
+import { el, fill, focusTrap, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
+import { state, patch } from '../core/store.js';
 import {
-  deger, DURUM_ETIKET, DOGRULAMA_ETIKET, saat, YOK, tipEtiketi,
-} from '../core/bicim.js';
-import { kimlikDiyalogu } from './kilit.js';
-import { hata } from './bildirim.js';
+  value, stateLabel, verificationLabel, STATE_COLOUR, clockTime, NONE,
+  typeLabel,
+} from '../core/format.js';
+import { credentialDialog } from './locked.js';
+import { showError } from './toast.js';
+import { t } from '../core/i18n.js';
 
-let coz = null;
+let release = null;
 
-export function kapat() {
-  if (coz) { coz(); coz = null; }
-  doldur($('#detay-yuva'), []);
-  if (durum.detayId) ata({ detayId: null });
+export function close() {
+  if (release) { release(); release = null; }
+  fill($('#detail-slot'), []);
+  if (state.detailId) patch({ detailId: null });
 }
 
-export async function ac(cihazId) {
-  ata({ detayId: cihazId });
+export async function open(deviceId) {
+  patch({ detailId: deviceId });
   try {
-    const veri = await api.cihaz(durum.setNo, cihazId);
-    ciz(veri);
+    const data = await api.device(state.setNo, deviceId);
+    render(data);
   } catch (e) {
-    hata(e.message);
-    ata({ detayId: null });
+    showError(e.message);
+    patch({ detailId: null });
   }
 }
 
-function blok(baslik, kaynak, satirlar) {
-  return el('div', { sinif: 'detay-blok' }, [
-    el('div', { sinif: 'basi' }, [
-      el('h4', { metin: baslik }),
-      el('span', { stil: 'flex:1' }),
-      el('span', { sinif: 'etiket', metin: kaynak || '' }),
+function block(title, source, rows) {
+  return el('div', { class: 'detail-block' }, [
+    el('div', { class: 'head' }, [
+      el('h4', { text: title }),
+      el('span', { style: 'flex:1' }),
+      el('span', { class: 'label', text: source || '' }),
     ]),
-    ...satirlar.map(([ad, dgr, renk]) => el('div', { sinif: 'detay-satir' }, [
-      el('span', { sinif: 'ad', metin: ad }),
+    ...rows.map(([name, raw, colour]) => el('div', { class: 'detail-row' }, [
+      el('span', { class: 'name', text: name }),
       el('span', {
-        sinif: 'deger',
-        stil: renk ? `color:var(--${renk})` : null,
-        metin: deger(dgr),
+        class: 'value',
+        style: colour ? `color:var(--${colour})` : null,
+        text: value(raw),
       }),
     ])),
   ]);
 }
 
-function ciz(c) {
-  const s = c.sonuc || {};
-  const a = s.alanlar || {};
-  const yb = c.yontemBilgi || {};
-  const renk = { yesil: 'yesil', turuncu: 'turuncu', kirmizi: 'kirmizi', gri: 'soluk' }[s.durum];
+function render(device) {
+  const result = device.result || {};
+  const fields = result.fields || {};
+  const method = device.readMethodInfo || {};
+  const colour = STATE_COLOUR[result.state] || null;
 
-  const eylemler = [
+  const actions = [
     el('button', {
-      type: 'button', sinif: 'btn btn-birincil', metin: 'Şimdi oku',
+      type: 'button', class: 'btn btn-primary', text: t('detail.readNow'),
       onclick: async () => {
         try {
-          await api.yenile(durum.setNo, [c.id]);
-          await ac(c.id);
-        } catch (e) { hata(e.message); }
+          await api.refresh(state.setNo, [device.id]);
+          await open(device.id);
+        } catch (e) { showError(e.message); }
       },
     }),
   ];
-  if (s.dogrulama === 'kimlik_bekliyor') {
-    eylemler.push(el('button', {
-      type: 'button', sinif: 'btn', metin: 'Giriş bilgilerini gir',
-      onclick: () => kimlikDiyalogu({
-        ...c, aciklama: s.aciklama, kimlikGrubu: c.kimlikGrubu,
+  if (result.verification === 'auth_required') {
+    actions.push(el('button', {
+      type: 'button', class: 'btn', text: t('detail.enterCredentials'),
+      onclick: () => credentialDialog({
+        ...device, detail: result.detail,
+        credentialGroup: device.credentialGroup,
       }),
     }));
   }
-  if (c.kimlikVar) {
-    eylemler.push(el('button', {
-      type: 'button', sinif: 'btn', metin: 'Giriş bilgilerini sil',
+  if (device.hasCredentials) {
+    actions.push(el('button', {
+      type: 'button', class: 'btn', text: t('detail.deleteCredentials'),
       onclick: async () => {
         try {
-          await api.kimlikUnut(durum.setNo, c.id);
-          await ac(c.id);
-        } catch (e) { hata(e.message); }
+          await api.forgetCredentials(state.setNo, device.id);
+          await open(device.id);
+        } catch (e) { showError(e.message); }
       },
     }));
   }
 
-  // Compartment LCD'de "Versiyon" Android build kimliği değil, panel
-  // uygulamasının sürümüdür (dumpsys package … versionName). Paket adı ve
-  // güncelleme tarihi olmadan hangi sürümün nereden geldiği belli olmuyor.
-  const androidSatir = c.yontem === 'adb' ? [
-    ['Uygulama', a.paket],
-    ['Sürüm kodu', a.surumKodu],
-    ['Hedef SDK', a.hedefSdk],
-    ['Son güncelleme', a.guncelleme],
+  // On the Compartment LCD the version is not the Android build id but the
+  // panel app's version (dumpsys package … versionName). Without the package
+  // name and the update date it is not clear which build came from where.
+  const androidRows = device.readMethod === 'adb' ? [
+    ['Application', fields.package],
+    ['Version code', fields.versionCode],
+    ['Target SDK', fields.targetSdk],
+    ['Last updated', fields.updatedAt],
   ] : [];
 
-  const ozetBloku = blok('Özet', `Proje + ${yb.kod || c.yontem}`, [
-    ['Cihaz adı', c.ad],
-    ['Tür / Alt tür', tipEtiketi(c.tipEtiket)],
-    ['Sürüm', a.surum, a.surum ? 'yesil' : null],
-    ...androidSatir,
-    ['Model', a.model],
-    ['Cihaz numarası', a.seri],
-    ['Erişim durumu', DURUM_ETIKET[s.durum] || YOK, renk],
-    ['Kontrol sonucu', DOGRULAMA_ETIKET[s.dogrulama] || YOK, renk],
-    ['Açıklama', s.aciklama],
-    ['Çalışma süresi', a.calisma],
-  ]);
+  const summaryBlock = block(
+    'Summary', `Project + ${method.code || device.readMethod}`, [
+      ['Device name', device.name],
+      ['Type / subtype', typeLabel(device.typeLabel)],
+      ['Version', fields.version, fields.version ? 'ok' : null],
+      ...androidRows,
+      ['Model', fields.model],
+      ['Device number', fields.serial],
+      [t('detail.accessState'), stateLabel(result.state, NONE), colour],
+      [t('detail.checkResult'),
+        verificationLabel(result.verification, NONE), colour],
+      ['Description', result.detail],
+      ['Uptime', fields.uptime],
+    ]);
 
-  const agBloku = blok('Ağ', `Proje varsayılanı ${c.ipSablonu}`, [
-    ['IP kalıbı', c.ipSablonu],
-    ['Beklenen IP', c.ip],
-    ['Erişim IP’si', s.durum === 'yesil' ? c.ip : 'Doğrulanmış erişim yok',
-      s.durum === 'yesil' ? 'yesil' : 'soluk'],
-    ['Switch · Port', c.portEtiket],
-    ['MAC', a.mac],
-    ['Ağ / Zaman', a.agZaman],
-    ['Saat dilimi', a.saatDilimi],
-  ]);
+  const networkBlock = block(
+    'Network', `Project default ${device.ipTemplate}`, [
+      ['IP template', device.ipTemplate],
+      ['Expected IP', device.ip],
+      ['Reached at',
+        result.state === 'ok' ? device.ip : 'No verified access',
+        result.state === 'ok' ? 'ok' : 'text-dim'],
+      ['Switch · port', device.portLabel],
+      ['MAC', fields.mac],
+      ['Network / time', fields.networkTime],
+      ['Time zone', fields.timezone],
+    ]);
 
-  const sipSatir = c.pbxExtension ? [
-    ['Proje PBX IP’si', c.piscuIp],
-    ['Beklenen SIP dahili numarası', c.pbxExtension],
-    ['Okunan SIP dahili numarası', a.sipDahili,
-      a.sipDahili ? (String(a.sipDahili) === String(c.pbxExtension)
-        ? 'yesil' : 'kirmizi') : null],
-    ['Cihazın bildirdiği PBX', a.sipPbx],
-    // ADB cihazlarında kayıt durumu uygulamanın kendi günlüğünden gelir;
-    // PBX'e sorulmuş bir doğrulama değildir (bkz. MIMARI §12).
-    ...(c.yontem === 'adb'
-      ? [['SIP kayıt durumu (cihaz günlüğü)', a.sipKayit,
-          String(a.sipKayit || '').startsWith('registered') ? 'yesil'
-            : (a.sipKayit ? 'kirmizi' : null)],
-         // Numara cihazın günlüğünden mi yoksa broker'daki duyurudan mı
-         // geldi? İkisi aynı değeri vermeli; kaynağı gizlemek, cihazdan
-         // okunmamış bir değeri okunmuş gibi gösterirdi.
-         ['Dahili numaranın kaynağı', a.sipDahiliKaynak],
-         ['PBX adresinin kaynağı', a.sipPbxKaynak]]
-      // Gain ses seviyesinden ayrı bir ayardır (cihazda speakerGain /
-      // micGain); ikisi aynı satırda gösterilmez. "SIP Arama No" cihazın
-      // çağrı başlattığı hedeftir, kendi dahilisi değil.
-      : [['SIP arama numarası', a.sipArama],
-         ['Hoparlör ses seviyesi', a.hoparlor],
-         ['Mikrofon ses seviyesi', a.mikrofon],
-         ['Hoparlör kazancı', a.hoparlorGain],
-         ['Mikrofon kazancı', a.mikrofonGain]]),
+  const sipRows = device.pbxExtension ? [
+    ['Project PBX IP', device.piscuIp],
+    ['Expected SIP extension', device.pbxExtension],
+    ['Read SIP extension', fields.sipExtension,
+      fields.sipExtension
+        ? (String(fields.sipExtension) === String(device.pbxExtension)
+          ? 'ok' : 'failed')
+        : null],
+    ['PBX reported by the device', fields.sipPbx],
+    // On ADB devices the registration state comes from the app's own log; it
+    // is not a verification asked of the PBX (see MIMARI §12).
+    ...(device.readMethod === 'adb'
+      ? [['SIP registration state (device log)', fields.sipRegistration,
+          String(fields.sipRegistration || '').startsWith('registered')
+            ? 'ok' : (fields.sipRegistration ? 'failed' : null)],
+         // Did the number come from the device's log or from the broker's
+         // announcement? Both should give the same value; hiding the source
+         // would present a value never read from the device as though it had
+         // been.
+         ['Source of the extension', fields.sipExtensionSource],
+         ['Source of the PBX address', fields.sipPbxSource]]
+      // Gain is a setting separate from the volume (speakerGain / micGain on
+      // the device); the two are not shown on one row. The outbound number is
+      // the target the device calls, not its own extension.
+      : [['SIP outbound number', fields.sipOutbound],
+         ['Speaker volume', fields.speakerVolume],
+         ['Microphone volume', fields.micVolume],
+         ['Speaker gain', fields.speakerGain],
+         ['Microphone gain', fields.micGain]]),
   ] : [
-    ['Okuma yöntemi', yb.kod || c.yontem],
-    ['Yol', yb.yol],
-    ['Periyot', yb.periyot ? `${yb.periyot} sn` : 'Elle'],
-    ['Giriş bilgisi gerekiyor mu', yb.kimlik_ister ? 'Evet' : 'Hayır'],
-    ['Bu oturumda kayıtlı giriş bilgisi',
-      c.kimlikVar ? 'Var (yalnız bu oturum)' : 'Yok'],
+    ['Read method', method.code || device.readMethod],
+    ['Path', method.path],
+    ['Period', method.period ? `${method.period} s` : 'Manual'],
+    ['Needs credentials', method.needsAuth ? 'Yes' : 'No'],
+    ['Credentials stored this session',
+      device.hasCredentials ? 'Yes (this session only)' : 'No'],
   ];
 
-  const kutu = el('div', { sinif: 'detay', role: 'dialog', 'aria-modal': 'true',
-    'aria-label': `${c.ad} ayrıntıları` }, [
-    el('div', { stil: 'display:flex;align-items:flex-start;gap:14px' }, [
-      el('div', { stil: 'flex:1;min-width:0' }, [
-        el('div', { sinif: 'ust-etiket', metin: tipEtiketi(c.tipEtiket) }),
-        el('h2', { stil: 'margin:5px 0 0', metin: c.ad }),
+  const box = el('div', {
+    class: 'detail', role: 'dialog', 'aria-modal': 'true',
+    'aria-label': t('detail.dialogLabel', { device: device.name }),
+  }, [
+    el('div', { style: 'display:flex;align-items:flex-start;gap:14px' }, [
+      el('div', { style: 'flex:1;min-width:0' }, [
         el('div', {
-          sinif: 'mono orta', stil: 'margin-top:5px;font-size:11.5px',
-          metin: `${c.ip} · ${c.portEtiket}`,
+          class: 'eyebrow', text: typeLabel(device.typeLabel),
+        }),
+        el('h2', { style: 'margin:5px 0 0', text: device.name }),
+        el('div', {
+          class: 'mono text-mid', style: 'margin-top:5px;font-size:11.5px',
+          text: `${device.ip} · ${device.portLabel}`,
         }),
       ]),
       el('button', {
-        type: 'button', sinif: 'btn btn-x', 'aria-label': 'Kapat',
-        onclick: kapat,
+        type: 'button', class: 'btn btn-close', 'aria-label': t('detail.close'),
+        onclick: close,
       }, ['×']),
     ]),
-    el('div', { stil: 'display:flex;gap:8px;margin-top:16px;flex-wrap:wrap' }, eylemler),
     el('div', {
-      sinif: 'bilgi', stil: 'margin-top:14px',
-      metin: s.okumaZamani
-        ? `Son okuma: ${saat(s.okumaZamani)} · Yöntem: ${yb.kod || c.yontem}`
-        : 'Bu cihaz henüz okunmadı.',
+      style: 'display:flex;gap:8px;margin-top:16px;flex-wrap:wrap',
+    }, actions),
+    el('div', {
+      class: 'info', style: 'margin-top:14px',
+      text: result.readAt
+        ? `Last read: ${clockTime(result.readAt)} · Method: `
+          + `${method.code || device.readMethod}`
+        : 'This device has not been read yet.',
     }),
-    ozetBloku,
-    agBloku,
-    c.pbxExtension
-      ? blok('SIP', yb.yol || '', sipSatir)
-      : el('details', { sinif: 'teknik-detay' }, [
-          el('summary', { metin: 'Teknik ayrıntılar' }),
-          blok('Veri kaynağı', yb.yol || '', sipSatir),
+    summaryBlock,
+    networkBlock,
+    device.pbxExtension
+      ? block('SIP', method.path || '', sipRows)
+      : el('details', { class: 'tech-detail' }, [
+          el('summary', { text: t('detail.technicalDetails') }),
+          block('Data source', method.path || '', sipRows),
         ]),
   ]);
 
-  const perde = el('div', {
-    sinif: 'perde sag',
-    onclick: (e) => { if (e.target === perde) kapat(); },
-  }, [kutu]);
+  const backdrop = el('div', {
+    class: 'backdrop right',
+    onclick: (e) => { if (e.target === backdrop) close(); },
+  }, [box]);
 
-  doldur($('#detay-yuva'), [perde]);
-  if (coz) coz();
-  coz = odakTuzagi(perde, kapat);
-  const ilk = kutu.querySelector('button');
-  if (ilk) ilk.focus();
+  fill($('#detail-slot'), [backdrop]);
+  if (release) release();
+  release = focusTrap(backdrop, close);
+  const first = box.querySelector('button');
+  if (first) first.focus();
 }

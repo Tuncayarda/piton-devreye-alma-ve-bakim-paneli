@@ -1,101 +1,113 @@
-// "Hedef grup" şeridi — IP atama, konfigürasyon, firmware ve kontrol
-// listesi ekranlarının tepesindeki ortak seçici.
+// The "target group" bar — the shared picker at the top of the IP assignment,
+// configuration, firmware and checklist screens.
 import { el } from '../core/dom.js';
-import { durum, ata } from '../core/durum.js';
+import { state, patch } from '../core/store.js';
+import { t } from '../core/i18n.js';
 
-export function gruplar(op) {
-  const meta = durum.meta;
+export function groupsFor(op) {
+  const meta = state.meta;
   if (!meta) return [];
-  return meta.gruplar.filter(g => g.ops.split(' ').includes(op));
+  return meta.groups.filter(g => g.ops.split(' ').includes(op));
 }
 
-export function eslesen(g) {
-  if (g.tip === '*') return durum.cihazlar.filter(c => c.type !== 'Switch');
-  return durum.cihazlar.filter(
-    c => c.type === g.tip && (!g.alt || (c.subtype || '') === g.alt));
+export function devicesIn(group) {
+  if (group.type === '*') {
+    return state.devices.filter(d => d.type !== 'Switch');
+  }
+  return state.devices.filter(
+    d => d.type === group.type
+      && (!group.subtype || (d.subtype || '') === group.subtype));
 }
 
-// Seçili grup bu işlemde geçerli değilse ilk geçerli gruba düşer.
-export function gecerliGrup(op) {
-  const liste = gruplar(op);
-  if (!liste.length) return null;
-  return liste.find(g => g.ad === durum.hedefGrup) || liste[0];
+// If the selected group is not valid for this operation, fall back to the
+// first valid one.
+export function currentGroup(op) {
+  const list = groupsFor(op);
+  if (!list.length) return null;
+  return list.find(g => g.name === state.targetGroup) || list[0];
 }
 
-// İşlem ekranlarında hedef tek seçimdir. Yatay çip şeridi çok yer kaplıyor
-// ve seçenek sayısı arttığında kaydırma gerektiriyordu; kompakt açılır liste
-// aynı kapsamı daha sakin ve doğrudan gösterir. Cihaz sayıları seçenek adına
-// eklenmez: sayı, işlemin kendi tablosunda zaten görünür.
-export function secici(op, secilince = () => {}) {
-  const liste = gruplar(op);
-  const aktif = gecerliGrup(op);
-  return el('label', { sinif: 'hedef-secici' }, [
-    el('span', { sinif: 'etiket', metin: 'Cihaz türü' }),
+// On the operation screens the target is a single choice. A horizontal chip
+// bar took up too much room and needed scrolling once the options grew; a
+// compact dropdown shows the same scope more calmly and directly. Device
+// counts are not added to the option name: the count is already visible in
+// the operation's own table.
+export function picker(op, onSelect = () => {}) {
+  const list = groupsFor(op);
+  const active = currentGroup(op);
+  return el('label', { class: 'target-picker' }, [
+    el('span', { class: 'label', text: t('groupbar.deviceType') }),
     el('select', {
-      sinif: 'alan',
-      'aria-label': 'Hedef cihaz türü',
-      disabled: !liste.length,
+      class: 'field',
+      'aria-label': t('groupbar.targetDeviceType'),
+      disabled: !list.length,
       onchange: (e) => {
-        const grup = liste.find(g => g.ad === e.target.value);
-        if (!grup) return;
-        // Seçim bitti: odak listeden çıkarılır. Odaktaki bir liste açık
-        // sayıldığı ve çizimi beklettiği için (bkz. app.odakAcilirListede)
-        // bu olmadan yeni grubun alanları ekrana gelmiyordu.
+        const group = list.find(g => g.name === e.target.value);
+        if (!group) return;
+        // The selection is done: focus leaves the list. Because a focused
+        // list counts as open and holds the render back (see
+        // app.focusInDropdown), without this the new group's fields never
+        // reached the screen.
         e.target.blur();
-        ata({ hedefGrup: grup.ad });
-        secilince(grup);
+        patch({ targetGroup: group.name });
+        onSelect(group);
       },
-    }, liste.map(g => el('option', {
-      value: g.ad,
-      selected: aktif && aktif.ad === g.ad ? true : null,
-      metin: g.ad,
+    }, list.map(g => el('option', {
+      value: g.name,
+      selected: active && active.name === g.name ? true : null,
+      text: g.label || g.name,
     }))),
   ]);
 }
 
-// Şerit sığmadığında sağ kenar soluyor (bkz. .serit maskesi). Sonuna
-// gelindiğinde ya da hepsi sığdığında solmaya gerek yok; bunu ancak
-// ölçerek bilebiliyoruz.
-function kenariIsaretle(kap) {
-  const guncelle = () => {
-    // Ölçüm ancak öğe sayfaya girdikten sonra anlamlı; çağrıldığı yerde
-    // henüz bağlı değil.
-    if (!kap.isConnected) return;
-    const son = kap.scrollLeft + kap.clientWidth >= kap.scrollWidth - 2;
-    kap.dataset.son = son ? '1' : '0';
+// When the bar does not fit, its right edge fades out (see the .chip-bar
+// mask). At the end, or when everything fits, no fade is needed — and that
+// can only be known by measuring.
+function markEdge(container) {
+  const update = () => {
+    // The measurement is only meaningful once the element is in the page; it
+    // is not attached yet where this is called.
+    if (!container.isConnected) return;
+    const atEnd = container.scrollLeft + container.clientWidth
+      >= container.scrollWidth - 2;
+    container.dataset.atEnd = atEnd ? '1' : '0';
   };
-  kap.addEventListener('scroll', guncelle, { passive: true });
-  // requestAnimationFrame değil: pencere boyanmıyorken (arka planda,
-  // simge durumunda) hiç çalışmıyor ve şerit sonsuza kadar solmuş kalıyor.
-  setTimeout(guncelle, 0);
-  return kap;
+  container.addEventListener('scroll', update, { passive: true });
+  // Not requestAnimationFrame: while the window is not painting (in the
+  // background, minimised) it never runs and the bar stays faded forever.
+  setTimeout(update, 0);
+  return container;
 }
 
-// `secenekler.coklu` verilirse şerit çoklu seçim yapar: seçili adlar
-// çağıran ekranda tutulur (durum.hedefGrup tek ad taşıdığı için diğer
-// ekranların davranışı değişmez), tıklama yalnız geri çağrıya gider.
-export function ciz(op, secilenler = () => {}, secenekler = {}) {
-  const { coklu = false, secili = null } = secenekler;
-  const liste = gruplar(op);
-  const aktif = gecerliGrup(op);
-  const secildiMi = (g) => (coklu
-    ? !!secili && secili.includes(g.ad)
-    : !!aktif && aktif.ad === g.ad);
-  return kenariIsaretle(el('div', {
-    sinif: 'serit', role: 'group',
-    'aria-label': coklu ? 'Hedef cihaz grupları' : 'Hedef cihaz grubu',
+// With `options.multi` the bar becomes a multi-select: the selected names are
+// held by the calling screen (state.targetGroup carries a single name, so the
+// other screens' behaviour is unchanged) and a click only goes to the
+// callback.
+export function render(op, onSelect = () => {}, options = {}) {
+  const { multi = false, selected = null } = options;
+  const list = groupsFor(op);
+  const active = currentGroup(op);
+  const isSelected = (g) => (multi
+    ? !!selected && selected.includes(g.name)
+    : !!active && active.name === g.name);
+  return markEdge(el('div', {
+    class: 'chip-bar', role: 'group',
+    'aria-label': t(multi ? 'groupbar.targetGroups' : 'groupbar.targetGroup'),
   }, [
-    el('span', { sinif: 'etiket', metin: coklu ? 'Hedef gruplar' : 'Hedef grup' }),
-    ...liste.map(g => el('button', {
-      type: 'button', sinif: 'cip',
-      'aria-pressed': String(secildiMi(g)),
+    el('span', {
+      class: 'label',
+      text: multi ? 'Target groups' : 'Target group',
+    }),
+    ...list.map(g => el('button', {
+      type: 'button', class: 'chip',
+      'aria-pressed': String(isSelected(g)),
       onclick: () => {
-        if (!coklu) ata({ hedefGrup: g.ad });
-        secilenler(g);
+        if (!multi) patch({ targetGroup: g.name });
+        onSelect(g);
       },
     }, [
-      el('span', { metin: g.ad }),
-      el('span', { sinif: 'n', metin: String(eslesen(g).length) }),
+      el('span', { text: g.label || g.name }),
+      el('span', { class: 'count', text: String(devicesIn(g).length) }),
     ])),
   ]));
 }

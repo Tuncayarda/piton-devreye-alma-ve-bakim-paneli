@@ -1,193 +1,200 @@
-// Kilit menüsü: kullanıcı adı/parola bekleyen cihazlar ve kimlik diyaloğu.
+// The lock menu: devices waiting for a username/password, and the credential
+// dialog.
 //
-// Parola hiçbir zaman uygulama durumuna (durum.js) yazılmaz. Diyalogdaki
-// input değeri doğrudan API çağrısına verilir; yanıt döner dönmez —
-// başarılı da olsa başarısız da olsa — alan temizlenir.
+// A password is NEVER written to the application store (core/store.js). The
+// dialog's input value goes straight into the API call; the moment the reply
+// arrives — success or failure — the field is cleared.
 //
-// Doğrulama kararını sunucu verir: form doldurulmuş olması yetmez, cihaz
-// gerçekten beklenen veriyi döndürmelidir.
+// The server makes the verification decision: a filled-in form is not enough,
+// the device must really return the expected data.
 
-import { el, doldur, $ } from '../core/dom.js';
+import { el, fill, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
-import { deger, tipEtiketi } from '../core/bicim.js';
-import * as diyalog from './diyalog.js';
-import { bildir, basari } from './bildirim.js';
+import { state, patch } from '../core/store.js';
+import { value, typeLabel } from '../core/format.js';
+import * as dialog from './dialog.js';
+import { showSuccess } from './toast.js';
+import { t } from '../core/i18n.js';
 
-let yenile = () => {};
+let onAccepted = () => {};
 
-export function baglaYenile(fn) { yenile = fn; }
+export function onCredentialsAccepted(fn) { onAccepted = fn; }
 
-// Kuyruk panelindeki ile aynı gerekçe: liste ancak değiştiğinde kurulur.
-let sonImza = null;
+// Same reasoning as the queue panel: the list is only rebuilt when it changed.
+let lastSignature = null;
 
-export function ciz() {
-  const liste = $('#kilit-liste');
-  if (!liste) return;
-  const kilit = durum.kilit || [];
+export function render() {
+  const list = $('#locked-list');
+  if (!list) return;
+  const devices = state.locked || [];
 
-  const sayac = $('#kilit-sayac');
-  if (sayac) {
-    sayac.textContent = String(kilit.length);
-    sayac.hidden = kilit.length === 0;
+  const badge = $('#locked-count');
+  if (badge) {
+    badge.textContent = String(devices.length);
+    badge.hidden = devices.length === 0;
   }
-  const btn = $('#kilit-btn');
-  if (btn) btn.setAttribute('aria-expanded', String(!!durum.kilitAcik));
-  $('#kilit-panel').hidden = !durum.kilitAcik;
-  if (!durum.kilitAcik) { sonImza = null; return; }
+  const button = $('#locked-btn');
+  if (button) button.setAttribute('aria-expanded', String(!!state.lockedOpen));
+  $('#locked-panel').hidden = !state.lockedOpen;
+  if (!state.lockedOpen) { lastSignature = null; return; }
 
-  const imza = JSON.stringify(kilit);
-  if (imza === sonImza) return;
-  sonImza = imza;
+  const signature = JSON.stringify(devices);
+  if (signature === lastSignature) return;
+  lastSignature = signature;
 
-  doldur(liste, kilit.map(c => el('button', {
-    type: 'button', sinif: 'kilit-satir',
-    onclick: () => kimlikDiyalogu(c),
+  fill(list, devices.map(device => el('button', {
+    type: 'button', class: 'locked-row',
+    onclick: () => credentialDialog(device),
   }, [
-    el('span', { sinif: 'ad', metin: c.ad }),
-    el('span', { sinif: 'rozet', metin: yontemKodu(c) }),
-    el('span', { sinif: 'alt' }, [
-      `${c.ip} · ${tipEtiketi(c.tipEtiket)}`,
+    el('span', { class: 'name', text: device.name }),
+    el('span', { class: 'badge', text: methodCode(device) }),
+    el('span', { class: 'sub' }, [
+      `${device.ip} · ${typeLabel(device.typeLabel)}`,
       el('br'),
-      c.kimlikGrubu
-        ? `Hesap grubu: ${c.kimlikGrubu}`
-        : 'Yalnız bu cihaz için kullanılan hesap',
+      device.credentialGroup
+        ? `Account group: ${device.credentialGroup}`
+        : 'An account used for this device only',
       el('br'),
-      aciklamaOf(c),
+      detailOf(device),
     ]),
   ])));
 }
 
-// Açıklama ve yöntem kodu, cihaz DTO'sunun içindeki okuma sonucundan
-// gelir; kilit listesi ayrı bir uçtan beslenmediği için burada çözülür.
-function aciklamaOf(c) {
-  return (c.sonuc && c.sonuc.aciklama) || c.aciklama || '';
+// The detail text and the method code come from the read result inside the
+// device DTO; the lock list is not fed by a separate endpoint, so it is
+// resolved here.
+function detailOf(device) {
+  return (device.result && device.result.detail) || device.detail || '';
 }
 
-function yontemKodu(c) {
-  if (c.yontemKod) return c.yontemKod;
-  const y = durum.meta && durum.meta.yontemler && durum.meta.yontemler[c.yontem];
-  return (y && y.kod) || String(c.yontem || '').toUpperCase();
+function methodCode(device) {
+  if (device.readMethodCode) return device.readMethodCode;
+  const methods = state.meta && state.meta.readMethods;
+  const method = methods && methods[device.readMethod];
+  return (method && method.code)
+    || String(device.readMethod || '').toUpperCase();
 }
 
-// `bittiginde` doğrulama başarılı olduğunda çağrılır: diyaloğu açan ekran
-// kendi verisini tazeleyebilsin (IP atama ekranı switch panelini yeniden
-// okur). Verilmezse yalnız genel yenileme çalışır.
-export function kimlikDiyalogu(cihaz, bittiginde = null) {
-  const kullaniciAlan = el('input', {
-    sinif: 'alan', type: 'text', id: 'kimlik-kullanici',
+// `onDone` is called when the verification succeeds, so the screen that
+// opened the dialog can refresh its own data (the IP assignment screen
+// re-reads the switch panel). Without it only the general refresh runs.
+export function credentialDialog(device, onDone = null) {
+  const usernameField = el('input', {
+    class: 'field', type: 'text', id: 'credential-username',
     autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
     value: '',
   });
-  const parolaAlan = el('input', {
-    sinif: 'alan', type: 'password', id: 'kimlik-parola',
+  const passwordField = el('input', {
+    class: 'field', type: 'password', id: 'credential-password',
     autocomplete: 'new-password',
   });
-  const uyariKutu = el('p', { sinif: 'uyari', role: 'alert', hidden: true });
+  const warning = el('p', { class: 'warning', role: 'alert', hidden: true });
 
-  let grubaUygula = false;
-  const grupBtn = cihaz.kimlikGrubu ? el('button', {
-    type: 'button', sinif: 'onay', 'aria-pressed': 'false',
+  let applyToGroup = false;
+  const groupButton = device.credentialGroup ? el('button', {
+    type: 'button', class: 'checkbox', 'aria-pressed': 'false',
     onclick: (e) => {
-      grubaUygula = !grubaUygula;
-      e.currentTarget.setAttribute('aria-pressed', String(grubaUygula));
+      applyToGroup = !applyToGroup;
+      e.currentTarget.setAttribute('aria-pressed', String(applyToGroup));
     },
   }, [
-    el('span', { sinif: 'kutu', 'aria-hidden': 'true' }),
+    el('span', { class: 'box', 'aria-hidden': 'true' }),
     el('span', {
-      metin: `Aynı hesabı "${cihaz.kimlikGrubu}" grubundaki diğer cihazlarda da kullan`,
+      text: t('locked.applyToGroup', { group: device.credentialGroup }),
     }),
   ]) : null;
 
-  const gonder = el('button', {
-    type: 'submit', sinif: 'btn btn-birincil', metin: 'Erişimi doğrula',
+  const submit = el('button', {
+    type: 'submit', class: 'btn btn-primary', text: t('locked.verifyAccess'),
   });
 
   const form = el('form', {
     onsubmit: async (e) => {
       e.preventDefault();
-      uyariKutu.hidden = true;
-      gonder.disabled = true;
-      gonder.textContent = 'Erişim doğrulanıyor…';
+      warning.hidden = true;
+      submit.disabled = true;
+      submit.textContent = 'Verifying access…';
 
-      const kullanici = kullaniciAlan.value.trim();
-      const parola = parolaAlan.value;
+      const username = usernameField.value.trim();
+      const password = passwordField.value;
       try {
-        const y = await api.kimlikDene(
-          durum.setNo, cihaz.id, kullanici, parola, grubaUygula);
-        // Başarılı da olsa alanı bellekte tutmuyoruz.
-        parolaAlan.value = '';
-        kullaniciAlan.value = '';
-        uygulaDurum(y.durum);
-        diyalog.kapat();
-        basari(`${cihaz.ad} cihazına erişim doğrulandı`
-          + (y.grubaUygulandi ? ' · Hesap gruba uygulandı.' : '.'));
-        yenile();
-        if (bittiginde) bittiginde();
+        const reply = await api.tryCredentials(
+          state.setNo, device.id, username, password, applyToGroup);
+        // Not held in memory even on success.
+        passwordField.value = '';
+        usernameField.value = '';
+        applyState(reply.state);
+        dialog.close();
+        showSuccess(t(reply.appliedToGroup
+          ? 'locked.accessVerifiedGroup' : 'locked.accessVerified',
+        { device: device.name }));
+        onAccepted();
+        if (onDone) onDone();
       } catch (err) {
-        // Yanlış parola bellekteki çalışan kimliği ezmez (sunucu tarafı).
-        parolaAlan.value = '';
-        uyariKutu.textContent = err.message || 'Erişim doğrulanamadı.';
-        uyariKutu.hidden = false;
-        parolaAlan.focus();
-        if (err.govde && err.govde.durum) uygulaDurum(err.govde.durum);
+        // A wrong password does not overwrite the working credential in
+        // memory (server side).
+        passwordField.value = '';
+        warning.textContent = err.message || 'Access could not be verified.';
+        warning.hidden = false;
+        passwordField.focus();
+        if (err.body && err.body.state) applyState(err.body.state);
       } finally {
-        gonder.disabled = false;
-        gonder.textContent = 'Erişimi doğrula';
+        submit.disabled = false;
+        submit.textContent = 'Verify access';
       }
     },
   }, [
-    el('p', { sinif: 'aciklama' }, [
-      `${cihaz.ip} · ${tipEtiketi(cihaz.tipEtiket)} · ${yontemKodu(cihaz)}`,
+    el('p', { class: 'description' }, [
+      `${device.ip} · ${typeLabel(device.typeLabel)} · ${methodCode(device)}`,
       el('br'),
-      deger(aciklamaOf(cihaz)),
+      value(detailOf(device)),
     ]),
-    el('label', { stil: 'display:block;margin-bottom:10px' }, [
-      el('span', { sinif: 'etiket', metin: 'Kullanıcı adı' }),
-      kullaniciAlan,
+    el('label', { style: 'display:block;margin-bottom:10px' }, [
+      el('span', { class: 'label', text: t('locked.username') }),
+      usernameField,
     ]),
-    el('label', { stil: 'display:block' }, [
-      el('span', { sinif: 'etiket', metin: 'Parola' }),
-      parolaAlan,
+    el('label', { style: 'display:block' }, [
+      el('span', { class: 'label', text: t('locked.password') }),
+      passwordField,
     ]),
-    grupBtn ? el('div', { stil: 'margin-top:12px' }, [grupBtn]) : null,
+    groupButton ? el('div', { style: 'margin-top:12px' }, [groupButton]) : null,
     el('p', {
-      sinif: 'bilgi', stil: 'margin-top:12px',
-      metin: 'Girilen bilgiler yalnızca bu oturumda bellekte tutulur; '
-        + 'hiçbir dosyaya yazılmaz. Uygulama kapanınca unutulur.',
+      class: 'info', style: 'margin-top:12px',
+      text: t('locked.whatYouEnterIsKept'),
     }),
-    uyariKutu,
-    el('div', { sinif: 'eylemler', stil: 'margin-top:14px' }, [
+    warning,
+    el('div', { class: 'actions', style: 'margin-top:14px' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Vazgeç',
-        onclick: () => diyalog.kapat(),
+        type: 'button', class: 'btn', text: t('locked.cancel'),
+        onclick: () => dialog.close(),
       }),
-      gonder,
+      submit,
     ]),
   ]);
 
-  diyalog.ac({ baslik: `${cihaz.ad} için giriş bilgileri`, icerik: form });
-}
-
-// Sunucudan gelen tam durum görüntüsünü uygular (sayaçlar anında güncellenir).
-export function uygulaDurum(d) {
-  if (!d) return;
-  ata({
-    cihazlar: d.cihazlar || [],
-    sayilar: d.sayilar || durum.sayilar,
-    sonTarama: d.sonTarama ?? durum.sonTarama,
-    aktifTarama: !!d.aktifTarama,
-    kilit: (d.cihazlar || []).filter(
-      c => c.sonuc.dogrulama === 'kimlik_bekliyor'),
+  dialog.show({
+    title: t('locked.dialogTitle', { device: device.name }), content: form,
   });
 }
 
-export function kilitAcKapat() {
-  ata({ kilitAcik: !durum.kilitAcik, kuyrukAcik: false });
-  if (durum.kilitAcik) {
-    const ilk = $('#kilit-liste .kilit-satir');
-    if (ilk) ilk.focus();
-  }
+// Applies the full state snapshot from the server (the counters update at
+// once).
+export function applyState(data) {
+  if (!data) return;
+  patch({
+    devices: data.devices || [],
+    counts: data.counts || state.counts,
+    lastScan: data.lastScan ?? state.lastScan,
+    scanRunning: !!data.scanRunning,
+    locked: (data.devices || []).filter(
+      device => device.result.verification === 'auth_required'),
+  });
 }
 
-export function bilgilendir(mesaj) { bildir(mesaj); }
+export function toggle() {
+  patch({ lockedOpen: !state.lockedOpen, queueOpen: false });
+  if (state.lockedOpen) {
+    const first = $('#locked-list .locked-row');
+    if (first) first.focus();
+  }
+}

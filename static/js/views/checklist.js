@@ -1,545 +1,592 @@
-// Kontrol Listesi — Excel'e yazılacak bilginin ön izlemesi.
+// The checklist — a preview of what will be written to Excel.
 //
-// Amaç çıktının önceden görülebilmesi: sütunlar şablonun sütunlarıdır ve
-// hepsi buradadır. Şablon değişirse liste de değişir; kodda ayrı bir
-// kolon listesi tutulmuyor.
+// The point is to see the output in advance: the columns are the template's
+// columns and all of them are here. If the template changes, the list changes;
+// no separate column list is kept in the code.
 //
-// Gri (N/A) hücre "bu cihaz türünde kullanılmıyor" demektir; "—" ise
-// "henüz okunmadı". İkisi ayrı gösterilir.
+// A grey (N/A) cell means "not used on this device type"; "—" means "not read
+// yet". The two are shown differently.
 
-import { el, doldur, $ } from '../core/dom.js';
+import { el, fill, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
-import { hata, basari } from '../parts/bildirim.js';
-import * as detay from '../parts/detay.js';
-import * as diyalog from '../parts/diyalog.js';
-import { YOK, saat, tazelik, DURUM_ETIKET } from '../core/bicim.js';
+import { state, patch } from '../core/store.js';
+import { showError, showSuccess } from '../components/toast.js';
+import * as detail from '../components/detail.js';
+import * as dialog from '../components/dialog.js';
+import { NONE, clockTime, age, stateLabel } from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-// Sütun genişlikleri: içeriği taşımayacak kadar, ekranı boğmayacak kadar.
-const GENISLIK = {
-  'Bölüm': 88,
-  'Switch': 104,
-  'Port': 52,
-  'Cihaz Tanımı': 164,
-  'IP Şablonu': 104,
-  'Beklenen IP': 104,
-  'Beklenen Versiyon': 112,
-  'Beklenen SIP Dahili No': 124,
-  'Cihaz İsmi': 164,
-  'Bağlantı Bilgisi': 116,
-  'Versiyon': 88,
-  'Cihaz Numarası': 124,
-  'Durum Açıklaması': 112,
-  'Çalışma Süresi': 100,
+// Column widths, keyed by the server's stable column id (see
+// panel/checklist/columns.py) rather than by the heading in the sheet: a
+// reworded heading must not silently drop a width.
+const WIDTHS = {
+  section: 88,
+  switch: 104,
+  port: 52,
+  deviceDefinition: 164,
+  ipTemplate: 104,
+  expectedIp: 104,
+  expectedVersion: 112,
+  expectedSipExtension: 124,
+  deviceName: 164,
+  connectionInfo: 116,
+  version: 88,
+  deviceNumber: 124,
+  statusDescription: 112,
+  uptime: 100,
 };
-const VARSAYILAN_GENISLIK = 112;
+const DEFAULT_WIDTH = 112;
 
-// Okunan değer ile şablondaki beklenen değerin eşleşmesi: soldaki sütun
-// cihazdan okunur, sağdaki beklenendir. Tutuyorsa yeşil, tutmuyorsa
-// kırmızı gösterilir — tabloya bakan biri sapmayı okumadan görsün.
-const KARSILASTIR = {
-  'Bağlantı Bilgisi': 'Beklenen IP',
-  'Versiyon': 'Beklenen Versiyon',
-  'SIP Dahili No': 'Beklenen SIP Dahili No',
+// Matching a read value against the expected value from the template: the
+// left column is read from the device, the right one is expected. Matching
+// shows green, mismatching red — so whoever looks at the table sees the
+// deviation without reading it.
+const COMPARE_WITH = {
+  connectionInfo: 'expectedIp',
+  version: 'expectedVersion',
+  sipExtension: 'expectedSipExtension',
 };
 
-// Karşılaştırma biçim farkına takılmasın: baş/son boşluk ve büyük-küçük
-// harf anlam taşımıyor.
-const sadelestir = (d) => String(d).trim().toLowerCase().replace(/\s+/g, ' ');
+// Columns that carry a value from the template, not from a device.
+const EXPECTED_COLUMNS = new Set([
+  'expectedIp', 'expectedVersion', 'expectedSipExtension',
+]);
 
-// Verinin ne kadar süre sonra "bayat" sayılacağı. Sahada Excel'i on
-// dakika önceki okumadan üretmek işe yaramıyor: cihazlar o arada
-// yeniden başlatılıyor, IP'si değişiyor, kablosu çekiliyor.
-const BAYAT_SN = 120;
+// The value written into the status column when the device answered.
+const STATUS_ACTIVE = 'active';
 
-// Günlük kullanımda yalnız sapmalar görünür. Excel önizlemesi, şablonun
-// bütün sütunlarını görmek isteyen kullanıcı için ayrı bir yerel sekmedir.
-let raporSekmesi = 'sapmalar';
+// The comparison must not trip over formatting: leading/trailing space and
+// case carry no meaning.
+const normalise = (v) => String(v).trim().toLowerCase().replace(/\s+/g, ' ');
 
-const SAPMA_KOLON = 'minmax(170px,1.1fr) 112px minmax(260px,1.7fr) 150px';
+// How long before the data counts as "stale". In the field, producing the
+// Excel from a read taken ten minutes ago is useless: devices get restarted,
+// IPs change and cables get pulled in the meantime.
+const STALE_SECONDS = 120;
 
-const bosMu = (v) => v === null || v === undefined || String(v).trim() === '';
+// In daily use only the deviations are shown. The Excel preview is a separate
+// local tab for whoever wants to see every column of the template.
+let reportTab = 'deviations';
 
-function satirDegerleri(satir, sutunlar) {
-  const degerler = new Map();
-  satir.hucreler.forEach((h, i) => {
-    if (!h.na && sutunlar[i]) degerler.set(sutunlar[i].ad, h.deger);
+const DEVIATION_COLUMNS =
+  'minmax(170px,1.1fr) 112px minmax(260px,1.7fr) 150px';
+
+const isEmpty = (v) => v === null || v === undefined || String(v).trim() === '';
+
+function rowValues(row, columns) {
+  const values = new Map();
+  row.cells.forEach((cell, i) => {
+    if (!cell.notApplicable && columns[i] && columns[i].id) {
+      values.set(columns[i].id, cell.value);
+    }
   });
-  return degerler;
+  return values;
 }
 
-// Kullanıcının seçtiği sağlık tanımı: erişim + IP + varsa SIP dahili
-// numarası. Sürüm ve diğer yapılandırma alanları raporda görünmeye devam
-// eder, fakat cihazın temel kontrolleri geçip geçmediğini belirlemez.
-function temelDegerlendir(satir, sutunlar) {
-  const degerler = satirDegerleri(satir, sutunlar);
-  const sorunlar = [];
+// The user's chosen definition of healthy: reachability + IP + the SIP
+// extension where there is one. Version and the other configuration fields
+// still appear in the report but do not decide whether the device passed its
+// basic checks.
+function evaluate(row, columns) {
+  const values = rowValues(row, columns);
+  const problems = [];
 
-  if (satir.durum !== 'yesil') {
-    const kod = satir.durum === 'turuncu' ? 'giris'
-      : satir.durum === 'gri' ? 'okunmadi' : 'erisim';
-    const metin = kod === 'giris' ? 'Kullanıcı adı veya parola gerekli'
-      : kod === 'okunmadi' ? 'Henüz okunmadı'
-        : (satir.aciklama || 'Cihaza erişilemedi');
-    sorunlar.push({ kod, metin, renk: satir.durum || 'kirmizi' });
-    return { sorunlar, degerler, gecti: false };
+  if (row.state !== 'ok') {
+    const code = row.state === 'auth' ? 'auth'
+      : row.state === 'unknown' ? 'unread' : 'reach';
+    const text = code === 'auth' ? 'A username or password is needed'
+      : code === 'unread' ? 'Not read yet'
+        : (row.detail || 'The device could not be reached');
+    problems.push({ code, text });
+    return { problems, values, passed: false };
   }
 
-  const beklenenIp = degerler.get('Beklenen IP');
-  const okunanIp = degerler.get('Bağlantı Bilgisi');
-  if (!bosMu(beklenenIp)
-      && (bosMu(okunanIp) || sadelestir(okunanIp) !== sadelestir(beklenenIp))) {
-    sorunlar.push({
-      kod: 'ip', renk: 'kirmizi',
-      metin: bosMu(okunanIp)
-        ? `IP doğrulanamadı · beklenen ${beklenenIp}`
-        : `IP uyuşmuyor · beklenen ${beklenenIp}, okunan ${okunanIp}`,
+  const expectedIp = values.get('expectedIp');
+  const readIp = values.get('connectionInfo');
+  if (!isEmpty(expectedIp)
+      && (isEmpty(readIp) || normalise(readIp) !== normalise(expectedIp))) {
+    problems.push({
+      code: 'ip',
+      text: isEmpty(readIp)
+        ? `The IP could not be verified · expected ${expectedIp}`
+        : `IP mismatch · expected ${expectedIp}, read ${readIp}`,
     });
   }
 
-  const beklenenSip = degerler.get('Beklenen SIP Dahili No');
-  const okunanSip = degerler.get('SIP Dahili No');
-  if (!bosMu(beklenenSip)
-      && (bosMu(okunanSip) || sadelestir(okunanSip) !== sadelestir(beklenenSip))) {
-    sorunlar.push({
-      kod: 'sip', renk: 'kirmizi',
-      metin: bosMu(okunanSip)
-        ? `SIP dahili numarası okunamadı · beklenen ${beklenenSip}`
-        : `SIP dahili numarası uyuşmuyor · beklenen ${beklenenSip}, okunan ${okunanSip}`,
+  const expectedSip = values.get('expectedSipExtension');
+  const readSip = values.get('sipExtension');
+  if (!isEmpty(expectedSip)
+      && (isEmpty(readSip) || normalise(readSip) !== normalise(expectedSip))) {
+    problems.push({
+      code: 'sip',
+      text: isEmpty(readSip)
+        ? `The SIP extension could not be read · expected ${expectedSip}`
+        : `SIP extension mismatch · expected ${expectedSip}, `
+          + `read ${readSip}`,
     });
   }
 
-  return { sorunlar, degerler, gecti: sorunlar.length === 0 };
+  return { problems, values, passed: problems.length === 0 };
 }
 
-function ozetKarti(ad, deger, renk, not) {
-  return el('div', { sinif: 'dog-ozet-kart' }, [
-    el('span', { sinif: 'ad', metin: ad }),
-    el('strong', { stil: `color:var(--${renk})`, metin: String(deger) }),
-    el('span', { sinif: 'not', metin: not }),
+function summaryCard(name, amount, colour, note) {
+  return el('div', { class: 'check-summary-card' }, [
+    el('span', { class: 'name', text: name }),
+    el('strong', { style: `color:var(--${colour})`, text: String(amount) }),
+    el('span', { class: 'note', text: note }),
   ]);
 }
 
-function sapmaTablosu(satirlar, sutunlar) {
-  const sapmalar = satirlar
-    .map(s => ({ satir: s, sonuc: temelDegerlendir(s, sutunlar) }))
-    .filter(x => !x.sonuc.gecti);
+function deviationTable(rows, columns) {
+  const deviations = rows
+    .map(row => ({ row, result: evaluate(row, columns) }))
+    .filter(entry => !entry.result.passed);
 
-  if (!sapmalar.length) {
-    return el('div', { sinif: 'bos-durum bos-durum-basarili' }, [
-      el('strong', { metin: 'Temel kontrollerde sorun bulunmadı.' }),
+  if (!deviations.length) {
+    return el('div', { class: 'empty-state empty-state-success' }, [
+      el('strong', { text: t('checklist.theBasicChecksFoundNothing') }),
       el('span', {
-        metin: 'Seçili kapsamda erişim, IP ve SIP değerleri beklenenle uyumlu.',
+        text: t('checklist.withinTheSelectedScopeAccess'),
       }),
     ]);
   }
 
-  return el('div', { sinif: 'tablo-sar' }, [
-    el('div', { sinif: 'tablo', stil: '--tablo-min:820px' }, [
+  return el('div', { class: 'table-wrap' }, [
+    el('div', { class: 'table', style: '--table-min:820px' }, [
       el('div', {
-        sinif: 'tablo-basi', stil: `--tablo-kolon:${SAPMA_KOLON}`, role: 'row',
-      }, ['Cihaz', 'Beklenen IP', 'Bulgu', 'Erişim durumu']
-        .map(ad => el('span', { metin: ad }))),
-      ...sapmalar.map(({ satir, sonuc }) => el('button', {
-        type: 'button', sinif: 'tablo-satir dog-sapma-satir',
-        stil: `--tablo-kolon:${SAPMA_KOLON}`,
-        title: `${satir.ad} ayrıntılarını aç`,
-        onclick: () => { if (satir.cihazId) detay.ac(satir.cihazId); },
+        class: 'table-head', style: `--table-columns:${DEVIATION_COLUMNS}`,
+        role: 'row',
+      }, ['col.device', 'col.expectedIp', 'col.finding', 'col.accessState']
+        .map(key => el('span', { text: key ? t(key) : '' }))),
+      ...deviations.map(({ row, result }) => el('button', {
+        type: 'button', class: 'table-row check-deviation-row',
+        style: `--table-columns:${DEVIATION_COLUMNS}`,
+        title: t('checklist.openDetails', { device: row.name }),
+        onclick: () => { if (row.deviceId) detail.open(row.deviceId); },
       }, [
-        el('span', { sinif: 'cihaz-ozet' }, [
+        el('span', { class: 'device-summary' }, [
           el('span', {
-            sinif: 'nokta', veri: { durum: satir.durum }, 'aria-hidden': 'true',
+            class: 'dot', dataset: { state: row.state },
+            'aria-hidden': 'true',
           }),
-          el('span', { sinif: 'mono kirp', metin: satir.ad || YOK }),
+          el('span', { class: 'mono truncate', text: row.name || NONE }),
         ]),
-        el('span', { sinif: 'mono', metin: satir.ip || YOK }),
+        el('span', { class: 'mono', text: row.ip || NONE }),
         el('span', {
-          sinif: 'sapma-metin',
-          metin: sonuc.sorunlar.map(s => s.metin).join(' · '),
+          class: 'deviation-text',
+          text: result.problems.map(p => p.text).join(' · '),
         }),
         el('span', {
-          sinif: 'durum-yazi', veri: { durum: satir.durum },
-          metin: DURUM_ETIKET[satir.durum] || YOK,
+          class: 'state-text', dataset: { state: row.state },
+          text: stateLabel(row.state, NONE),
         }),
       ])),
     ]),
   ]);
 }
 
-function excelOnizlemesi(satirlar, v) {
-  const kolon = v.sutunlar
-    .map(s => `${GENISLIK[s.ad] || VARSAYILAN_GENISLIK}px`)
+function excelPreview(rows, data) {
+  const template = data.columns
+    .map(column => `${WIDTHS[column.id] || DEFAULT_WIDTH}px`)
     .join(' ');
-  const enAz = v.sutunlar
-    .reduce((t, s) => t + (GENISLIK[s.ad] || VARSAYILAN_GENISLIK), 0)
-    + v.sutunlar.length * 10;
+  const minimum = data.columns
+    .reduce((total, column) => total + (WIDTHS[column.id] || DEFAULT_WIDTH),
+            0)
+    + data.columns.length * 10;
 
   return [
-    el('div', { sinif: 'bilgi dog-excel-notu' }, [
-      'Bu görünüm üretilecek Excel dosyasının tam sütun yapısını gösterir. ',
-      'Günlük inceleme için Sapmalar sekmesini kullanabilirsiniz.',
+    el('div', { class: 'info check-excel-note' }, [
+      'This view shows the exact column layout of the Excel file that will ',
+      'be produced. For day-to-day review, use the Deviations tab.',
     ]),
-    el('div', { sinif: 'tablo-sar' }, [
-      el('div', { sinif: 'tablo', stil: `--tablo-min:${enAz}px` }, [
+    el('div', { class: 'table-wrap' }, [
+      el('div', { class: 'table', style: `--table-min:${minimum}px` }, [
         el('div', {
-          sinif: 'tablo-basi', stil: `--tablo-kolon:${kolon}`, role: 'row',
-        }, v.sutunlar.map(s => el('span', {
-          sinif: 'kirp', title: s.ad, metin: s.ad,
+          class: 'table-head', style: `--table-columns:${template}`,
+          role: 'row',
+        }, data.columns.map(column => el('span', {
+          class: 'truncate', title: column.name, text: column.name,
         }))),
-        ...(satirlar.length
-          ? satirlar.map(s => satirCiz(s, v.sutunlar, kolon))
+        ...(rows.length
+          ? rows.map(row => renderRow(row, data.columns, template))
           : [el('div', {
-              sinif: 'tablo-bos', metin: 'Bu kategoride cihaz bulunamadı.',
+              class: 'table-empty', text: t('checklist.noDeviceInThisCategory'),
             })]),
       ]),
     ]),
-    el('div', { sinif: 'lejant lejant-sade' }, [
-      el('span', {}, [el('i', { stil: 'background:var(--turuncu)' }),
-        'Turuncu: proje varsayılanı']),
-      el('span', {}, [el('i', { stil: 'background:var(--yesil)' }),
-        'Yeşil: beklenenle uyumlu']),
-      el('span', {}, [el('i', { stil: 'background:var(--kirmizi)' }),
-        'Kırmızı: beklenenle uyuşmuyor']),
-      el('span', {}, [el('i', { stil: 'background:#2a3339' }),
-        'Gri alan: bu cihaz türünde kullanılmıyor']),
-      el('span', { stil: 'margin-left:auto',
-        metin: `${satirlar.length} satır · ${v.sutunlar.length} sütun` }),
+    el('div', { class: 'legend legend-plain' }, [
+      el('span', {}, [el('i', { style: 'background:var(--auth)' }),
+        'Amber: project default']),
+      el('span', {}, [el('i', { style: 'background:var(--ok)' }),
+        'Green: matches the expected value']),
+      el('span', {}, [el('i', { style: 'background:var(--failed)' }),
+        'Red: does not match the expected value']),
+      el('span', {}, [el('i', { style: 'background:#2a3339' }),
+        'Grey: not used on this device type']),
+      el('span', {
+        style: 'margin-left:auto',
+        text: t('checklist.rowsColumns', {
+          rows: rows.length, columns: data.columns.length,
+        }),
+      }),
     ]),
   ];
 }
 
-export async function tazele() {
+export async function refresh() {
   try {
-    ata({ kontrolDurum: await api.kontrol(durum.setNo) });
+    patch({ checklistState: await api.checklist(state.setNo) });
   } catch (e) {
-    hata(e.message);
-    ata({ kontrolDurum: null });
+    showError(e.message);
+    patch({ checklistState: null });
   }
 }
 
-// ── tazelik göstergesi ───────────────────────────────────────────────────
-// "37 sn önce" yazısı saniyede bir kendini yeniler. Bunun için bütün
-// ekranı çizmeye gerek yok — metin doğrudan yazılır (ip.js ile aynı yol).
-let sayacZaman = null;
+// ── freshness indicator ─────────────────────────────────────────────────
+// The "37 s ago" text refreshes itself every second. That does not need a
+// full screen render — the text is written directly (same route as ip.js).
+let tickTimer = null;
 
-function ekrandaMi() {
-  return durum.gorunum === 'dog' && !!durum.rol;
+function onScreen() {
+  return state.view === 'checklist' && !!state.role;
 }
 
-function tazelikYaz() {
-  const e = $('#dog-tazelik');
-  if (!e) return;
-  const ts = Number(e.dataset.okuma) || 0;
+function writeFreshness() {
+  const node = $('#check-freshness');
+  if (!node) return;
+  const ts = Number(node.dataset.readAt) || 0;
   if (!ts) {
-    e.textContent = 'Henüz tarama yapılmadı';
-    e.dataset.bayat = '1';
+    node.textContent = 'No scan has run yet';
+    node.dataset.stale = '1';
     return;
   }
-  const sn = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  e.textContent = `Son tarama ${saat(ts)} · ${tazelik(ts)} önce`;
-  e.dataset.bayat = sn > BAYAT_SN ? '1' : '0';
+  const seconds = Math.max(0, Math.round(Date.now() / 1000 - ts));
+  node.textContent = `Last scan ${clockTime(ts)} · ${age(ts)} ago`;
+  node.dataset.stale = seconds > STALE_SECONDS ? '1' : '0';
 }
 
-// Tik ekrandan çıkılınca kendi kendine durur: `ekrandaMi()` yanlışa
-// düştüğünde bir sonraki tur kurulmaz (ip.js ile aynı yol).
-function sayaciKur() {
-  clearTimeout(sayacZaman);
-  if (!ekrandaMi()) return;
-  tazelikYaz();
-  sayacZaman = setTimeout(sayaciKur, 1000);
+// The tick stops by itself on leaving the screen: when `onScreen()` turns
+// false the next round is not scheduled (same route as ip.js).
+function startTicker() {
+  clearTimeout(tickTimer);
+  if (!onScreen()) return;
+  writeFreshness();
+  tickTimer = setTimeout(startTicker, 1000);
 }
 
-// Verinin yaşı — Excel onayı da bunu kullanır.
-function sonTaramaZamani() {
-  const v = durum.kontrolDurum;
-  return (v && v.sonTarama) || durum.sonTarama || 0;
+// The age of the data — the Excel confirmation uses this too.
+function lastScanAt() {
+  const data = state.checklistState;
+  return (data && data.lastScan) || state.lastScan || 0;
 }
 
-// Taramayı öne çeken eylem app.js'ten gelir: dakikalık sayacı da o
-// sıfırlıyor (bkz. app.js guncelle). Burada ikinci bir /api/tarama
-// çağrısı yazmak, düğmeye basıldıktan hemen sonra otomatik turun da
-// tetiklenmesi demekti.
-let taramayiOneCek = () => {};
+// The action that pulls the scan forward comes from app.js: it also resets
+// the minute timer (see app.refreshNow). Writing a second /api/scan call here
+// would mean the automatic round firing right after the button too.
+let pullScanForward = () => {};
 
-export function ciz(kok, guncelle) {
-  if (guncelle) taramayiOneCek = guncelle;
-  const v = durum.kontrolDurum;
-  const parcalar = [];
+export function render(root, refreshNow) {
+  if (refreshNow) pullScanForward = refreshNow;
+  const data = state.checklistState;
+  const parts = [];
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
+  parts.push(el('div', { class: 'page-head' }, [
     el('div', {}, [
-      el('h2', { metin: 'Doğrulama ve raporlar' }),
-      // Liste kendiliğinden tazeleniyor; ne kadar taze olduğu burada
-      // yazar. Excel onayı da aynı damgayı gösterir.
+      el('h2', { text: t('nav.verification') }),
+      // The list refreshes on its own; how fresh it is written here. The
+      // Excel confirmation shows the same stamp.
       el('div', {
-        id: 'dog-tazelik', sinif: 'sayfa-alt dog-tazelik',
-        veri: { okuma: sonTaramaZamani() || 0 },
+        id: 'check-freshness', class: 'page-sub check-freshness',
+        dataset: { readAt: lastScanAt() || 0 },
       }),
     ]),
-    el('div', { sinif: 'eylemler' }, [
+    el('div', { class: 'actions' }, [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Şimdi tara',
-        disabled: durum.aktifTarama,
-        // Üst bardaki "Güncelle" ile aynı iş: sıradaki taramayı öne
-        // çeker, kuyruk paneli açılmaz, haber kuyruk düğmesinde belirir.
-        onclick: () => taramayiOneCek(),
+        type: 'button', class: 'btn', text: t('topbar.scanNow'),
+        disabled: state.scanRunning,
+        // Same job as "Scan now" in the top bar: pulls the next scan
+        // forward, the queue panel does not open, the news appears on the
+        // queue button.
+        onclick: () => pullScanForward(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil', metin: 'Excel oluştur',
-        onclick: excelOnayi,
+        type: 'button', class: 'btn btn-primary', text: t('checklist.generateExcel'),
+        onclick: confirmExport,
       }),
     ]),
   ]));
 
-  if (!v) {
-    parcalar.push(el('p', {
-      sinif: 'bilgi',
-      metin: 'Doğrulama verisi alınamadı. Biraz sonra yeniden deneyin.',
+  if (!data) {
+    parts.push(el('p', {
+      class: 'info',
+      text: t('checklist.theVerificationDataCouldNot'),
     }));
-    doldur(kok, parcalar);
+    fill(root, parts);
     return;
   }
 
-  // ── yerel görünüm ve kategori filtresi ──
-  parcalar.push(el('div', {
-    sinif: 'yerel-sekmeler rapor-sekmeleri', role: 'tablist',
-    'aria-label': 'Rapor görünümü',
+  // ── local view and category filter ──
+  parts.push(el('div', {
+    class: 'local-tabs report-tabs', role: 'tablist',
+    'aria-label': t('checklist.reportView'),
   }, [
-    ['sapmalar', 'Sapmalar'],
-    ['excel', 'Excel önizlemesi'],
-  ].map(([id, ad]) => el('button', {
-    type: 'button', sinif: 'yerel-sekme', role: 'tab',
-    'aria-selected': String(raporSekmesi === id),
-    'aria-pressed': String(raporSekmesi === id),
-    metin: ad,
-    onclick: () => { raporSekmesi = id; ciz(kok); },
+    ['deviations', 'Sapmalar'],
+    ['excel', 'Excel preview'],
+  ].map(([id, label]) => el('button', {
+    type: 'button', class: 'local-tab', role: 'tab',
+    'aria-selected': String(reportTab === id),
+    'aria-pressed': String(reportTab === id),
+    text: label,
+    onclick: () => { reportTab = id; render(root); },
   }))));
 
-  const kategoriler = durum.meta ? durum.meta.kategoriler : [];
-  const tumSatirlar = v.bolumler.flatMap(b => b.satirlar);
-  const cihazKategorisi = new Map(
-    durum.cihazlar.map(c => [c.id, c.kategori]));
+  const categories = state.meta ? state.meta.categories : [];
+  const allRows = data.sections.flatMap(section => section.rows);
+  const deviceCategory = new Map(
+    state.devices.map(device => [device.id, device.category]));
 
-  const seciliKat = durum.kontrolKategori || 'tum';
-  const sayim = (id) => (id === 'tum'
-    ? tumSatirlar.length
-    : tumSatirlar.filter(
-      s => cihazKategorisi.get(s.cihazId) === id).length);
+  const selected = state.checklistCategory || 'all';
+  const countFor = (id) => (id === 'all'
+    ? allRows.length
+    : allRows.filter(
+      row => deviceCategory.get(row.deviceId) === id).length);
 
-  parcalar.push(el('div', {
-    sinif: 'serit', role: 'group', 'aria-label': 'Kategori filtresi',
+  parts.push(el('div', {
+    class: 'chip-bar', role: 'group', 'aria-label': t('checklist.categoryFilter'),
   }, [
-    el('span', { sinif: 'etiket', metin: 'Kategori' }),
-    ...kategoriler.map(k => el('button', {
-      type: 'button', sinif: 'cip',
-      'aria-pressed': String(seciliKat === k.id),
-      title: k.tipler,
-      onclick: () => ata({ kontrolKategori: k.id }),
+    el('span', { class: 'label', text: t('checklist.category') }),
+    ...categories.map(category => el('button', {
+      type: 'button', class: 'chip',
+      'aria-pressed': String(selected === category.id),
+      title: category.types,
+      onclick: () => patch({ checklistCategory: category.id }),
     }, [
-      el('span', { metin: k.ad }),
-      el('span', { sinif: 'n', metin: String(sayim(k.id)) }),
+      el('span', { text: category.name }),
+      el('span', { class: 'count', text: String(countFor(category.id)) }),
     ])),
   ]));
 
-  const satirlar = seciliKat === 'tum'
-    ? tumSatirlar
-    : tumSatirlar.filter(s => cihazKategorisi.get(s.cihazId) === seciliKat);
+  const rows = selected === 'all'
+    ? allRows
+    : allRows.filter(row => deviceCategory.get(row.deviceId) === selected);
 
-  const sonuclar = satirlar.map(s => temelDegerlendir(s, v.sutunlar));
-  const gecen = sonuclar.filter(s => s.gecti).length;
-  const erisim = sonuclar.filter(s => s.sorunlar.some(
-    x => ['erisim', 'giris', 'okunmadi'].includes(x.kod))).length;
-  const ip = sonuclar.filter(s => s.sorunlar.some(x => x.kod === 'ip')).length;
-  const sip = sonuclar.filter(s => s.sorunlar.some(x => x.kod === 'sip')).length;
+  const results = rows.map(row => evaluate(row, data.columns));
+  const passed = results.filter(r => r.passed).length;
+  const reachIssues = results.filter(r => r.problems.some(
+    p => ['reach', 'auth', 'unread'].includes(p.code))).length;
+  const ipIssues = results.filter(
+    r => r.problems.some(p => p.code === 'ip')).length;
+  const sipIssues = results.filter(
+    r => r.problems.some(p => p.code === 'sip')).length;
 
-  parcalar.push(el('div', { sinif: 'dog-olcut' }, [
-    el('span', { sinif: 'etiket', metin: 'Temel kontrol ölçütleri' }),
-    el('span', { metin: 'Erişim · IP · SIP dahili numarası' }),
+  parts.push(el('div', { class: 'check-criteria' }, [
+    el('span', { class: 'label', text: t('checklist.basicCheckCriteria') }),
+    el('span', { text: t('checklist.accessIpSipExtension') }),
   ]));
-  parcalar.push(el('div', { sinif: 'dog-ozet-izgara' }, [
-    ozetKarti('Temel kontrolleri geçen', gecen, 'yesil',
-      `Toplam ${satirlar.length} cihaz`),
-    ozetKarti('Erişim sorunu', erisim, erisim ? 'kirmizi' : 'yesil',
-      'Yanıt alınamayan veya giriş bilgisi gereken cihazlar'),
-    ozetKarti('IP sapması', ip, ip ? 'kirmizi' : 'yesil', 'Beklenen ve okunan IP'),
-    ozetKarti('SIP sapması', sip, sip ? 'kirmizi' : 'yesil',
+  parts.push(el('div', { class: 'check-summary-grid' }, [
+    summaryCard('Passed the basic checks', passed, 'ok',
+      `${rows.length} devices in total`),
+    summaryCard('Access problems', reachIssues, reachIssues ? 'failed' : 'ok',
+      'Devices that did not answer or need credentials'),
+    summaryCard('IP deviations', ipIssues, ipIssues ? 'failed' : 'ok',
+      'Beklenen ve okunan IP'),
+    summaryCard('SIP deviations', sipIssues, sipIssues ? 'failed' : 'ok',
       'SIP kullanan cihazlarda'),
   ]));
 
-  if (raporSekmesi === 'excel') {
-    parcalar.push(...excelOnizlemesi(satirlar, v));
+  if (reportTab === 'excel') {
+    parts.push(...excelPreview(rows, data));
   } else {
-    parcalar.push(el('div', { sinif: 'bolum-basi' }, [
+    parts.push(el('div', { class: 'section-head' }, [
       el('div', {}, [
-        el('h3', { metin: 'İncelenecek cihazlar' }),
+        el('h3', { text: t('checklist.devicesToReview') }),
       ]),
-      el('span', { sinif: 'rozet', metin: `${satirlar.length - gecen} cihaz` }),
+      el('span', {
+        class: 'badge',
+        text: t('checklist.deviceCount', { count: rows.length - passed }),
+      }),
     ]));
-    parcalar.push(sapmaTablosu(satirlar, v.sutunlar));
+    parts.push(deviationTable(rows, data.columns));
   }
 
-  doldur(kok, parcalar);
-  sayaciKur();
+  fill(root, parts);
+  startTicker();
 }
 
-// Excel'i üretmeden önce verinin yaşını gösterir.
+// Shows the age of the data before producing the Excel.
 //
-// Gerekçe sahadan: dosya üretildiğinde kimse hangi ana ait olduğunu
-// bilmiyordu. On dakika önce okunmuş bir görüntüden Excel çıkarmak,
-// o dosyayı imzalayan kişiye yanlış bir "şu an böyle" belgesi veriyor.
-// Onay kutusu bu yüzden bilgi kutusu değil, karar noktası: taze değilse
-// önce taramayı öne çekmeyi öneriyor.
-function excelOnayi() {
-  const ts = sonTaramaZamani();
-  const yas = ts ? Math.round(Date.now() / 1000 - ts) : null;
-  const bayat = yas === null || yas > BAYAT_SN;
-  const s = (durum.kontrolDurum && durum.kontrolDurum.sayilar)
-    || durum.sayilar || {};
+// The reason comes from the field: when a file was produced, nobody knew
+// which moment it belonged to. Producing an Excel from a snapshot read ten
+// minutes ago hands whoever signs that file a wrong "this is how it is right
+// now" document. The confirmation is therefore not an info box but a decision
+// point: when the data is not fresh it offers to pull the scan forward first.
+function confirmExport() {
+  const ts = lastScanAt();
+  const seconds = ts ? Math.round(Date.now() / 1000 - ts) : null;
+  const stale = seconds === null || seconds > STALE_SECONDS;
+  const counts = (state.checklistState && state.checklistState.counts)
+    || state.counts || {};
 
-  const satir = (ad, deger, renk) => el('div', { sinif: 'ozet-satir' }, [
-    el('span', { metin: ad }),
-    el('span', { stil: renk ? `color:${renk}` : null, metin: String(deger) }),
-  ]);
-
-  const icerik = el('div', {}, [
-    el('p', { sinif: 'aciklama' }, [
-      ts
-        ? `Excel son taramada okunan değerlerden oluşturulur. Tarama ${saat(ts)}'de tamamlandı.`
-        : 'Bu tren setinde henüz tarama yapılmadı. Excel boş değerlerle oluşturulur.',
-    ]),
-    el('div', { sinif: 'ozet-kutu' }, [
-      satir('Verinin yaşı', ts ? `${tazelik(ts)} önce` : YOK,
-        bayat ? 'var(--turuncu)' : 'var(--yesil)'),
-      satir('Erişilebilir', `${s.basarili ?? 0}`, 'var(--yesil)'),
-      satir('Giriş bilgisi gerekli', `${s.erisimBekleyen ?? 0}`, 'var(--turuncu)'),
-      satir('İncelenecek', `${s.hatali ?? 0}`, 'var(--kirmizi)'),
-    ]),
-    bayat ? el('p', {
-      sinif: 'uyari', stil: 'margin-top:12px',
-      metin: 'Veri güncelliğini yitirmiş olabilir. Dosyayı oluşturmadan '
-        + 'önce yeniden tarama yapmak daha güvenilir bir sonuç verir.',
-    }) : el('p', {
-      sinif: 'bilgi', stil: 'margin-top:12px',
-      metin: 'Veri güncel. Dosya son taramanın sonuçlarını yansıtır.',
+  const line = (name, amount, colour) => el('div', {
+    class: 'summary-row',
+  }, [
+    el('span', { text: name }),
+    el('span', {
+      style: colour ? `color:${colour}` : null, text: String(amount),
     }),
   ]);
 
-  const uret = async () => {
-    diyalog.kapat();
+  const content = el('div', {}, [
+    el('p', { class: 'description' }, [
+      ts
+        ? 'The Excel is built from the values read in the last scan. That '
+          + `scan finished at ${clockTime(ts)}.`
+        : 'No scan has run on this train set yet. The Excel will be built '
+          + 'with empty values.',
+    ]),
+    el('div', { class: 'summary-box' }, [
+      line('Age of the data', ts ? `${age(ts)} ago` : NONE,
+        stale ? 'var(--auth)' : 'var(--ok)'),
+      line('Reachable', `${counts.ok ?? 0}`, 'var(--ok)'),
+      line('Credentials needed', `${counts.auth ?? 0}`, 'var(--auth)'),
+      line('Needs review', `${counts.failed ?? 0}`, 'var(--failed)'),
+    ]),
+    stale ? el('p', {
+      class: 'warning', style: 'margin-top:12px',
+      text: t('checklist.theDataMayBeOut'),
+    }) : el('p', {
+      class: 'info', style: 'margin-top:12px',
+      text: t('checklist.theDataIsCurrentThe'),
+    }),
+  ]);
+
+  const produce = async () => {
+    dialog.close();
     try {
-      const y = await api.excel(durum.setNo);
-      ata({ kuyrukAcik: true, acikIs: y.id });
-      basari('Excel oluşturma işlemi kuyruğa alındı');
-    } catch (e) { hata(e.message); }
+      const job = await api.checklistExport(state.setNo);
+      patch({ queueOpen: true, openJob: job.id });
+      showSuccess(t('checklist.theExcelGenerationJobWas'));
+    } catch (e) { showError(e.message); }
   };
 
-  diyalog.ac({
-    baslik: 'Excel oluştur',
-    icerik,
-    eylemler: [
+  dialog.show({
+    title: t('checklist.generateExcel'),
+    content,
+    actions: [
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Vazgeç',
-        onclick: () => diyalog.kapat(),
+        type: 'button', class: 'btn', text: t('locked.cancel'),
+        onclick: () => dialog.close(),
       }),
       el('button', {
-        type: 'button', sinif: 'btn', metin: 'Önce tara',
-        disabled: durum.aktifTarama,
-        title: durum.aktifTarama
-          ? 'Tarama zaten sürüyor' : 'Taramayı öne çek, Excel\'i sonra üret',
-        onclick: () => { diyalog.kapat(); taramayiOneCek(); },
+        type: 'button', class: 'btn', text: t('checklist.scanFirst'),
+        disabled: state.scanRunning,
+        title: state.scanRunning
+          ? 'A scan is already running'
+          : 'Pull the scan forward, then generate the Excel',
+        onclick: () => { dialog.close(); pullScanForward(); },
       }),
       el('button', {
-        type: 'button', sinif: 'btn btn-birincil',
-        metin: bayat ? 'Yine de oluştur' : 'Excel oluştur',
-        onclick: uret,
+        type: 'button', class: 'btn btn-primary',
+        text: stale ? 'Generate anyway' : 'Generate Excel',
+        onclick: produce,
       }),
     ],
   });
 }
 
-// Bir hücrenin yazı rengi ve ipucu metni.
+// A cell's text colour and tooltip.
 //
-// Renk hücrenin ne anlattığına göre seçilir: beklenen (şablon) değerleri
-// turuncu, cihazdan okunan değerler beklenenle karşılaştırılıp yeşil ya da
-// kırmızı, erişilebilirlik yeşil/kırmızı. Karşılaştıracak beklenen değer
-// yoksa eski nötr renkler korunur.
-function hucreVurgu(ad, hucre, degerler) {
-  const deger = hucre.deger === null || hucre.deger === undefined
-    ? '' : String(hucre.deger);
-  if (deger === '') return { renk: 'var(--cok-soluk)', ipucu: 'Henüz okunmadı' };
-
-  if (ad.startsWith('Beklenen')) {
-    return { renk: 'var(--turuncu)', ipucu: `${deger} — beklenen değer` };
+// The colour follows what the cell says: expected (template) values amber,
+// values read from the device compared with the expected one and shown green
+// or red, reachability green/red. With no expected value to compare against,
+// the old neutral colours are kept.
+function cellHighlight(column, cell, values) {
+  const text = cell.value === null || cell.value === undefined
+    ? '' : String(cell.value);
+  if (text === '') {
+    return { colour: 'var(--text-faint)', hint: t('probe.notReadYet') };
   }
 
-  if (ad === 'Durum Açıklaması') {
-    const aktif = sadelestir(deger) === 'aktif';
+  if (EXPECTED_COLUMNS.has(column)) {
     return {
-      renk: aktif ? 'var(--yesil)' : 'var(--kirmizi)',
-      ipucu: aktif ? 'Cihaza erişildi' : 'Cihaza erişilemedi',
+      colour: 'var(--auth)',
+      hint: t('checklist.expectedValue', { value: text }),
     };
   }
 
-  const beklenen = String(degerler.get(KARSILASTIR[ad]) || '');
-  if (beklenen) {
-    return sadelestir(deger) === sadelestir(beklenen)
-      ? { renk: 'var(--yesil)', ipucu: `${deger} — beklenenle aynı` }
-      : { renk: 'var(--kirmizi)', ipucu: `Beklenen: ${beklenen} · Okunan: ${deger}` };
+  if (column === 'statusDescription') {
+    const active = normalise(text) === STATUS_ACTIVE;
+    return {
+      colour: active ? 'var(--ok)' : 'var(--failed)',
+      hint: active ? 'The device was reached' : 'The device was not reached',
+    };
+  }
+
+  const expected = String(values.get(COMPARE_WITH[column]) || '');
+  if (expected) {
+    return normalise(text) === normalise(expected)
+      ? {
+          colour: 'var(--ok)',
+          hint: t('checklist.matchesExpected', { value: text }),
+        }
+      : {
+          colour: 'var(--failed)',
+          hint: t('checklist.expectedRead',
+                  { expected, read: text }),
+        };
   }
 
   return {
-    renk: hucre.kaynak === 'okuma' ? 'var(--metin)' : 'var(--acik)',
-    ipucu: deger,
+    colour: cell.source === 'probe' ? 'var(--text)' : 'var(--text-bright)',
+    hint: text,
   };
 }
 
-function satirCiz(satir, sutunlar, kolon) {
-  // Okunan hücreyi beklenen hücreyle karşılaştırabilmek için satırın
-  // değerlerini sütun başlığına göre indeksliyoruz.
-  const degerler = new Map();
-  satir.hucreler.forEach((h, i) => {
-    if (!h.na && sutunlar[i]) degerler.set(sutunlar[i].ad, h.deger);
-  });
+function renderRow(row, columns, template) {
+  // To compare a read cell against the expected one, the row's values are
+  // indexed by column heading.
+  const values = rowValues(row, columns);
 
   return el('button', {
-    type: 'button', sinif: 'tablo-satir',
-    stil: `--tablo-kolon:${kolon}`,
-    veri: { durum: satir.durum },
-    title: `${satir.ad} · ${satir.ip} — ${satir.aciklama}`,
-    onclick: () => { if (satir.cihazId) detay.ac(satir.cihazId); },
-  }, satir.hucreler.map((h, i) => {
-    if (h.na) {
-      // Şablonda gri boyanmış hücre: bu cihaz türünde geçersiz alan.
-      // Metin yazmıyoruz — 23 sütunun yarısında "N/A" görmek tabloyu
-      // okunmaz hale getiriyordu. Gri zemin zaten anlamı taşıyor,
-      // açıklama ipucu metninde ve lejantta duruyor.
+    type: 'button', class: 'table-row',
+    style: `--table-columns:${template}`,
+    dataset: { state: row.state },
+    title: `${row.name} · ${row.ip} — ${row.detail}`,
+    onclick: () => { if (row.deviceId) detail.open(row.deviceId); },
+  }, row.cells.map((cell, i) => {
+    if (cell.notApplicable) {
+      // A cell greyed out in the template: a field invalid on this device
+      // type. No text is written — seeing "N/A" in half of 23 columns made
+      // the table unreadable. The grey ground already carries the meaning,
+      // and the explanation lives in the tooltip and the legend.
       return el('span', {
-        sinif: 'na-hucre', title: 'Bu cihaz türünde kullanılmıyor',
-        'aria-label': 'Bu cihaz türünde kullanılmıyor',
+        class: 'na-cell', title: t('checklist.notUsedOnThisDevice'),
+        'aria-label': t('checklist.notUsedOnThisDevice'),
       });
     }
-    const bos = h.deger === '' || h.deger === null;
+    const empty = cell.value === '' || cell.value === null;
     if (i === 0) {
-      // İlk sütun satırın durum rengini de taşısın
+      // The first column carries the row's state colour too
       return el('span', {
-        stil: 'display:flex;align-items:center;gap:7px;min-width:0',
+        style: 'display:flex;align-items:center;gap:7px;min-width:0',
       }, [
         el('span', {
-          sinif: 'nokta', veri: { durum: satir.durum }, 'aria-hidden': 'true',
+          class: 'dot', dataset: { state: row.state }, 'aria-hidden': 'true',
         }),
         el('span', {
-          sinif: 'mono kirp', stil: 'font-size:11px',
-          metin: bos ? YOK : String(h.deger),
+          class: 'mono truncate', style: 'font-size:11px',
+          text: empty ? NONE : String(cell.value),
         }),
       ]);
     }
-    const ad = sutunlar[i] ? sutunlar[i].ad : '';
-    const { renk, ipucu } = hucreVurgu(ad, h, degerler);
+    const column = columns[i] || {};
+    const name = column.name || '';
+    const { colour, hint } = cellHighlight(column.id || '', cell, values);
     return el('span', {
-      sinif: 'mono kirp',
-      stil: `font-size:11px;color:${renk}`,
-      title: `${ad}${ad ? ' — ' : ''}${ipucu}`,
-      metin: bos ? YOK : String(h.deger),
+      class: 'mono truncate',
+      style: `font-size:11px;color:${colour}`,
+      title: `${name}${name ? ' — ' : ''}${hint}`,
+      text: empty ? NONE : String(cell.value),
     });
   }));
 }

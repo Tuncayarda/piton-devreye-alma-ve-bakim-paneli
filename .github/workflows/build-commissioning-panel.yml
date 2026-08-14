@@ -1,16 +1,16 @@
-name: Build · Devreye Alma Paneli
+name: Build · Commissioning Panel
 
-# Devreye Alma Paneli'nin paketleri ve Release'i.
-#   • workflow_dispatch      -> yalnızca Artifact
-#   • dap-v* etiketi push'u  -> Artifact + GitHub Release
+# Packages and Releases for the Commissioning and Maintenance Panel.
+#   • workflow_dispatch     -> artifact only
+#   • dap-v* tag push       -> artifact + GitHub Release
 #
-# Etiket öneki neden var: depoda iki uygulama var, her biri kendi
-# branch'inde ve kendi sürümüyle. Öneksiz "v*" ve "syp-v*" etiketleri
-# Switch Yönetim Paneli'ne ait; o uygulama `syp` branch'inde derlenir.
-# Örnek: dap-v0.9.0-dev  →  APP_VERSION 0.9.0-dev ile eşleşmek zorunda.
+# Why the tag prefix: the repository used to hold two applications, each on
+# its own branch with its own version. Unprefixed "v*" and "syp-v*" tags
+# belong to the Switch Management Panel, which is built on the `syp` branch.
+# Example: dap-v0.9.0-dev  →  must match APP_VERSION 0.9.0-dev.
 #
-# Ön sürüm etiketleri (-dev, -alpha, -beta, -rc) Release'de "pre-release"
-# olarak işaretlenir.
+# Pre-release tags (-dev, -alpha, -beta, -rc) are marked "pre-release" on the
+# Release page.
 
 on:
   workflow_dispatch:
@@ -19,23 +19,23 @@ on:
       - "dap-v*"
 
 concurrency:
-  group: build-devreye-${{ github.ref }}
-  cancel-in-progress: false      # yarım kalan release build'i iptal etme
+  group: build-commissioning-panel-${{ github.ref }}
+  cancel-in-progress: false      # never cancel a half-finished release build
 
 permissions:
   contents: read
 
 jobs:
-  paket:
+  package:
     uses: ./.github/workflows/build-app.yml
     permissions:
-      contents: write            # Release adımı için
+      contents: write            # for the Release step
     with:
-      uygulama_dizini: .
-      ad: DevreyeAlmaPaneli
-      gorunen_ad: Devreye Alma Paneli
-      spec: DevreyeAlmaPaneli.spec
-      iss: packaging/windows/DevreyeAlmaPaneli.iss
-      # Bu panelin birim testleri var; paket üretilmeden önce koşar.
-      testler: python -m unittest discover -s tests -t .
-      frontend_paket: tools/masaustu_paketi.py
+      app_dir: .
+      app_name: CommissioningPanel
+      display_name: Commissioning and Maintenance Panel
+      spec: CommissioningPanel.spec
+      iss: packaging/windows/CommissioningPanel.iss
+      # This panel has unit tests; they run before the package is produced.
+      tests: python -m unittest discover -s tests -t .
+      frontend_bundle_tool: tools/build_desktop_bundle.py

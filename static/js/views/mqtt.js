@@ -1,94 +1,115 @@
-// MQTT İzleme — broker'a abone olup gelen mesajları gösterir.
+// MQTT monitoring — subscribes to the broker and shows the incoming messages.
 //
-// Dinleyici yalnız kullanıcı başlattığında çalışır ve tampon sabit
-// boyutludur; ekran açık kaldıkça bellek büyümez.
+// The listener only runs when the user starts it and the buffer is a fixed
+// size; memory does not grow while the screen stays open.
 
-import { el, doldur } from '../core/dom.js';
+import { el, fill } from '../core/dom.js';
 import { api } from '../core/api.js';
-import { durum, ata } from '../core/durum.js';
-import { hata } from '../parts/bildirim.js';
-import { saat } from '../core/bicim.js';
+import { state, patch } from '../core/store.js';
+import { showError } from '../components/toast.js';
+import { clockTime } from '../core/format.js';
+import { t } from '../core/i18n.js';
 
-export async function tazele() {
+export async function refresh() {
   try {
-    ata({ mqttDurum: await api.mqtt() });
+    patch({ mqttState: await api.mqtt() });
   } catch {
-    ata({ mqttDurum: null });
+    patch({ mqttState: null });
   }
 }
 
-export function ciz(kok) {
-  const v = durum.mqttDurum || { calisiyor: false, topicler: [], mesajlar: [] };
-  const parcalar = [];
+export function render(root) {
+  const data = state.mqttState
+    || { running: false, topics: [], messages: [] };
+  const parts = [];
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
-    el('div', {}, [el('h2', { metin: 'MQTT İzleme' })]),
-    el('div', { sinif: 'eylemler' }, [
+  parts.push(el('div', { class: 'page-head' }, [
+    el('div', {}, [el('h2', { text: t('nav.mqtt') })]),
+    el('div', { class: 'actions' }, [
       el('span', {
-        sinif: 'rozet',
-        stil: v.calisiyor
-          ? 'border-color:var(--yesil-zayif);color:var(--yesil)'
-          : 'color:var(--soluk)',
-        metin: v.calisiyor
-          ? `${v.broker || ''} · Bağlı · ${v.toplam || 0} mesaj`
-          : 'Bağlı değil',
+        class: 'badge',
+        style: data.running
+          ? 'border-color:var(--ok-soft);color:var(--ok)'
+          : 'color:var(--text-dim)',
+        text: data.running
+          ? `${data.broker || ''} · connected · ${data.total || 0} messages`
+          : 'Not connected',
       }),
       el('button', {
         type: 'button',
-        sinif: v.calisiyor ? 'btn' : 'btn btn-birincil',
-        metin: v.calisiyor ? 'Durdur' : 'Başlat',
+        class: data.running ? 'btn' : 'btn btn-primary',
+        text: data.running ? 'Stop' : 'Start',
         onclick: async () => {
           try {
-            ata({ mqttDurum: v.calisiyor
-              ? await api.mqttDur()
-              : await api.mqttBasla(durum.setNo) });
-          } catch (e) { hata(e.message); }
+            patch({ mqttState: data.running
+              ? await api.mqttStop()
+              : await api.mqttStart(state.setNo) });
+          } catch (e) { showError(e.message); }
         },
       }),
     ]),
   ]));
 
-  if (v.hata) parcalar.push(el('p', { sinif: 'uyari', metin: v.hata }));
+  if (data.error) parts.push(el('p', { class: 'warning', text: data.error }));
 
-  parcalar.push(el('div', { sinif: 'mqtt-izgara' }, [
-    el('div', { sinif: 'kart' }, [
-      el('div', { sinif: 'etiket', stil: 'margin-bottom:10px', metin: "Topic'ler" }),
-      ...(v.topicler.length ? v.topicler.map(t => el('div', {
-        stil: 'display:flex;align-items:center;gap:8px;padding:7px 0;'
-          + 'border-bottom:1px solid var(--cizgi-hafif)',
+  const topics = data.topics || [];
+  const messages = data.messages || [];
+
+  parts.push(el('div', { class: 'mqtt-grid' }, [
+    el('div', { class: 'card' }, [
+      el('div', {
+        class: 'label', style: 'margin-bottom:10px', text: t('mqtt.topics'),
+      }),
+      ...(topics.length ? topics.map(topic => el('div', {
+        style: 'display:flex;align-items:center;gap:8px;padding:7px 0;'
+          + 'border-bottom:1px solid var(--line-soft)',
       }, [
-        el('span', { sinif: 'nokta', stil: 'background:var(--accent)', 'aria-hidden': 'true' }),
-        el('span', { sinif: 'mono kirp', stil: 'flex:1;font-size:11px', metin: t.ad }),
-        el('span', { sinif: 'mono soluk', stil: 'font-size:10px', metin: String(t.n) }),
+        el('span', {
+          class: 'dot', style: 'background:var(--accent)',
+          'aria-hidden': 'true',
+        }),
+        el('span', {
+          class: 'mono truncate', style: 'flex:1;font-size:11px',
+          text: topic.name,
+        }),
+        el('span', {
+          class: 'mono text-dim', style: 'font-size:10px',
+          text: String(topic.count),
+        }),
       ])) : [el('div', {
-        sinif: 'mono soluk', stil: 'font-size:11px',
-        metin: 'Henüz mesaj gelmedi',
+        class: 'mono text-dim', style: 'font-size:11px',
+        text: t('mqtt.noMessageYet'),
       })]),
     ]),
 
-    el('div', { sinif: 'akis' }, [
+    el('div', { class: 'mqtt-feed' }, [
       el('div', {
-        stil: 'display:flex;align-items:center;gap:10px;margin-bottom:11px',
+        style: 'display:flex;align-items:center;gap:10px;margin-bottom:11px',
       }, [
-        el('span', { sinif: 'etiket', metin: 'Akış' }),
-        el('span', { stil: 'flex:1' }),
+        el('span', { class: 'label', text: t('mqtt.stream') }),
+        el('span', { style: 'flex:1' }),
         el('span', {
-          sinif: 'mono soluk', stil: 'font-size:10px',
-          metin: `${(v.mesajlar || []).length} satır gösteriliyor`,
+          class: 'mono text-dim', style: 'font-size:10px',
+          text: t('mqtt.showingRows', { count: messages.length }),
         }),
       ]),
-      ...((v.mesajlar || []).length ? v.mesajlar.map(m => el('div', {
-        sinif: 'akis-satir',
+      ...(messages.length ? messages.map(message => el('div', {
+        class: 'mqtt-feed-row',
       }, [
-        el('span', { sinif: 'soluk', metin: saat(m.zaman) }),
-        el('span', { stil: 'color:var(--accent)', sinif: 'kirp', metin: m.topic }),
-        el('span', { sinif: 'govde', title: m.govde, metin: m.govde }),
+        el('span', { class: 'text-dim', text: clockTime(message.time) }),
+        el('span', {
+          style: 'color:var(--accent)', class: 'truncate',
+          text: message.topic,
+        }),
+        el('span', {
+          class: 'payload', title: message.payload, text: message.payload,
+        }),
       ])) : [el('div', {
-        sinif: 'mono soluk', stil: 'font-size:11px',
-        metin: v.calisiyor ? 'Mesaj bekleniyor…' : 'Dinleyici kapalı',
+        class: 'mono text-dim', style: 'font-size:11px',
+        text: data.running ? 'Waiting for messages…' : 'Listener stopped',
       })]),
     ]),
   ]));
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }

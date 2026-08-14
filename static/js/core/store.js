@@ -1,99 +1,97 @@
-// Uygulama durumu (tek kaynak) ve abonelik.
+// Application state (single source) and subscriptions.
 //
-// Bu nesnede parola YOKTUR ve olamaz: `ata()` bilinen anahtar listesi
-// dışına yazmaz. Kimlik doğrulama formu değerini doğrudan API çağrısına
-// verir, buraya uğratmaz.
+// This object holds NO password and cannot: `patch()` refuses to write keys
+// outside the known list. The credential form hands its value straight to the
+// API call without passing through here.
 
-const ANAHTARLAR = new Set([
-  'rol', 'setNo', 'proje', 'gorunum', 'kategori', 'altTip', 'filtre',
-  'cihazlar', 'sayilar', 'kilit', 'isler', 'acikIs', 'kuyrukAcik',
-  'kilitAcik', 'detayId', 'hedefGrup', 'surum', 'sonTarama',
-  'aktifTarama', 'kenarAcik', 'piscuIp', 'yukleniyor', 'ipDurum',
-  'cfgDurum', 'fwDurum', 'mqttDurum', 'piscuDurum', 'meta',
-  'kontrolDurum', 'kontrolKategori', 'gecmisFiltresi',
+const KEYS = new Set([
+  'role', 'setNo', 'project', 'view', 'category', 'subtype', 'filter',
+  'devices', 'counts', 'locked', 'jobs', 'openJob', 'queueOpen',
+  'lockedOpen', 'detailId', 'targetGroup', 'version', 'lastScan',
+  'scanRunning', 'sidebarOpen', 'piscuIp', 'loading', 'ipState',
+  'configState', 'firmwareState', 'mqttState', 'piscuState', 'meta',
+  'checklistState', 'checklistCategory', 'historyFilter',
 ]);
 
-const _abone = new Set();
+const _subscribers = new Set();
 
-export const durum = {
-  rol: null,
+export const state = {
+  role: null,
   setNo: 1,
-  proje: null,
+  project: null,
   meta: null,
-  gorunum: 'genel',
-  kategori: 'tum',
-  altTip: null,
-  filtre: 'tumu',
-  cihazlar: [],
-  sayilar: { basarili: 0, erisimBekleyen: 0, hatali: 0, okunmayan: 0 },
-  kilit: [],
-  isler: [],
-  acikIs: null,
-  kuyrukAcik: false,
-  kilitAcik: false,
-  detayId: null,
-  hedefGrup: 'Intercom',
-  surum: '',
-  sonTarama: null,
-  aktifTarama: false,
-  kenarAcik: false,
+  view: 'overview',
+  category: 'all',
+  subtype: null,
+  filter: 'all',
+  devices: [],
+  counts: { ok: 0, auth: 0, failed: 0, unknown: 0 },
+  locked: [],
+  jobs: [],
+  openJob: null,
+  queueOpen: false,
+  lockedOpen: false,
+  detailId: null,
+  targetGroup: 'Intercom',
+  version: '',
+  lastScan: null,
+  scanRunning: false,
+  sidebarOpen: false,
   piscuIp: null,
-  yukleniyor: false,
-  ipDurum: null,
-  cfgDurum: null,
-  fwDurum: null,
-  mqttDurum: null,
-  piscuDurum: null,
-  kontrolDurum: null,
-  kontrolKategori: 'tum',
-  gecmisFiltresi: 'tumu',
+  loading: false,
+  ipState: null,
+  configState: null,
+  firmwareState: null,
+  mqttState: null,
+  piscuState: null,
+  checklistState: null,
+  checklistCategory: 'all',
+  historyFilter: 'all',
 };
 
-// Hangi anahtarların değiştiği abonelere bildirilir: her değişimde bütün
-// arayüzü yeniden çizmek, yalnız kuyruk panelini ilgilendiren bir tıklama
-// için 42 satırlık cihaz tablosunu da baştan kurmak demekti.
-export function ata(yama) {
-  const degisen = [];
-  for (const [k, v] of Object.entries(yama)) {
-    if (!ANAHTARLAR.has(k)) {
-      console.warn('durum: bilinmeyen anahtar yok sayıldı —', k);
+// Subscribers are told WHICH keys changed: redrawing the whole UI on every
+// change meant rebuilding a 42-row device table for a click that only
+// concerned the queue panel.
+export function patch(changes) {
+  const changed = [];
+  for (const [key, value] of Object.entries(changes)) {
+    if (!KEYS.has(key)) {
+      console.warn('state: unknown key ignored —', key);
       continue;
     }
-    if (durum[k] !== v) { durum[k] = v; degisen.push(k); }
+    if (state[key] !== value) { state[key] = value; changed.push(key); }
   }
-  if (degisen.length) yayinla(degisen);
-  return degisen.length > 0;
+  if (changed.length) publish(changed);
+  return changed.length > 0;
 }
 
-export function abone(fn) {
-  _abone.add(fn);
-  return () => _abone.delete(fn);
+export function subscribe(fn) {
+  _subscribers.add(fn);
+  return () => _subscribers.delete(fn);
 }
 
-// `degisen` verilmezse "her şey değişmiş olabilir" demektir.
-export function yayinla(degisen = null) {
-  for (const fn of _abone) {
-    try { fn(durum, degisen); } catch (e) { console.error(e); }
+// No `changed` means "anything may have changed".
+export function publish(changed = null) {
+  for (const fn of _subscribers) {
+    try { fn(state, changed); } catch (e) { console.error(e); }
   }
 }
 
-export function cihazBul(id) {
-  return durum.cihazlar.find(c => c.id === id) || null;
-}
-
-// Görünen cihazlar: kategori + alt tip + durum filtresi
-export function gorunenCihazlar() {
-  const kat = durum.kategori;
-  const alt = durum.altTip;
-  const f = durum.filtre;
-  return durum.cihazlar.filter(c => {
-    if (kat !== 'tum' && c.kategori !== kat) return false;
-    if (alt) {
-      const ad = kat === 'tum' ? c.type : (c.subtype || c.type);
-      if (ad !== alt) return false;
+// Visible devices: category + subtype + state filter
+export function visibleDevices() {
+  const category = state.category;
+  const subtype = state.subtype;
+  const filter = state.filter;
+  return state.devices.filter(d => {
+    if (category !== 'all' && d.category !== category) return false;
+    if (subtype) {
+      const name = category === 'all' ? d.type : (d.subtype || d.type);
+      if (name !== subtype) return false;
     }
-    if (f === 'aktif') return c.sonuc.durum === 'yesil';
-    if (f === 'sorunlu') return c.sonuc.durum === 'kirmizi' || c.sonuc.durum === 'turuncu';
+    if (filter === 'active') return d.result.state === 'ok';
+    if (filter === 'problem') {
+      return d.result.state === 'failed' || d.result.state === 'auth';
+    }
     return true;
   });
 }

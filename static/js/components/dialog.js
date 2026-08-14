@@ -1,47 +1,48 @@
-// Modal diyalog altyapısı: odak yönetimi, Escape, perdeye tıklayınca
-// kapanma. Açılırken odak diyaloga girer, kapanınca çağıran düğmeye döner.
-import { el, doldur, odakTuzagi, $ } from '../core/dom.js';
+// Modal dialog plumbing: focus handling, Escape, closing on a backdrop click.
+// Focus enters the dialog when it opens and returns to the calling button
+// when it closes.
+import { el, fill, focusTrap, $ } from '../core/dom.js';
 
-let acik = null;
+let open = null;
 
-export function kapat() {
-  if (!acik) return;
-  const { perde, coz, oncekiOdak, kapaninca } = acik;
-  coz();
-  perde.remove();
-  acik = null;
-  if (oncekiOdak && document.contains(oncekiOdak)) oncekiOdak.focus();
-  // Diyalog Escape ile ya da perdeye tıklanarak da kapanabiliyor; çağıran
-  // ekran penceresinin kapandığını ancak buradan öğrenir.
-  if (kapaninca) kapaninca();
+export function close() {
+  if (!open) return;
+  const { backdrop, release, previousFocus, onClose } = open;
+  release();
+  backdrop.remove();
+  open = null;
+  if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
+  // A dialog can also be closed with Escape or by clicking the backdrop; the
+  // calling screen only learns the dialog closed from here.
+  if (onClose) onClose();
 }
 
-export function ac({ baslik, icerik, eylemler = [], genislik, kapaninca }) {
-  kapat();
-  const oncekiOdak = document.activeElement;
+export function show({ title, content, actions = [], width, onClose }) {
+  close();
+  const previousFocus = document.activeElement;
 
-  const kutu = el('div', {
-    sinif: 'diyalog', role: 'dialog', 'aria-modal': 'true',
-    'aria-labelledby': 'diyalog-baslik',
-    stil: genislik ? `width:min(${genislik},100%)` : null,
+  const box = el('div', {
+    class: 'dialog', role: 'dialog', 'aria-modal': 'true',
+    'aria-labelledby': 'dialog-title',
+    style: width ? `width:min(${width},100%)` : null,
   }, [
-    el('h3', { id: 'diyalog-baslik', metin: baslik }),
-    icerik,
-    eylemler.length ? el('div', { sinif: 'eylemler' }, eylemler) : null,
+    el('h3', { id: 'dialog-title', text: title }),
+    content,
+    actions.length ? el('div', { class: 'actions' }, actions) : null,
   ]);
 
-  const perde = el('div', {
-    sinif: 'perde',
-    onclick: (e) => { if (e.target === perde) kapat(); },
-  }, [kutu]);
+  const backdrop = el('div', {
+    class: 'backdrop',
+    onclick: (e) => { if (e.target === backdrop) close(); },
+  }, [box]);
 
-  doldur($('#diyalog-yuva'), [perde]);
-  const coz = odakTuzagi(perde, kapat);
-  acik = { perde, coz, oncekiOdak, kapaninca };
+  fill($('#dialog-slot'), [backdrop]);
+  const release = focusTrap(backdrop, close);
+  open = { backdrop, release, previousFocus, onClose };
 
-  const ilk = kutu.querySelector('input, button, select, textarea');
-  if (ilk) ilk.focus();
-  return { kapat };
+  const first = box.querySelector('input, button, select, textarea');
+  if (first) first.focus();
+  return { close };
 }
 
-export function acikMi() { return acik !== null; }
+export function isOpen() { return open !== null; }

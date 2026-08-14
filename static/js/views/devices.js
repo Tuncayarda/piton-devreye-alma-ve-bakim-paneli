@@ -1,129 +1,145 @@
-// Cihaz listesi. Satıra tıklanınca detay çekmecesi açılır.
+// The device list. Clicking a row opens the detail drawer.
 //
-// Tarama ilerlemesi bu listede gösterilmez; canlı adım adım durum işlem
-// kuyruğundadır. Liste her zaman cihazın son bilinen durumunu gösterir.
+// Scan progress is not shown in this list; the live step-by-step state lives
+// in the job queue. The list always shows a device's last known state.
 
-import { el, doldur } from '../core/dom.js';
-import { durum, ata, gorunenCihazlar } from '../core/durum.js';
+import { el, fill } from '../core/dom.js';
+import { state, patch, visibleDevices } from '../core/store.js';
 import {
-  deger, DURUM_ETIKET, surumOf, calismaOf, tipEtiketi,
-} from '../core/bicim.js';
-import * as detay from '../parts/detay.js';
+  value, stateLabel, versionOf, uptimeOf, typeLabel,
+} from '../core/format.js';
+import * as detail from '../components/detail.js';
+import { t } from '../core/i18n.js';
 
-// "Switch · Port" sütunu switch adının tamamını taşıyor (Yataklı_1 · p11);
-// dar bırakınca metin sığmıyordu.
-const KOLON = 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(150px,1fr) '
+// The "Switch · port" column carries the switch's full name (Yataklı_1 · p11);
+// left narrow, the text did not fit.
+const COLUMNS = 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(150px,1fr) '
   + '120px 100px 120px 96px';
 
-const FILTRELER = [
-  { id: 'tumu', ad: 'Tümü' },
-  { id: 'aktif', ad: 'Erişilebilir' },
-  { id: 'sorunlu', ad: 'İncelenecek' },
+// Keys, not text — see action_tabs.js: the module loads before the
+// catalogue arrives.
+const FILTERS = [
+  { id: 'all', labelKey: 'group.all' },
+  { id: 'active', labelKey: 'devices.reachable' },
+  { id: 'problem', labelKey: 'devices.needsReview' },
 ];
 
-export function ciz(kok) {
-  const kategoriler = durum.meta ? durum.meta.kategoriler : [];
-  const kat = kategoriler
-    .find(k => k.id === durum.kategori);
-  const liste = gorunenCihazlar();
-  const kategoriToplami = durum.kategori === 'tum'
-    ? durum.cihazlar.length
-    : durum.cihazlar.filter(c => c.kategori === durum.kategori).length;
+export function render(root) {
+  const categories = state.meta ? state.meta.categories : [];
+  const category = categories.find(c => c.id === state.category);
+  const devices = visibleDevices();
+  const categoryTotal = state.category === 'all'
+    ? state.devices.length
+    : state.devices.filter(d => d.category === state.category).length;
 
-  const parcalar = [];
+  const parts = [];
 
-  parcalar.push(el('div', { sinif: 'sayfa-basi' }, [
+  parts.push(el('div', { class: 'page-head' }, [
     el('div', {}, [
-      el('h2', { metin: 'Cihazlar' }),
+      el('h2', { text: t('nav.devices') }),
       el('div', {
-        sinif: 'sayfa-alt',
-        metin: `${kat ? kat.ad : 'Tüm cihazlar'} · ${kategoriToplami} cihaz`,
+        class: 'page-sub',
+        text: t('devices.categoryCount', {
+          category: category ? category.name : t('devices.allDevices'),
+          count: categoryTotal,
+        }),
       }),
     ]),
     el('div', {
-      sinif: 'yerel-sekmeler',
-      role: 'group', 'aria-label': 'Durum filtresi',
-    }, FILTRELER.map(f => el('button', {
+      class: 'local-tabs',
+      role: 'group', 'aria-label': t('devices.stateFilter'),
+    }, FILTERS.map(filter => el('button', {
       type: 'button',
-      sinif: 'yerel-sekme',
-      'aria-pressed': String(durum.filtre === f.id),
-      metin: f.ad,
-      onclick: () => ata({ filtre: f.id }),
+      class: 'local-tab',
+      'aria-pressed': String(state.filter === filter.id),
+      text: t(filter.labelKey),
+      onclick: () => patch({ filter: filter.id }),
     }))),
   ]));
 
-  // Kategoriler birer ana ekran değil, cihaz listesinin süzgecidir.
-  parcalar.push(el('div', {
-    sinif: 'serit cihaz-kategori-seridi', role: 'group',
-    'aria-label': 'Cihaz kategorisi',
+  // Categories are not top-level screens but a filter over the device list.
+  parts.push(el('div', {
+    class: 'chip-bar device-category-bar', role: 'group',
+    'aria-label': t('devices.deviceCategory'),
   }, [
-    el('span', { sinif: 'etiket', metin: 'Kategori' }),
-    ...kategoriler.map(k => {
-      const sayi = k.id === 'tum'
-        ? durum.cihazlar.length
-        : durum.cihazlar.filter(c => c.kategori === k.id).length;
+    el('span', { class: 'label', text: t('checklist.category') }),
+    ...categories.map(entry => {
+      const count = entry.id === 'all'
+        ? state.devices.length
+        : state.devices.filter(d => d.category === entry.id).length;
       return el('button', {
-        type: 'button', sinif: 'cip', title: k.tipler,
-        'aria-pressed': String(durum.kategori === k.id),
-        onclick: () => ata({ kategori: k.id, altTip: null }),
+        type: 'button', class: 'chip', title: entry.types,
+        'aria-pressed': String(state.category === entry.id),
+        onclick: () => patch({ category: entry.id, subtype: null }),
       }, [
-        el('span', { metin: k.ad }),
-        el('span', { sinif: 'n', metin: String(sayi) }),
+        el('span', { text: entry.name }),
+        el('span', { class: 'count', text: String(count) }),
       ]);
     }),
   ]));
 
-  const basliklar = ['Cihaz', 'Tür / Alt tür', 'Switch · Port', 'IP',
-    'Sürüm', 'Erişim durumu', 'Çalışma süresi'];
+  const headings = ['col.device', 'col.typeSubtypeLower', 'col.switchPort',
+    'col.ip', 'col.version', 'col.accessState', 'col.uptime'];
 
-  const satirlar = liste.map(c => {
-    const s = c.sonuc || {};
+  const rows = devices.map(device => {
+    const result = device.result || {};
     return el('button', {
-      type: 'button', sinif: 'tablo-satir',
-      stil: `--tablo-kolon:${KOLON}`,
-      'aria-selected': String(durum.detayId === c.id),
-      title: s.aciklama || '',
-      onclick: () => detay.ac(c.id),
+      type: 'button', class: 'table-row',
+      style: `--table-columns:${COLUMNS}`,
+      'aria-selected': String(state.detailId === device.id),
+      title: result.detail || '',
+      onclick: () => detail.open(device.id),
     }, [
-      el('span', { stil: 'display:flex;align-items:center;gap:8px;min-width:0' }, [
-        el('span', { sinif: 'nokta', veri: { durum: s.durum }, 'aria-hidden': 'true' }),
-        el('span', { sinif: 'mono kirp', stil: 'font-size:12.5px', metin: c.ad }),
+      el('span', {
+        style: 'display:flex;align-items:center;gap:8px;min-width:0',
+      }, [
+        el('span', {
+          class: 'dot', dataset: { state: result.state },
+          'aria-hidden': 'true',
+        }),
+        el('span', {
+          class: 'mono truncate', style: 'font-size:12.5px',
+          text: device.name,
+        }),
       ]),
       el('span', {
-        sinif: 'acik kirp', stil: 'font-size:12.5px',
-        metin: tipEtiketi(c.tipEtiket),
+        class: 'text-bright truncate', style: 'font-size:12.5px',
+        text: typeLabel(device.typeLabel),
       }),
       el('span', {
-        sinif: 'mono orta kirp', stil: 'font-size:11px',
-        title: c.portEtiket, metin: c.portEtiket,
+        class: 'mono text-mid truncate', style: 'font-size:11px',
+        title: device.portLabel, text: device.portLabel,
       }),
-      el('span', { sinif: 'mono', stil: 'font-size:12px', metin: c.ip }),
+      el('span', { class: 'mono', style: 'font-size:12px', text: device.ip }),
       el('span', {
-        sinif: 'mono kirp', stil: 'font-size:11.5px'
-          + (surumOf(c) ? ';color:var(--yesil)' : ';color:var(--soluk)'),
-        metin: deger(surumOf(c)),
+        class: 'mono truncate', style: 'font-size:11.5px'
+          + (versionOf(device) ? ';color:var(--ok)' : ';color:var(--text-dim)'),
+        text: value(versionOf(device)),
       }),
       el('span', {
-        sinif: 'durum-yazi', veri: { durum: s.durum },
-        stil: 'font-family:var(--f-baslik);font-weight:600;font-size:13px;'
+        class: 'state-text', dataset: { state: result.state },
+        style: 'font-family:var(--font-heading);font-weight:600;font-size:13px;'
           + 'letter-spacing:.08em;text-transform:uppercase',
-        metin: DURUM_ETIKET[s.durum] || '',
+        text: stateLabel(result.state, ' '),
       }),
-      el('span', { sinif: 'mono orta', stil: 'font-size:11px', metin: deger(calismaOf(c)) }),
+      el('span', {
+        class: 'mono text-mid', style: 'font-size:11px',
+        text: value(uptimeOf(device)),
+      }),
     ]);
   });
 
-  parcalar.push(el('div', { sinif: 'tablo-sar' }, [
-    el('div', { sinif: 'tablo', stil: '--tablo-min:960px' }, [
+  parts.push(el('div', { class: 'table-wrap' }, [
+    el('div', { class: 'table', style: '--table-min:960px' }, [
       el('div', {
-        sinif: 'tablo-basi', stil: `--tablo-kolon:${KOLON}`, role: 'row',
-      }, basliklar.map(b => el('span', { metin: b }))),
-      ...(satirlar.length ? satirlar
+        class: 'table-head', style: `--table-columns:${COLUMNS}`, role: 'row',
+      }, headings.map(key => el('span', { text: key ? t(key) : '' }))),
+      ...(rows.length ? rows
         : [el('div', {
-          sinif: 'tablo-bos', metin: 'Bu ölçütlere uyan cihaz bulunamadı.',
+          class: 'table-empty', text: t('devices.noDeviceMatchesTheseCriteria'),
         })]),
     ]),
   ]));
 
-  doldur(kok, parcalar);
+  fill(root, parts);
 }
