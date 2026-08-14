@@ -93,7 +93,7 @@ def set_macos_identity(name: str) -> None:
 
 def self_test() -> int:
     """Verify the production desktop path without a window or a socket."""
-    from panel import api, settings
+    from panel import api, i18n, settings
     from panel.desktop import PanelBridge, load_html
     from panel.inventory import device_map
 
@@ -105,11 +105,17 @@ def self_test() -> int:
         outcomes.append(condition)
         return condition
 
-    write(f"{settings.APP_NAME} {settings.APP_VERSION} — self-test")
+    write(f"{i18n.t('app.name')} {settings.APP_VERSION} — self-test")
 
     check("DeviceMap found", settings.DEVICE_MAP.exists(),
           str(settings.DEVICE_MAP))
     check("Excel template found", settings.EXCEL_TEMPLATE.exists())
+    # The message catalogue is DATA sitting next to a package, so it is
+    # carried into the bundle by hand (see dabp.spec). Missing, the panel
+    # still opens — with every label showing its raw key instead of text.
+    for language in i18n.LANGUAGES:
+        check(f"messages/{language}.json", bool(i18n.catalogue(language)),
+              str(i18n.MESSAGES_DIR))
     for asset in ("index.html", "desktop.html", "css/base.css", "js/app.js",
                   "piton-logo.svg", "piton-favicon.png"):
         check(f"static/{asset}", (settings.STATIC_DIR / asset).exists())
@@ -161,7 +167,7 @@ def browser_mode(port: int) -> int:
     import time
     import webbrowser
 
-    from panel import api, settings
+    from panel import api, i18n, settings
     from panel.api.http_adapter import serve
 
     try:
@@ -182,7 +188,7 @@ def browser_mode(port: int) -> int:
         if not http_ready(url):
             write("[ERROR] The browser service gave no HTTP response.")
             return 1
-        write(f"{settings.APP_NAME} {settings.APP_VERSION} — "
+        write(f"{i18n.t('app.name')} {settings.APP_VERSION} — "
               "browser diagnostic mode")
         write(f"Address: {url}")
         write("Press Ctrl-C to stop")
@@ -226,7 +232,7 @@ def main() -> int:
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args()
 
-    from panel import settings
+    from panel import i18n, settings
     if args.version:
         write(settings.APP_VERSION)
         return 0
@@ -243,7 +249,7 @@ def main() -> int:
     # window is this app's window too. Without it a separate icon appeared in
     # the Dock under the interpreter's name ("Python") and the panel looked
     # like a SECOND application.
-    set_macos_identity(settings.APP_NAME)
+    set_macos_identity(i18n.t("app.name"))
 
     # The privilege check comes after package verification (--self-test,
     # --version) but before the service is set up: those two modes never touch
@@ -286,7 +292,7 @@ def main() -> int:
         webview.settings["REMOTE_DEBUGGING_PORT"] = None
 
         window = webview.create_window(
-            settings.APP_NAME, html=html,
+            i18n.t("app.name"), html=html,
             width=WIDTH, height=HEIGHT,
             min_size=(980, 620),
             background_color="#101820",
@@ -296,7 +302,12 @@ def main() -> int:
         # Only this one function, which checks the session key, joins the
         # exact-name allowlist; the bridge's state never enters the WebView.
         window.expose(bridge.invoke)
-        write(f"{settings.APP_NAME} {settings.APP_VERSION} — "
+        # The title bar is painted by the operating system, outside the
+        # WebView: the redraw that follows a language switch cannot reach it,
+        # so it is told separately. Everything else on screen is rebuilt from
+        # the catalogue the switch hands back.
+        i18n.on_change(lambda _language: window.set_title(i18n.t("app.name")))
+        write(f"{i18n.t('app.name')} {settings.APP_VERSION} — "
               "socketless desktop mode")
         write(f"DeviceMap: {settings.DEVICE_MAP}")
         write("Credentials are asked for in the UI and written nowhere.")

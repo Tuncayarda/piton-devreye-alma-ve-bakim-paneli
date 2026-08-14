@@ -16,11 +16,11 @@ numarasıdır; örneğin `0.9.7`.
 
 | Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
-| **Windows x64** | `CommissioningPanel-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
-| Windows x64 | `CommissioningPanel-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
-| macOS (Apple Silicon) | `CommissioningPanel-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| macOS (Intel) | `CommissioningPanel-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| Linux x86_64 | `CommissioningPanel-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
+| **Windows x64** | `dabp-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
+| Windows x64 | `dabp-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
+| macOS (Apple Silicon) | `dabp-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| macOS (Intel) | `dabp-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| Linux x86_64 | `dabp-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
 
 ## İşletim sistemi notları
 
@@ -41,7 +41,7 @@ gerekiyorsa arşivi çıkardıktan sonra, üst klasörde açtığınız PowerShe
 komutu çalıştırın:
 
 ```powershell
-Get-ChildItem -LiteralPath '.\CommissioningPanel' -Recurse -File | Unblock-File
+Get-ChildItem -LiteralPath '.\dabp' -Recurse -File | Unblock-File
 ```
 
 Paketler kod imzası taşımaz. SmartScreen uyarısı görünürse *Daha fazla bilgi*
@@ -68,7 +68,7 @@ sudo apt install libxcb-cursor0 libegl1 libgl1 zenity
 Arşiv yöneticiniz çalıştırma iznini korumadıysa izni yeniden verin:
 
 ```bash
-chmod +x CommissioningPanel-*-linux-x86_64.AppImage
+chmod +x dabp-*-linux-x86_64.AppImage
 ```
 
 ### Compartment LCD
@@ -86,15 +86,15 @@ Yalnızca bir paket indirdiyseniz önce o dosyanın özetini hesaplayın ve sonu
 
 ```powershell
 # Windows PowerShell
-Get-FileHash -Algorithm SHA256 '.\CommissioningPanel-<sürüm>-windows-x64-Setup.exe'
+Get-FileHash -Algorithm SHA256 '.\dabp-<sürüm>-windows-x64-Setup.exe'
 ```
 
 ```bash
 # macOS
-shasum -a 256 'CommissioningPanel-<sürüm>-macos-arm64.zip'
+shasum -a 256 'dabp-<sürüm>-macos-arm64.zip'
 
 # Linux
-sha256sum 'CommissioningPanel-<sürüm>-linux-x86_64.zip'
+sha256sum 'dabp-<sürüm>-linux-x86_64.zip'
 ```
 
 Bütün paketleri ve `SHA256SUMS.txt` dosyasını aynı klasöre indirdiyseniz tüm

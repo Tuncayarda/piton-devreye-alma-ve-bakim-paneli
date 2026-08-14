@@ -52,8 +52,8 @@ export function render() {
       `${device.ip} · ${typeLabel(device.typeLabel)}`,
       el('br'),
       device.credentialGroup
-        ? `Account group: ${device.credentialGroup}`
-        : 'An account used for this device only',
+        ? t('locked.accountGroup', { group: device.credentialGroup })
+        : t('locked.ownAccount'),
       el('br'),
       detailOf(device),
     ]),
@@ -113,7 +113,7 @@ export function credentialDialog(device, onDone = null) {
       e.preventDefault();
       warning.hidden = true;
       submit.disabled = true;
-      submit.textContent = 'Verifying access…';
+      submit.textContent = t('locked.verifying');
 
       const username = usernameField.value.trim();
       const password = passwordField.value;
@@ -134,13 +134,13 @@ export function credentialDialog(device, onDone = null) {
         // A wrong password does not overwrite the working credential in
         // memory (server side).
         passwordField.value = '';
-        warning.textContent = err.message || 'Access could not be verified.';
+        warning.textContent = err.message || t('locked.notVerified');
         warning.hidden = false;
         passwordField.focus();
         if (err.body && err.body.state) applyState(err.body.state);
       } finally {
         submit.disabled = false;
-        submit.textContent = 'Verify access';
+        submit.textContent = t('locked.verifyAccess');
       }
     },
   }, [

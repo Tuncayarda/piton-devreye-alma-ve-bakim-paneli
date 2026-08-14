@@ -32,13 +32,15 @@ export function render(root) {
           ? 'border-color:var(--ok-soft);color:var(--ok)'
           : 'color:var(--text-dim)',
         text: data.running
-          ? `${data.broker || ''} · connected · ${data.total || 0} messages`
-          : 'Not connected',
+          ? t('mqtt.connected', {
+            broker: data.broker || '', count: data.total || 0,
+          })
+          : t('mqtt.notConnected'),
       }),
       el('button', {
         type: 'button',
         class: data.running ? 'btn' : 'btn btn-primary',
-        text: data.running ? 'Stop' : 'Start',
+        text: t(data.running ? 'mqtt.stop' : 'mqtt.start'),
         onclick: async () => {
           try {
             patch({ mqttState: data.running
@@ -106,7 +108,8 @@ export function render(root) {
         }),
       ])) : [el('div', {
         class: 'mono text-dim', style: 'font-size:11px',
-        text: data.running ? 'Waiting for messages…' : 'Listener stopped',
+        text: t(data.running ? 'mqtt.waitingForMessages'
+          : 'mqtt.listenerStopped'),
       })]),
     ]),
   ]));

@@ -96,7 +96,8 @@ export function render(op, onSelect = () => {}, options = {}) {
   }, [
     el('span', {
       class: 'label',
-      text: multi ? 'Target groups' : 'Target group',
+      text: t(multi ? 'groupbar.targetGroupsLabel'
+        : 'groupbar.targetGroupLabel'),
     }),
     ...list.map(g => el('button', {
       type: 'button', class: 'chip',

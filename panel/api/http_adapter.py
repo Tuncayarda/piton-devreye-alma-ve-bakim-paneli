@@ -16,13 +16,13 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import settings
+from .. import i18n, settings
 from .lifecycle import reset, set_admin_password, start
 from .service import SERVICE
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "CommissioningPanel/1.0"
+    server_version = f"{settings.APP_SLUG}/1.0"
     protocol_version = "HTTP/1.1"
 
     def _send(self, status: int, payload,
@@ -45,17 +45,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
         except ValueError:
-            raise ValueError("Invalid Content-Length")
+            raise ValueError(i18n.t("error.invalidContentLength"))
         if length < 0 or length > settings.BODY_LIMIT:
-            raise ValueError("The request body is too large")
+            raise ValueError(i18n.t("error.bodyTooLarge"))
         if not length:
             return {}
         try:
             data = json.loads(self.rfile.read(length))
         except ValueError:
-            raise ValueError("The body is not valid JSON")
+            raise ValueError(i18n.t("error.bodyNotJson"))
         if not isinstance(data, dict):
-            raise ValueError("The body must be an object")
+            raise ValueError(i18n.t("error.bodyMustBeObject"))
         return data
 
     def _serve_file(self, relative: str):
@@ -90,7 +90,8 @@ class Handler(BaseHTTPRequestHandler):
                     "/piton-logo.svg", "/piton-favicon.png"):
                 return self._serve_file(url.path)
             if not url.path.startswith("/api/"):
-                return self._send(404, {"error": "unknown path"})
+                return self._send(
+                    404, {"error": i18n.t("error.unknownPath")})
             response = SERVICE.call("GET", url.path,
                                     query=parse_qs(url.query))
             return self._send(response.status, response.body)
@@ -112,7 +113,8 @@ class Handler(BaseHTTPRequestHandler):
     def _send_error(self):
         """Adapter failure: a plain reply, detail only on stderr."""
         sys.stderr.write(traceback.format_exc())
-        self._send(500, {"error": "Something unexpected went wrong in the panel"})
+        self._send(
+            500, {"error": i18n.t("error.unexpectedPanelProblem")})
 
 
 def serve(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
@@ -131,7 +133,7 @@ def main() -> int:
             pass
 
     parser = argparse.ArgumentParser(
-        description=f"{settings.APP_NAME} — local API (opens no window)")
+        description=f"{i18n.t('app.name')} — local API (opens no window)")
     parser.add_argument("--port", type=int, default=8790)
     parser.add_argument("--admin-password", default=None,
                         help="when given, the admin screen asks for this "

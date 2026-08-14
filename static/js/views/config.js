@@ -45,14 +45,15 @@ const SOURCE_LABEL = {
 
 // Section headings, keyed by the server's stable `section` id (see
 // panel/config_sync/fields.py). The server also sends `sectionLabel`; this
-// table only fills in when an older server does not.
+// table only fills in when an older server does not. It holds the SAME
+// catalogue keys the server renders from, so the two cannot drift.
 const SECTION_LABEL = {
-  sip: 'SIP',
-  audio: 'Audio and gain',
-  mode: 'Operating modes',
-  thresholds: 'Voltage thresholds',
-  routing: 'Call routing',
-  information: 'Device information',
+  sip: 'section.sip',
+  audio: 'section.audio',
+  mode: 'section.mode',
+  thresholds: 'section.thresholds',
+  routing: 'section.routing',
+  information: 'section.information',
 };
 
 // `window`: the open device window ({device, body}) — see openDevice.
@@ -133,7 +134,8 @@ export function render(root) {
       el('button', {
         type: 'button', class: 'btn btn-primary',
         text: devices.length
-          ? `Apply to ${devices.length} device(s)` : 'Apply to the devices',
+          ? t('config.applyToCount', { count: devices.length })
+          : t('config.applyToDevices'),
         disabled: !devices.length, onclick: applyToGroup,
       }),
     ]),
@@ -271,7 +273,7 @@ function renderWindow() {
       class: local.needsCredentials ? 'info' : 'warning',
       text: local.errorText
         + (local.needsCredentials
-          ? ' Enter a username and password from the credentials panel.' : ''),
+          ? ` ${t('config.enterCredentialsHint')}` : ''),
     }) : null,
     el('div', { class: 'table-wrap' }, [
       el('div', { class: 'table', style: '--table-min:660px' }, [
@@ -283,10 +285,8 @@ function renderWindow() {
               class: 'table-empty',
               // Writing "could not be read" while the read is in progress is
               // wrong: the device has not even been tried yet.
-              text: (!ours || (data && data.reading)) && !local.errorText
-                ? 'Reading the device…'
-                : 'The device values could not be read. Try again with '
-                  + '"Read from the device".',
+              text: t((!ours || (data && data.reading)) && !local.errorText
+                ? 'config.readingDevice' : 'config.couldNotRead'),
             })]),
       ]),
     ]),
@@ -401,10 +401,10 @@ function groupCard(fields, rows, sources) {
                 aria: t('config.valueToWriteToThe'),
                 placeholder: groupPlaceholder(
                   field, groupSecrets, projectVarying),
-                emptyLabel: inherited ? 'Default' : 'Leave unchanged',
+                emptyLabel: t(inherited ? 'config.default'
+                  : 'config.leaveUnchanged'),
                 title: inherited
-                  ? 'Came from the project default (DeviceMap); left alone, '
-                    + 'this value is applied'
+                  ? t('config.inheritedTitle')
                   : (field.warning || field.hint || ''),
               }),
           ]);
@@ -452,11 +452,11 @@ async function resetDefaults() {
 function groupPlaceholder(field, groupSecrets, projectVarying) {
   if (field.secret) {
     if (groupSecrets.includes(field.field)) return 'Entered';
-    return field.source === 'project' ? 'Default' : 'Empty';
+    return t(field.source === 'project' ? 'config.default' : 'config.empty');
   }
   // For a field that varies per device the box is deliberately empty: each
   // device takes its own DeviceMap value.
-  if (projectVarying.includes(field.field)) return 'Per device';
+  if (projectVarying.includes(field.field)) return t('config.perDevice');
   return '—';
 }
 
@@ -502,14 +502,16 @@ function renderRow(row) {
               : (row.hasTarget ? 'hidden' : '—'))
             : '—',
           title: row.warning || (!row.override && row.target
-            ? `${SOURCE_LABEL[row.source]
-              ? t(SOURCE_LABEL[row.source][0]) : ''}`
-              + ' value. Left alone, this value is applied.'
+            ? t('config.sourceValueApplied', {
+              source: SOURCE_LABEL[row.source]
+                ? t(SOURCE_LABEL[row.source][0]) : '',
+            })
             : row.hint || ''),
           // The empty option means "no device-specific value"; the label says
           // where the target will fall back to.
-          emptyLabel: row.source === 'project' ? 'Default'
-            : (row.source === 'group' ? 'Shared setting' : 'Empty'),
+          emptyLabel: t(row.source === 'project' ? 'config.default'
+            : (row.source === 'group' ? 'config.sharedSetting'
+              : 'config.empty')),
         })
       : el('span', {
           class: 'mono text-dim', style: 'font-size:12px', text: '—',

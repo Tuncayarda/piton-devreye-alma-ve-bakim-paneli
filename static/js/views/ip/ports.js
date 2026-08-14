@@ -4,6 +4,28 @@
 // ip_assign.format_ports / parse_ports. The text is produced here and parsed
 // here too, because going to the server on every keystroke (and blanking the
 // screen on invalid text) is not the right behaviour while the user types.
+//
+// No DOM, but not free of the catalogue either: the messages these return
+// are read by the user, so they come from the same place as every other
+// sentence on screen.
+
+import { t } from '../../core/i18n.js';
+
+// The reading of a `tried[].state` code from the server. The codes are the
+// contract (panel/ip_assign/ports.py SWITCH_STATE_LABEL); the words are
+// chosen here.
+const SWITCH_STATE = {
+  auth: 'ip.switchStateAuth',
+  unreachable: 'ip.switchStateUnreachable',
+  unreadable: 'ip.switchStateUnreadable',
+  empty: 'ip.switchStateEmpty',
+  read: 'ip.switchStateRead',
+};
+
+export function switchStateLabel(state) {
+  const key = SWITCH_STATE[state];
+  return key ? t(key) : String(state || '');
+}
 
 export function formatPorts(ports) {
   const sorted = [...new Set(ports.map(Number))]
@@ -32,13 +54,15 @@ export function parsePorts(text, allowed) {
       const end = Number(b);
       if (!Number.isInteger(start) || !Number.isInteger(end) || end < start
           || start < 1 || a === '' || b === '') {
-        return { ports: [], error: `Invalid port range: ${part}` };
+        return {
+          ports: [], error: t('ip.invalidPortRange', { part }),
+        };
       }
       for (let n = start; n <= end; n += 1) found.push(n);
     } else {
       const n = Number(part);
       if (!Number.isInteger(n) || n < 1) {
-        return { ports: [], error: `Invalid port: ${part}` };
+        return { ports: [], error: t('ip.invalidPort', { part }) };
       }
       found.push(n);
     }
@@ -50,8 +74,7 @@ export function parsePorts(text, allowed) {
     if (outside.length) {
       return {
         ports: [],
-        error: 'Ports with no device defined on this switch: '
-          + outside.join(', '),
+        error: t('ip.portsWithoutDevice', { ports: outside.join(', ') }),
       };
     }
   }
@@ -100,31 +123,27 @@ export function validateSearch(networkText, maskText, firstText, lastText) {
   const last = String(lastText || '').trim();
   if (first || last) {
     if (!first || !last) {
-      return 'Enter both the first and the last address of the range.';
+      return t('ip.rangeNeedsBoth');
     }
     if (!isIpv4(first) || !isIpv4(last)) {
-      return 'Use valid IPv4 addresses in the range.';
+      return t('ip.rangeNeedsIpv4');
     }
     const count = ipNumber(last) - ipNumber(first) + 1;
-    if (count <= 0) return 'The last address cannot come before the first.';
+    if (count <= 0) return t('ip.rangeReversed');
     if (count > SEARCH_LIMIT) {
-      return `That range covers ${count} addresses; at most ${SEARCH_LIMIT} `
-        + 'can be scanned.';
+      return t('ip.rangeTooWide', { count, limit: SEARCH_LIMIT });
     }
     return '';
   }
   const network = String(networkText || '').trim();
   const mask = String(maskText || '').trim();
-  if (!network && !mask) return 'Enter the search network and the netmask.';
-  if (!isIpv4(network)) return 'The search network must be a valid IPv4 address';
+  if (!network && !mask) return t('ip.searchNeedsNetwork');
+  if (!isIpv4(network)) return t('ip.searchNetworkInvalid');
   const prefix = maskPrefix(mask);
-  if (prefix === null) {
-    return 'The mask must be written as 255.255.255.0 or 24';
-  }
+  if (prefix === null) return t('ip.maskInvalid');
   const count = prefix >= 31 ? 1 : (2 ** (32 - prefix)) - 2;
   if (count > SEARCH_LIMIT) {
-    return `That netmask covers ${count} addresses; at most ${SEARCH_LIMIT} `
-      + 'can be scanned. Narrow the mask or give an address range.';
+    return t('ip.maskTooWide', { count, limit: SEARCH_LIMIT });
   }
   return '';
 }

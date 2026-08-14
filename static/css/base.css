@@ -128,6 +128,17 @@ input, select { font: inherit; }
   overflow-y: auto;
 }
 
+/* #role-screen is already `position: fixed`, so it is the containing block
+   for this. Raised above the card: on a short window the centred card can
+   grow up to meet the corner. */
+.role-language {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  z-index: 1;
+  background: var(--bg);
+}
+
 .role-brand {
   display: flex;
   align-items: center;

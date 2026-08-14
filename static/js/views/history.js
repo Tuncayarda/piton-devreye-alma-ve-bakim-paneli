@@ -7,7 +7,7 @@
 import { el, fill } from '../core/dom.js';
 import { state, patch } from '../core/store.js';
 import {
-  NONE, jobOutcomeLabel, JOB_OUTCOME_COLOUR, LOCALE,
+  NONE, jobOutcomeLabel, jobStateLabel, JOB_OUTCOME_COLOUR, LOCALE,
 } from '../core/format.js';
 import { t } from '../core/i18n.js';
 
@@ -22,34 +22,28 @@ const STATE_COLOUR = {
   failed: 'failed',
 };
 
-const STATE_TEXT = {
-  queued: 'Queued',
-  running: 'Running',
-  done: 'Finished',
-  cancelled: 'Stopped',
-  failed: 'Failed',
-};
-
 // Keyed by the server's stable `kind` value, never by the display title: the
 // title carries a switch or device name and gets reworded, and a screen that
 // decided by matching it went blank the moment the wording changed.
+//
+// Keys rather than words, because this table is built when the module loads
+// — before the catalogue has arrived.
 const KIND_NAME = {
-  scan: 'System scan',
-  ip: 'IP assignment',
-  ipfactory: 'Reset to the factory IP',
-  config: 'Apply device settings',
-  firmware: 'Firmware install',
-  checklist: 'Generate the Excel report',
+  scan: 'history.kindScan',
+  ip: 'history.kindIp',
+  ipfactory: 'history.kindIpFactory',
+  config: 'history.kindConfig',
+  firmware: 'history.kindFirmware',
+  checklist: 'history.kindChecklist',
 };
-
-const UNKNOWN_KIND = 'Job';
 
 const COLUMNS = 'minmax(235px,1.7fr) minmax(120px,.8fr) 105px '
   + 'minmax(125px,.8fr) minmax(210px,1.4fr) 105px';
 
 function jobName(job) {
-  if (job.kind === 'scan' && job.auto) return 'Automatic system scan';
-  return KIND_NAME[job.kind] || String(job.title || UNKNOWN_KIND);
+  if (job.kind === 'scan' && job.auto) return t('history.automaticScan');
+  if (KIND_NAME[job.kind]) return t(KIND_NAME[job.kind]);
+  return String(job.title || t('history.kindUnknown'));
 }
 
 // The first part of the server's title is usually the job kind. Because the
@@ -69,26 +63,32 @@ function timeText(ts) {
 }
 
 function durationText(job) {
-  if (!job.startedAt) return 'Not started yet';
+  if (!job.startedAt) return t('history.notStarted');
   const end = job.finishedAt || Date.now() / 1000;
   const seconds = Math.max(0, Math.round(end - job.startedAt));
-  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 60) return t('history.seconds', { count: seconds });
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  if (minutes < 60) return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+  if (minutes < 60) {
+    return rest
+      ? t('history.minutesSeconds', { minutes, seconds: rest })
+      : t('history.minutes', { count: minutes });
+  }
   const hours = Math.floor(minutes / 60);
-  return `${hours} h ${minutes % 60} min`;
+  return t('history.hoursMinutes', { hours, minutes: minutes % 60 });
 }
 
 function stateText(job) {
-  if (job.cancelRequested && IN_PROGRESS.has(job.state)) return 'Stopping…';
-  return STATE_TEXT[job.state] || 'Unknown';
+  if (job.cancelRequested && IN_PROGRESS.has(job.state)) {
+    return t('history.stopping');
+  }
+  return jobStateLabel(job.state, t('history.unknownState'));
 }
 
 function outcomeText(job) {
   if (IN_PROGRESS.has(job.state)) {
-    return job.phase || (job.state === 'queued'
-      ? 'Waiting its turn' : 'Running');
+    return job.phase || t(job.state === 'queued'
+      ? 'history.waitingTurn' : 'jobstate.running');
   }
   if (job.error) return job.error;
 
@@ -99,18 +99,18 @@ function outcomeText(job) {
   const skipped = Number(counts.skipped || 0);
   const total = Number(counts.total || 0);
   if (!total) {
-    if (job.state === 'cancelled') return 'Stopped before it finished';
-    if (job.state === 'failed') return 'The job could not be completed';
-    return 'The job finished successfully';
+    if (job.state === 'cancelled') return t('history.stoppedEarly');
+    if (job.state === 'failed') return t('history.couldNotComplete');
+    return t('history.finishedWell');
   }
 
   const parts = [];
   const outcomeLabel = job.outcome ? jobOutcomeLabel(job.outcome) : '';
   if (outcomeLabel) parts.push(outcomeLabel);
-  parts.push(`${ok} successful`);
-  if (auth) parts.push(`${auth} device(s) need credentials`);
-  if (failed) parts.push(`${failed} failed`);
-  if (skipped) parts.push(`${skipped} skipped`);
+  parts.push(t('history.countOk', { count: ok }));
+  if (auth) parts.push(t('history.countAuth', { count: auth }));
+  if (failed) parts.push(t('history.countFailed', { count: failed }));
+  if (skipped) parts.push(t('history.countSkipped', { count: skipped }));
   return parts.join(' · ');
 }
 
@@ -148,7 +148,8 @@ function jobRow(job) {
         class: 'state-text', dataset: { state: colour },
         style: 'font-size:12px',
         text: IN_PROGRESS.has(job.state)
-          ? `${stateText(job)} · %${percent}` : stateText(job),
+          ? t('history.stateWithPercent', { state: stateText(job), percent })
+          : stateText(job),
       }),
     ]),
     el('span', {
@@ -206,9 +207,13 @@ function section(title, description, jobs, emptyText) {
 
 function filters(active, finished) {
   const options = [
-    { id: 'all', label: `All (${active.length + finished.length})` },
-    { id: 'active', label: `In progress (${active.length})` },
-    { id: 'finished', label: `Finished (${finished.length})` },
+    { id: 'all',
+      label: t('history.filterAll',
+        { count: active.length + finished.length }) },
+    { id: 'active',
+      label: t('history.filterActive', { count: active.length }) },
+    { id: 'finished',
+      label: t('history.filterFinished', { count: finished.length }) },
   ];
   return el('div', {
     style: 'display:flex;gap:2px;border:1px solid var(--line-strong)',
@@ -243,18 +248,18 @@ export function render(root) {
 
   if (state.historyFilter !== 'finished') {
     parts.push(section(
-      'Jobs in progress',
-      'Jobs waiting in the queue and the one running now',
+      t('history.inProgressTitle'),
+      t('history.inProgressNote'),
       active,
-      'No job is in progress right now.',
+      t('history.inProgressEmpty'),
     ));
   }
   if (state.historyFilter !== 'active') {
     parts.push(section(
-      'Finished jobs',
-      'Jobs that completed, were stopped or ended in an error',
+      t('history.finishedTitle'),
+      t('history.finishedNote'),
       finished,
-      'No job has finished this session yet.',
+      t('history.finishedEmpty'),
     ));
   }
 

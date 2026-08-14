@@ -26,7 +26,8 @@ import {
   refreshProtected, resetProtectedForSet, selectedGroups, stopPanels,
 } from './state.js';
 import {
-  SEARCH_LIMIT, formatPorts, isIpv4, parsePorts, validateSearch,
+  SEARCH_LIMIT, formatPorts, isIpv4, parsePorts, switchStateLabel,
+  validateSearch,
 } from './ports.js';
 import { legend, panelCard, writeFreshness } from './panel.js';
 import { searchOptions } from './diagnostics.js';
@@ -163,21 +164,20 @@ function validateRun(data) {
   const portError = parsed.error || validatePorts(portText, allowed, plan);
   const target = currentTarget();
   const scopeError = !selectedPorts
-    ? 'Select at least one target port for IP assignment'
-    : !inPlan ? `No ${target.label} on the selected ports` : '';
+    ? t('ip.selectTargetPort')
+    : !inPlan ? t('ip.noTargetOnPorts', { target: target.label }) : '';
   // The run connects to the switch with a username/password. Without one the
   // job entered the queue and fell over at the first step; saying so before
   // it starts is better.
   const activePanel = panelById.get(plan.switchId);
   const credentialError = activePanel && activePanel.hasCredentials === false
-    ? `No username and password entered for ${activePanel.switchName}.`
+    ? t('ip.noSwitchCredentials', { switch: activePanel.switchName })
     : '';
   const groupError = target.groups.some(
     group => !(plan.groups || []).includes(group))
-    ? `No ${target.label} target found` : '';
+    ? t('ip.noTargetFound', { target: target.label }) : '';
   const factoryIp = local.factoryIp ?? plan.factoryIp ?? '';
-  const factoryError = isIpv4(factoryIp)
-    ? '' : 'The factory IP must be a valid IPv4 address';
+  const factoryError = isIpv4(factoryIp) ? '' : t('ip.factoryIpInvalid');
   const searchError = local.searchOpen
     ? validateSearch(local.searchNetwork ?? plan.searchNetwork,
                      local.searchNetmask ?? plan.searchNetmask,
@@ -214,8 +214,9 @@ function validatePorts(text, allowed, plan) {
   const clashing = ports.filter(port => protectedPorts.has(port));
   if (clashing.length) {
     const port = clashing[0];
-    return `Port ${port} cannot be included in IP assignment — `
-      + `${protectedPorts.get(port)}`;
+    return t('ip.portProtected', {
+      port, reason: protectedPorts.get(port),
+    });
   }
   return '';
 }
@@ -235,19 +236,26 @@ function computerSummary() {
   const computer = found.computer || {};
   if (!computer.port) {
     const tried = (found.tried || [])
-      .map(entry => `${entry.name}: ${entry.state}`).join(' · ');
+      .map(entry => t('ip.switchStateEntry', {
+        switch: entry.name, state: switchStateLabel(entry.state),
+      })).join(' · ');
     return {
       ok: false,
       text: t('ip.notFound'),
       hint: [computer.note || found.note, tried].filter(Boolean).join(' — '),
     };
   }
-  const when = found.time ? ` · verified ${age(found.time)} ago` : '';
+  const when = found.time
+    ? t('ip.computerVerifiedAgo', { age: age(found.time) }) : '';
   return {
     ok: true,
     text: `${computer.switchName} · p${computer.port}`,
-    hint: `MAC ${computer.mac}`
-      + `${computer.interface ? ` · ${computer.interface}` : ''}${when}`,
+    hint: t('ip.computerHint', {
+      mac: computer.mac,
+      interface: computer.interface
+        ? t('ip.computerInterface', { interface: computer.interface }) : '',
+      when,
+    }),
   };
 }
 
@@ -302,8 +310,8 @@ function runHeader(data, check) {
     ? check.ready ? 'ready' : 'error'
     : local.errorText ? 'error' : 'waiting';
   const headerText = data
-    ? check.ready ? 'The plan is ready' : 'Check the settings'
-    : local.errorText ? 'The plan cannot be used' : 'Preparing the plan';
+    ? t(check.ready ? 'ip.planReady' : 'ip.checkTheSettings')
+    : t(local.errorText ? 'ip.planUnusable' : 'ip.preparingPlan');
   const readinessText = el('span', { text: headerText });
   const readiness = el('span', {
     class: 'ip-readiness', dataset: { state: headerState },
@@ -312,12 +320,12 @@ function runHeader(data, check) {
     type: 'button', class: 'btn btn-primary ip-start-btn',
     text: t('ip.startIpAssignment'),
     disabled: !data || !check.ready,
-    title: check && check.error ? check.error : 'Start the IP assignment job',
+    title: check && check.error ? check.error : t('ip.startJobTitle'),
     onclick: start,
   });
   const summaryBadge = data ? el('span', {
     class: check.ready ? 'badge ip-ready-badge' : 'badge ip-error-badge',
-    text: check.ready ? 'Ready' : 'Needs a check',
+    text: t(check.ready ? 'ip.badgeReady' : 'ip.badgeNeedsCheck'),
   }) : null;
   const runError = data ? el('p', {
     class: 'ip-run-error', role: 'alert', text: check.error,
@@ -328,17 +336,17 @@ function runHeader(data, check) {
     const ready = !!result.ready && !waitingText;
     startButton.disabled = !ready;
     startButton.title = result.error || waitingText
-      || 'Start the IP assignment job';
+      || t('ip.startJobTitle');
     readiness.dataset.state = ready ? 'ready'
       : result.error ? 'error' : 'waiting';
     readinessText.textContent = ready
-      ? 'The plan is ready'
-      : result.error ? 'Check the settings' : waitingText;
+      ? t('ip.planReady')
+      : result.error ? t('ip.checkTheSettings') : waitingText;
     summaryBadge.className = ready
       ? 'badge ip-ready-badge'
       : result.error ? 'badge ip-error-badge' : 'badge ip-waiting-badge';
-    summaryBadge.textContent = ready
-      ? 'Ready' : result.error ? 'Needs a check' : 'Waiting for data';
+    summaryBadge.textContent = ready ? t('ip.badgeReady')
+      : t(result.error ? 'ip.badgeNeedsCheck' : 'ip.badgeWaiting');
     runError.textContent = result.error || '';
     runError.hidden = !result.error;
   }
@@ -378,13 +386,12 @@ function portArea(data, check, showActionState) {
     oninput: (e) => {
       const parsed = parsePorts(e.target.value, allowed);
       const message = validatePorts(e.target.value, allowed, plan)
-        || (!parsed.ports.length
-          ? 'Select at least one target port for IP assignment' : '');
+        || (!parsed.ports.length ? t('ip.selectTargetPort') : '');
       e.target.setAttribute('aria-invalid', String(!!message));
       portWarning.textContent = message;
       portWarning.hidden = !message;
       showActionState({ ready: false, error: message },
-                      message ? '' : 'Update the plan');
+                      message ? '' : t('ip.updateThePlan'));
     },
     onchange: (e) => {
       const { ports, error } = parsePorts(e.target.value, allowed);
@@ -478,30 +485,26 @@ function addressingArea(data, check, showActionState) {
       factoryInput,
     ]),
     factoryWarning,
-    toggle(local.searchOpen,
-           'Search the network if not on the factory address', '',
+    toggle(local.searchOpen, t('ip.searchIfNotFactory'), '',
            () => { local.searchOpen = !local.searchOpen; }),
     // "Written" and "written persistently" are not the same: the device may
     // have taken the setting into memory only and returns to its old address
     // on the first power cut. The check lengthens the run, so it is off by
     // default.
     toggle(local.persistenceCheck,
-           'Verify persistence (power cycle at the end)',
-           'At the end of the run the ports are power cycled once and the '
-           + 'devices are checked to come back on their new addresses. It '
-           + 'makes the run longer.',
+           t('ip.verifyPersistence'), t('ip.verifyPersistenceNote'),
            () => { local.persistenceCheck = !local.persistenceCheck; }),
     ...(local.searchOpen ? [
-      searchField('searchNetwork', 'ip-search-network', 'Search network',
-        plan.searchNetwork, '10.1.1.0'),
-      searchField('searchNetmask', 'ip-search-mask', 'Search netmask',
-        plan.searchNetmask, '255.255.255.0'),
+      searchField('searchNetwork', 'ip-search-network',
+        t('ip.searchNetwork'), plan.searchNetwork, '10.1.1.0'),
+      searchField('searchNetmask', 'ip-search-mask',
+        t('ip.searchNetmask'), plan.searchNetmask, '255.255.255.0'),
       // An explicit range: when the project mask is wide (/8 in the top bar)
       // opening the network means millions of addresses. With a range given,
       // the network/mask pair above is not used.
-      searchField('searchFirst', 'ip-search-first', 'Range start',
+      searchField('searchFirst', 'ip-search-first', t('ip.rangeStart'),
         '', '10.1.1.10'),
-      searchField('searchLast', 'ip-search-last', 'Range end',
+      searchField('searchLast', 'ip-search-last', t('ip.rangeEnd'),
         '', '10.1.1.60'),
       searchWarning,
       el('p', {
@@ -550,13 +553,12 @@ function panelSection(panels) {
   const refreshButton = el('button', {
     type: 'button', class: 'btn btn-small ip-refresh-btn',
     'aria-pressed': String(live.enabled),
-    title: live.enabled
-      ? 'Pause the automatic refresh of the port states'
-      : 'Resume the automatic refresh',
+    title: t(live.enabled ? 'ip.pauseRefresh' : 'ip.resumeRefresh'),
     onclick: (e) => {
       live.enabled = !live.enabled;
       e.currentTarget.setAttribute('aria-pressed', String(live.enabled));
-      e.currentTarget.textContent = live.enabled ? 'Refresh on' : 'Paused';
+      e.currentTarget.textContent = t(live.enabled ? 'ip.refreshOn'
+        : 'ip.refreshPaused');
       stopPanels();
       freshnessTick();
       if (live.enabled) {
@@ -564,7 +566,7 @@ function panelSection(panels) {
         protectedRound();               // re-verify the protected ports too
       }
     },
-    text: live.enabled ? 'Refresh on' : 'Paused',
+    text: t(live.enabled ? 'ip.refreshOn' : 'ip.refreshPaused'),
   });
 
   return el('details', {
@@ -608,7 +610,7 @@ export function render(root) {
     }, [
       local.errorText ? null : el('i', { 'aria-hidden': 'true' }),
       el('span', {
-        text: local.errorText || 'Preparing the IP assignment plan…',
+        text: local.errorText || t('ip.preparingPlanLong'),
       }),
     ]));
     fill(root, parts);

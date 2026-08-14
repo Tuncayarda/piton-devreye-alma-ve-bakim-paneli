@@ -48,8 +48,8 @@ function switchRows(plan) {
     text: entry.id === plan.switchId
       ? plan.portText
       : (entry.groupDevices
-        ? `${entry.groupDevices} device(s) · not selected`
-        : `no ${currentTarget().label}`),
+        ? t('iptech.devicesNotSelected', { count: entry.groupDevices })
+        : t('iptech.noTarget', { target: currentTarget().label })),
   })));
 }
 
@@ -67,7 +67,7 @@ export function technicalCard(plan, check, computer) {
       }),
     ]),
     el('div', { class: 'ip-technical-body' }, [
-      row('Plan source', el('b', {
+      row(t('iptech.planSource'), el('b', {
         title: t('iptech.targetIpsAndPortsCome'),
         text: t('iptech.projectDefaultDevicemap'),
       })),
@@ -76,15 +76,16 @@ export function technicalCard(plan, check, computer) {
       // the application already opens elevated (see app.py) and the wording
       // of the privilege warning differed on every OS. The panel does not
       // speak per operating system.
-      row('Switch IP address', el('b', { text: value(plan.switchIp) })),
+      row(t('iptech.switchIpAddress'),
+        el('b', { text: value(plan.switchIp) })),
       ...switchRows(plan),
-      row('Computer connection', el('b', {
+      row(t('iptech.computerConnection'), el('b', {
         class: computer.ok ? '' : 'text-dim',
         title: computer.hint,
         text: computer.text,
       })),
       ...protectedPortsFor(plan).map(([number, reason]) => row(
-        `Protected port ${number}`,
+        t('iptech.protectedPortN', { port: number }),
         el('b', { class: 'text-dim', text: reason }),
         'protected')),
     ]),

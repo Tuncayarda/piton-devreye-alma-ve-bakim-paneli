@@ -6,18 +6,20 @@ import os
 import platform
 import subprocess
 
-from .privileges import (EXPLANATION, TITLE, applescript_string,
-                         elevation_plan, manual_instructions)
+from .. import i18n
+from .privileges import (applescript_string, elevation_plan,
+                         explanation, manual_instructions, title)
 
 
 def _html_page(message: str, can_elevate: bool, manual: str,
                hint: str = "") -> str:
     import html as html_module
 
+    restart = html_module.escape(i18n.t("elevate.restart"))
     buttons = (
         '<button class="primary" onclick="decide(\'elevate\')">'
-        'Restart as administrator</button>' if can_elevate else "")
-    return f"""<!doctype html><html lang="tr"><head><meta charset="utf-8">
+        f'{restart}</button>' if can_elevate else "")
+    return f"""<!doctype html><html lang="{i18n.current()}"><head><meta charset="utf-8">
 <style>
   :root {{ color-scheme: dark; }}
   body {{ margin:0; padding:28px 30px; background:#101820; color:#e6edf3;
@@ -32,13 +34,13 @@ def _html_page(message: str, can_elevate: bool, manual: str,
   button:hover {{ border-color:#4d6a8c; }}
   .primary {{ background:#2f6feb; border-color:#2f6feb; color:#fff; }}
 </style></head><body>
-  <h1>{TITLE}</h1>
+  <h1>{html_module.escape(title())}</h1>
   <p>{html_module.escape(message)}</p>
   {f'<p class="hint">{html_module.escape(hint)}</p>' if hint else ''}
   <p class="manual">{html_module.escape(manual)}</p>
   <div class="row">
     {buttons}
-    <button onclick="decide('quit')">Quit</button>
+    <button onclick="decide('quit')">{html_module.escape(i18n.t('elevate.quit'))}</button>
   </div>
 <script>
   function decide(choice) {{
@@ -58,23 +60,27 @@ def _native_dialog(message: str, can_elevate: bool, hint: str = "") -> str:
             import ctypes
 
             if not can_elevate:
-                ctypes.windll.user32.MessageBoxW(None, text, TITLE, 0x10)
+                ctypes.windll.user32.MessageBoxW(None, text, title(), 0x10)
                 return "quit"
             # MB_YESNO | MB_ICONWARNING; 6 = Yes
             answer = ctypes.windll.user32.MessageBoxW(
-                None, text + "\n\nRestart as administrator?",
-                TITLE, 0x04 | 0x30)
+                None, text + "\n\n" + i18n.t("elevate.restartAsk"),
+                title(), 0x04 | 0x30)
             return "elevate" if int(answer) == 6 else "quit"
 
         if system == "Darwin" and can_elevate:
+            quit_label = i18n.t("elevate.quit")
+            restart_label = i18n.t("elevate.restart")
             script = (f"display dialog {applescript_string(text)} "
-                      f"with title {applescript_string(TITLE)} "
-                      'buttons {"Quit", "Restart as administrator"} '
-                      'default button 2 with icon caution')
+                      f"with title {applescript_string(title())} "
+                      "buttons {"
+                      f"{applescript_string(quit_label)}, "
+                      f"{applescript_string(restart_label)}"
+                      "} default button 2 with icon caution")
             result = subprocess.run(["osascript", "-e", script],
                                     capture_output=True, text=True,
                                     timeout=300)
-            return ("elevate" if "Restart" in (result.stdout or "")
+            return ("elevate" if restart_label in (result.stdout or "")
                     else "quit")
     except Exception:                              # noqa: BLE001
         pass
@@ -92,7 +98,7 @@ def ask(message: str = "", can_elevate: bool | None = None,
     """
     if os.environ.get("PANEL_ELEVATION_PROMPT") == "0":
         return "quit"
-    message = message or EXPLANATION
+    message = message or explanation()
     if can_elevate is None:
         can_elevate = bool(elevation_plan()["kind"])
     try:
@@ -103,7 +109,7 @@ def ask(message: str = "", can_elevate: bool | None = None,
     choice = {"value": "quit"}
     try:
         window = webview.create_window(
-            TITLE, html=_html_page(message, can_elevate,
+            title(), html=_html_page(message, can_elevate,
                                    manual_instructions(), hint),
             width=620, height=340, resizable=False,
             background_color="#101820")

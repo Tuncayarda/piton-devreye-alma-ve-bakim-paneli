@@ -20,19 +20,17 @@ from ..inventory.device_map import Device
 from ..probe.android import package_info
 from .. import i18n
 
+# adb marker -> the catalogue key explaining it. Keys, not sentences: this
+# table is built at import time, long before a language is chosen.
 KNOWN_FAILURES = {
-    "INSTALL_FAILED_INVALID_APK": "The file is not a valid APK",
-    "INSTALL_FAILED_VERSION_DOWNGRADE":
-        "The version on the device is newer; a downgrade was refused",
-    "INSTALL_FAILED_UPDATE_INCOMPATIBLE":
-        "The APK was built with a different signature — uninstall the current app first",
-    "INSTALL_FAILED_INSUFFICIENT_STORAGE": "The device is out of space",
-    "INSTALL_PARSE_FAILED": "The APK could not be parsed",
-    "device unauthorized": "The device has not authorised adb (the prompt on "
-                           "its screen may need accepting)",
-    "device offline": "The device is not connected to adb",
-    "no devices/emulators found": "Could not connect to the device with adb "
-                                  "(port 5555 may be closed)",
+    "INSTALL_FAILED_INVALID_APK": "error.apkInvalid",
+    "INSTALL_FAILED_VERSION_DOWNGRADE": "error.apkDowngrade",
+    "INSTALL_FAILED_UPDATE_INCOMPATIBLE": "error.apkSignature",
+    "INSTALL_FAILED_INSUFFICIENT_STORAGE": "error.apkNoSpace",
+    "INSTALL_PARSE_FAILED": "error.apkParseFailed",
+    "device unauthorized": "error.adbUnauthorized",
+    "device offline": "error.adbOffline",
+    "no devices/emulators found": "error.adbNoDevice",
 }
 
 
@@ -56,12 +54,15 @@ def _installed_version(target: str, timeout: int) -> str:
 
 def _failure_message(output: str) -> str:
     """Reduce adb install output to one readable line."""
-    for marker, message in KNOWN_FAILURES.items():
+    for marker, key in KNOWN_FAILURES.items():
         if marker in output:
-            return f"The APK could not be installed: {message}"
+            return i18n.t("error.apkInstallFailedWhy", reason=i18n.t(key))
     first = next((line for line in output.splitlines() if line.strip()), "")
-    return (f"The APK could not be installed: {first[:160]}" if first
-            else "The APK could not be installed")
+    if first:
+        # adb's own words, untranslated: they are the device's answer, not
+        # ours, and looking them up needs them verbatim.
+        return i18n.t("error.apkInstallFailedWhy", reason=first[:160])
+    return i18n.t("error.apkInstallFailed")
 
 
 def install_apk(device: Device, path, expected: str,

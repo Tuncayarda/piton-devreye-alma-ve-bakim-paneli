@@ -13,6 +13,7 @@
 // side (see panel/api/routes/ip_routes.py post_run).
 
 import { api } from '../../core/api.js';
+import { t } from '../../core/i18n.js';
 import { state, patch } from '../../core/store.js';
 
 // The device type IP will be assigned to. The engine supports only Intercom
@@ -158,14 +159,13 @@ export function protectedPortsFor(plan) {
 // then which port carries our own path is unknown.
 export function protectedWaitText() {
   if (local.searchingProtected && !local.protected) {
-    return 'Finding the protected ports from the switch MAC tables…';
+    return t('ip.findingProtectedPorts');
   }
   const found = local.protected;
-  if (!found) return 'The protected ports have not been found yet';
+  if (!found) return t('ip.protectedPortsNotFound');
   const hasComputer = !!(found.computer && found.computer.port);
   if (!hasComputer) {
-    return found.note || 'The port the computer is attached to was not '
-      + 'found — the switch MAC table cannot be read';
+    return found.note || t('ip.computerPortNotFound');
   }
   return '';
 }

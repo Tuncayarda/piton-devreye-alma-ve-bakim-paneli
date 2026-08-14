@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import threading
 import time
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
-import app
-from panel import settings
+from .support.base import ROOT  # noqa: F401  (sys.path + temp data dir)
+
+import app  # noqa: E402
+from panel import i18n, settings  # noqa: E402
 from panel.desktop import (BRIDGE_MARKER, CAPABILITY_SLOT, PanelBridge,
                            load_html)
 
@@ -27,9 +31,16 @@ class DesktopHtml(unittest.TestCase):
             encoding="utf-8")
         broken = source.replace(
             "</body>", '<script src="https://example.com/a.js"></script></body>')
-        with mock.patch("pathlib.Path.read_text", return_value=broken):
+        # Written to a real file and handed to load_html rather than
+        # patching Path.read_text: that patch caught EVERY read in the
+        # process for as long as it was open — including the first, lazy
+        # read of the message catalogue, which then came back empty and
+        # failed this test with an unrelated error.
+        with tempfile.TemporaryDirectory() as directory:
+            artefact = Path(directory) / "desktop.html"
+            artefact.write_text(broken, encoding="utf-8")
             with self.assertRaisesRegex(RuntimeError, "invalid"):
-                load_html("A" * 43)
+                load_html("A" * 43, path=artefact)
 
 
 class Bridge(unittest.TestCase):
@@ -178,6 +189,53 @@ class DesktopStartup(unittest.TestCase):
             self.assertEqual(app.main(), 0)
         elevate.assert_called_once()
         start.assert_not_called()
+
+    def test_the_window_title_follows_the_language(self):
+        """The title bar belongs to the operating system, not the WebView.
+
+        A language switch hands the UI a whole new catalogue and the screen
+        is redrawn from it — but that redraw stops at the edge of the web
+        view. The title has to be told separately, or it keeps announcing the
+        app in a language the user just left.
+        """
+        titles = []
+        fake = types.ModuleType("webview")
+        fake.settings = {}
+        fake.opened_with = None
+
+        def create_window(title, **_kwargs):
+            fake.opened_with = title
+            return types.SimpleNamespace(expose=lambda *_f: None,
+                                         set_title=titles.append)
+
+        fake.create_window = create_window
+        fake.start = lambda **_kwargs: None
+
+        html = f"<!doctype html><head>{BRIDGE_MARKER}</head>"
+        try:
+            i18n.use("en", persist=False)
+            with (mock.patch.dict(sys.modules, {"webview": fake}),
+                  mock.patch.object(sys, "argv", ["app.py"]),
+                  mock.patch("app.is_elevated", return_value=True),
+                  mock.patch("app.platform.system", return_value="Linux"),
+                  mock.patch("app.set_macos_identity"),
+                  mock.patch("panel.desktop.load_html", return_value=html),
+                  mock.patch("panel.api.start"),
+                  mock.patch("panel.api.reset"),
+                  mock.patch("app.write")):
+                self.assertEqual(app.main(), 0)
+
+            self.assertEqual(fake.opened_with,
+                             i18n.t("app.name", _language="en"))
+            i18n.use("tr", persist=False)
+            self.assertEqual(titles[-1], i18n.t("app.name", _language="tr"))
+            self.assertNotEqual(titles[-1], fake.opened_with,
+                                "the two languages must not read the same")
+        finally:
+            # The follower registered above holds this fake window; it must
+            # not still be firing in the next test.
+            i18n.reset()
+            i18n.use("en", persist=False)
 
     def test_default_mode_opens_no_http_server(self):
         fake = types.ModuleType("webview")

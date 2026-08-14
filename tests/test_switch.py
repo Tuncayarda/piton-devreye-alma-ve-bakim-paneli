@@ -13,7 +13,7 @@ import subprocess
 import unittest
 from unittest import mock
 
-from panel import credentials, ip_assign, script_loader, status
+from panel import credentials, i18n, ip_assign, script_loader, status
 from panel.errors import AuthError, VerificationError
 from panel.probe import reader
 from panel.probe import switch as switch_probe
@@ -83,12 +83,18 @@ class SwitchAccess(PanelTest):
                 switch_probe.read("127.0.0.1", None)
 
     def test_3_login_html_is_not_switch_data(self):
-        """Even with the right password, 200 + HTML is not a success."""
+        """Even with the right password, 200 + HTML is not a success.
+
+        What the user is told is the panel's own sentence, not the field
+        script's: that one is untranslatable English from a borrowed file.
+        A login page and a plain 401 therefore read the same on screen, which
+        is right — both mean "sign in", and the user does the same thing.
+        """
         with fakes.kyland(login_page=True) as switch:
             self.switch_port(switch.port)
             with self.assertRaises(AuthError) as caught:
                 switch_probe.read("127.0.0.1", ("admin", "123"))
-            self.assertIn("JSON", str(caught.exception))
+            self.assertEqual(str(caught.exception), i18n.t("error.probeAuth"))
 
     def test_3b_unexpected_json_is_not_accepted_either(self):
         """200 + valid JSON but no switch identity does not verify."""
@@ -338,9 +344,11 @@ class ProtectedPorts(PanelTest):
             self.switch_port(switch.port)
             found = ip_assign.protected_ports(inventory, lambda d: None)
         self.assertIsNone(found["computer"]["port"])
-        self.assertIn("wants a username/password", found["note"])
+        # The state is a stable CODE; the note is that code rendered in
+        # the current language (see ip_assign.ports.switch_state_label).
         self.assertEqual([entry["state"] for entry in found["tried"]],
-                         ["wants a username/password"])
+                         ["auth"])
+        self.assertIn(i18n.t("ip.switchStateAuth"), found["note"])
 
     def test_mac_normalisation_is_format_independent(self):
         """A switch may use upper case and dashes; matching must still hold."""

@@ -3,25 +3,28 @@
 ; Build (version and paths come from outside, so there stays one version
 ; source):
 ;   ISCC.exe /DMyAppVersion=0.9.0-dev ^
-;            /DSourceDir=..\..\dist\CommissioningPanel ^
+;            /DSourceDir=..\..\dist\dabp ^
 ;            /DOutputDir=..\..\release ^
-;            CommissioningPanel.iss
+;            dabp.iss
 ;
 ; Why an installer? Windows stamps files extracted from a ZIP as "downloaded
 ; from the internet" (Zone.Identifier) and .NET then rejects
 ; _internal\pythonnet\runtime\Python.Runtime.dll with 0x80131515. Files placed
 ; by an installer never get that stamp.
 
-#define MyAppName "Commissioning and Maintenance Panel"
+; Read by the person installing it — the setup wizard, the Start menu
+; entry, the uninstall list. Fixed at build time, so unlike the name
+; inside the app it cannot follow the chosen language.
+#define MyAppName "Devreye Alma ve Bakım Paneli"
 #define MyAppPublisher "Piton Technology"
-#define MyAppExeName "CommissioningPanel.exe"
+#define MyAppExeName "dabp.exe"
 #define MyAppUrl "https://github.com"
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\..\dist\CommissioningPanel"
+  #define SourceDir "..\..\dist\dabp"
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\release"
@@ -44,15 +47,16 @@ VersionInfoDescription={#MyAppName} setup
 VersionInfoProductName={#MyAppName}
 
 ; The folder name is deliberately ASCII: some tools and scripts trip over
-; paths with non-ASCII characters.
-DefaultDirName={autopf}\Commissioning Panel
+; paths with non-ASCII characters. It matches the executable so the
+; installed folder and the downloaded file carry the same name.
+DefaultDirName={autopf}\dabp
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 OutputDir={#OutputDir}
-OutputBaseFilename=CommissioningPanel-{#MyAppVersion}-windows-x64-Setup
+OutputBaseFilename=dabp-{#MyAppVersion}-windows-x64-Setup
 ; There is no icon yet; once added it is picked up automatically.
 #if FileExists(AddBackslash(SourcePath) + "..\..\icons\app.ico")
 SetupIconFile=..\..\icons\app.ico
@@ -113,7 +117,7 @@ Filename: "{app}\{#MyAppExeName}"; \
 [UninstallDelete]
 ; Leftovers produced while PyInstaller runs. The user's saved configuration
 ; defaults are NOT touched — they live under
-; %APPDATA%\CommissioningPanel (see panel/settings.py:data_dir()).
+; %APPDATA%\dabp (see panel/settings.py:data_dir()).
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 [Code]

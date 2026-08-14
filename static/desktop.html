@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-unjwJAFDVdRRbw6LlxjezU7T72Un2q/XS+sy8s99ABk=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-HsKK6EbY1+snIK8mZ/CNTlObjw7ySvaUSa7oWmoV16o=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -157,6 +157,17 @@ input, select { font: inherit; }
   justify-content: center;
   padding: 24px;
   overflow-y: auto;
+}
+
+/* #role-screen is already `position: fixed`, so it is the containing block
+   for this. Raised above the card: on a short window the centred card can
+   grow up to meet the corner. */
+.role-language {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  z-index: 1;
+  background: var(--bg);
 }
 
 .role-brand {
@@ -2253,6 +2264,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 
 <!-- ══════════════════════════════════════════════ role selection ══════ -->
 <div id="role-screen">
+  <!-- Pinned to the corner rather than sitting in the footer: the language is
+       the first thing to get right and the last thing anyone reads down there.
+       Outside the card so it does not read as part of choosing a role. -->
+  <div class="language-picker role-language" id="role-language-picker"
+       role="group" data-i18n-aria="topbar.language" aria-label="Language"></div>
+
   <div class="role-brand">
     <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzYzIiBoZWlnaHQ9IjEyMyIgdmlld0JveD0iMCAwIDM2MyAxMjMiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxwYXRoIGZpbGwtcnVsZT0iZXZlbm9kZCIgY2xpcC1ydWxlPSJldmVub2RkIiBkPSJNMjM3LjY1OSA3Ni41MjA3QzIyNi4zMDQgNzYuNTIwNyAyMTguMjIgNzUuNTc4NyAyMTMuNDA5IDczLjY5NDZDMjA4LjU5NyA3MS43MzgxIDIwNS41MTggNjguMjk2MiAyMDQuMTcgNjMuMzY4N0MyMDIuOTE5IDU4LjQ0MTIgMjAyLjI5NCA1MC4wNzE4IDIwMi4yOTQgMzguMjYwM0MyMDIuMjk0IDI2LjQ0ODkgMjAyLjkxOSAxOC4wNzk1IDIwNC4xNyAxMy4xNTJDMjA1LjUxOCA4LjIyNDUzIDIwOC41OTcgNC44MTg3OCAyMTMuNDA5IDIuOTM0NzRDMjE4LjIyIDAuOTc4MjQ4IDIyNi4zMDQgMCAyMzcuNjU5IDBDMjQ5LjAxNSAwIDI1Ny4wNSAwLjk3ODI0OCAyNjEuNzY2IDIuOTM0NzRDMjY2LjU3NyA0LjgxODc4IDI2OS42MDkgOC4yMjQ1MyAyNzAuODYgMTMuMTUyQzI3Mi4yMDcgMTguMDc5NSAyNzIuODggMjYuNDQ4OSAyNzIuODggMzguMjYwM0MyNzIuODggNTAuMDcxOCAyNzIuMjA3IDU4LjQ0MTIgMjcwLjg2IDYzLjM2ODdDMjY5LjYwOSA2OC4yOTYyIDI2Ni41NzcgNzEuNzM4MSAyNjEuNzY2IDczLjY5NDZDMjU3LjA1IDc1LjU3ODcgMjQ5LjAxNSA3Ni41MjA3IDIzNy42NTkgNzYuNTIwN1pNMjM3LjY1OSA2OC44MDM0QzI0NS43NDMgNjguODAzNCAyNTEuMjI4IDY4LjI5NjIgMjU0LjExNSA2Ny4yODE3QzI1Ny4wMDIgNjYuMjY3MiAyNTguOTI3IDYzLjgwMzUgMjU5Ljg4OSA1OS44OTA1QzI2MC44NTEgNTUuOTc3NSAyNjEuMzMzIDQ4Ljc2NzQgMjYxLjMzMyAzOC4yNjAzQzI2MS4zMzMgMjcuNzUzMiAyNjAuODUxIDIwLjU0MzIgMjU5Ljg4OSAxNi42MzAyQzI1OC45MjcgMTIuNzE3MiAyNTcuMDAyIDEwLjI1MzUgMjU0LjExNSA5LjIzOTAxQzI1MS4yMjggOC4yMjQ1MyAyNDUuNzQzIDcuNzE3MjkgMjM3LjY1OSA3LjcxNzI5QzIyOS41NzYgNy43MTcyOSAyMjQuMDQyIDguMjI0NTMgMjIxLjA1OSA5LjIzOTAxQzIxOC4xNzIgMTAuMjUzNSAyMTYuMjQ4IDEyLjcxNzIgMjE1LjI4NSAxNi42MzAyQzIxNC4zMjMgMjAuNTQzMiAyMTMuODQyIDI3Ljc1MzIgMjEzLjg0MiAzOC4yNjAzQzIxMy44NDIgNDguNzY3NCAyMTQuMzIzIDU1Ljk3NzUgMjE1LjI4NSA1OS44OTA1QzIxNi4yNDggNjMuODAzNSAyMTguMTcyIDY2LjI2NzIgMjIxLjA1OSA2Ny4yODE3QzIyNC4wNDIgNjguMjk2MiAyMjkuNTc2IDY4LjgwMzQgMjM3LjY1OSA2OC44MDM0WiIgZmlsbD0iIzQyOTRFMCIvPgo8cGF0aCBkPSJNMjguODc1NSA0LjQ3OTAyQzI4Ljg3NTUgMi40ODU1NyAzMC40OTE1IDAuODY5NTUyIDMyLjQ4NSAwLjg2OTU1Mkg1MS44MjQxQzU5LjMzMDIgMC44Njk1NTIgNjQuOTU5OCAxLjg0NzggNjguNzEyOSAzLjgwNDNDNzIuNDY1OSA1Ljc2MDc5IDc0LjkxOTkgOC40MDU2OSA3Ni4wNzQ3IDExLjczOUM3Ny4yMjk0IDE0Ljk5OTggNzcuODA2OCAxOS4yMzg5IDc3LjgwNjggMjQuNDU2MkM3Ny44MDY4IDI5LjYwMSA3Ny4yMjk0IDMzLjgwMzkgNzYuMDc0NyAzNy4wNjQ3Qzc0LjkxOTkgNDAuMzI1NSA3Mi40MTc4IDQyLjk3MDQgNjguNTY4NSA0NC45OTk0QzY0LjgxNTUgNDcuMDI4MyA1OS4xODU5IDQ4LjA0MjggNTEuNjc5NyA0OC4wNDI4SDMwLjMxNjlDMjguMzIzNCA0OC4wNDI4IDI2LjcwNzQgNDkuNjU4OCAyNi43MDc0IDUxLjY1MjNWNzIuMDQxN0MyNi43MDc0IDc0LjAzNTEgMjUuMDkxNCA3NS42NTExIDIzLjA5OCA3NS42NTExSDE4Ljc2OUMxNi43NzU2IDc1LjY1MTEgMTUuMTU5NSA3NC4wMzUxIDE1LjE1OTUgNzIuMDQxN1Y0NC4wMzU1QzE1LjE1OTUgNDIuMDQyIDE2Ljc3NTYgNDAuNDI2IDE4Ljc2OSA0MC40MjZIMjYuNzAzM0MyNi43MDU2IDQwLjQyNiAyNi43MDc0IDQwLjQyNzkgMjYuNzA3NCA0MC40MzAxQzI2LjcwNzQgNDAuNDMyNCAyNi43MDkzIDQwLjQzNDIgMjYuNzExNSA0MC40MzQySDQ4LjY0ODRDNTMuOTQxMiA0MC40MzQyIDU3LjgzODYgMzkuODkwOCA2MC4zNDA3IDM4LjgwMzhDNjIuODQyNyAzNy43MTY5IDY0LjQzMDUgMzYuMDg2NSA2NS4xMDQyIDMzLjkxMjZDNjUuODc0IDMxLjczODcgNjYuMjU4OSAyOC41ODY2IDY2LjI1ODkgMjQuNDU2MkM2Ni4yNTg5IDIwLjI1MzMgNjUuOTIyMSAxNy4xMDEyIDY1LjI0ODUgMTQuOTk5OEM2NC41NzQ5IDEyLjg5ODQgNjIuOTg3IDExLjMwNDIgNjAuNDg1IDEwLjIxNzJDNTcuOTgzIDkuMTMwMzEgNTQuMDg1NSA4LjU4Njg0IDQ4Ljc5MjggOC41ODY4NEg0MS4xODMyQzM4LjU3NzkgOC41ODY4NCAzNS4xMzEzIDguNjYyNzEgMzIuNDg1IDguNjYyNzFDMzAuNDkxNSA4LjY2MjcxIDI4Ljg3NTUgNy4wNDY2OSAyOC44NzU1IDUuMDUzMjRWNC40NzkwMloiIGZpbGw9IiM0Mjk0RTAiLz4KPHBhdGggZD0iTTEwMC4zOTEgNzUuNjUxMUM5OC4zOTc5IDc1LjY1MTEgOTYuNzgxOSA3NC4wMzUxIDk2Ljc4MTkgNzIuMDQxN1Y0LjQ3OTAyQzk2Ljc4MTkgMi40ODU1NyA5OC4zOTc5IDAuODY5NTUyIDEwMC4zOTEgMC44Njk1NTJIMTA0LjcyQzEwNi43MTQgMC44Njk1NTIgMTA4LjMzIDIuNDg1NTcgMTA4LjMzIDQuNDc5MDJWNzIuMDQxN0MxMDguMzMgNzQuMDM1MSAxMDYuNzE0IDc1LjY1MTEgMTA0LjcyIDc1LjY1MTFIMTAwLjM5MVoiIGZpbGw9IiM0Mjk0RTAiLz4KPHBhdGggZD0iTTE0Ny41NzggOC44MDQyM0MxNDkuNTcyIDguODA0MjMgMTUxLjE4OCAxMC40MjAyIDE1MS4xODggMTIuNDEzN1Y3Mi4wNDE3QzE1MS4xODggNzQuMDM1MSAxNTIuODA0IDc1LjY1MTEgMTU0Ljc5NyA3NS42NTExSDE1OS4xMjZDMTYxLjEyIDc1LjY1MTEgMTYyLjczNiA3NC4wMzUxIDE2Mi43MzYgNzIuMDQxN1YxMi40MTM3QzE2Mi43MzYgMTAuNDIwMiAxNjQuMzUyIDguODA0MjMgMTY2LjM0NSA4LjgwNDIzSDE4NS45NzVDMTg3Ljk2OSA4LjgwNDIzIDE4OS41ODUgNy4xODgyMiAxODkuNTg1IDUuMTk0NzZWNC40NzkwMkMxODkuNTg1IDIuNDg1NTYgMTg3Ljk2OSAwLjg2OTU1MiAxODUuOTc1IDAuODY5NTUySDEyNy45NDhDMTI1Ljk1NSAwLjg2OTU1MiAxMjQuMzM5IDIuNDg1NTYgMTI0LjMzOSA0LjQ3OTAyVjUuMTk0NzZDMTI0LjMzOSA3LjE4ODIyIDEyNS45NTUgOC44MDQyMyAxMjcuOTQ4IDguODA0MjNIMTQ3LjU3OFoiIGZpbGw9IiM0Mjk0RTAiLz4KPHBhdGggZD0iTTMwNi4zMzYgMTguMjYwNkMzMDYuNDU3IDE4LjI2MDYgMzA2LjU3IDE4LjMxNjcgMzA2LjY0MyAxOC40MTIzTDM0OS4zMjYgNzQuMjM0MUMzNTAuMDA5IDc1LjEyNzIgMzUxLjA2OSA3NS42NTExIDM1Mi4xOTMgNzUuNjUxMUgzNTguMDU5QzM2MC4wNTIgNzUuNjUxMSAzNjEuNjY4IDc0LjAzNTEgMzYxLjY2OCA3Mi4wNDE3VjQuNDc5MDJDMzYxLjY2OCAyLjQ4NTU3IDM2MC4wNTIgMC44Njk1NTIgMzU4LjA1OSAwLjg2OTU1MkgzNTQuMDE5QzM1Mi4wMjUgMC44Njk1NTIgMzUwLjQwOSAyLjQ4NTU2IDM1MC40MDkgNC40NzkwMlY1Ni43ODY1QzM1MC40MDkgNTcgMzUwLjIzNiA1Ny4xNzMxIDM1MC4wMjMgNTcuMTczMUMzNDkuOTAyIDU3LjE3MzEgMzQ5Ljc4OSA1Ny4xMTcyIDM0OS43MTYgNTcuMDIxN0wzMDcuNzU1IDIuMjgzMDlDMzA3LjA3MiAxLjM5MjAyIDMwNi4wMTMgMC44Njk1NTIgMzA0Ljg5IDAuODY5NTUySDI5OC40NDRDMjk2LjQ1MSAwLjg2OTU1MiAyOTQuODM1IDIuNDg1NTcgMjk0LjgzNSA0LjQ3OTAyVjcyLjA0MTdDMjk0LjgzNSA3NC4wMzUxIDI5Ni40NTEgNzUuNjUxMSAyOTguNDQ0IDc1LjY1MTFIMzAyLjM0QzMwNC4zMzQgNzUuNjUxMSAzMDUuOTUgNzQuMDM1MSAzMDUuOTUgNzIuMDQxN1YxOC42NDdDMzA1Ljk1IDE4LjQzMzYgMzA2LjEyMyAxOC4yNjA2IDMwNi4zMzYgMTguMjYwNloiIGZpbGw9IiM0Mjk0RTAiLz4KPHJlY3QgeD0iMTQuNDM3OSIgeT0iMC43MjE4MDIiIHdpZHRoPSIxMS41NTAzIiBoZWlnaHQ9IjcuOTQwODMiIHJ4PSIzLjk3MDQxIiBmaWxsPSIjNDI5NEUwIi8+CjxyZWN0IHk9IjAuNzIxODAyIiB3aWR0aD0iMTEuNTUwMyIgaGVpZ2h0PSI3Ljk0MDgzIiByeD0iMy45NzA0MSIgZmlsbD0iIzQyOTRFMCIvPgo8bWFzayBpZD0icGF0aC00LW91dHNpZGUtMV81MDZfMiIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMTQuMTU5NSIgeT0iOTcuMTc3NiIgd2lkdGg9IjM0OSIgaGVpZ2h0PSIyNiIgZmlsbD0iYmxhY2siPgo8cmVjdCBmaWxsPSJ3aGl0ZSIgeD0iMTQuMTU5NSIgeT0iOTcuMTc3NiIgd2lkdGg9IjM0OSIgaGVpZ2h0PSIyNiIvPgo8cGF0aCBkPSJNMjMuNTM4MyAxMjEuNzI5Vjk5LjU5ODhIMTUuMTU5NVY5OC40NDgzSDMzLjQyNTJWOTkuNTk4OEgyNS4wNDY1VjEyMS43MjlIMjMuNTM4M1oiLz4KPHBhdGggZD0iTTUxLjQ4MTQgMTIxLjcyOVY5OC40NDgzSDY2Ljk4MlY5OS41OTg4SDUyLjk4OTVWMTA5LjM3OEg2NS4yNjQ0VjExMC41MjlINTIuOTg5NVYxMjAuNTc5SDY2Ljk4MlYxMjEuNzI5SDUxLjQ4MTRaIi8+CjxwYXRoIGQ9Ik0xMDAuMDE5IDEyMS42NjJDOTguMzk5NiAxMjEuODg3IDk2LjU1NjIgMTIyIDk0LjQ4OTUgMTIyQzkxLjUyOSAxMjIgODkuNDA2NCAxMjEuNzQxIDg4LjEyMTcgMTIxLjIyMkM4Ni44MzY5IDEyMC43MDMgODUuOTU3MiAxMTkuNjQzIDg1LjQ4MjQgMTE4LjA0MUM4NS4wMDc2IDExNi40MTcgODQuNzcwMiAxMTMuNzY2IDg0Ljc3MDIgMTEwLjA4OUM4NC43NzAyIDEwNi40NTcgODUuMDA3NiAxMDMuODQgODUuNDgyNCAxMDIuMjM4Qzg1Ljk1NzIgMTAwLjYxNCA4Ni44MzY5IDk5LjUzMTEgODguMTIxNyA5OC45ODk3Qzg5LjQzNDMgOTguNDQ4MyA5MS41NTY5IDk4LjE3NzYgOTQuNDg5NSA5OC4xNzc2Qzk1LjM4MzIgOTguMTc3NiA5Ni4zMzI4IDk4LjIyMjcgOTcuMzM4MyA5OC4zMTI5Qzk4LjM3MTYgOTguMzgwNiA5OS4yMDk1IDk4LjQ3MDggOTkuODUxOSA5OC41ODM2Vjk5LjY2NjVDOTguMzE1OCA5OS40NDA5IDk2LjY0IDk5LjMyODEgOTQuODI0NiA5OS4zMjgxQzkyLjA1OTcgOTkuMzI4MSA5MC4xMTg2IDk5LjU1MzcgODkuMDAxNCAxMDAuMDA1Qzg3LjkxMjIgMTAwLjQzMyA4Ny4xODYgMTAxLjM1OCA4Ni44MjMgMTAyLjc4Qzg2LjQ1OTkgMTA0LjE3OCA4Ni4yNzgzIDEwNi42MTUgODYuMjc4MyAxMTAuMDg5Qzg2LjI3ODMgMTEzLjU2MyA4Ni40NTk5IDExNi4wMTEgODYuODIzIDExNy40MzJDODcuMTg2IDExOC44MyA4Ny45MTIyIDExOS43NTUgODkuMDAxNCAxMjAuMjA3QzkwLjExODYgMTIwLjYzNSA5Mi4wNTk3IDEyMC44NSA5NC44MjQ2IDEyMC44NUM5Ni42OTU5IDEyMC44NSA5OC40Mjc1IDEyMC43MzcgMTAwLjAxOSAxMjAuNTExVjEyMS42NjJaIi8+CjxwYXRoIGQ9Ik0xMzUuODg3IDEyMS43MjlWMTEwLjUyOUgxMjAuNDI5VjEyMS43MjlIMTE4LjkyVjk4LjQ0ODNIMTIwLjQyOVYxMDkuMzc4SDEzNS44ODdWOTguNDQ4M0gxMzcuMzk2VjEyMS43MjlIMTM1Ljg4N1oiLz4KPHBhdGggZD0iTTE3NS4wODcgMTIxLjcyOUwxNTkuODM4IDEwMC45ODZIMTU5LjY3VjEyMS43MjlIMTU4LjIwNFY5OC40NDgzSDE1OS43NTRMMTc1LjA0NSAxMTkuMTkxSDE3NS4yMTNWOTguNDQ4M0gxNzYuNjc5VjEyMS43MjlIMTc1LjA4N1oiLz4KPHBhdGggZD0iTTIwNi40OTUgMTIyQzIwMy4yODMgMTIyIDIwMS4wMiAxMjEuNzQxIDE5OS43MDggMTIxLjIyMkMxOTguMzk1IDEyMC42OCAxOTcuNTQzIDExOS42NDMgMTk3LjE1MiAxMTguMTA5QzE5Ni43NjEgMTE2LjU1MiAxOTYuNTY2IDExMy44NzkgMTk2LjU2NiAxMTAuMDg5QzE5Ni41NjYgMTA2LjI5OSAxOTYuNzYxIDEwMy42MzcgMTk3LjE1MiAxMDIuMTAzQzE5Ny41NDMgMTAwLjU0NiAxOTguMzk1IDk5LjUwODUgMTk5LjcwOCA5OC45ODk3QzIwMS4wMiA5OC40NDgzIDIwMy4yODMgOTguMTc3NiAyMDYuNDk1IDk4LjE3NzZDMjA5LjcwNiA5OC4xNzc2IDIxMS45NjkgOTguNDQ4MyAyMTMuMjgxIDk4Ljk4OTdDMjE0LjU5NCA5OS41MDg1IDIxNS40NDYgMTAwLjU0NiAyMTUuODM3IDEwMi4xMDNDMjE2LjIyOCAxMDMuNjM3IDIxNi40MjMgMTA2LjI5OSAyMTYuNDIzIDExMC4wODlDMjE2LjQyMyAxMTMuODc5IDIxNi4yMjggMTE2LjU1MiAyMTUuODM3IDExOC4xMDlDMjE1LjQ0NiAxMTkuNjQzIDIxNC41OTQgMTIwLjY4IDIxMy4yODEgMTIxLjIyMkMyMTEuOTY5IDEyMS43NDEgMjA5LjcwNiAxMjIgMjA2LjQ5NSAxMjJaTTIwNi40OTUgMTIwLjg1QzIwOS4zMTUgMTIwLjg1IDIxMS4yNDMgMTIwLjY2OSAyMTIuMjc2IDEyMC4zMDhDMjEzLjMzNyAxMTkuOTQ3IDIxNC4wMzUgMTE5LjA2NyAyMTQuMzcxIDExNy42NjlDMjE0LjczNCAxMTYuMjcgMjE0LjkxNSAxMTMuNzQzIDIxNC45MTUgMTEwLjA4OUMyMTQuOTE1IDEwNi40MzQgMjE0LjczNCAxMDMuOTA4IDIxNC4zNzEgMTAyLjUwOUMyMTQuMDM1IDEwMS4xMSAyMTMuMzM3IDEwMC4yMyAyMTIuMjc2IDk5Ljg2OTVDMjExLjI0MyA5OS41MDg1IDIwOS4zMTUgOTkuMzI4MSAyMDYuNDk1IDk5LjMyODFDMjAzLjcwMiA5OS4zMjgxIDIwMS43NzUgOTkuNTA4NSAyMDAuNzEzIDk5Ljg2OTVDMTk5LjY1MiAxMDAuMjMgMTk4Ljk0IDEwMS4xMSAxOTguNTc3IDEwMi41MDlDMTk4LjI0MiAxMDMuOTA4IDE5OC4wNzQgMTA2LjQzNCAxOTguMDc0IDExMC4wODlDMTk4LjA3NCAxMTMuNzQzIDE5OC4yNDIgMTE2LjI3IDE5OC41NzcgMTE3LjY2OUMxOTguOTQgMTE5LjA2NyAxOTkuNjUyIDExOS45NDcgMjAwLjcxMyAxMjAuMzA4QzIwMS43NzUgMTIwLjY2OSAyMDMuNzAyIDEyMC44NSAyMDYuNDk1IDEyMC44NVoiLz4KPHBhdGggZD0iTTIzNi4zNjIgMTIxLjcyOVY5OC40NDgzSDIzNy44N1YxMjAuNTc5SDI1MC4zOTZWMTIxLjcyOUgyMzYuMzYyWiIvPgo8cGF0aCBkPSJNMjc3LjE2NiAxMjJDMjczLjk1NCAxMjIgMjcxLjY5MiAxMjEuNzQxIDI3MC4zNzkgMTIxLjIyMkMyNjkuMDY2IDEyMC42OCAyNjguMjE0IDExOS42NDMgMjY3LjgyMyAxMTguMTA5QzI2Ny40MzIgMTE2LjU1MiAyNjcuMjM3IDExMy44NzkgMjY3LjIzNyAxMTAuMDg5QzI2Ny4yMzcgMTA2LjI5OSAyNjcuNDMyIDEwMy42MzcgMjY3LjgyMyAxMDIuMTAzQzI2OC4yMTQgMTAwLjU0NiAyNjkuMDY2IDk5LjUwODUgMjcwLjM3OSA5OC45ODk3QzI3MS42OTIgOTguNDQ4MyAyNzMuOTU0IDk4LjE3NzYgMjc3LjE2NiA5OC4xNzc2QzI4MC4zNzcgOTguMTc3NiAyODIuNjQgOTguNDQ4MyAyODMuOTUyIDk4Ljk4OTdDMjg1LjI2NSA5OS41MDg1IDI4Ni4xMTcgMTAwLjU0NiAyODYuNTA4IDEwMi4xMDNDMjg2Ljg5OSAxMDMuNjM3IDI4Ny4wOTQgMTA2LjI5OSAyODcuMDk0IDExMC4wODlDMjg3LjA5NCAxMTMuODc5IDI4Ni44OTkgMTE2LjU1MiAyODYuNTA4IDExOC4xMDlDMjg2LjExNyAxMTkuNjQzIDI4NS4yNjUgMTIwLjY4IDI4My45NTIgMTIxLjIyMkMyODIuNjQgMTIxLjc0MSAyODAuMzc3IDEyMiAyNzcuMTY2IDEyMlpNMjc3LjE2NiAxMjAuODVDMjc5Ljk4NiAxMjAuODUgMjgxLjkxNCAxMjAuNjY5IDI4Mi45NDcgMTIwLjMwOEMyODQuMDA4IDExOS45NDcgMjg0LjcwNiAxMTkuMDY3IDI4NS4wNDIgMTE3LjY2OUMyODUuNDA1IDExNi4yNyAyODUuNTg2IDExMy43NDMgMjg1LjU4NiAxMTAuMDg5QzI4NS41ODYgMTA2LjQzNCAyODUuNDA1IDEwMy45MDggMjg1LjA0MiAxMDIuNTA5QzI4NC43MDYgMTAxLjExIDI4NC4wMDggMTAwLjIzIDI4Mi45NDcgOTkuODY5NUMyODEuOTE0IDk5LjUwODUgMjc5Ljk4NiA5OS4zMjgxIDI3Ny4xNjYgOTkuMzI4MUMyNzQuMzczIDk5LjMyODEgMjcyLjQ0NiA5OS41MDg1IDI3MS4zODQgOTkuODY5NUMyNzAuMzIzIDEwMC4yMyAyNjkuNjExIDEwMS4xMSAyNjkuMjQ4IDEwMi41MDlDMjY4LjkxMyAxMDMuOTA4IDI2OC43NDUgMTA2LjQzNCAyNjguNzQ1IDExMC4wODlDMjY4Ljc0NSAxMTMuNzQzIDI2OC45MTMgMTE2LjI3IDI2OS4yNDggMTE3LjY2OUMyNjkuNjExIDExOS4wNjcgMjcwLjMyMyAxMTkuOTQ3IDI3MS4zODQgMTIwLjMwOEMyNzIuNDQ2IDEyMC42NjkgMjc0LjM3MyAxMjAuODUgMjc3LjE2NiAxMjAuODVaIi8+CjxwYXRoIGQ9Ik0zMTUuNjYzIDExMS4wN1YxMDkuOTJIMzI0LjA0MlYxMjEuNDI1QzMyMi44NjkgMTIxLjYwNSAzMjEuNTcgMTIxLjc0MSAzMjAuMTQ2IDEyMS44MzFDMzE4LjcyMSAxMjEuOTQ0IDMxNy40NjQgMTIyIDMxNi4zNzUgMTIyQzMxMy4zNTkgMTIyIDMxMS4xNTIgMTIxLjcyOSAzMDkuNzU2IDEyMS4xODhDMzA4LjM4NyAxMjAuNjQ2IDMwNy40MzggMTE5LjU2NCAzMDYuOTA3IDExNy45MzlDMzA2LjM3NyAxMTYuMjkzIDMwNi4xMTEgMTEzLjY3NiAzMDYuMTExIDExMC4wODlDMzA2LjExMSAxMDYuNTI0IDMwNi4zNzcgMTAzLjkzIDMwNi45MDcgMTAyLjMwNkMzMDcuNDM4IDEwMC42NTkgMzA4LjM4NyA5OS41NjQ5IDMwOS43NTYgOTkuMDIzNUMzMTEuMTUyIDk4LjQ1OTUgMzEzLjM1OSA5OC4xNzc2IDMxNi4zNzUgOTguMTc3NkMzMTcuNTc2IDk4LjE3NzYgMzE4Ljg4OSA5OC4yMzM5IDMyMC4zMTMgOTguMzQ2N0MzMjEuNzY1IDk4LjQ1OTUgMzIyLjk4IDk4LjYwNjIgMzIzLjk1OCA5OC43ODY2Vjk5Ljg2OTVDMzIyLjg2OSA5OS43MTE2IDMyMS43MSA5OS41ODc1IDMyMC40ODEgOTkuNDk3M0MzMTkuMjUyIDk5LjM4NDUgMzE4LjI0NiA5OS4zMjgxIDMxNy40NjQgOTkuMzI4MUMzMTQuMzkyIDk5LjMyODEgMzEyLjI0MiA5OS41MDg1IDMxMS4wMTMgOTkuODY5NUMzMDkuNzg0IDEwMC4yMyAzMDguOTA0IDEwMS4xNDQgMzA4LjM3MyAxMDIuNjFDMzA3Ljg3MSAxMDQuMDU0IDMwNy42MTkgMTA2LjU0NyAzMDcuNjE5IDExMC4wODlDMzA3LjYxOSAxMTMuMzgyIDMwNy44MDEgMTE1Ljc1MSAzMDguMTY0IDExNy4xOTVDMzA4LjU1NSAxMTguNjE2IDMwOS4zMzcgMTE5LjU4NiAzMTAuNTEgMTIwLjEwNUMzMTEuNjgzIDEyMC42MDEgMzEzLjYyNCAxMjAuODUgMzE2LjMzMyAxMjAuODVDMzE3LjE5OSAxMjAuODUgMzE4LjI0NiAxMjAuODE2IDMxOS40NzUgMTIwLjc0OEMzMjAuNzA0IDEyMC42NTggMzIxLjcyNCAxMjAuNTU2IDMyMi41MzQgMTIwLjQ0M1YxMTEuMDdIMzE1LjY2M1oiLz4KPHBhdGggZD0iTTM1MC4wMTIgMTIxLjcyOVYxMTIuMjIxTDM0MC41ODYgOTguNDQ4M0gzNDIuMzA0TDM1MC42NDEgMTEwLjc2NkgzNTAuOTM0TDM1OS4zMTMgOTguNDQ4M0gzNjAuOTQ2TDM1MS41MiAxMTIuMjIxVjEyMS43MjlIMzUwLjAxMloiLz4KPC9tYXNrPgo8cGF0aCBkPSJNMjMuNTM4MyAxMjEuNzI5Vjk5LjU5ODhIMTUuMTU5NVY5OC40NDgzSDMzLjQyNTJWOTkuNTk4OEgyNS4wNDY1VjEyMS43MjlIMjMuNTM4M1oiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTUxLjQ4MTQgMTIxLjcyOVY5OC40NDgzSDY2Ljk4MlY5OS41OTg4SDUyLjk4OTVWMTA5LjM3OEg2NS4yNjQ0VjExMC41MjlINTIuOTg5NVYxMjAuNTc5SDY2Ljk4MlYxMjEuNzI5SDUxLjQ4MTRaIiBmaWxsPSIjQzVDNUM1Ii8+CjxwYXRoIGQ9Ik0xMDAuMDE5IDEyMS42NjJDOTguMzk5NiAxMjEuODg3IDk2LjU1NjIgMTIyIDk0LjQ4OTUgMTIyQzkxLjUyOSAxMjIgODkuNDA2NCAxMjEuNzQxIDg4LjEyMTcgMTIxLjIyMkM4Ni44MzY5IDEyMC43MDMgODUuOTU3MiAxMTkuNjQzIDg1LjQ4MjQgMTE4LjA0MUM4NS4wMDc2IDExNi40MTcgODQuNzcwMiAxMTMuNzY2IDg0Ljc3MDIgMTEwLjA4OUM4NC43NzAyIDEwNi40NTcgODUuMDA3NiAxMDMuODQgODUuNDgyNCAxMDIuMjM4Qzg1Ljk1NzIgMTAwLjYxNCA4Ni44MzY5IDk5LjUzMTEgODguMTIxNyA5OC45ODk3Qzg5LjQzNDMgOTguNDQ4MyA5MS41NTY5IDk4LjE3NzYgOTQuNDg5NSA5OC4xNzc2Qzk1LjM4MzIgOTguMTc3NiA5Ni4zMzI4IDk4LjIyMjcgOTcuMzM4MyA5OC4zMTI5Qzk4LjM3MTYgOTguMzgwNiA5OS4yMDk1IDk4LjQ3MDggOTkuODUxOSA5OC41ODM2Vjk5LjY2NjVDOTguMzE1OCA5OS40NDA5IDk2LjY0IDk5LjMyODEgOTQuODI0NiA5OS4zMjgxQzkyLjA1OTcgOTkuMzI4MSA5MC4xMTg2IDk5LjU1MzcgODkuMDAxNCAxMDAuMDA1Qzg3LjkxMjIgMTAwLjQzMyA4Ny4xODYgMTAxLjM1OCA4Ni44MjMgMTAyLjc4Qzg2LjQ1OTkgMTA0LjE3OCA4Ni4yNzgzIDEwNi42MTUgODYuMjc4MyAxMTAuMDg5Qzg2LjI3ODMgMTEzLjU2MyA4Ni40NTk5IDExNi4wMTEgODYuODIzIDExNy40MzJDODcuMTg2IDExOC44MyA4Ny45MTIyIDExOS43NTUgODkuMDAxNCAxMjAuMjA3QzkwLjExODYgMTIwLjYzNSA5Mi4wNTk3IDEyMC44NSA5NC44MjQ2IDEyMC44NUM5Ni42OTU5IDEyMC44NSA5OC40Mjc1IDEyMC43MzcgMTAwLjAxOSAxMjAuNTExVjEyMS42NjJaIiBmaWxsPSIjQzVDNUM1Ii8+CjxwYXRoIGQ9Ik0xMzUuODg3IDEyMS43MjlWMTEwLjUyOUgxMjAuNDI5VjEyMS43MjlIMTE4LjkyVjk4LjQ0ODNIMTIwLjQyOVYxMDkuMzc4SDEzNS44ODdWOTguNDQ4M0gxMzcuMzk2VjEyMS43MjlIMTM1Ljg4N1oiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTE3NS4wODcgMTIxLjcyOUwxNTkuODM4IDEwMC45ODZIMTU5LjY3VjEyMS43MjlIMTU4LjIwNFY5OC40NDgzSDE1OS43NTRMMTc1LjA0NSAxMTkuMTkxSDE3NS4yMTNWOTguNDQ4M0gxNzYuNjc5VjEyMS43MjlIMTc1LjA4N1oiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTIwNi40OTUgMTIyQzIwMy4yODMgMTIyIDIwMS4wMiAxMjEuNzQxIDE5OS43MDggMTIxLjIyMkMxOTguMzk1IDEyMC42OCAxOTcuNTQzIDExOS42NDMgMTk3LjE1MiAxMTguMTA5QzE5Ni43NjEgMTE2LjU1MiAxOTYuNTY2IDExMy44NzkgMTk2LjU2NiAxMTAuMDg5QzE5Ni41NjYgMTA2LjI5OSAxOTYuNzYxIDEwMy42MzcgMTk3LjE1MiAxMDIuMTAzQzE5Ny41NDMgMTAwLjU0NiAxOTguMzk1IDk5LjUwODUgMTk5LjcwOCA5OC45ODk3QzIwMS4wMiA5OC40NDgzIDIwMy4yODMgOTguMTc3NiAyMDYuNDk1IDk4LjE3NzZDMjA5LjcwNiA5OC4xNzc2IDIxMS45NjkgOTguNDQ4MyAyMTMuMjgxIDk4Ljk4OTdDMjE0LjU5NCA5OS41MDg1IDIxNS40NDYgMTAwLjU0NiAyMTUuODM3IDEwMi4xMDNDMjE2LjIyOCAxMDMuNjM3IDIxNi40MjMgMTA2LjI5OSAyMTYuNDIzIDExMC4wODlDMjE2LjQyMyAxMTMuODc5IDIxNi4yMjggMTE2LjU1MiAyMTUuODM3IDExOC4xMDlDMjE1LjQ0NiAxMTkuNjQzIDIxNC41OTQgMTIwLjY4IDIxMy4yODEgMTIxLjIyMkMyMTEuOTY5IDEyMS43NDEgMjA5LjcwNiAxMjIgMjA2LjQ5NSAxMjJaTTIwNi40OTUgMTIwLjg1QzIwOS4zMTUgMTIwLjg1IDIxMS4yNDMgMTIwLjY2OSAyMTIuMjc2IDEyMC4zMDhDMjEzLjMzNyAxMTkuOTQ3IDIxNC4wMzUgMTE5LjA2NyAyMTQuMzcxIDExNy42NjlDMjE0LjczNCAxMTYuMjcgMjE0LjkxNSAxMTMuNzQzIDIxNC45MTUgMTEwLjA4OUMyMTQuOTE1IDEwNi40MzQgMjE0LjczNCAxMDMuOTA4IDIxNC4zNzEgMTAyLjUwOUMyMTQuMDM1IDEwMS4xMSAyMTMuMzM3IDEwMC4yMyAyMTIuMjc2IDk5Ljg2OTVDMjExLjI0MyA5OS41MDg1IDIwOS4zMTUgOTkuMzI4MSAyMDYuNDk1IDk5LjMyODFDMjAzLjcwMiA5OS4zMjgxIDIwMS43NzUgOTkuNTA4NSAyMDAuNzEzIDk5Ljg2OTVDMTk5LjY1MiAxMDAuMjMgMTk4Ljk0IDEwMS4xMSAxOTguNTc3IDEwMi41MDlDMTk4LjI0MiAxMDMuOTA4IDE5OC4wNzQgMTA2LjQzNCAxOTguMDc0IDExMC4wODlDMTk4LjA3NCAxMTMuNzQzIDE5OC4yNDIgMTE2LjI3IDE5OC41NzcgMTE3LjY2OUMxOTguOTQgMTE5LjA2NyAxOTkuNjUyIDExOS45NDcgMjAwLjcxMyAxMjAuMzA4QzIwMS43NzUgMTIwLjY2OSAyMDMuNzAyIDEyMC44NSAyMDYuNDk1IDEyMC44NVoiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTIzNi4zNjIgMTIxLjcyOVY5OC40NDgzSDIzNy44N1YxMjAuNTc5SDI1MC4zOTZWMTIxLjcyOUgyMzYuMzYyWiIgZmlsbD0iI0M1QzVDNSIvPgo8cGF0aCBkPSJNMjc3LjE2NiAxMjJDMjczLjk1NCAxMjIgMjcxLjY5MiAxMjEuNzQxIDI3MC4zNzkgMTIxLjIyMkMyNjkuMDY2IDEyMC42OCAyNjguMjE0IDExOS42NDMgMjY3LjgyMyAxMTguMTA5QzI2Ny40MzIgMTE2LjU1MiAyNjcuMjM3IDExMy44NzkgMjY3LjIzNyAxMTAuMDg5QzI2Ny4yMzcgMTA2LjI5OSAyNjcuNDMyIDEwMy42MzcgMjY3LjgyMyAxMDIuMTAzQzI2OC4yMTQgMTAwLjU0NiAyNjkuMDY2IDk5LjUwODUgMjcwLjM3OSA5OC45ODk3QzI3MS42OTIgOTguNDQ4MyAyNzMuOTU0IDk4LjE3NzYgMjc3LjE2NiA5OC4xNzc2QzI4MC4zNzcgOTguMTc3NiAyODIuNjQgOTguNDQ4MyAyODMuOTUyIDk4Ljk4OTdDMjg1LjI2NSA5OS41MDg1IDI4Ni4xMTcgMTAwLjU0NiAyODYuNTA4IDEwMi4xMDNDMjg2Ljg5OSAxMDMuNjM3IDI4Ny4wOTQgMTA2LjI5OSAyODcuMDk0IDExMC4wODlDMjg3LjA5NCAxMTMuODc5IDI4Ni44OTkgMTE2LjU1MiAyODYuNTA4IDExOC4xMDlDMjg2LjExNyAxMTkuNjQzIDI4NS4yNjUgMTIwLjY4IDI4My45NTIgMTIxLjIyMkMyODIuNjQgMTIxLjc0MSAyODAuMzc3IDEyMiAyNzcuMTY2IDEyMlpNMjc3LjE2NiAxMjAuODVDMjc5Ljk4NiAxMjAuODUgMjgxLjkxNCAxMjAuNjY5IDI4Mi45NDcgMTIwLjMwOEMyODQuMDA4IDExOS45NDcgMjg0LjcwNiAxMTkuMDY3IDI4NS4wNDIgMTE3LjY2OUMyODUuNDA1IDExNi4yNyAyODUuNTg2IDExMy43NDMgMjg1LjU4NiAxMTAuMDg5QzI4NS41ODYgMTA2LjQzNCAyODUuNDA1IDEwMy45MDggMjg1LjA0MiAxMDIuNTA5QzI4NC43MDYgMTAxLjExIDI4NC4wMDggMTAwLjIzIDI4Mi45NDcgOTkuODY5NUMyODEuOTE0IDk5LjUwODUgMjc5Ljk4NiA5OS4zMjgxIDI3Ny4xNjYgOTkuMzI4MUMyNzQuMzczIDk5LjMyODEgMjcyLjQ0NiA5OS41MDg1IDI3MS4zODQgOTkuODY5NUMyNzAuMzIzIDEwMC4yMyAyNjkuNjExIDEwMS4xMSAyNjkuMjQ4IDEwMi41MDlDMjY4LjkxMyAxMDMuOTA4IDI2OC43NDUgMTA2LjQzNCAyNjguNzQ1IDExMC4wODlDMjY4Ljc0NSAxMTMuNzQzIDI2OC45MTMgMTE2LjI3IDI2OS4yNDggMTE3LjY2OUMyNjkuNjExIDExOS4wNjcgMjcwLjMyMyAxMTkuOTQ3IDI3MS4zODQgMTIwLjMwOEMyNzIuNDQ2IDEyMC42NjkgMjc0LjM3MyAxMjAuODUgMjc3LjE2NiAxMjAuODVaIiBmaWxsPSIjQzVDNUM1Ii8+CjxwYXRoIGQ9Ik0zMTUuNjYzIDExMS4wN1YxMDkuOTJIMzI0LjA0MlYxMjEuNDI1QzMyMi44NjkgMTIxLjYwNSAzMjEuNTcgMTIxLjc0MSAzMjAuMTQ2IDEyMS44MzFDMzE4LjcyMSAxMjEuOTQ0IDMxNy40NjQgMTIyIDMxNi4zNzUgMTIyQzMxMy4zNTkgMTIyIDMxMS4xNTIgMTIxLjcyOSAzMDkuNzU2IDEyMS4xODhDMzA4LjM4NyAxMjAuNjQ2IDMwNy40MzggMTE5LjU2NCAzMDYuOTA3IDExNy45MzlDMzA2LjM3NyAxMTYuMjkzIDMwNi4xMTEgMTEzLjY3NiAzMDYuMTExIDExMC4wODlDMzA2LjExMSAxMDYuNTI0IDMwNi4zNzcgMTAzLjkzIDMwNi45MDcgMTAyLjMwNkMzMDcuNDM4IDEwMC42NTkgMzA4LjM4NyA5OS41NjQ5IDMwOS43NTYgOTkuMDIzNUMzMTEuMTUyIDk4LjQ1OTUgMzEzLjM1OSA5OC4xNzc2IDMxNi4zNzUgOTguMTc3NkMzMTcuNTc2IDk4LjE3NzYgMzE4Ljg4OSA5OC4yMzM5IDMyMC4zMTMgOTguMzQ2N0MzMjEuNzY1IDk4LjQ1OTUgMzIyLjk4IDk4LjYwNjIgMzIzLjk1OCA5OC43ODY2Vjk5Ljg2OTVDMzIyLjg2OSA5OS43MTE2IDMyMS43MSA5OS41ODc1IDMyMC40ODEgOTkuNDk3M0MzMTkuMjUyIDk5LjM4NDUgMzE4LjI0NiA5OS4zMjgxIDMxNy40NjQgOTkuMzI4MUMzMTQuMzkyIDk5LjMyODEgMzEyLjI0MiA5OS41MDg1IDMxMS4wMTMgOTkuODY5NUMzMDkuNzg0IDEwMC4yMyAzMDguOTA0IDEwMS4xNDQgMzA4LjM3MyAxMDIuNjFDMzA3Ljg3MSAxMDQuMDU0IDMwNy42MTkgMTA2LjU0NyAzMDcuNjE5IDExMC4wODlDMzA3LjYxOSAxMTMuMzgyIDMwNy44MDEgMTE1Ljc1MSAzMDguMTY0IDExNy4xOTVDMzA4LjU1NSAxMTguNjE2IDMwOS4zMzcgMTE5LjU4NiAzMTAuNTEgMTIwLjEwNUMzMTEuNjgzIDEyMC42MDEgMzEzLjYyNCAxMjAuODUgMzE2LjMzMyAxMjAuODVDMzE3LjE5OSAxMjAuODUgMzE4LjI0NiAxMjAuODE2IDMxOS40NzUgMTIwLjc0OEMzMjAuNzA0IDEyMC42NTggMzIxLjcyNCAxMjAuNTU2IDMyMi41MzQgMTIwLjQ0M1YxMTEuMDdIMzE1LjY2M1oiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTM1MC4wMTIgMTIxLjcyOVYxMTIuMjIxTDM0MC41ODYgOTguNDQ4M0gzNDIuMzA0TDM1MC42NDEgMTEwLjc2NkgzNTAuOTM0TDM1OS4zMTMgOTguNDQ4M0gzNjAuOTQ2TDM1MS41MiAxMTIuMjIxVjEyMS43MjlIMzUwLjAxMloiIGZpbGw9IiNDNUM1QzUiLz4KPHBhdGggZD0iTTIzLjUzODMgMTIxLjcyOVY5OS41OTg4SDE1LjE1OTVWOTguNDQ4M0gzMy40MjUyVjk5LjU5ODhIMjUuMDQ2NVYxMjEuNzI5SDIzLjUzODNaIiBzdHJva2U9IiNDNUM1QzUiIHN0cm9rZS13aWR0aD0iMiIgbWFzaz0idXJsKCNwYXRoLTQtb3V0c2lkZS0xXzUwNl8yKSIvPgo8cGF0aCBkPSJNNTEuNDgxNCAxMjEuNzI5Vjk4LjQ0ODNINjYuOTgyVjk5LjU5ODhINTIuOTg5NVYxMDkuMzc4SDY1LjI2NDRWMTEwLjUyOUg1Mi45ODk1VjEyMC41NzlINjYuOTgyVjEyMS43MjlINTEuNDgxNFoiIHN0cm9rZT0iI0M1QzVDNSIgc3Ryb2tlLXdpZHRoPSIyIiBtYXNrPSJ1cmwoI3BhdGgtNC1vdXRzaWRlLTFfNTA2XzIpIi8+CjxwYXRoIGQ9Ik0xMDAuMDE5IDEyMS42NjJDOTguMzk5NiAxMjEuODg3IDk2LjU1NjIgMTIyIDk0LjQ4OTUgMTIyQzkxLjUyOSAxMjIgODkuNDA2NCAxMjEuNzQxIDg4LjEyMTcgMTIxLjIyMkM4Ni44MzY5IDEyMC43MDMgODUuOTU3MiAxMTkuNjQzIDg1LjQ4MjQgMTE4LjA0MUM4NS4wMDc2IDExNi40MTcgODQuNzcwMiAxMTMuNzY2IDg0Ljc3MDIgMTEwLjA4OUM4NC43NzAyIDEwNi40NTcgODUuMDA3NiAxMDMuODQgODUuNDgyNCAxMDIuMjM4Qzg1Ljk1NzIgMTAwLjYxNCA4Ni44MzY5IDk5LjUzMTEgODguMTIxNyA5OC45ODk3Qzg5LjQzNDMgOTguNDQ4MyA5MS41NTY5IDk4LjE3NzYgOTQuNDg5NSA5OC4xNzc2Qzk1LjM4MzIgOTguMTc3NiA5Ni4zMzI4IDk4LjIyMjcgOTcuMzM4MyA5OC4zMTI5Qzk4LjM3MTYgOTguMzgwNiA5OS4yMDk1IDk4LjQ3MDggOTkuODUxOSA5OC41ODM2Vjk5LjY2NjVDOTguMzE1OCA5OS40NDA5IDk2LjY0IDk5LjMyODEgOTQuODI0NiA5OS4zMjgxQzkyLjA1OTcgOTkuMzI4MSA5MC4xMTg2IDk5LjU1MzcgODkuMDAxNCAxMDAuMDA1Qzg3LjkxMjIgMTAwLjQzMyA4Ny4xODYgMTAxLjM1OCA4Ni44MjMgMTAyLjc4Qzg2LjQ1OTkgMTA0LjE3OCA4Ni4yNzgzIDEwNi42MTUgODYuMjc4MyAxMTAuMDg5Qzg2LjI3ODMgMTEzLjU2MyA4Ni40NTk5IDExNi4wMTEgODYuODIzIDExNy40MzJDODcuMTg2IDExOC44MyA4Ny45MTIyIDExOS43NTUgODkuMDAxNCAxMjAuMjA3QzkwLjExODYgMTIwLjYzNSA5Mi4wNTk3IDEyMC44NSA5NC44MjQ2IDEyMC44NUM5Ni42OTU5IDEyMC44NSA5OC40Mjc1IDEyMC43MzcgMTAwLjAxOSAxMjAuNTExVjEyMS42NjJaIiBzdHJva2U9IiNDNUM1QzUiIHN0cm9rZS13aWR0aD0iMiIgbWFzaz0idXJsKCNwYXRoLTQtb3V0c2lkZS0xXzUwNl8yKSIvPgo8cGF0aCBkPSJNMTM1Ljg4NyAxMjEuNzI5VjExMC41MjlIMTIwLjQyOVYxMjEuNzI5SDExOC45MlY5OC40NDgzSDEyMC40MjlWMTA5LjM3OEgxMzUuODg3Vjk4LjQ0ODNIMTM3LjM5NlYxMjEuNzI5SDEzNS44ODdaIiBzdHJva2U9IiNDNUM1QzUiIHN0cm9rZS13aWR0aD0iMiIgbWFzaz0idXJsKCNwYXRoLTQtb3V0c2lkZS0xXzUwNl8yKSIvPgo8cGF0aCBkPSJNMTc1LjA4NyAxMjEuNzI5TDE1OS44MzggMTAwLjk4NkgxNTkuNjdWMTIxLjcyOUgxNTguMjA0Vjk4LjQ0ODNIMTU5Ljc1NEwxNzUuMDQ1IDExOS4xOTFIMTc1LjIxM1Y5OC40NDgzSDE3Ni42NzlWMTIxLjcyOUgxNzUuMDg3WiIgc3Ryb2tlPSIjQzVDNUM1IiBzdHJva2Utd2lkdGg9IjIiIG1hc2s9InVybCgjcGF0aC00LW91dHNpZGUtMV81MDZfMikiLz4KPHBhdGggZD0iTTIwNi40OTUgMTIyQzIwMy4yODMgMTIyIDIwMS4wMiAxMjEuNzQxIDE5OS43MDggMTIxLjIyMkMxOTguMzk1IDEyMC42OCAxOTcuNTQzIDExOS42NDMgMTk3LjE1MiAxMTguMTA5QzE5Ni43NjEgMTE2LjU1MiAxOTYuNTY2IDExMy44NzkgMTk2LjU2NiAxMTAuMDg5QzE5Ni41NjYgMTA2LjI5OSAxOTYuNzYxIDEwMy42MzcgMTk3LjE1MiAxMDIuMTAzQzE5Ny41NDMgMTAwLjU0NiAxOTguMzk1IDk5LjUwODUgMTk5LjcwOCA5OC45ODk3QzIwMS4wMiA5OC40NDgzIDIwMy4yODMgOTguMTc3NiAyMDYuNDk1IDk4LjE3NzZDMjA5LjcwNiA5OC4xNzc2IDIxMS45NjkgOTguNDQ4MyAyMTMuMjgxIDk4Ljk4OTdDMjE0LjU5NCA5OS41MDg1IDIxNS40NDYgMTAwLjU0NiAyMTUuODM3IDEwMi4xMDNDMjE2LjIyOCAxMDMuNjM3IDIxNi40MjMgMTA2LjI5OSAyMTYuNDIzIDExMC4wODlDMjE2LjQyMyAxMTMuODc5IDIxNi4yMjggMTE2LjU1MiAyMTUuODM3IDExOC4xMDlDMjE1LjQ0NiAxMTkuNjQzIDIxNC41OTQgMTIwLjY4IDIxMy4yODEgMTIxLjIyMkMyMTEuOTY5IDEyMS43NDEgMjA5LjcwNiAxMjIgMjA2LjQ5NSAxMjJaTTIwNi40OTUgMTIwLjg1QzIwOS4zMTUgMTIwLjg1IDIxMS4yNDMgMTIwLjY2OSAyMTIuMjc2IDEyMC4zMDhDMjEzLjMzNyAxMTkuOTQ3IDIxNC4wMzUgMTE5LjA2NyAyMTQuMzcxIDExNy42NjlDMjE0LjczNCAxMTYuMjcgMjE0LjkxNSAxMTMuNzQzIDIxNC45MTUgMTEwLjA4OUMyMTQuOTE1IDEwNi40MzQgMjE0LjczNCAxMDMuOTA4IDIxNC4zNzEgMTAyLjUwOUMyMTQuMDM1IDEwMS4xMSAyMTMuMzM3IDEwMC4yMyAyMTIuMjc2IDk5Ljg2OTVDMjExLjI0MyA5OS41MDg1IDIwOS4zMTUgOTkuMzI4MSAyMDYuNDk1IDk5LjMyODFDMjAzLjcwMiA5OS4zMjgxIDIwMS43NzUgOTkuNTA4NSAyMDAuNzEzIDk5Ljg2OTVDMTk5LjY1MiAxMDAuMjMgMTk4Ljk0IDEwMS4xMSAxOTguNTc3IDEwMi41MDlDMTk4LjI0MiAxMDMuOTA4IDE5OC4wNzQgMTA2LjQzNCAxOTguMDc0IDExMC4wODlDMTk4LjA3NCAxMTMuNzQzIDE5OC4yNDIgMTE2LjI3IDE5OC41NzcgMTE3LjY2OUMxOTguOTQgMTE5LjA2NyAxOTkuNjUyIDExOS45NDcgMjAwLjcxMyAxMjAuMzA4QzIwMS43NzUgMTIwLjY2OSAyMDMuNzAyIDEyMC44NSAyMDYuNDk1IDEyMC44NVoiIHN0cm9rZT0iI0M1QzVDNSIgc3Ryb2tlLXdpZHRoPSIyIiBtYXNrPSJ1cmwoI3BhdGgtNC1vdXRzaWRlLTFfNTA2XzIpIi8+CjxwYXRoIGQ9Ik0yMzYuMzYyIDEyMS43MjlWOTguNDQ4M0gyMzcuODdWMTIwLjU3OUgyNTAuMzk2VjEyMS43MjlIMjM2LjM2MloiIHN0cm9rZT0iI0M1QzVDNSIgc3Ryb2tlLXdpZHRoPSIyIiBtYXNrPSJ1cmwoI3BhdGgtNC1vdXRzaWRlLTFfNTA2XzIpIi8+CjxwYXRoIGQ9Ik0yNzcuMTY2IDEyMkMyNzMuOTU0IDEyMiAyNzEuNjkyIDEyMS43NDEgMjcwLjM3OSAxMjEuMjIyQzI2OS4wNjYgMTIwLjY4IDI2OC4yMTQgMTE5LjY0MyAyNjcuODIzIDExOC4xMDlDMjY3LjQzMiAxMTYuNTUyIDI2Ny4yMzcgMTEzLjg3OSAyNjcuMjM3IDExMC4wODlDMjY3LjIzNyAxMDYuMjk5IDI2Ny40MzIgMTAzLjYzNyAyNjcuODIzIDEwMi4xMDNDMjY4LjIxNCAxMDAuNTQ2IDI2OS4wNjYgOTkuNTA4NSAyNzAuMzc5IDk4Ljk4OTdDMjcxLjY5MiA5OC40NDgzIDI3My45NTQgOTguMTc3NiAyNzcuMTY2IDk4LjE3NzZDMjgwLjM3NyA5OC4xNzc2IDI4Mi42NCA5OC40NDgzIDI4My45NTIgOTguOTg5N0MyODUuMjY1IDk5LjUwODUgMjg2LjExNyAxMDAuNTQ2IDI4Ni41MDggMTAyLjEwM0MyODYuODk5IDEwMy42MzcgMjg3LjA5NCAxMDYuMjk5IDI4Ny4wOTQgMTEwLjA4OUMyODcuMDk0IDExMy44NzkgMjg2Ljg5OSAxMTYuNTUyIDI4Ni41MDggMTE4LjEwOUMyODYuMTE3IDExOS42NDMgMjg1LjI2NSAxMjAuNjggMjgzLjk1MiAxMjEuMjIyQzI4Mi42NCAxMjEuNzQxIDI4MC4zNzcgMTIyIDI3Ny4xNjYgMTIyWk0yNzcuMTY2IDEyMC44NUMyNzkuOTg2IDEyMC44NSAyODEuOTE0IDEyMC42NjkgMjgyLjk0NyAxMjAuMzA4QzI4NC4wMDggMTE5Ljk0NyAyODQuNzA2IDExOS4wNjcgMjg1LjA0MiAxMTcuNjY5QzI4NS40MDUgMTE2LjI3IDI4NS41ODYgMTEzLjc0MyAyODUuNTg2IDExMC4wODlDMjg1LjU4NiAxMDYuNDM0IDI4NS40MDUgMTAzLjkwOCAyODUuMDQyIDEwMi41MDlDMjg0LjcwNiAxMDEuMTEgMjg0LjAwOCAxMDAuMjMgMjgyLjk0NyA5OS44Njk1QzI4MS45MTQgOTkuNTA4NSAyNzkuOTg2IDk5LjMyODEgMjc3LjE2NiA5OS4zMjgxQzI3NC4zNzMgOTkuMzI4MSAyNzIuNDQ2IDk5LjUwODUgMjcxLjM4NCA5OS44Njk1QzI3MC4zMjMgMTAwLjIzIDI2OS42MTEgMTAxLjExIDI2OS4yNDggMTAyLjUwOUMyNjguOTEzIDEwMy45MDggMjY4Ljc0NSAxMDYuNDM0IDI2OC43NDUgMTEwLjA4OUMyNjguNzQ1IDExMy43NDMgMjY4LjkxMyAxMTYuMjcgMjY5LjI0OCAxMTcuNjY5QzI2OS42MTEgMTE5LjA2NyAyNzAuMzIzIDExOS45NDcgMjcxLjM4NCAxMjAuMzA4QzI3Mi40NDYgMTIwLjY2OSAyNzQuMzczIDEyMC44NSAyNzcuMTY2IDEyMC44NVoiIHN0cm9rZT0iI0M1QzVDNSIgc3Ryb2tlLXdpZHRoPSIyIiBtYXNrPSJ1cmwoI3BhdGgtNC1vdXRzaWRlLTFfNTA2XzIpIi8+CjxwYXRoIGQ9Ik0zMTUuNjYzIDExMS4wN1YxMDkuOTJIMzI0LjA0MlYxMjEuNDI1QzMyMi44NjkgMTIxLjYwNSAzMjEuNTcgMTIxLjc0MSAzMjAuMTQ2IDEyMS44MzFDMzE4LjcyMSAxMjEuOTQ0IDMxNy40NjQgMTIyIDMxNi4zNzUgMTIyQzMxMy4zNTkgMTIyIDMxMS4xNTIgMTIxLjcyOSAzMDkuNzU2IDEyMS4xODhDMzA4LjM4NyAxMjAuNjQ2IDMwNy40MzggMTE5LjU2NCAzMDYuOTA3IDExNy45MzlDMzA2LjM3NyAxMTYuMjkzIDMwNi4xMTEgMTEzLjY3NiAzMDYuMTExIDExMC4wODlDMzA2LjExMSAxMDYuNTI0IDMwNi4zNzcgMTAzLjkzIDMwNi45MDcgMTAyLjMwNkMzMDcuNDM4IDEwMC42NTkgMzA4LjM4NyA5OS41NjQ5IDMwOS43NTYgOTkuMDIzNUMzMTEuMTUyIDk4LjQ1OTUgMzEzLjM1OSA5OC4xNzc2IDMxNi4zNzUgOTguMTc3NkMzMTcuNTc2IDk4LjE3NzYgMzE4Ljg4OSA5OC4yMzM5IDMyMC4zMTMgOTguMzQ2N0MzMjEuNzY1IDk4LjQ1OTUgMzIyLjk4IDk4LjYwNjIgMzIzLjk1OCA5OC43ODY2Vjk5Ljg2OTVDMzIyLjg2OSA5OS43MTE2IDMyMS43MSA5OS41ODc1IDMyMC40ODEgOTkuNDk3M0MzMTkuMjUyIDk5LjM4NDUgMzE4LjI0NiA5OS4zMjgxIDMxNy40NjQgOTkuMzI4MUMzMTQuMzkyIDk5LjMyODEgMzEyLjI0MiA5OS41MDg1IDMxMS4wMTMgOTkuODY5NUMzMDkuNzg0IDEwMC4yMyAzMDguOTA0IDEwMS4xNDQgMzA4LjM3MyAxMDIuNjFDMzA3Ljg3MSAxMDQuMDU0IDMwNy42MTkgMTA2LjU0NyAzMDcuNjE5IDExMC4wODlDMzA3LjYxOSAxMTMuMzgyIDMwNy44MDEgMTE1Ljc1MSAzMDguMTY0IDExNy4xOTVDMzA4LjU1NSAxMTguNjE2IDMwOS4zMzcgMTE5LjU4NiAzMTAuNTEgMTIwLjEwNUMzMTEuNjgzIDEyMC42MDEgMzEzLjYyNCAxMjAuODUgMzE2LjMzMyAxMjAuODVDMzE3LjE5OSAxMjAuODUgMzE4LjI0NiAxMjAuODE2IDMxOS40NzUgMTIwLjc0OEMzMjAuNzA0IDEyMC42NTggMzIxLjcyNCAxMjAuNTU2IDMyMi41MzQgMTIwLjQ0M1YxMTEuMDdIMzE1LjY2M1oiIHN0cm9rZT0iI0M1QzVDNSIgc3Ryb2tlLXdpZHRoPSIyIiBtYXNrPSJ1cmwoI3BhdGgtNC1vdXRzaWRlLTFfNTA2XzIpIi8+CjxwYXRoIGQ9Ik0zNTAuMDEyIDEyMS43MjlWMTEyLjIyMUwzNDAuNTg2IDk4LjQ0ODNIMzQyLjMwNEwzNTAuNjQxIDExMC43NjZIMzUwLjkzNEwzNTkuMzEzIDk4LjQ0ODNIMzYwLjk0NkwzNTEuNTIgMTEyLjIyMVYxMjEuNzI5SDM1MC4wMTJaIiBzdHJva2U9IiNDNUM1QzUiIHN0cm9rZS13aWR0aD0iMiIgbWFzaz0idXJsKCNwYXRoLTQtb3V0c2lkZS0xXzUwNl8yKSIvPgo8L3N2Zz4K" alt="Piton">
     <span class="divider" aria-hidden="true"></span>
@@ -2292,8 +2309,6 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   </div>
 
   <div class="role-footer">
-    <div class="language-picker" id="role-language-picker" role="group"
-         data-i18n-aria="topbar.language" aria-label="Language"></div>
     <span>Piton Technology</span>
     <span id="role-version">—</span>
   </div>
@@ -2594,6 +2609,38 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     return () => container.removeEventListener("keydown", trap);
   }
 
+  // static/js/core/i18n.js
+  var PLACEHOLDER = /\{(\w+)\}/g;
+  var current = "en";
+  var available = [
+    "en"
+  ];
+  var messages = {};
+  function applyCatalogue(payload) {
+    if (!payload || typeof payload !== "object") return;
+    if (typeof payload.language === "string") current = payload.language;
+    if (Array.isArray(payload.languages)) available = payload.languages.slice();
+    if (payload.messages && typeof payload.messages === "object") {
+      messages = payload.messages;
+    }
+  }
+  function language() {
+    return current;
+  }
+  function languages() {
+    return available.slice();
+  }
+  function t(key, params) {
+    const text = Object.prototype.hasOwnProperty.call(messages, key) ? messages[key] : key;
+    if (!params) return text;
+    return String(text).replace(
+      PLACEHOLDER,
+      // A placeholder nobody passed stays visible rather than turning into
+      // "undefined": that way the gap is noticed instead of shipped.
+      (whole, name) => Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : whole
+    );
+  }
+
   // static/js/core/transport.js
   var TRANSPORT_FLAG = "__PANEL_TRANSPORT__";
   var CAPABILITY_FLAG = "__PANEL_CAPABILITY__";
@@ -2603,7 +2650,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   var isObject = (value2) => value2 !== null && typeof value2 === "object" && !Array.isArray(value2);
   function validateEnvelope(envelope) {
     if (!isObject(envelope) || typeof envelope.ok !== "boolean" || !Number.isInteger(envelope.status)) {
-      throw new Error("The desktop bridge returned an invalid response");
+      throw new Error(t("error.bridgeInvalidResponse"));
     }
     return {
       ok: envelope.ok,
@@ -2617,7 +2664,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const bridgeCapability = () => {
       const capability = root[CAPABILITY_FLAG];
       if (typeof capability !== "string" || !CAPABILITY_PATTERN.test(capability)) {
-        throw new Error("The desktop bridge capability is invalid");
+        throw new Error(t("error.bridgeCapabilityInvalid"));
       }
       return capability;
     };
@@ -2647,7 +2694,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         const onReady = () => {
           const api2 = bridgeApi();
           if (api2) finish(resolve, api2);
-          else finish(reject, new Error("The desktop bridge is not ready"));
+          else finish(reject, new Error(t("error.bridgeNotReady")));
         };
         root.addEventListener("pywebviewready", onReady, {
           once: true
@@ -2657,7 +2704,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           finish(resolve, readyMeanwhile);
           return;
         }
-        timer2 = setTimer(() => finish(reject, new Error("The desktop bridge did not become ready in time")), BRIDGE_TIMEOUT_MS);
+        timer2 = setTimer(() => finish(reject, new Error(t("error.bridgeReadyTimeout"))), BRIDGE_TIMEOUT_MS);
       });
       return bridgePromise;
     };
@@ -2717,11 +2764,13 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         envelope = await carrier.request(method, path, payload);
         if (!envelope || typeof envelope.ok !== "boolean" || !Number.isInteger(envelope.status)) throw new Error("invalid response");
       } catch {
-        throw new ApiError("The panel service is unreachable", 0, {});
+        throw new ApiError(t("error.serviceUnreachable"), 0, {});
       }
       const body = envelope.body && typeof envelope.body === "object" && !Array.isArray(envelope.body) ? envelope.body : {};
       if (!envelope.ok) {
-        throw new ApiError(body.error || `The request failed (${envelope.status})`, envelope.status, body);
+        throw new ApiError(body.error || t("error.requestFailed", {
+          status: envelope.status
+        }), envelope.status, body);
       }
       return body;
     }
@@ -3027,38 +3076,6 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }
       return true;
     });
-  }
-
-  // static/js/core/i18n.js
-  var PLACEHOLDER = /\{(\w+)\}/g;
-  var current = "en";
-  var available = [
-    "en"
-  ];
-  var messages = {};
-  function applyCatalogue(payload) {
-    if (!payload || typeof payload !== "object") return;
-    if (typeof payload.language === "string") current = payload.language;
-    if (Array.isArray(payload.languages)) available = payload.languages.slice();
-    if (payload.messages && typeof payload.messages === "object") {
-      messages = payload.messages;
-    }
-  }
-  function language() {
-    return current;
-  }
-  function languages() {
-    return available.slice();
-  }
-  function t(key, params) {
-    const text = Object.prototype.hasOwnProperty.call(messages, key) ? messages[key] : key;
-    if (!params) return text;
-    return String(text).replace(
-      PLACEHOLDER,
-      // A placeholder nobody passed stays visible rather than turning into
-      // "undefined": that way the gap is noticed instead of shipped.
-      (whole, name) => Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : whole
-    );
   }
 
   // static/js/components/toast.js
@@ -3572,8 +3589,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           type: "button",
           class: "btn btn-close",
           disabled: stopping,
-          title: stopping ? "Stopping\u2026" : "Stop the job",
-          "aria-label": stopping ? `${job.title} durduruluyor` : t("queue.stopJob", {
+          title: t(stopping ? "queue.stoppingShort" : "queue.stopJobShort"),
+          "aria-label": stopping ? t("queue.stoppingJob", {
+            job: job.title
+          }) : t("queue.stopJob", {
             job: job.title
           }),
           onclick: async () => {
@@ -3650,8 +3669,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         row2.file ? el("span", {
           class: "file-actions"
         }, [
-          fileButton("Open the file", jobId, row2.deviceId, false),
-          fileButton("Show in folder", jobId, row2.deviceId, true)
+          fileButton(t("queue.openTheFile"), jobId, row2.deviceId, false),
+          fileButton(t("queue.showInFolder"), jobId, row2.deviceId, true)
         ]) : row2.ip ? el("span", {
           class: "sub",
           text: row2.ip
@@ -3780,13 +3799,27 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function summaryText(refreshed = 0) {
     const job = (state.jobs || []).find((j) => j.state === "running" || j.state === "queued");
-    if (job && job.cancelRequested) return `${job.title} \xB7 durduruluyor\u2026`;
-    if (!job) {
-      if (!state.lastScan) return "Waiting for the first scan\u2026";
-      const fresh = `Last scan ${clockTime(state.lastScan)}`;
-      return refreshed ? `${fresh} \xB7 ${refreshed} device(s) re-read` : `${fresh} \xB7 no device could be re-read`;
+    if (job && job.cancelRequested) {
+      return t("queue.jobStopping", {
+        job: job.title
+      });
     }
-    return `${job.title} \xB7 %${Math.round((job.progress || 0) * 100)}`;
+    if (!job) {
+      if (!state.lastScan) return t("queue.waitingFirstScan");
+      const fresh = t("queue.lastScan", {
+        time: clockTime(state.lastScan)
+      });
+      return refreshed ? t("queue.lastScanReread", {
+        scan: fresh,
+        count: refreshed
+      }) : t("queue.lastScanNoReread", {
+        scan: fresh
+      });
+    }
+    return t("queue.jobProgress", {
+      job: job.title,
+      percent: Math.round((job.progress || 0) * 100)
+    });
   }
 
   // static/js/components/dialog.js
@@ -3891,7 +3924,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }, [
         `${device.ip} \xB7 ${typeLabel(device.typeLabel)}`,
         el("br"),
-        device.credentialGroup ? `Account group: ${device.credentialGroup}` : "An account used for this device only",
+        device.credentialGroup ? t("locked.accountGroup", {
+          group: device.credentialGroup
+        }) : t("locked.ownAccount"),
         el("br"),
         detailOf(device)
       ])
@@ -3957,7 +3992,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         e.preventDefault();
         warning.hidden = true;
         submit.disabled = true;
-        submit.textContent = "Verifying access\u2026";
+        submit.textContent = t("locked.verifying");
         const username = usernameField.value.trim();
         const password = passwordField.value;
         try {
@@ -3973,13 +4008,13 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           if (onDone) onDone();
         } catch (err) {
           passwordField.value = "";
-          warning.textContent = err.message || "Access could not be verified.";
+          warning.textContent = err.message || t("locked.notVerified");
           warning.hidden = false;
           passwordField.focus();
           if (err.body && err.body.state) applyState(err.body.state);
         } finally {
           submit.disabled = false;
-          submit.textContent = "Verify access";
+          submit.textContent = t("locked.verifyAccess");
         }
       }
     }, [
@@ -4170,43 +4205,45 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
     const androidRows = device.readMethod === "adb" ? [
       [
-        "Application",
+        t("detail.application"),
         fields.package
       ],
       [
-        "Version code",
+        t("detail.versionCode"),
         fields.versionCode
       ],
       [
-        "Target SDK",
+        t("detail.targetSdk"),
         fields.targetSdk
       ],
       [
-        "Last updated",
+        t("detail.lastUpdated"),
         fields.updatedAt
       ]
     ] : [];
-    const summaryBlock = block("Summary", `Project + ${method.code || device.readMethod}`, [
+    const summaryBlock = block(t("detail.summary"), t("detail.summarySource", {
+      method: method.code || device.readMethod
+    }), [
       [
-        "Device name",
+        t("detail.deviceName"),
         device.name
       ],
       [
-        "Type / subtype",
+        t("col.typeSubtypeLower"),
         typeLabel(device.typeLabel)
       ],
       [
-        "Version",
+        t("col.version"),
         fields.version,
         fields.version ? "ok" : null
       ],
       ...androidRows,
       [
-        "Model",
+        t("detail.model"),
         fields.model
       ],
       [
-        "Device number",
+        t("field.serial"),
         fields.serial
       ],
       [
@@ -4220,30 +4257,32 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         colour
       ],
       [
-        "Description",
+        t("detail.description"),
         result.detail
       ],
       [
-        "Uptime",
+        t("col.uptime"),
         fields.uptime
       ]
     ]);
-    const networkBlock = block("Network", `Project default ${device.ipTemplate}`, [
+    const networkBlock = block(t("detail.network"), t("detail.networkSource", {
+      template: device.ipTemplate
+    }), [
       [
-        "IP template",
+        t("col.ipTemplate"),
         device.ipTemplate
       ],
       [
-        "Expected IP",
+        t("col.expectedIp"),
         device.ip
       ],
       [
-        "Reached at",
-        result.state === "ok" ? device.ip : "No verified access",
+        t("detail.reachedAt"),
+        result.state === "ok" ? device.ip : t("detail.noVerifiedAccess"),
         result.state === "ok" ? "ok" : "text-dim"
       ],
       [
-        "Switch \xB7 port",
+        t("col.switchPort"),
         device.portLabel
       ],
       [
@@ -4251,37 +4290,37 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         fields.mac
       ],
       [
-        "Network / time",
+        t("detail.networkTime"),
         fields.networkTime
       ],
       [
-        "Time zone",
+        t("detail.timezone"),
         fields.timezone
       ]
     ]);
     const sipRows = device.pbxExtension ? [
       [
-        "Project PBX IP",
+        t("detail.projectPbxIp"),
         device.piscuIp
       ],
       [
-        "Expected SIP extension",
+        t("detail.expectedSipExtension"),
         device.pbxExtension
       ],
       [
-        "Read SIP extension",
+        t("detail.readSipExtension"),
         fields.sipExtension,
         fields.sipExtension ? String(fields.sipExtension) === String(device.pbxExtension) ? "ok" : "failed" : null
       ],
       [
-        "PBX reported by the device",
+        t("detail.pbxReportedByDevice"),
         fields.sipPbx
       ],
       // On ADB devices the registration state comes from the app's own log; it
       // is not a verification asked of the PBX (see MIMARI §12).
       ...device.readMethod === "adb" ? [
         [
-          "SIP registration state (device log)",
+          t("detail.sipRegistrationFromLog"),
           fields.sipRegistration,
           String(fields.sipRegistration || "").startsWith("registered") ? "ok" : fields.sipRegistration ? "failed" : null
         ],
@@ -4290,55 +4329,57 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         // would present a value never read from the device as though it had
         // been.
         [
-          "Source of the extension",
+          t("detail.extensionSource"),
           fields.sipExtensionSource
         ],
         [
-          "Source of the PBX address",
+          t("detail.pbxSource"),
           fields.sipPbxSource
         ]
       ] : [
         [
-          "SIP outbound number",
+          t("detail.sipOutbound"),
           fields.sipOutbound
         ],
         [
-          "Speaker volume",
+          t("detail.speakerVolume"),
           fields.speakerVolume
         ],
         [
-          "Microphone volume",
+          t("detail.micVolume"),
           fields.micVolume
         ],
         [
-          "Speaker gain",
+          t("field.speakerGain"),
           fields.speakerGain
         ],
         [
-          "Microphone gain",
+          t("field.micGain"),
           fields.micGain
         ]
       ]
     ] : [
       [
-        "Read method",
+        t("detail.readMethod"),
         method.code || device.readMethod
       ],
       [
-        "Path",
+        t("detail.path"),
         method.path
       ],
       [
-        "Period",
-        method.period ? `${method.period} s` : "Manual"
+        t("detail.period"),
+        method.period ? t("detail.periodSeconds", {
+          seconds: method.period
+        }) : t("detail.manual")
       ],
       [
-        "Needs credentials",
-        method.needsAuth ? "Yes" : "No"
+        t("detail.needsCredentials"),
+        method.needsAuth ? t("option.yes") : t("option.no")
       ],
       [
-        "Credentials stored this session",
-        device.hasCredentials ? "Yes (this session only)" : "No"
+        t("detail.credentialsStored"),
+        device.hasCredentials ? t("detail.yesThisSessionOnly") : t("option.no")
       ]
     ];
     const box = el("div", {
@@ -4384,7 +4425,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       el("div", {
         class: "info",
         style: "margin-top:14px",
-        text: result.readAt ? `Last read: ${clockTime(result.readAt)} \xB7 Method: ${method.code || device.readMethod}` : "This device has not been read yet."
+        text: result.readAt ? t("detail.lastRead", {
+          time: clockTime(result.readAt),
+          method: method.code || device.readMethod
+        }) : t("detail.notReadYet")
       }),
       summaryBlock,
       networkBlock,
@@ -4394,7 +4438,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("summary", {
           text: t("detail.technicalDetails")
         }),
-        block("Data source", method.path || "", sipRows)
+        block(t("detail.dataSource"), method.path || "", sipRows)
       ])
     ]);
     const backdrop = el("div", {
@@ -4472,7 +4516,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         }),
         el("div", {
           class: "page-sub",
-          text: scanned ? `Last scan ${clockTime(state.lastScan)} \xB7 ${age(state.lastScan)} ago` : "The devices have not been read yet"
+          text: scanned ? t("overview.lastScanAgo", {
+            time: clockTime(state.lastScan),
+            age: age(state.lastScan)
+          }) : t("overview.notReadYet")
         })
       ]),
       el("div", {
@@ -4491,13 +4538,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     parts.push(el("div", {
       class: "kpi-grid"
     }, [
-      kpi("Total devices", total, "records", "accent", "100%", () => goToList("all"), "List every device"),
-      kpi("Reachable", scanned ? counts.ok : NONE, `/ ${total}`, "ok", percent(counts.ok, total), () => goToList("active"), "List the reachable devices"),
-      kpi("Credentials needed", scanned ? counts.auth : NONE, `/ ${total}`, "auth", percent(counts.auth, total), () => patch({
+      kpi(t("overview.totalDevices"), total, t("overview.records"), "accent", "100%", () => goToList("all"), t("overview.listEveryDevice")),
+      kpi(t("devices.reachable"), scanned ? counts.ok : NONE, t("overview.outOfTotal", {
+        total
+      }), "ok", percent(counts.ok, total), () => goToList("active"), t("overview.listReachable")),
+      kpi(t("state.auth"), scanned ? counts.auth : NONE, t("overview.outOfTotal", {
+        total
+      }), "auth", percent(counts.auth, total), () => patch({
         lockedOpen: true,
         queueOpen: false
-      }), "Open the devices needing a username or password"),
-      kpi("Needs review", scanned ? counts.failed : NONE, `/ ${total}`, "failed", percent(counts.failed, total), () => goToList("problem"), "List the devices whose check did not finish")
+      }), t("overview.openLockedDevices")),
+      kpi(t("devices.needsReview"), scanned ? counts.failed : NONE, t("overview.outOfTotal", {
+        total
+      }), "failed", percent(counts.failed, total), () => goToList("problem"), t("overview.listUnfinished"))
     ]));
     const categoryCard = el("div", {
       class: "card corner"
@@ -4582,19 +4635,23 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     ]);
     const steps = [];
     if (!scanned) {
-      steps.push(stepRow("accent", "No scan has run yet", "Start a scan to see the current state of the devices in this set.", "Scan now", () => refreshNow2 && refreshNow2()));
+      steps.push(stepRow("accent", t("overview.noScanYet"), t("overview.noScanYetNote"), t("overview.scanNow"), () => refreshNow2 && refreshNow2()));
     } else {
       if (counts.auth) {
-        steps.push(stepRow("auth", `${counts.auth} device(s) need credentials`, "What you enter is kept in memory for this session only.", "Enter credentials", () => patch({
+        steps.push(stepRow("auth", t("overview.needCredentials", {
+          count: counts.auth
+        }), t("overview.credentialsNote"), t("overview.enterCredentials"), () => patch({
           lockedOpen: true,
           queueOpen: false
         })));
       }
       if (counts.failed) {
-        steps.push(stepRow("failed", `The check did not finish on ${counts.failed} device(s)`, "Check the connection, the IP, the power or the device response.", "Open the list", () => goToList("problem")));
+        steps.push(stepRow("failed", t("overview.checkUnfinished", {
+          count: counts.failed
+        }), t("overview.checkUnfinishedNote"), t("overview.openTheList"), () => goToList("problem")));
       }
       if (!steps.length) {
-        steps.push(stepRow("ok", "The access scan finished", "IP and SIP consistency can be reviewed on the verification screen.", "Open the results", () => patch({
+        steps.push(stepRow("ok", t("overview.scanFinished"), t("overview.scanFinishedNote"), t("overview.openTheResults"), () => patch({
           view: "checklist"
         })));
       }
@@ -5007,18 +5064,29 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function protectedWaitText() {
     if (local.searchingProtected && !local.protected) {
-      return "Finding the protected ports from the switch MAC tables\u2026";
+      return t("ip.findingProtectedPorts");
     }
     const found = local.protected;
-    if (!found) return "The protected ports have not been found yet";
+    if (!found) return t("ip.protectedPortsNotFound");
     const hasComputer = !!(found.computer && found.computer.port);
     if (!hasComputer) {
-      return found.note || "The port the computer is attached to was not found \u2014 the switch MAC table cannot be read";
+      return found.note || t("ip.computerPortNotFound");
     }
     return "";
   }
 
   // static/js/views/ip/ports.js
+  var SWITCH_STATE = {
+    auth: "ip.switchStateAuth",
+    unreachable: "ip.switchStateUnreachable",
+    unreadable: "ip.switchStateUnreadable",
+    empty: "ip.switchStateEmpty",
+    read: "ip.switchStateRead"
+  };
+  function switchStateLabel(state2) {
+    const key = SWITCH_STATE[state2];
+    return key ? t(key) : String(state2 || "");
+  }
   function formatPorts(ports) {
     const sorted = [
       ...new Set(ports.map(Number))
@@ -5051,7 +5119,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         if (!Number.isInteger(start4) || !Number.isInteger(end) || end < start4 || start4 < 1 || a === "" || b === "") {
           return {
             ports: [],
-            error: `Invalid port range: ${part}`
+            error: t("ip.invalidPortRange", {
+              part
+            })
           };
         }
         for (let n = start4; n <= end; n += 1) found.push(n);
@@ -5060,7 +5130,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         if (!Number.isInteger(n) || n < 1) {
           return {
             ports: [],
-            error: `Invalid port: ${part}`
+            error: t("ip.invalidPort", {
+              part
+            })
           };
         }
         found.push(n);
@@ -5074,7 +5146,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       if (outside.length) {
         return {
           ports: [],
-          error: "Ports with no device defined on this switch: " + outside.join(", ")
+          error: t("ip.portsWithoutDevice", {
+            ports: outside.join(", ")
+          })
         };
       }
     }
@@ -5109,29 +5183,33 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const last = String(lastText || "").trim();
     if (first || last) {
       if (!first || !last) {
-        return "Enter both the first and the last address of the range.";
+        return t("ip.rangeNeedsBoth");
       }
       if (!isIpv4(first) || !isIpv4(last)) {
-        return "Use valid IPv4 addresses in the range.";
+        return t("ip.rangeNeedsIpv4");
       }
       const count2 = ipNumber(last) - ipNumber(first) + 1;
-      if (count2 <= 0) return "The last address cannot come before the first.";
+      if (count2 <= 0) return t("ip.rangeReversed");
       if (count2 > SEARCH_LIMIT) {
-        return `That range covers ${count2} addresses; at most ${SEARCH_LIMIT} can be scanned.`;
+        return t("ip.rangeTooWide", {
+          count: count2,
+          limit: SEARCH_LIMIT
+        });
       }
       return "";
     }
     const network = String(networkText || "").trim();
     const mask = String(maskText || "").trim();
-    if (!network && !mask) return "Enter the search network and the netmask.";
-    if (!isIpv4(network)) return "The search network must be a valid IPv4 address";
+    if (!network && !mask) return t("ip.searchNeedsNetwork");
+    if (!isIpv4(network)) return t("ip.searchNetworkInvalid");
     const prefix = maskPrefix(mask);
-    if (prefix === null) {
-      return "The mask must be written as 255.255.255.0 or 24";
-    }
+    if (prefix === null) return t("ip.maskInvalid");
     const count = prefix >= 31 ? 1 : 2 ** (32 - prefix) - 2;
     if (count > SEARCH_LIMIT) {
-      return `That netmask covers ${count} addresses; at most ${SEARCH_LIMIT} can be scanned. Narrow the mask or give an address range.`;
+      return t("ip.maskTooWide", {
+        count,
+        limit: SEARCH_LIMIT
+      });
     }
     return "";
   }
@@ -5216,9 +5294,20 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     else if (protectedReason) roles.push("link-port");
     else if (context.targets.has(port.number)) roles.push("selected");
     if (!port.defined) roles.push("empty");
-    const stateText3 = port.enabled === null ? "" : !port.enabled ? " \xB7 port disabled" : port.hasPoe && port.poeMode === "0" ? " \xB7 power off" : port.link === "up" ? port.watts ? ` \xB7 powering (${port.watts} W)` : " \xB7 linked" : " \xB7 empty";
+    const stateText3 = port.enabled === null ? "" : !port.enabled ? t("ippanel.statePortDisabled") : port.hasPoe && port.poeMode === "0" ? t("ippanel.statePowerOff") : port.link === "up" ? port.watts ? t("ippanel.statePowering", {
+      watts: port.watts
+    }) : t("ippanel.stateLinked") : t("ippanel.stateEmpty");
     const locked = !!protectedReason || port.number === context.computerPort;
-    const description = locked ? `Port ${port.number} \xB7 ${protectedReason || "the computer is on this port"} \xB7 left out of IP assignment` : (port.defined ? `Port ${port.number} \xB7 ${port.device}${stateText3}` : `Port ${port.number} \xB7 no device defined${stateText3}`) + (context.active ? "" : ` \xB7 switches to ${context.switchName}`);
+    const description = locked ? t("ippanel.portLocked", {
+      port: port.number,
+      reason: protectedReason || t("ippanel.computerOnPort")
+    }) : t(port.defined ? "ippanel.portDevice" : "ippanel.portUndefined", {
+      port: port.number,
+      device: port.device,
+      state: stateText3
+    }) + (context.active ? "" : t("ippanel.switchesTo", {
+      switch: context.switchName
+    }));
     return el("button", {
       type: "button",
       class: `pm-port ${roles.join(" ")}`.trim(),
@@ -5282,7 +5371,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       const uplink = row2 <= uplinkCount ? byNumber[poeCount + row2] : null;
       grid.append(uplink ? portButton(uplink, context) : emptyCell());
     }
-    const guidance = groupDevices === 0 ? "No device of the selected target group is on this switch." : "Click a defined port to activate this switch.";
+    const guidance = t(groupDevices === 0 ? "ippanel.noTargetOnSwitch" : "ippanel.clickDefinedPort");
     return el("article", {
       class: "card corner front-panel",
       dataset: {
@@ -5325,8 +5414,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           }) : null,
           el("span", {
             class: panel.source === "switch" ? "badge ip-source-badge live" : "badge ip-source-badge",
-            text: panel.source === "switch" ? "Live data" : "Project default",
-            title: panel.source === "switch" ? "The port states were read from the switch" : "The port states could not be read; the layout came from DeviceMap"
+            text: t(panel.source === "switch" ? "ippanel.liveData" : "ippanel.projectDefault"),
+            title: t(panel.source === "switch" ? "ippanel.readFromSwitch" : "ippanel.readFromDeviceMap")
           }),
           // Without credentials the run cannot start; this must also be where
           // they are entered.
@@ -5370,13 +5459,18 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           class: "pm-footer"
         }, [
           el("span", {
-            text: `PoE 1-${poeCount}`
+            text: t("ippanel.poeRange", {
+              count: poeCount
+            })
           }),
           el("span", {
             style: "flex:1"
           }),
           el("span", {
-            text: `Uplink ${poeCount + 1}-${poeCount + uplinkCount}`
+            text: t("ippanel.uplinkRange", {
+              first: poeCount + 1,
+              last: poeCount + uplinkCount
+            })
           })
         ])
       ])
@@ -5390,43 +5484,43 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("i", {
           class: "pm-sample selected"
         }),
-        "Target port"
+        t("ippanel.legendTargetPort")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample pc"
         }),
-        "Computer port"
+        t("ippanel.legendComputerPort")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample link-port"
         }),
-        "Switch link"
+        t("ippanel.legendSwitchLink")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample feed"
         }),
-        "Powering"
+        t("ippanel.legendPowering")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample link"
         }),
-        "Linked"
+        t("ippanel.legendLinked")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample off"
         }),
-        "Port disabled"
+        t("ippanel.legendPortDisabled")
       ]),
       el("span", {}, [
         el("i", {
           class: "pm-sample empty"
         }),
-        "No device defined"
+        t("ippanel.legendNoDevice")
       ])
     ]);
   }
@@ -5449,31 +5543,32 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   var MAP_STATE = {
     empty: [
       "text-dim",
-      "Empty"
+      "ipmap.stateEmpty"
     ],
     expected: [
       "ok",
-      "Yerinde"
+      "ipmap.stateExpected"
     ],
     foreign: [
       "auth",
-      "Another device"
+      "ipmap.stateForeign"
     ],
     conflict: [
       "failed",
-      "Conflict"
+      "ipmap.stateConflict"
     ],
     unknown: [
       "auth",
-      "Unrecognised"
+      "ipmap.stateUnknown"
     ]
   };
   var MAP_COLUMNS = "120px 1fr 1fr 90px";
   function mapRow(row2) {
-    const [tone, label] = MAP_STATE[row2.state] || [
+    const [tone, labelKey] = MAP_STATE[row2.state] || [
       "text-dim",
-      row2.state
+      ""
     ];
+    const label = labelKey ? t(labelKey) : row2.state;
     const who = row2.found.length ? row2.found.map((entry) => entry.port ? `${entry.name || entry.extension} \xB7 port ${entry.port}` : `extension ${entry.extension || "?"}`).join(" + ") : "\u2014";
     const expected = row2.isFactory ? "the factory address" : row2.expectedPort ? `${row2.expectedName} \xB7 port ${row2.expectedPort}` : "\u2014";
     return el("div", {
@@ -5529,7 +5624,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("p", {
           class: "description"
         }, [
-          `${counts.devices || 0} device(s) seen \xB7 ${counts.expected || 0} yerinde \xB7 ${counts.foreign || 0} on another address \xB7 ${counts.conflict || 0} conflict(s)`
+          t("ipmap.counts", {
+            devices: counts.devices || 0,
+            expected: counts.expected || 0,
+            foreign: counts.foreign || 0,
+            conflict: counts.conflict || 0
+          })
         ]),
         el("div", {
           class: "table-wrap"
@@ -5558,7 +5658,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("p", {
           class: map.arpFlush ? "info" : "warning",
           style: "margin-top:10px",
-          text: map.arpFlush ? 'Several devices on one address are found by probing it a few times; that is where the "Conflict" rows come from.' : "The ARP cache cannot be flushed: not every device sharing an address may have been seen."
+          text: t(map.arpFlush ? "ipmap.arpFlushed" : "ipmap.arpNotFlushed")
         })
       );
     } catch (e) {
@@ -5593,7 +5693,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("p", {
           class: "description"
         }, [
-          `The IP address of ${targets.length} device(s) will be changed to ${factoryIp}. Because the devices restart and end up sharing one address, there will be a temporary address conflict.`
+          t("ipmap.factoryResetIntro", {
+            count: targets.length,
+            factory: factoryIp
+          })
         ]),
         el("p", {
           class: "info",
@@ -5708,7 +5811,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("i", {
           "aria-hidden": "true"
         }),
-        row2.actionable ? "In the plan" : "Outside the target group"
+        t(row2.actionable ? "ipplan.inThePlan" : "ipplan.outsideTargetGroup")
       ])
     ]);
   }
@@ -5741,18 +5844,16 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("div", {
           class: "ip-plan-metrics"
         }, [
-          el("span", {}, [
-            el("b", {
-              text: String(inPlan)
-            }),
-            " included"
-          ]),
-          outOfPlan ? el("span", {}, [
-            el("b", {
-              text: String(outOfPlan)
-            }),
-            " out of scope"
-          ]) : null
+          el("span", {
+            text: t("ipplan.includedCount", {
+              count: inPlan
+            })
+          }),
+          outOfPlan ? el("span", {
+            text: t("ipplan.outOfScopeCount", {
+              count: outOfPlan
+            })
+          }) : null
         ])
       ]),
       el("div", {
@@ -5821,7 +5922,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function switchRows(plan) {
     return (plan.switches || []).map((entry) => row(entry.name, el("b", {
       class: entry.id === plan.switchId ? "accent-text" : "text-dim",
-      text: entry.id === plan.switchId ? plan.portText : entry.groupDevices ? `${entry.groupDevices} device(s) \xB7 not selected` : `no ${currentTarget().label}`
+      text: entry.id === plan.switchId ? plan.portText : entry.groupDevices ? t("iptech.devicesNotSelected", {
+        count: entry.groupDevices
+      }) : t("iptech.noTarget", {
+        target: currentTarget().label
+      })
     })));
   }
   function technicalCard(plan, check, computer) {
@@ -5846,7 +5951,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       el("div", {
         class: "ip-technical-body"
       }, [
-        row("Plan source", el("b", {
+        row(t("iptech.planSource"), el("b", {
           title: t("iptech.targetIpsAndPortsCome"),
           text: t("iptech.projectDefaultDevicemap")
         })),
@@ -5855,16 +5960,18 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         // the application already opens elevated (see app.py) and the wording
         // of the privilege warning differed on every OS. The panel does not
         // speak per operating system.
-        row("Switch IP address", el("b", {
+        row(t("iptech.switchIpAddress"), el("b", {
           text: value(plan.switchIp)
         })),
         ...switchRows(plan),
-        row("Computer connection", el("b", {
+        row(t("iptech.computerConnection"), el("b", {
           class: computer.ok ? "" : "text-dim",
           title: computer.hint,
           text: computer.text
         })),
-        ...protectedPortsFor(plan).map(([number, reason]) => row(`Protected port ${number}`, el("b", {
+        ...protectedPortsFor(plan).map(([number, reason]) => row(t("iptech.protectedPortN", {
+          port: number
+        }), el("b", {
           class: "text-dim",
           text: reason
         }), "protected"))
@@ -5984,12 +6091,18 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const protectedError = protectedWaitText();
     const portError = parsed.error || validatePorts(portText, allowed, plan);
     const target = currentTarget();
-    const scopeError = !selectedPorts ? "Select at least one target port for IP assignment" : !inPlan ? `No ${target.label} on the selected ports` : "";
+    const scopeError = !selectedPorts ? t("ip.selectTargetPort") : !inPlan ? t("ip.noTargetOnPorts", {
+      target: target.label
+    }) : "";
     const activePanel = panelById.get(plan.switchId);
-    const credentialError = activePanel && activePanel.hasCredentials === false ? `No username and password entered for ${activePanel.switchName}.` : "";
-    const groupError = target.groups.some((group) => !(plan.groups || []).includes(group)) ? `No ${target.label} target found` : "";
+    const credentialError = activePanel && activePanel.hasCredentials === false ? t("ip.noSwitchCredentials", {
+      switch: activePanel.switchName
+    }) : "";
+    const groupError = target.groups.some((group) => !(plan.groups || []).includes(group)) ? t("ip.noTargetFound", {
+      target: target.label
+    }) : "";
     const factoryIp = local.factoryIp ?? plan.factoryIp ?? "";
-    const factoryError = isIpv4(factoryIp) ? "" : "The factory IP must be a valid IPv4 address";
+    const factoryError = isIpv4(factoryIp) ? "" : t("ip.factoryIpInvalid");
     const searchError = local.searchOpen ? validateSearch(local.searchNetwork ?? plan.searchNetwork, local.searchNetmask ?? plan.searchNetmask, local.searchFirst, local.searchLast) : "";
     const error = groupError || factoryError || searchError || protectedError || portError || scopeError || credentialError;
     return {
@@ -6017,7 +6130,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const clashing = ports.filter((port) => protectedPorts.has(port));
     if (clashing.length) {
       const port = clashing[0];
-      return `Port ${port} cannot be included in IP assignment \u2014 ${protectedPorts.get(port)}`;
+      return t("ip.portProtected", {
+        port,
+        reason: protectedPorts.get(port)
+      });
     }
     return "";
   }
@@ -6032,7 +6148,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
     const computer = found.computer || {};
     if (!computer.port) {
-      const tried = (found.tried || []).map((entry) => `${entry.name}: ${entry.state}`).join(" \xB7 ");
+      const tried = (found.tried || []).map((entry) => t("ip.switchStateEntry", {
+        switch: entry.name,
+        state: switchStateLabel(entry.state)
+      })).join(" \xB7 ");
       return {
         ok: false,
         text: t("ip.notFound"),
@@ -6042,11 +6161,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         ].filter(Boolean).join(" \u2014 ")
       };
     }
-    const when = found.time ? ` \xB7 verified ${age(found.time)} ago` : "";
+    const when = found.time ? t("ip.computerVerifiedAgo", {
+      age: age(found.time)
+    }) : "";
     return {
       ok: true,
       text: `${computer.switchName} \xB7 p${computer.port}`,
-      hint: `MAC ${computer.mac}${computer.interface ? ` \xB7 ${computer.interface}` : ""}${when}`
+      hint: t("ip.computerHint", {
+        mac: computer.mac,
+        interface: computer.interface ? t("ip.computerInterface", {
+          interface: computer.interface
+        }) : "",
+        when
+      })
     };
   }
   async function refresh() {
@@ -6080,7 +6207,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function runHeader(data, check) {
     const headerState = data ? check.ready ? "ready" : "error" : local.errorText ? "error" : "waiting";
-    const headerText = data ? check.ready ? "The plan is ready" : "Check the settings" : local.errorText ? "The plan cannot be used" : "Preparing the plan";
+    const headerText = data ? t(check.ready ? "ip.planReady" : "ip.checkTheSettings") : t(local.errorText ? "ip.planUnusable" : "ip.preparingPlan");
     const readinessText = el("span", {
       text: headerText
     });
@@ -6100,12 +6227,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       class: "btn btn-primary ip-start-btn",
       text: t("ip.startIpAssignment"),
       disabled: !data || !check.ready,
-      title: check && check.error ? check.error : "Start the IP assignment job",
+      title: check && check.error ? check.error : t("ip.startJobTitle"),
       onclick: start
     });
     const summaryBadge = data ? el("span", {
       class: check.ready ? "badge ip-ready-badge" : "badge ip-error-badge",
-      text: check.ready ? "Ready" : "Needs a check"
+      text: t(check.ready ? "ip.badgeReady" : "ip.badgeNeedsCheck")
     }) : null;
     const runError = data ? el("p", {
       class: "ip-run-error",
@@ -6116,11 +6243,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     function showActionState(result, waitingText = "") {
       const ready = !!result.ready && !waitingText;
       startButton.disabled = !ready;
-      startButton.title = result.error || waitingText || "Start the IP assignment job";
+      startButton.title = result.error || waitingText || t("ip.startJobTitle");
       readiness.dataset.state = ready ? "ready" : result.error ? "error" : "waiting";
-      readinessText.textContent = ready ? "The plan is ready" : result.error ? "Check the settings" : waitingText;
+      readinessText.textContent = ready ? t("ip.planReady") : result.error ? t("ip.checkTheSettings") : waitingText;
       summaryBadge.className = ready ? "badge ip-ready-badge" : result.error ? "badge ip-error-badge" : "badge ip-waiting-badge";
-      summaryBadge.textContent = ready ? "Ready" : result.error ? "Needs a check" : "Waiting for data";
+      summaryBadge.textContent = ready ? t("ip.badgeReady") : t(result.error ? "ip.badgeNeedsCheck" : "ip.badgeWaiting");
       runError.textContent = result.error || "";
       runError.hidden = !result.error;
     }
@@ -6174,14 +6301,14 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       // focus would leave the field on every keystroke.
       oninput: (e) => {
         const parsed = parsePorts(e.target.value, allowed);
-        const message = validatePorts(e.target.value, allowed, plan) || (!parsed.ports.length ? "Select at least one target port for IP assignment" : "");
+        const message = validatePorts(e.target.value, allowed, plan) || (!parsed.ports.length ? t("ip.selectTargetPort") : "");
         e.target.setAttribute("aria-invalid", String(!!message));
         portWarning.textContent = message;
         portWarning.hidden = !message;
         showActionState({
           ready: false,
           error: message
-        }, message ? "" : "Update the plan");
+        }, message ? "" : t("ip.updateThePlan"));
       },
       onchange: (e) => {
         const { ports, error } = parsePorts(e.target.value, allowed);
@@ -6325,24 +6452,24 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         factoryInput
       ]),
       factoryWarning,
-      toggle3(local.searchOpen, "Search the network if not on the factory address", "", () => {
+      toggle3(local.searchOpen, t("ip.searchIfNotFactory"), "", () => {
         local.searchOpen = !local.searchOpen;
       }),
       // "Written" and "written persistently" are not the same: the device may
       // have taken the setting into memory only and returns to its old address
       // on the first power cut. The check lengthens the run, so it is off by
       // default.
-      toggle3(local.persistenceCheck, "Verify persistence (power cycle at the end)", "At the end of the run the ports are power cycled once and the devices are checked to come back on their new addresses. It makes the run longer.", () => {
+      toggle3(local.persistenceCheck, t("ip.verifyPersistence"), t("ip.verifyPersistenceNote"), () => {
         local.persistenceCheck = !local.persistenceCheck;
       }),
       ...local.searchOpen ? [
-        searchField("searchNetwork", "ip-search-network", "Search network", plan.searchNetwork, "10.1.1.0"),
-        searchField("searchNetmask", "ip-search-mask", "Search netmask", plan.searchNetmask, "255.255.255.0"),
+        searchField("searchNetwork", "ip-search-network", t("ip.searchNetwork"), plan.searchNetwork, "10.1.1.0"),
+        searchField("searchNetmask", "ip-search-mask", t("ip.searchNetmask"), plan.searchNetmask, "255.255.255.0"),
         // An explicit range: when the project mask is wide (/8 in the top bar)
         // opening the network means millions of addresses. With a range given,
         // the network/mask pair above is not used.
-        searchField("searchFirst", "ip-search-first", "Range start", "", "10.1.1.10"),
-        searchField("searchLast", "ip-search-last", "Range end", "", "10.1.1.60"),
+        searchField("searchFirst", "ip-search-first", t("ip.rangeStart"), "", "10.1.1.10"),
+        searchField("searchLast", "ip-search-last", t("ip.rangeEnd"), "", "10.1.1.60"),
         searchWarning,
         el("p", {
           class: "ip-field-help",
@@ -6409,11 +6536,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       type: "button",
       class: "btn btn-small ip-refresh-btn",
       "aria-pressed": String(live.enabled),
-      title: live.enabled ? "Pause the automatic refresh of the port states" : "Resume the automatic refresh",
+      title: t(live.enabled ? "ip.pauseRefresh" : "ip.resumeRefresh"),
       onclick: (e) => {
         live.enabled = !live.enabled;
         e.currentTarget.setAttribute("aria-pressed", String(live.enabled));
-        e.currentTarget.textContent = live.enabled ? "Refresh on" : "Paused";
+        e.currentTarget.textContent = t(live.enabled ? "ip.refreshOn" : "ip.refreshPaused");
         stopPanels();
         freshnessTick();
         if (live.enabled) {
@@ -6421,7 +6548,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           protectedRound();
         }
       },
-      text: live.enabled ? "Refresh on" : "Paused"
+      text: t(live.enabled ? "ip.refreshOn" : "ip.refreshPaused")
     });
     return el("details", {
       class: "ip-panel-area ip-collapsible",
@@ -6482,7 +6609,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           "aria-hidden": "true"
         }),
         el("span", {
-          text: local.errorText || "Preparing the IP assignment plan\u2026"
+          text: local.errorText || t("ip.preparingPlanLong")
         })
       ]));
       fill(root, parts);
@@ -6639,12 +6766,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     ]
   };
   var SECTION_LABEL = {
-    sip: "SIP",
-    audio: "Audio and gain",
-    mode: "Operating modes",
-    thresholds: "Voltage thresholds",
-    routing: "Call routing",
-    information: "Device information"
+    sip: "section.sip",
+    audio: "section.audio",
+    mode: "section.mode",
+    thresholds: "section.thresholds",
+    routing: "section.routing",
+    information: "section.information"
   };
   var local2 = {
     deviceId: null,
@@ -6728,7 +6855,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("button", {
           type: "button",
           class: "btn btn-primary",
-          text: devices.length ? `Apply to ${devices.length} device(s)` : "Apply to the devices",
+          text: devices.length ? t("config.applyToCount", {
+            count: devices.length
+          }) : t("config.applyToDevices"),
           disabled: !devices.length,
           onclick: applyToGroup
         })
@@ -6889,7 +7018,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }),
       local2.errorText ? el("p", {
         class: local2.needsCredentials ? "info" : "warning",
-        text: local2.errorText + (local2.needsCredentials ? " Enter a username and password from the credentials panel." : "")
+        text: local2.errorText + (local2.needsCredentials ? ` ${t("config.enterCredentialsHint")}` : "")
       }) : null,
       el("div", {
         class: "table-wrap"
@@ -6915,7 +7044,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
               class: "table-empty",
               // Writing "could not be read" while the read is in progress is
               // wrong: the device has not even been tried yet.
-              text: (!ours || data && data.reading) && !local2.errorText ? "Reading the device\u2026" : 'The device values could not be read. Try again with "Read from the device".'
+              text: t((!ours || data && data.reading) && !local2.errorText ? "config.readingDevice" : "config.couldNotRead")
             })
           ]
         ])
@@ -7037,8 +7166,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
               class: `cfg-field${inherited ? " cfg-inherited" : ""}`,
               aria: t("config.valueToWriteToThe"),
               placeholder: groupPlaceholder(field, groupSecrets, projectVarying),
-              emptyLabel: inherited ? "Default" : "Leave unchanged",
-              title: inherited ? "Came from the project default (DeviceMap); left alone, this value is applied" : field.warning || field.hint || ""
+              emptyLabel: t(inherited ? "config.default" : "config.leaveUnchanged"),
+              title: inherited ? t("config.inheritedTitle") : field.warning || field.hint || ""
             })
           ]);
         })
@@ -7086,9 +7215,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function groupPlaceholder(field, groupSecrets, projectVarying) {
     if (field.secret) {
       if (groupSecrets.includes(field.field)) return "Entered";
-      return field.source === "project" ? "Default" : "Empty";
+      return t(field.source === "project" ? "config.default" : "config.empty");
     }
-    if (projectVarying.includes(field.field)) return "Per device";
+    if (projectVarying.includes(field.field)) return t("config.perDevice");
     return "\u2014";
   }
   async function writeTarget(field, newValue, scope) {
@@ -7132,10 +7261,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         class: !row2.override && row2.target ? "cfg-inherited" : "",
         aria: t("config.valueSpecificToThisDevice"),
         placeholder: row2.secret ? row2.hasOverride ? "entered (hidden)" : row2.hasTarget ? "hidden" : "\u2014" : "\u2014",
-        title: row2.warning || (!row2.override && row2.target ? `${SOURCE_LABEL[row2.source] ? t(SOURCE_LABEL[row2.source][0]) : ""} value. Left alone, this value is applied.` : row2.hint || ""),
+        title: row2.warning || (!row2.override && row2.target ? t("config.sourceValueApplied", {
+          source: SOURCE_LABEL[row2.source] ? t(SOURCE_LABEL[row2.source][0]) : ""
+        }) : row2.hint || ""),
         // The empty option means "no device-specific value"; the label says
         // where the target will fall back to.
-        emptyLabel: row2.source === "project" ? "Default" : row2.source === "group" ? "Shared setting" : "Empty"
+        emptyLabel: t(row2.source === "project" ? "config.default" : row2.source === "group" ? "config.sharedSetting" : "config.empty")
       }) : el("span", {
         class: "mono text-dim",
         style: "font-size:12px",
@@ -7247,7 +7378,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           class: "btn btn-primary",
           text: t("firmware.startTheInstall"),
           disabled: !selected,
-          title: selected ? `An install job is queued for ${selected} device(s)` : "Select a file for at least one device first",
+          title: selected ? t("firmware.jobQueuedFor", {
+            count: selected
+          }) : t("firmware.selectFileFirst"),
           onclick: start2
         })
       ])
@@ -7291,7 +7424,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("button", {
           type: "button",
           class: "btn btn-primary",
-          text: local3.pickerOpen ? "Selecting the file\u2026" : installable ? `Select a file and apply it to ${installable} device(s)` : "Select a file",
+          text: local3.pickerOpen ? t("firmware.selectingFile") : installable ? t("firmware.selectAndApply", {
+            count: installable
+          }) : t("firmware.selectFile"),
           disabled: !installable || local3.pickerOpen,
           // The expected file type lives in the tooltip of the button that
           // makes the choice, not as a separate note line.
@@ -7327,7 +7462,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         ...list.length ? list.map(renderRow3) : [
           el("div", {
             class: "table-empty",
-            text: state.firmwareState ? "No device in this group" : "Loading the device list\u2026"
+            text: t(state.firmwareState ? "firmware.noDeviceInGroup" : "firmware.loadingDevices")
           })
         ]
       ])
@@ -7379,13 +7514,13 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }, [
         el("span", {
           class: file.selected ? "mono truncate" : "mono truncate text-dim",
-          title: path || "No file selected yet",
-          text: file.selected ? file.name : "not selected"
+          title: path || t("firmware.noFileSelectedYet"),
+          text: file.selected ? file.name : t("firmware.notSelected")
         }),
         el("button", {
           type: "button",
           class: "btn btn-small fw-pick-btn",
-          text: file.selected ? "Change" : "Select",
+          text: t(file.selected ? "firmware.change" : "firmware.select"),
           disabled: local3.pickerOpen,
           title: t("firmware.selectFileFor", {
             device: device.name
@@ -7421,7 +7556,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           device: device.name
         }),
         disabled: !file.selected,
-        title: file.selected ? "The version expected from the device after the install" : "Select a file for this device first",
+        title: t(file.selected ? "firmware.expectedAfterInstall" : "firmware.selectFileForDevice"),
         onchange: (e) => {
           if (file.selected) {
             writeVersion([
@@ -7444,9 +7579,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     return device && device.result && device.result.state || "unknown";
   }
   function stateText(device, file) {
-    if (!device.installable) return "Installing is not supported";
-    if (!file.selected) return "No file selected";
-    return `${fileSize(file.size)} \xB7 ready to install`;
+    if (!device.installable) return t("firmware.notSupported");
+    if (!file.selected) return t("firmware.noFileSelected");
+    return t("firmware.readyToInstall", {
+      size: fileSize(file.size)
+    });
   }
   async function pickFile(devices, version) {
     if (local3.pickerOpen) return;
@@ -7606,7 +7743,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const problems = [];
     if (row2.state !== "ok") {
       const code = row2.state === "auth" ? "auth" : row2.state === "unknown" ? "unread" : "reach";
-      const text = code === "auth" ? "A username or password is needed" : code === "unread" ? "Not read yet" : row2.detail || "The device could not be reached";
+      const text = code === "auth" ? t("verify.authrequired") : code === "unread" ? t("verify.notread") : row2.detail || t("checklist.notReachable");
       problems.push({
         code,
         text
@@ -7622,7 +7759,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     if (!isEmpty(expectedIp) && (isEmpty(readIp) || normalise(readIp) !== normalise(expectedIp))) {
       problems.push({
         code: "ip",
-        text: isEmpty(readIp) ? `The IP could not be verified \xB7 expected ${expectedIp}` : `IP mismatch \xB7 expected ${expectedIp}, read ${readIp}`
+        text: isEmpty(readIp) ? t("checklist.ipUnverified", {
+          expected: expectedIp
+        }) : t("checklist.ipMismatch", {
+          expected: expectedIp,
+          read: readIp
+        })
       });
     }
     const expectedSip = values.get("expectedSipExtension");
@@ -7630,7 +7772,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     if (!isEmpty(expectedSip) && (isEmpty(readSip) || normalise(readSip) !== normalise(expectedSip))) {
       problems.push({
         code: "sip",
-        text: isEmpty(readSip) ? `The SIP extension could not be read \xB7 expected ${expectedSip}` : `SIP extension mismatch \xB7 expected ${expectedSip}, read ${readSip}`
+        text: isEmpty(readSip) ? t("checklist.sipUnread", {
+          expected: expectedSip
+        }) : t("checklist.sipMismatch", {
+          expected: expectedSip,
+          read: readSip
+        })
       });
     }
     return {
@@ -7743,11 +7890,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const minimum = data.columns.reduce((total, column) => total + (WIDTHS[column.id] || DEFAULT_WIDTH), 0) + data.columns.length * 10;
     return [
       el("div", {
-        class: "info check-excel-note"
-      }, [
-        "This view shows the exact column layout of the Excel file that will ",
-        "be produced. For day-to-day review, use the Deviations tab."
-      ]),
+        class: "info check-excel-note",
+        text: t("checklist.excelNote")
+      }),
       el("div", {
         class: "table-wrap"
       }, [
@@ -7779,25 +7924,25 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           el("i", {
             style: "background:var(--auth)"
           }),
-          "Amber: project default"
+          t("checklist.legendAmber")
         ]),
         el("span", {}, [
           el("i", {
             style: "background:var(--ok)"
           }),
-          "Green: matches the expected value"
+          t("checklist.legendGreen")
         ]),
         el("span", {}, [
           el("i", {
             style: "background:var(--failed)"
           }),
-          "Red: does not match the expected value"
+          t("checklist.legendRed")
         ]),
         el("span", {}, [
           el("i", {
             style: "background:#2a3339"
           }),
-          "Grey: not used on this device type"
+          t("checklist.legendGrey")
         ]),
         el("span", {
           style: "margin-left:auto",
@@ -7830,12 +7975,15 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     if (!node) return;
     const ts = Number(node.dataset.readAt) || 0;
     if (!ts) {
-      node.textContent = "No scan has run yet";
+      node.textContent = t("checklist.noScanYet");
       node.dataset.stale = "1";
       return;
     }
     const seconds = Math.max(0, Math.round(Date.now() / 1e3 - ts));
-    node.textContent = `Last scan ${clockTime(ts)} \xB7 ${age(ts)} ago`;
+    node.textContent = t("checklist.lastScanAgo", {
+      time: clockTime(ts),
+      age: age(ts)
+    });
     node.dataset.stale = seconds > STALE_SECONDS ? "1" : "0";
   }
   function startTicker() {
@@ -7907,19 +8055,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }, [
       [
         "deviations",
-        "Sapmalar"
+        "checklist.tabDeviations"
       ],
       [
         "excel",
-        "Excel preview"
+        "checklist.tabExcel"
       ]
-    ].map(([id, label]) => el("button", {
+    ].map(([id, labelKey]) => el("button", {
       type: "button",
       class: "local-tab",
       role: "tab",
       "aria-selected": String(reportTab === id),
       "aria-pressed": String(reportTab === id),
-      text: label,
+      text: t(labelKey),
       onclick: () => {
         reportTab = id;
         render12(root);
@@ -7984,10 +8132,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     parts.push(el("div", {
       class: "check-summary-grid"
     }, [
-      summaryCard("Passed the basic checks", passed, "ok", `${rows2.length} devices in total`),
-      summaryCard("Access problems", reachIssues, reachIssues ? "failed" : "ok", "Devices that did not answer or need credentials"),
-      summaryCard("IP deviations", ipIssues, ipIssues ? "failed" : "ok", "Beklenen ve okunan IP"),
-      summaryCard("SIP deviations", sipIssues, sipIssues ? "failed" : "ok", "SIP kullanan cihazlarda")
+      summaryCard(t("checklist.passedBasicChecks"), passed, "ok", t("checklist.devicesInTotal", {
+        count: rows2.length
+      })),
+      summaryCard(t("checklist.accessProblems"), reachIssues, reachIssues ? "failed" : "ok", t("checklist.accessProblemsNote")),
+      summaryCard(t("checklist.ipDeviations"), ipIssues, ipIssues ? "failed" : "ok", t("checklist.ipDeviationsNote")),
+      summaryCard(t("checklist.sipDeviations"), sipIssues, sipIssues ? "failed" : "ok", t("checklist.sipDeviationsNote"))
     ]));
     if (reportTab === "excel") {
       parts.push(...excelPreview(rows2, data));
@@ -8032,15 +8182,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       el("p", {
         class: "description"
       }, [
-        ts ? `The Excel is built from the values read in the last scan. That scan finished at ${clockTime(ts)}.` : "No scan has run on this train set yet. The Excel will be built with empty values."
+        ts ? t("checklist.builtFromLastScan", {
+          time: clockTime(ts)
+        }) : t("checklist.builtEmpty")
       ]),
       el("div", {
         class: "summary-box"
       }, [
-        line("Age of the data", ts ? `${age(ts)} ago` : NONE, stale ? "var(--auth)" : "var(--ok)"),
-        line("Reachable", `${counts.ok ?? 0}`, "var(--ok)"),
-        line("Credentials needed", `${counts.auth ?? 0}`, "var(--auth)"),
-        line("Needs review", `${counts.failed ?? 0}`, "var(--failed)")
+        line(t("checklist.dataAge"), ts ? t("checklist.agoValue", {
+          age: age(ts)
+        }) : NONE, stale ? "var(--auth)" : "var(--ok)"),
+        line(t("devices.reachable"), `${counts.ok ?? 0}`, "var(--ok)"),
+        line(t("state.auth"), `${counts.auth ?? 0}`, "var(--auth)"),
+        line(t("devices.needsReview"), `${counts.failed ?? 0}`, "var(--failed)")
       ]),
       stale ? el("p", {
         class: "warning",
@@ -8080,7 +8234,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           class: "btn",
           text: t("checklist.scanFirst"),
           disabled: state.scanRunning,
-          title: state.scanRunning ? "A scan is already running" : "Pull the scan forward, then generate the Excel",
+          title: t(state.scanRunning ? "checklist.scanAlreadyRunning" : "checklist.scanThenGenerate"),
           onclick: () => {
             close();
             pullScanForward();
@@ -8089,7 +8243,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("button", {
           type: "button",
           class: "btn btn-primary",
-          text: stale ? "Generate anyway" : "Generate Excel",
+          text: t(stale ? "checklist.generateAnyway" : "checklist.generateExcel"),
           onclick: produce
         })
       ]
@@ -8115,7 +8269,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       const active = normalise(text) === STATUS_ACTIVE;
       return {
         colour: active ? "var(--ok)" : "var(--failed)",
-        hint: active ? "The device was reached" : "The device was not reached"
+        hint: t(active ? "checklist.deviceWasReached" : "checklist.deviceNotReached")
       };
     }
     const expected = String(values.get(COMPARE_WITH[column]) || "");
@@ -8207,26 +8361,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     cancelled: "auth",
     failed: "failed"
   };
-  var STATE_TEXT = {
-    queued: "Queued",
-    running: "Running",
-    done: "Finished",
-    cancelled: "Stopped",
-    failed: "Failed"
-  };
   var KIND_NAME = {
-    scan: "System scan",
-    ip: "IP assignment",
-    ipfactory: "Reset to the factory IP",
-    config: "Apply device settings",
-    firmware: "Firmware install",
-    checklist: "Generate the Excel report"
+    scan: "history.kindScan",
+    ip: "history.kindIp",
+    ipfactory: "history.kindIpFactory",
+    config: "history.kindConfig",
+    firmware: "history.kindFirmware",
+    checklist: "history.kindChecklist"
   };
-  var UNKNOWN_KIND = "Job";
   var COLUMNS5 = "minmax(235px,1.7fr) minmax(120px,.8fr) 105px minmax(125px,.8fr) minmax(210px,1.4fr) 105px";
   function jobName(job) {
-    if (job.kind === "scan" && job.auto) return "Automatic system scan";
-    return KIND_NAME[job.kind] || String(job.title || UNKNOWN_KIND);
+    if (job.kind === "scan" && job.auto) return t("history.automaticScan");
+    if (KIND_NAME[job.kind]) return t(KIND_NAME[job.kind]);
+    return String(job.title || t("history.kindUnknown"));
   }
   function jobScope(job) {
     const parts = String(job.title || "").split(" \xB7 ").slice(1);
@@ -8243,23 +8390,37 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     });
   }
   function durationText(job) {
-    if (!job.startedAt) return "Not started yet";
+    if (!job.startedAt) return t("history.notStarted");
     const end = job.finishedAt || Date.now() / 1e3;
     const seconds = Math.max(0, Math.round(end - job.startedAt));
-    if (seconds < 60) return `${seconds} s`;
+    if (seconds < 60) return t("history.seconds", {
+      count: seconds
+    });
     const minutes = Math.floor(seconds / 60);
     const rest = seconds % 60;
-    if (minutes < 60) return rest ? `${minutes} min ${rest} s` : `${minutes} min`;
+    if (minutes < 60) {
+      return rest ? t("history.minutesSeconds", {
+        minutes,
+        seconds: rest
+      }) : t("history.minutes", {
+        count: minutes
+      });
+    }
     const hours = Math.floor(minutes / 60);
-    return `${hours} h ${minutes % 60} min`;
+    return t("history.hoursMinutes", {
+      hours,
+      minutes: minutes % 60
+    });
   }
   function stateText2(job) {
-    if (job.cancelRequested && IN_PROGRESS.has(job.state)) return "Stopping\u2026";
-    return STATE_TEXT[job.state] || "Unknown";
+    if (job.cancelRequested && IN_PROGRESS.has(job.state)) {
+      return t("history.stopping");
+    }
+    return jobStateLabel(job.state, t("history.unknownState"));
   }
   function outcomeText(job) {
     if (IN_PROGRESS.has(job.state)) {
-      return job.phase || (job.state === "queued" ? "Waiting its turn" : "Running");
+      return job.phase || t(job.state === "queued" ? "history.waitingTurn" : "jobstate.running");
     }
     if (job.error) return job.error;
     const counts = job.counts || {};
@@ -8269,17 +8430,25 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const skipped = Number(counts.skipped || 0);
     const total = Number(counts.total || 0);
     if (!total) {
-      if (job.state === "cancelled") return "Stopped before it finished";
-      if (job.state === "failed") return "The job could not be completed";
-      return "The job finished successfully";
+      if (job.state === "cancelled") return t("history.stoppedEarly");
+      if (job.state === "failed") return t("history.couldNotComplete");
+      return t("history.finishedWell");
     }
     const parts = [];
     const outcomeLabel = job.outcome ? jobOutcomeLabel(job.outcome) : "";
     if (outcomeLabel) parts.push(outcomeLabel);
-    parts.push(`${ok} successful`);
-    if (auth) parts.push(`${auth} device(s) need credentials`);
-    if (failed) parts.push(`${failed} failed`);
-    if (skipped) parts.push(`${skipped} skipped`);
+    parts.push(t("history.countOk", {
+      count: ok
+    }));
+    if (auth) parts.push(t("history.countAuth", {
+      count: auth
+    }));
+    if (failed) parts.push(t("history.countFailed", {
+      count: failed
+    }));
+    if (skipped) parts.push(t("history.countSkipped", {
+      count: skipped
+    }));
     return parts.join(" \xB7 ");
   }
   function jobRow(job) {
@@ -8328,7 +8497,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
             state: colour
           },
           style: "font-size:12px",
-          text: IN_PROGRESS.has(job.state) ? `${stateText2(job)} \xB7 %${percent2}` : stateText2(job)
+          text: IN_PROGRESS.has(job.state) ? t("history.stateWithPercent", {
+            state: stateText2(job),
+            percent: percent2
+          }) : stateText2(job)
         })
       ]),
       el("span", {
@@ -8429,15 +8601,21 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const options = [
       {
         id: "all",
-        label: `All (${active.length + finished.length})`
+        label: t("history.filterAll", {
+          count: active.length + finished.length
+        })
       },
       {
         id: "active",
-        label: `In progress (${active.length})`
+        label: t("history.filterActive", {
+          count: active.length
+        })
       },
       {
         id: "finished",
-        label: `Finished (${finished.length})`
+        label: t("history.filterFinished", {
+          count: finished.length
+        })
       }
     ];
     return el("div", {
@@ -8471,10 +8649,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ])
     ];
     if (state.historyFilter !== "finished") {
-      parts.push(section("Jobs in progress", "Jobs waiting in the queue and the one running now", active, "No job is in progress right now."));
+      parts.push(section(t("history.inProgressTitle"), t("history.inProgressNote"), active, t("history.inProgressEmpty")));
     }
     if (state.historyFilter !== "active") {
-      parts.push(section("Finished jobs", "Jobs that completed, were stopped or ended in an error", finished, "No job has finished this session yet."));
+      parts.push(section(t("history.finishedTitle"), t("history.finishedNote"), finished, t("history.finishedEmpty")));
     }
     fill(root, parts);
   }
@@ -8586,8 +8764,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     parts.push(el("div", {
       class: "overview-grid"
     }, [
-      card("MQTT / application clients", clients, "PISCU and HMI not read"),
-      card("SIP extensions", [
+      card(t("piscu.mqttClients"), clients, t("piscu.piscuAndHmiNotRead")),
+      card(t("piscu.sipExtensions"), [
         el("div", {
           class: "label",
           style: "display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;gap:10px;padding-bottom:6px"
@@ -8606,7 +8784,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           })
         ]),
         ...extensions
-      ], "No device has SIP defined")
+      ], t("piscu.noDeviceHasSip"))
     ]));
     fill(root, parts);
   }
@@ -8644,12 +8822,15 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("span", {
           class: "badge",
           style: data.running ? "border-color:var(--ok-soft);color:var(--ok)" : "color:var(--text-dim)",
-          text: data.running ? `${data.broker || ""} \xB7 connected \xB7 ${data.total || 0} messages` : "Not connected"
+          text: data.running ? t("mqtt.connected", {
+            broker: data.broker || "",
+            count: data.total || 0
+          }) : t("mqtt.notConnected")
         }),
         el("button", {
           type: "button",
           class: data.running ? "btn" : "btn btn-primary",
-          text: data.running ? "Stop" : "Start",
+          text: t(data.running ? "mqtt.stop" : "mqtt.start"),
           onclick: async () => {
             try {
               patch({
@@ -8747,7 +8928,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           el("div", {
             class: "mono text-dim",
             style: "font-size:11px",
-            text: data.running ? "Waiting for messages\u2026" : "Listener stopped"
+            text: t(data.running ? "mqtt.waitingForMessages" : "mqtt.listenerStopped")
           })
         ]
       ])

@@ -8,7 +8,7 @@ import json
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
-from panel import api, config_sync
+from panel import api, config_sync, i18n
 from panel.api import lifecycle
 from panel.api.routes import GET_ROUTES
 from panel.errors import AuthError, DeviceError
@@ -64,7 +64,11 @@ class PanelServiceContract(ServiceTest):
         failed = api.call_enveloped("GET", "/api/unknown")
         self.assertFalse(failed["ok"])
         self.assertEqual(failed["status"], 404)
-        self.assertEqual(failed["body"]["error"], "unknown path")
+        # Compared against the catalogue, not a literal: the wording is a
+        # translation now, and pinning English here would make the test
+        # fail on a Turkish machine rather than on a real regression.
+        self.assertEqual(failed["body"]["error"],
+                         i18n.t("error.unknownPath"))
 
     def test_start_loads_defaults_only_once(self):
         with patch.object(lifecycle, "_STARTED", False), \

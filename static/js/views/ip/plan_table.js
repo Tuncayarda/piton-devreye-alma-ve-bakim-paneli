@@ -37,7 +37,8 @@ function planRow(row, factoryIp) {
         ? 'ip-state-badge included' : 'ip-state-badge excluded',
     }, [
       el('i', { 'aria-hidden': 'true' }),
-      row.actionable ? 'In the plan' : 'Outside the target group',
+      t(row.actionable ? 'ipplan.inThePlan'
+        : 'ipplan.outsideTargetGroup'),
     ]),
   ]);
 }
@@ -59,11 +60,11 @@ export function planTable(plan, check) {
         ]),
       ]),
       el('div', { class: 'ip-plan-metrics' }, [
-        el('span', {}, [el('b', { text: String(inPlan) }), ' included']),
+        el('span', { text: t('ipplan.includedCount', { count: inPlan }) }),
         outOfPlan
-          ? el('span', {}, [
-              el('b', { text: String(outOfPlan) }), ' out of scope',
-            ])
+          ? el('span', {
+            text: t('ipplan.outOfScopeCount', { count: outOfPlan }),
+          })
           : null,
       ]),
     ]),

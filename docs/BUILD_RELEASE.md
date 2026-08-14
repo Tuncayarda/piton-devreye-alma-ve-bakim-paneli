@@ -35,7 +35,7 @@ Switch Yönetim Paneli `syp` dalındadır.
 │   ├── switch_api.py                   Switch Yönetim Paneli'nden kopya
 │   ├── device_verify.py                saha doğrulama betiği
 │   └── intercom_ip_assign.py           IP atama betiği
-├── CommissioningPanel.spec             PyInstaller yapılandırması
+├── dabp.spec                           PyInstaller yapılandırması
 ├── DeviceMap.json                      topoloji envanteri (pakete girer)
 ├── Field_Device_Verification.xlsx      Excel şablonu (pakete girer)
 ├── static/                             kaynak arayüz + üretilmiş desktop.html
@@ -69,7 +69,7 @@ depodaki yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 
 Yol çözümü `panel/settings.py` → `data_file()` içindedir: paketlenmiş durumda
 paketin kökü, kaynaktan çalışırken depodaki göreli yol. Beşinden biri
-eksikse `CommissioningPanel.spec` derlemeyi durdurur; `--self-test` de bu
+eksikse `dabp.spec` derlemeyi durdurur; `--self-test` de bu
 dosyaları tek tek arar. Böylece eksik paket üretilmesi ve sahada
 "DeviceMap bulunamadı" hatasıyla karşılaşılması önlenir.
 
@@ -135,7 +135,7 @@ Linux için:
 python3 -m pip install -r docs/requirements-build.txt
 python3 tools/build_desktop_bundle.py --check
 rm -rf build dist
-python3 -m PyInstaller --noconfirm --clean CommissioningPanel.spec
+python3 -m PyInstaller --noconfirm --clean dabp.spec
 ```
 
 Windows PowerShell için:
@@ -143,7 +143,7 @@ Windows PowerShell için:
 ```powershell
 python -m pip install -r docs/requirements-build.txt
 python tools/build_desktop_bundle.py --check
-python -m PyInstaller --noconfirm --clean CommissioningPanel.spec
+python -m PyInstaller --noconfirm --clean dabp.spec
 ```
 
 Derleme **Python 3.12** ile yapılır. Bilerek başka bir Python sürümü
@@ -154,9 +154,9 @@ Paketlenmiş uygulamayı macOS ve Linux'ta doğrulama:
 
 ```bash
 # macOS
-"dist/Commissioning and Maintenance Panel.app/Contents/MacOS/CommissioningPanel" --self-test
+"dist/dabp.app/Contents/MacOS/dabp" --self-test
 # Linux
-./dist/CommissioningPanel/CommissioningPanel --self-test
+./dist/dabp/dabp --self-test
 ```
 
 Windows uygulaması GUI alt sistemiyle derlendiği için PowerShell doğrudan
@@ -164,7 +164,7 @@ Windows uygulaması GUI alt sistemiyle derlendiği için PowerShell doğrudan
 için `Start-Process -Wait -PassThru` kullanın:
 
 ```powershell
-$exe = (Resolve-Path '.\dist\CommissioningPanel\CommissioningPanel.exe').Path
+$exe = (Resolve-Path '.\dist\dabp\dabp.exe').Path
 $islem = Start-Process -FilePath $exe -ArgumentList '--self-test' `
   -Wait -PassThru -NoNewWindow
 if ($islem.ExitCode -ne 0) {
@@ -178,9 +178,9 @@ if ($islem.ExitCode -ne 0) {
 $surum = "0.9.7"  # panel/settings.py içindeki APP_VERSION ile aynı olmalı
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   "/DMyAppVersion=$surum" `
-  "/DSourceDir=..\..\dist\CommissioningPanel" `
+  "/DSourceDir=..\..\dist\dabp" `
   "/DOutputDir=..\..\release" `
-  "packaging\windows\CommissioningPanel.iss"
+  "packaging\windows\dabp.iss"
 ```
 
 Kurulum paketinin AppId GUID'i Switch Yönetim Paneli'nden **ayrıdır**. Bu
@@ -191,8 +191,8 @@ sayede iki uygulama aynı makinede yan yana kurulabilir; biri diğerinin
 
 ```bash
 SURUM="$(python3 app.py --version)"
-./packaging/appimage.sh dist/CommissioningPanel \
-  "release/CommissioningPanel-${SURUM}-linux-x86_64.AppImage" "$SURUM"
+./packaging/appimage.sh dist/dabp \
+  "release/dabp-${SURUM}-linux-x86_64.AppImage" "$SURUM"
 ```
 
 ---
@@ -298,9 +298,9 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 
 | Ne | Nasıl |
 |---|---|
-| Başlık | `Devreye Alma Paneli v0.9.6` — ham etiket değil, uygulama adı + sürüm |
+| Başlık | `Devreye Alma ve Bakım Paneli v0.9.7` — ham etiket değil, ürün adı + sürüm |
 | Etiket | `dap-v*` / `syp-v*` · `v*` |
-| Dosya adları | `CommissioningPanel-…` / `SwitchYonetimPaneli-…` |
+| Dosya adları | `dabp-…` / `SwitchYonetimPaneli-…` |
 | Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |
 | README bağlantısı | `../../releases?q=dap-v`; yalnız Devreye Alma Paneli sürümlerini gösterir |
 
@@ -326,11 +326,11 @@ kullanılmaz ve gizli değer istenmez.
 ## 5. Üretilen dosyalar
 
 ```
-CommissioningPanel-<sürüm>-windows-x64-Setup.exe
-CommissioningPanel-<sürüm>-windows-x64.zip
-CommissioningPanel-<sürüm>-linux-x86_64.zip      (içinde .AppImage)
-CommissioningPanel-<sürüm>-macos-arm64.zip
-CommissioningPanel-<sürüm>-macos-x64.zip
+dabp-<sürüm>-windows-x64-Setup.exe
+dabp-<sürüm>-windows-x64.zip
+dabp-<sürüm>-linux-x86_64.zip      (içinde .AppImage)
+dabp-<sürüm>-macos-arm64.zip
+dabp-<sürüm>-macos-x64.zip
 SHA256SUMS.txt
 ```
 
@@ -351,15 +351,15 @@ dosyalar için hata üretir. Bu durumda ilgili dosyanın özetini hesaplayıp
 
 ```powershell
 # Windows PowerShell
-Get-FileHash -Algorithm SHA256 '.\CommissioningPanel-<sürüm>-windows-x64-Setup.exe'
+Get-FileHash -Algorithm SHA256 '.\dabp-<sürüm>-windows-x64-Setup.exe'
 ```
 
 ```bash
 # macOS
-shasum -a 256 'CommissioningPanel-<sürüm>-macos-arm64.zip'
+shasum -a 256 'dabp-<sürüm>-macos-arm64.zip'
 
 # Linux
-sha256sum 'CommissioningPanel-<sürüm>-linux-x86_64.zip'
+sha256sum 'dabp-<sürüm>-linux-x86_64.zip'
 ```
 
 ---

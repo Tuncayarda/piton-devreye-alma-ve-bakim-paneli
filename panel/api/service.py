@@ -7,7 +7,7 @@ import sys
 import traceback
 from urllib.parse import parse_qs, urlparse
 
-from .. import settings
+from .. import i18n, settings
 from ..errors import AuthError, DeviceError, user_message
 from .lifecycle import start
 from .response import ApiResponse, respond
@@ -26,15 +26,15 @@ class PanelService:
         if body is None:
             return {}
         if not isinstance(body, dict):
-            raise ValueError("The body must be an object")
+            raise ValueError(i18n.t("error.bodyMustBeObject"))
         # Do not let the HTTP adapter's byte limit be bypassed by a direct
         # bridge call. No password is stored outside this transient JSON.
         try:
             raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
         except (TypeError, ValueError):
-            raise ValueError("The body must be JSON serialisable")
+            raise ValueError(i18n.t("error.bodyNotSerialisable"))
         if len(raw) > settings.BODY_LIMIT:
-            raise ValueError("The request body is too large")
+            raise ValueError(i18n.t("error.bodyTooLarge"))
         return body
 
     def call(self, method: str, path: str, query=None,
@@ -43,25 +43,25 @@ class PanelService:
         try:
             self.start()
             if not isinstance(path, str):
-                raise ValueError("The API path must be text")
+                raise ValueError(i18n.t("error.apiPathMustBeText"))
             url = urlparse(path)
             # A full URL cannot be handed to the bridge; only the app's own
             # API path.
             if url.scheme or url.netloc or not url.path.startswith("/api/"):
-                return respond(404, {"error": "unknown path"})
+                return respond(404, {"error": i18n.t("error.unknownPath")})
             resolved_query = query if query is not None else parse_qs(url.query)
             if not isinstance(resolved_query, dict):
-                raise ValueError("The query must be an object")
+                raise ValueError(i18n.t("error.queryMustBeObject"))
             verb = str(method or "").upper()
             if verb == "GET":
                 handler = GET_ROUTES.get(url.path)
                 if handler is None:
-                    return respond(404, {"error": "unknown path"})
+                    return respond(404, {"error": i18n.t("error.unknownPath")})
                 return handler(resolved_query)
             if verb == "POST":
                 handler = POST_ROUTES.get(url.path)
                 if handler is None:
-                    return respond(404, {"error": "unknown path"})
+                    return respond(404, {"error": i18n.t("error.unknownPath")})
                 return handler(self._validate_body(body))
             return respond(405, {"error": "unsupported method"})
         except LookupError as exc:
@@ -76,8 +76,8 @@ class PanelService:
             # The raw trace goes to stderr only; never into the bridge or HTTP
             # body.
             sys.stderr.write(traceback.format_exc())
-            return respond(500,
-                           {"error": "Something unexpected went wrong in the panel"})
+            return respond(
+                500, {"error": i18n.t("error.unexpectedPanelProblem")})
 
     def call_enveloped(self, method: str, path: str, query=None,
                        body=None) -> dict:
@@ -90,7 +90,7 @@ class PanelService:
         except Exception:
             sys.stderr.write(traceback.format_exc())
             response = ApiResponse(
-                500, {"error": "Something unexpected went wrong in the panel"})
+                500, {"error": i18n.t("error.unexpectedPanelProblem")})
             payload = response.body
         return {
             "ok": 200 <= response.status < 400,

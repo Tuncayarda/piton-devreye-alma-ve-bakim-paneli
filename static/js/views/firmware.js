@@ -107,8 +107,8 @@ export function render(root) {
         type: 'button', class: 'btn btn-primary', text: t('firmware.startTheInstall'),
         disabled: !selected,
         title: selected
-          ? `An install job is queued for ${selected} device(s)`
-          : 'Select a file for at least one device first',
+          ? t('firmware.jobQueuedFor', { count: selected })
+          : t('firmware.selectFileFirst'),
         onclick: start,
       }),
     ]),
@@ -137,10 +137,10 @@ export function render(root) {
       el('button', {
         type: 'button', class: 'btn btn-primary',
         text: local.pickerOpen
-          ? 'Selecting the file…'
+          ? t('firmware.selectingFile')
           : (installable
-            ? `Select a file and apply it to ${installable} device(s)`
-            : 'Select a file'),
+            ? t('firmware.selectAndApply', { count: installable })
+            : t('firmware.selectFile')),
         disabled: !installable || local.pickerOpen,
         // The expected file type lives in the tooltip of the button that
         // makes the choice, not as a separate note line.
@@ -166,8 +166,8 @@ export function render(root) {
         ? list.map(renderRow)
         : [el('div', {
             class: 'table-empty',
-            text: state.firmwareState
-              ? 'No device in this group' : 'Loading the device list…',
+            text: t(state.firmwareState
+              ? 'firmware.noDeviceInGroup' : 'firmware.loadingDevices'),
           })]),
     ]),
   ]));
@@ -204,12 +204,12 @@ function renderRow(device) {
       ? el('div', { class: 'fw-file' }, [
           el('span', {
             class: file.selected ? 'mono truncate' : 'mono truncate text-dim',
-            title: path || 'No file selected yet',
-            text: file.selected ? file.name : 'not selected',
+            title: path || t('firmware.noFileSelectedYet'),
+            text: file.selected ? file.name : t('firmware.notSelected'),
           }),
           el('button', {
             type: 'button', class: 'btn btn-small fw-pick-btn',
-            text: file.selected ? 'Change' : 'Select',
+            text: t(file.selected ? 'firmware.change' : 'firmware.select'),
             disabled: local.pickerOpen,
             title: t('firmware.selectFileFor', { device: device.name })
               + (device.extension ? ` (.${device.extension})` : ''),
@@ -232,9 +232,8 @@ function renderRow(device) {
           placeholder: '—', autocomplete: 'off', spellcheck: 'false',
           'aria-label': t('firmware.targetVersionFor', { device: device.name }),
           disabled: !file.selected,
-          title: file.selected
-            ? 'The version expected from the device after the install'
-            : 'Select a file for this device first',
+          title: t(file.selected ? 'firmware.expectedAfterInstall'
+            : 'firmware.selectFileForDevice'),
           onchange: (e) => {
             if (file.selected) {
               writeVersion([device.deviceId], e.target.value.trim());
@@ -258,9 +257,9 @@ function stateColour(row) {
 // The file name already sits in the neighbouring column; rather than repeat
 // it, the rest of the selection (its size) is written here.
 function stateText(device, file) {
-  if (!device.installable) return 'Installing is not supported';
-  if (!file.selected) return 'No file selected';
-  return `${fileSize(file.size)} · ready to install`;
+  if (!device.installable) return t('firmware.notSupported');
+  if (!file.selected) return t('firmware.noFileSelected');
+  return t('firmware.readyToInstall', { size: fileSize(file.size) });
 }
 
 // ── actions ─────────────────────────────────────────────────────────────

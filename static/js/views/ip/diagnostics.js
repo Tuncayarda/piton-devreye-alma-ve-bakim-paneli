@@ -14,18 +14,21 @@ import { showError, showSuccess, notify } from '../../components/toast.js';
 import { local, currentTarget } from './state.js';
 import { t } from '../../core/i18n.js';
 
+// Keys, not text: this table is built when the module loads, before the
+// catalogue has arrived, so the words are looked up at draw time.
 const MAP_STATE = {
-  empty: ['text-dim', 'Empty'],
-  expected: ['ok', 'Yerinde'],
-  foreign: ['auth', 'Another device'],
-  conflict: ['failed', 'Conflict'],
-  unknown: ['auth', 'Unrecognised'],
+  empty: ['text-dim', 'ipmap.stateEmpty'],
+  expected: ['ok', 'ipmap.stateExpected'],
+  foreign: ['auth', 'ipmap.stateForeign'],
+  conflict: ['failed', 'ipmap.stateConflict'],
+  unknown: ['auth', 'ipmap.stateUnknown'],
 };
 
 const MAP_COLUMNS = '120px 1fr 1fr 90px';
 
 function mapRow(row) {
-  const [tone, label] = MAP_STATE[row.state] || ['text-dim', row.state];
+  const [tone, labelKey] = MAP_STATE[row.state] || ['text-dim', ''];
+  const label = labelKey ? t(labelKey) : row.state;
   const who = row.found.length
     ? row.found.map(entry => (entry.port
       ? `${entry.name || entry.extension} · port ${entry.port}`
@@ -69,10 +72,10 @@ export async function showAddressMap(factoryIp) {
     const counts = map.counts || {};
     body.replaceChildren(
       el('p', { class: 'description' }, [
-        `${counts.devices || 0} device(s) seen · `
-        + `${counts.expected || 0} yerinde · `
-        + `${counts.foreign || 0} on another address · `
-        + `${counts.conflict || 0} conflict(s)`,
+        t('ipmap.counts', {
+          devices: counts.devices || 0, expected: counts.expected || 0,
+          foreign: counts.foreign || 0, conflict: counts.conflict || 0,
+        }),
       ]),
       el('div', { class: 'table-wrap' }, [
         el('div', { class: 'table', style: '--table-min:560px' }, [
@@ -89,11 +92,8 @@ export async function showAddressMap(factoryIp) {
       // result is.
       el('p', {
         class: map.arpFlush ? 'info' : 'warning', style: 'margin-top:10px',
-        text: map.arpFlush
-          ? 'Several devices on one address are found by probing it a few '
-            + 'times; that is where the "Conflict" rows come from.'
-          : 'The ARP cache cannot be flushed: not every device sharing an '
-            + 'address may have been seen.',
+        text: t(map.arpFlush ? 'ipmap.arpFlushed'
+          : 'ipmap.arpNotFlushed'),
       }),
     );
   } catch (e) {
@@ -132,9 +132,9 @@ export function confirmFactoryReset(factoryIp) {
     title: t('ipmap.resetToTheFactoryIp'),
     content: el('div', {}, [
       el('p', { class: 'description' }, [
-        `The IP address of ${targets.length} device(s) will be changed to `
-        + `${factoryIp}. Because the devices restart and end up sharing one `
-        + 'address, there will be a temporary address conflict.',
+        t('ipmap.factoryResetIntro', {
+          count: targets.length, factory: factoryIp,
+        }),
       ]),
       el('p', {
         class: 'info', style: 'margin-top:10px',

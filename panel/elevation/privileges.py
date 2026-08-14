@@ -9,18 +9,24 @@ import subprocess
 import sys
 import time
 
+from .. import i18n
+
 # Ceiling on waiting for the user to answer the system's password dialog. The
 # clock runs for as long as the dialog is on screen.
 APPROVAL_TIMEOUT = 180.0
 
-TITLE = "Administrator privileges are required"
+# Functions, not constants: this window may be the FIRST thing the user
+# sees, before the panel exists, and it has to speak their language too.
+# A constant would freeze the wording at import time.
 
-EXPLANATION = (
-    "The Commissioning and Maintenance Panel must run elevated.\n\n"
-    "The panel reads and flushes the network interface and the ARP cache, "
-    "writes IPs to devices and manages switch ports; none of that can be "
-    "done reliably with ordinary user privileges."
-)
+
+def title() -> str:
+    return i18n.t("elevate.title")
+
+
+def explanation() -> str:
+    return i18n.t("elevate.explanation", app=i18n.t("app.name"))
+
 
 # Folders macOS protects with TCC. Elevating an app that lives in one of them
 # THROUGH THE SYSTEM DIALOG does not work: the elevated process is born under
@@ -60,10 +66,8 @@ def pid_path() -> str:
 def manual_instructions(system: str | None = None) -> str:
     """What to do to start it yourself, per platform."""
     system = system or platform.system()
-    if system == "Windows":
-        return ("You can also right-click the application and choose "
-                "\"Run as administrator\".")
-    return "You can also start it from a terminal:    sudo python3 app.py"
+    return i18n.t("elevate.manualWindows" if system == "Windows"
+                  else "elevate.manualPosix")
 
 
 def is_elevated() -> bool:
@@ -253,10 +257,7 @@ def _tcc_hint(text: str) -> str:
         return ""
     if "not permitted" not in text.lower():
         return ""
-    return ("\n\nmacOS privacy protection may have blocked it: the Desktop, "
-            "Documents and Downloads folders are protected. Start it from a "
-            "terminal with \"sudo python3 app.py\", or move the application "
-            "out of those folders.")
+    return i18n.t("elevate.tccHint")
 
 
 def log_summary() -> str:
@@ -266,10 +267,11 @@ def log_summary() -> str:
             lines = [line.strip() for line in handle if line.strip()]
     except OSError:
         lines = []
+    details = i18n.t("elevate.detailsAt", path=log_path())
     if not lines:
-        return f"Details: {log_path()}"
+        return details
     last = lines[-1][:200]
-    return f"{last}{_tcc_hint(last)}\n\nDetails: {log_path()}"
+    return f"{last}{_tcc_hint(last)}\n\n{details}"
 
 
 def _read_pid() -> int:
@@ -296,7 +298,7 @@ def new_process_status(wait: float = 2.0, pid: int = 0) -> tuple[bool, str]:
         return True, ""                # blaming it with no PID would be wrong
     if _process_alive(pid):
         return True, ""
-    return False, "The elevated process crashed at startup.\n\n" + log_summary()
+    return False, i18n.t("elevate.crashedAtStartup", detail=log_summary())
 
 
 def elevate(plan: dict | None = None) -> tuple[bool, str]:
@@ -307,8 +309,8 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
     """
     plan = plan or elevation_plan()
     if not plan["kind"]:
-        return False, ("This system has no automatic elevation. "
-                       + manual_instructions())
+        return False, i18n.t("elevate.noAutomatic",
+                             manual=manual_instructions())
     # The previous run's log and PID are removed: this run's outcome will be
     # read from them and a stale file would point at the wrong reason.
     for path in (log_path(), pid_path()):
@@ -330,9 +332,10 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
             # ShellExecuteW is an old API: greater than 32 means success.
             if int(result) <= 32:
                 # 1223 = the user declined the UAC dialog.
-                return False, ("Administrator permission was not granted"
+                return False, (i18n.t("elevate.permissionDenied")
                                if int(result) == 1223 else
-                               f"Could not restart (code {int(result)})")
+                               i18n.t("elevate.couldNotRestartCode",
+                                      code=int(result)))
             return True, ""
 
         # NOT WAITED ON. The elevation channel (security_authtrampoline on
@@ -361,11 +364,11 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
                 lines = (error_text or "").strip().splitlines()
                 last = lines[-1] if lines else f"code {code}"
                 if "-128" in last or "User canceled" in last:
-                    return False, "Administrator permission was not granted"
-                return False, f"Could not restart: {last}"
+                    return False, i18n.t("elevate.permissionDenied")
+                return False, i18n.t("elevate.couldNotRestart", reason=last)
             if time.monotonic() >= deadline:
                 process.kill()
-                return False, "Administrator permission was not granted (no answer)"
+                return False, i18n.t("elevate.permissionNoAnswer")
             time.sleep(0.2)
     except Exception as exc:                       # noqa: BLE001
         return False, f"Could not restart: {type(exc).__name__}"

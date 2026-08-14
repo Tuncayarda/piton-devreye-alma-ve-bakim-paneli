@@ -11,6 +11,8 @@
 // be established the error goes to the caller; anything else would hide a
 // packaging fault and put the app back on the local network loop.
 
+import { t } from "./i18n.js";
+
 export const TRANSPORT_FLAG = "__PANEL_TRANSPORT__";
 export const CAPABILITY_FLAG = "__PANEL_CAPABILITY__";
 
@@ -29,7 +31,7 @@ function validateEnvelope(envelope) {
     typeof envelope.ok !== "boolean" ||
     !Number.isInteger(envelope.status)
   ) {
-    throw new Error("The desktop bridge returned an invalid response");
+    throw new Error(t("error.bridgeInvalidResponse"));
   }
   return {
     ok: envelope.ok,
@@ -49,7 +51,7 @@ export function createTransport(root = globalThis) {
       typeof capability !== "string" ||
       !CAPABILITY_PATTERN.test(capability)
     ) {
-      throw new Error("The desktop bridge capability is invalid");
+      throw new Error(t("error.bridgeCapabilityInvalid"));
     }
     return capability;
   };
@@ -87,7 +89,7 @@ export function createTransport(root = globalThis) {
       const onReady = () => {
         const api = bridgeApi();
         if (api) finish(resolve, api);
-        else finish(reject, new Error("The desktop bridge is not ready"));
+        else finish(reject, new Error(t("error.bridgeNotReady")));
       };
 
       root.addEventListener("pywebviewready", onReady, { once: true });
@@ -102,7 +104,7 @@ export function createTransport(root = globalThis) {
       timer = setTimer(() =>
         finish(
           reject,
-          new Error("The desktop bridge did not become ready in time"),
+          new Error(t("error.bridgeReadyTimeout")),
         ), BRIDGE_TIMEOUT_MS);
     });
     return bridgePromise;

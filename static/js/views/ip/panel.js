@@ -80,20 +80,24 @@ function portButton(port, context) {
   if (!port.defined) roles.push('empty');
 
   const stateText = port.enabled === null ? ''
-    : !port.enabled ? ' · port disabled'
-      : port.hasPoe && port.poeMode === '0' ? ' · power off'
+    : !port.enabled ? t('ippanel.statePortDisabled')
+      : port.hasPoe && port.poeMode === '0' ? t('ippanel.statePowerOff')
         : port.link === 'up'
-          ? (port.watts ? ` · powering (${port.watts} W)` : ' · linked')
-          : ' · empty';
+          ? (port.watts
+            ? t('ippanel.statePowering', { watts: port.watts })
+            : t('ippanel.stateLinked'))
+          : t('ippanel.stateEmpty');
   const locked = !!protectedReason || port.number === context.computerPort;
   const description = locked
-    ? `Port ${port.number} · `
-      + `${protectedReason || 'the computer is on this port'}`
-      + ' · left out of IP assignment'
-    : (port.defined
-      ? `Port ${port.number} · ${port.device}${stateText}`
-      : `Port ${port.number} · no device defined${stateText}`)
-      + (context.active ? '' : ` · switches to ${context.switchName}`);
+    ? t('ippanel.portLocked', {
+      port: port.number,
+      reason: protectedReason || t('ippanel.computerOnPort'),
+    })
+    : t(port.defined ? 'ippanel.portDevice' : 'ippanel.portUndefined', {
+      port: port.number, device: port.device, state: stateText,
+    })
+      + (context.active ? ''
+        : t('ippanel.switchesTo', { switch: context.switchName }));
   return el('button', {
     type: 'button', class: `pm-port ${roles.join(' ')}`.trim(),
     'aria-pressed': String(context.targets.has(port.number)),
@@ -176,9 +180,8 @@ export function panelCard(panel, plan, handlers) {
     grid.append(uplink ? portButton(uplink, context) : emptyCell());
   }
 
-  const guidance = groupDevices === 0
-    ? 'No device of the selected target group is on this switch.'
-    : 'Click a defined port to activate this switch.';
+  const guidance = t(groupDevices === 0 ? 'ippanel.noTargetOnSwitch'
+    : 'ippanel.clickDefinedPort');
 
   return el('article', {
     class: 'card corner front-panel', dataset: { active: active ? '1' : '0' },
@@ -202,11 +205,10 @@ export function panelCard(panel, plan, handlers) {
         el('span', {
           class: panel.source === 'switch'
             ? 'badge ip-source-badge live' : 'badge ip-source-badge',
-          text: panel.source === 'switch' ? 'Live data' : 'Project default',
-          title: panel.source === 'switch'
-            ? 'The port states were read from the switch'
-            : 'The port states could not be read; the layout came from '
-              + 'DeviceMap',
+          text: t(panel.source === 'switch' ? 'ippanel.liveData'
+            : 'ippanel.projectDefault'),
+          title: t(panel.source === 'switch' ? 'ippanel.readFromSwitch'
+            : 'ippanel.readFromDeviceMap'),
         }),
         // Without credentials the run cannot start; this must also be where
         // they are entered.
@@ -237,10 +239,12 @@ export function panelCard(panel, plan, handlers) {
     el('div', { class: 'pm-case' }, [
       el('div', { class: 'pm-wrap' }, [grid]),
       el('div', { class: 'pm-footer' }, [
-        el('span', { text: `PoE 1-${poeCount}` }),
+        el('span', { text: t('ippanel.poeRange', { count: poeCount }) }),
         el('span', { style: 'flex:1' }),
         el('span', {
-          text: `Uplink ${poeCount + 1}-${poeCount + uplinkCount}`,
+          text: t('ippanel.uplinkRange', {
+            first: poeCount + 1, last: poeCount + uplinkCount,
+          }),
         }),
       ]),
     ]),
@@ -251,17 +255,20 @@ export function panelCard(panel, plan, handlers) {
 // were written twice on two switches and took more room than the panel.
 export function legend() {
   return el('div', { class: 'panel-legend' }, [
-    el('span', {}, [el('i', { class: 'pm-sample selected' }), 'Target port']),
-    el('span', {}, [el('i', { class: 'pm-sample pc' }), 'Computer port']),
-    el('span', {}, [
-      el('i', { class: 'pm-sample link-port' }), 'Switch link',
-    ]),
-    el('span', {}, [el('i', { class: 'pm-sample feed' }), 'Powering']),
-    el('span', {}, [el('i', { class: 'pm-sample link' }), 'Linked']),
-    el('span', {}, [el('i', { class: 'pm-sample off' }), 'Port disabled']),
-    el('span', {}, [
-      el('i', { class: 'pm-sample empty' }), 'No device defined',
-    ]),
+    el('span', {}, [el('i', { class: 'pm-sample selected' }),
+      t('ippanel.legendTargetPort')]),
+    el('span', {}, [el('i', { class: 'pm-sample pc' }),
+      t('ippanel.legendComputerPort')]),
+    el('span', {}, [el('i', { class: 'pm-sample link-port' }),
+      t('ippanel.legendSwitchLink')]),
+    el('span', {}, [el('i', { class: 'pm-sample feed' }),
+      t('ippanel.legendPowering')]),
+    el('span', {}, [el('i', { class: 'pm-sample link' }),
+      t('ippanel.legendLinked')]),
+    el('span', {}, [el('i', { class: 'pm-sample off' }),
+      t('ippanel.legendPortDisabled')]),
+    el('span', {}, [el('i', { class: 'pm-sample empty' }),
+      t('ippanel.legendNoDevice')]),
   ]);
 }
 

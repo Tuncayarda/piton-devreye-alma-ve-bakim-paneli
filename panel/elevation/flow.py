@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import platform
 
-from .privileges import (EXPLANATION, elevate, elevation_plan, log_path,
+from .. import i18n
+
+from .privileges import (elevate, elevation_plan, explanation, log_path,
                          protected_folder)
 from .prompt import ask, hide_dock_icon
 
@@ -30,7 +32,7 @@ def require_elevation(write=print) -> int:
                 "not allow an application in a protected folder to be "
                 "started from an administrator prompt: move it out of that "
                 "folder.")
-    write("[ERROR] " + EXPLANATION.replace("\n\n", " "))
+    write("[ERROR] " + explanation().replace("\n\n", " "))
     if hint:
         write(hint)
     if ask(can_elevate=bool(plan["kind"]), hint=hint) != "elevate":
@@ -42,11 +44,11 @@ def require_elevation(write=print) -> int:
     hide_dock_icon()
     started, error = elevate(plan)
     if started:
-        write("Restarting with administrator privileges.")
+        write(i18n.t("elevate.restarting"))
         if platform.system() != "Windows":
-            write(f"Output of the new process: {log_path()}")
+            write(i18n.t("elevate.newProcessOutput", path=log_path()))
         return 0
 
     write(f"[ERROR] {error}")
-    ask(error or EXPLANATION, can_elevate=False, hint=hint)
+    ask(error or explanation(), can_elevate=False, hint=hint)
     return 1

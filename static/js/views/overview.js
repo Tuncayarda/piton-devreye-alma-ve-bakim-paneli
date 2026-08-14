@@ -63,9 +63,10 @@ export function render(root, refreshNow) {
       el('div', {
         class: 'page-sub',
         text: scanned
-          ? `Last scan ${clockTime(state.lastScan)} · `
-            + `${age(state.lastScan)} ago`
-          : 'The devices have not been read yet',
+          ? t('overview.lastScanAgo', {
+            time: clockTime(state.lastScan), age: age(state.lastScan),
+          })
+          : t('overview.notReadYet'),
       }),
     ]),
     el('div', { class: 'actions' }, [
@@ -77,18 +78,22 @@ export function render(root, refreshNow) {
   ]));
 
   parts.push(el('div', { class: 'kpi-grid' }, [
-    kpi('Total devices', total, 'records', 'accent', '100%',
-      () => goToList('all'), 'List every device'),
-    kpi('Reachable', scanned ? counts.ok : NONE, `/ ${total}`, 'ok',
+    kpi(t('overview.totalDevices'), total, t('overview.records'),
+      'accent', '100%',
+      () => goToList('all'), t('overview.listEveryDevice')),
+    kpi(t('devices.reachable'), scanned ? counts.ok : NONE,
+      t('overview.outOfTotal', { total }), 'ok',
       percent(counts.ok, total),
-      () => goToList('active'), 'List the reachable devices'),
-    kpi('Credentials needed', scanned ? counts.auth : NONE, `/ ${total}`,
+      () => goToList('active'), t('overview.listReachable')),
+    kpi(t('state.auth'), scanned ? counts.auth : NONE,
+      t('overview.outOfTotal', { total }),
       'auth', percent(counts.auth, total),
       () => patch({ lockedOpen: true, queueOpen: false }),
-      'Open the devices needing a username or password'),
-    kpi('Needs review', scanned ? counts.failed : NONE, `/ ${total}`, 'failed',
+      t('overview.openLockedDevices')),
+    kpi(t('devices.needsReview'), scanned ? counts.failed : NONE,
+      t('overview.outOfTotal', { total }), 'failed',
       percent(counts.failed, total),
-      () => goToList('problem'), 'List the devices whose check did not finish'),
+      () => goToList('problem'), t('overview.listUnfinished')),
   ]));
 
   // ── category status + the right-hand column ──
@@ -126,7 +131,7 @@ export function render(root, refreshNow) {
         ]),
         el('span', {
           class: 'mono text-bright', style: 'font-size:11px;text-align:right',
-          text: `${reachable}/${members.length}`,
+          text: `${reachable}/${members.length}`,   // numbers only
         }),
       ]);
     }),
@@ -154,27 +159,27 @@ export function render(root, refreshNow) {
 
   const steps = [];
   if (!scanned) {
-    steps.push(stepRow('accent', 'No scan has run yet',
-      'Start a scan to see the current state of the devices in this set.',
-      'Scan now', () => refreshNow && refreshNow()));
+    steps.push(stepRow('accent', t('overview.noScanYet'),
+      t('overview.noScanYetNote'),
+      t('overview.scanNow'), () => refreshNow && refreshNow()));
   } else {
     if (counts.auth) {
       steps.push(stepRow('auth',
-        `${counts.auth} device(s) need credentials`,
-        'What you enter is kept in memory for this session only.',
-        'Enter credentials',
+        t('overview.needCredentials', { count: counts.auth }),
+        t('overview.credentialsNote'),
+        t('overview.enterCredentials'),
         () => patch({ lockedOpen: true, queueOpen: false })));
     }
     if (counts.failed) {
       steps.push(stepRow('failed',
-        `The check did not finish on ${counts.failed} device(s)`,
-        'Check the connection, the IP, the power or the device response.',
-        'Open the list', () => goToList('problem')));
+        t('overview.checkUnfinished', { count: counts.failed }),
+        t('overview.checkUnfinishedNote'),
+        t('overview.openTheList'), () => goToList('problem')));
     }
     if (!steps.length) {
-      steps.push(stepRow('ok', 'The access scan finished',
-        'IP and SIP consistency can be reviewed on the verification screen.',
-        'Open the results', () => patch({ view: 'checklist' })));
+      steps.push(stepRow('ok', t('overview.scanFinished'),
+        t('overview.scanFinishedNote'),
+        t('overview.openTheResults'), () => patch({ view: 'checklist' })));
     }
   }
 

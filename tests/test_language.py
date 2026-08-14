@@ -83,8 +83,8 @@ TURKISH_WORDS = (
     "guncelle", "guvenlik", "hata", "hatasi", "ilerleme", "iptal", "islem",
     "islemi", "islemler", "kapali", "kapat", "katagori", "kategori",
     "kaydet", "kayit", "kimlik", "kod", "konfig", "korunan", "kullanici",
-    "kuyruk",
-    "masaustu", "okunamadi", "okundu", "olustur", "parametresi", "parola",
+    "kuyruk", "masaustu", "okunamadi", "okundu", "olustur", "parametresi",
+    "parola",
     "portlar", "portlari", "portu", "sayfa", "secildi", "secili", "secim",
     "sifre", "sonuc", "surum", "sutun", "tamamlandi", "tarama", "tumu",
     "uyari", "yazildi", "yazilim", "yenile", "yetki", "yukle", "yuklendi",
@@ -146,6 +146,22 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     "tests/test_language.py": (
         ("__self__", "this file lists the very words it searches for"),
     ),
+    # The product's own name, as the operators who commission the trains know
+    # it. Inside the app this name follows the chosen language ("app.name" in
+    # the catalogue); these three are stamped in at BUILD time and cannot,
+    # so they are written in the language of the people who install and run
+    # it. Every FILE the build produces is still named "dabp".
+    ".github/workflows/build-commissioning-panel.yml": (
+        ("Devreye Alma ve Bakım Paneli", "product name in the Release title"),
+    ),
+    "dabp.spec": (
+        ("Devreye Alma ve Bakım Paneli",
+         "macOS CFBundleName / Windows version resource"),
+    ),
+    "packaging/windows/dabp.iss": (
+        ("Devreye Alma ve Bakım Paneli",
+         "setup wizard, Start menu and uninstall entry"),
+    ),
 }
 
 
@@ -165,6 +181,82 @@ def _allowed(name: str, line: str) -> bool:
         if fragment in line:
             return True
     return False
+
+
+# ── check 3: screen text must come from the catalogue ────────────────────
+# The two checks above look for the WRONG LANGUAGE. This one looks for text
+# that has no language at all yet: an English sentence written straight into
+# a view, which a language switch cannot touch.
+#
+# That is not a hypothetical. The first pass at translating the UI stopped
+# part-way through most files — `checklist.js` ended up with 29 translated
+# strings sitting next to 31 untranslated ones — and nothing noticed, because
+# nothing was looking. The panel shipped screens that stayed English however
+# the language was set, and it was found by a person using it.
+#
+# What counts as screen text: a quoted literal that reads like a sentence —
+# two or more words with a space between them, starting with a capital. That
+# shape catches labels, headings, tooltips and empty-state text wherever they
+# sit (a named `text:` property, a positional argument, an array of
+# children), while class names, event names, API paths and SVG path data all
+# fail it on their own. Placeholders are stripped first, so a template
+# literal is judged on its words rather than its `${...}` gaps.
+_QUOTED = re.compile(r"""(['"`])((?:[^'"`\\\n]|\\.)*?)\1""")
+_PLACEHOLDER = re.compile(r"\$\{[^}]*\}")
+_SVG_PATH = re.compile(r"^[MmLlHhVvCcSsQqTtAaZz][-\d\s.,]")
+_WORD = re.compile(r"[A-Za-zÇĞİÖŞÜçğıöşü]{2,}")
+
+
+def _screen_text(literal: str) -> bool:
+    """Does this literal read like something a person is meant to read?"""
+    text = _PLACEHOLDER.sub(" ", literal).strip()
+    if not text or _SVG_PATH.match(text):
+        return False
+    # A literal that OPENS WITH A SPACE is usually a sentence fragment glued
+    # onto a value — " included", " · powering" — and is judged on its own,
+    # because such a fragment is one lowercase word and would fail every
+    # rule below. A class name appended the same way (" active") has the
+    # very same shape and cannot be told apart here; the three that exist
+    # are named in the allowlist.
+    if literal[:1].isspace():
+        return any(len(word) >= 3 for word in _WORD.findall(text))
+    if " " not in text or len(_WORD.findall(text)) < 2:
+        return False
+    # A literal that merely STARTS with a placeholder keeps its
+    # capitalisation rule waived: the sentence begins with the value.
+    return text[0].isupper() or literal.lstrip().startswith("${")
+
+
+def _screen_texts(source: str):
+    """Yield (line number, literal) for every screen-looking string."""
+    for number, line in enumerate(source.splitlines(), 1):
+        stripped = line.lstrip()
+        if stripped.startswith(("//", "*", "/*")):
+            continue
+        for match in _QUOTED.finditer(line):
+            literal = match.group(2)
+            if _screen_text(literal):
+                yield number, literal
+
+
+# path -> ((fragment that may appear, why), ...). Same rules as ALLOWED
+# above: narrow, per file, and every entry says why. This is for text that
+# looks like a sentence but is not one a user reads. It is NOT somewhere to
+# park a string that has not been translated yet.
+SCREEN_TEXT_ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
+    # CSS class names appended to a class list. They open with a space like
+    # a sentence fragment does, and nothing in the text can tell the two
+    # apart — see _screen_text.
+    "static/js/components/action_tabs.js": (
+        (" active", "CSS class appended to the tab's class list"),
+    ),
+    "static/js/views/config.js": (
+        (" cfg-inherited", "CSS class appended to the field's class list"),
+    ),
+    "static/js/views/ip/panel.js": (
+        (" unpowered", "CSS class appended to the port's class list"),
+    ),
+}
 
 
 class CodeIsInEnglish(unittest.TestCase):
@@ -233,11 +325,63 @@ class CodeIsInEnglish(unittest.TestCase):
                          "tests/test_language.py",
                          ".github/workflows/ci.yml",
                          "packaging/appimage.sh",
-                         "packaging/windows/CommissioningPanel.iss"):
+                         "packaging/windows/dabp.iss"):
             self.assertIn(required, scanned, required)
         # ...and documentation is genuinely left alone.
         for excluded in ("README.md", "LICENSE", "docs/MIMARI.md"):
             self.assertNotIn(excluded, scanned, excluded)
+
+
+class ScreenTextComesFromTheCatalogue(unittest.TestCase):
+    """No sentence a user reads may be written into a view.
+
+    See the block comment above `_screen_text` for what counts and why this
+    check exists at all.
+    """
+
+    def test_no_view_writes_its_own_screen_text(self):
+        findings = []
+        for path in sorted((settings.ROOT / "static" / "js").rglob("*.js")):
+            name = path.relative_to(settings.ROOT).as_posix()
+            exempt = SCREEN_TEXT_ALLOWED.get(name, ())
+            for number, literal in _screen_texts(
+                    path.read_text(encoding="utf-8")):
+                if any(fragment in literal for fragment, _ in exempt):
+                    continue
+                findings.append(f"{name}:{number}: {literal[:70]!r}")
+        self.assertEqual(
+            findings, [],
+            f"{len(findings)} screen strings are not in the catalogue. "
+            "Add a key to panel/messages/en.json and tr.json and render it "
+            "with t():\n  " + "\n  ".join(findings))
+
+    def test_the_scan_reaches_the_views(self):
+        """A detector that matches nothing would pass this file silently."""
+        scanned = sorted((settings.ROOT / "static" / "js").rglob("*.js"))
+        self.assertGreater(len(scanned), 20)
+        # Proof the detector still fires: a line lifted from the shape of the
+        # real thing must be caught, and near-misses must not be.
+        self.assertTrue(list(_screen_texts("el('p', { text: 'No scan yet' })")))
+        self.assertTrue(list(_screen_texts("`${n} devices in total`")))
+        for quiet in ("el('div', { class: 'check-summary-grid' })",
+                      "icon('M4 5.5h12M4 10h12M4 14.5h8')",
+                      "api.get('/api/state?set=1')",
+                      "t('checklist.excelPreview')"):
+            self.assertEqual(list(_screen_texts(quiet)), [], quiet)
+
+    def test_the_screen_text_allowlist_is_still_needed(self):
+        stale = []
+        for name, entries in SCREEN_TEXT_ALLOWED.items():
+            path = settings.ROOT / name
+            if not path.is_file():
+                stale.append(f"{name}: the file is gone")
+                continue
+            text = path.read_text(encoding="utf-8")
+            for fragment, reason in entries:
+                if fragment not in text:
+                    stale.append(f"{name}: {fragment!r} ({reason}) is gone")
+        self.assertEqual(stale, [], "stale allowlist entries:\n  "
+                                    + "\n  ".join(stale))
 
 
 if __name__ == "__main__":

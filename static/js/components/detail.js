@@ -93,76 +93,81 @@ function render(device) {
   // panel app's version (dumpsys package … versionName). Without the package
   // name and the update date it is not clear which build came from where.
   const androidRows = device.readMethod === 'adb' ? [
-    ['Application', fields.package],
-    ['Version code', fields.versionCode],
-    ['Target SDK', fields.targetSdk],
-    ['Last updated', fields.updatedAt],
+    [t('detail.application'), fields.package],
+    [t('detail.versionCode'), fields.versionCode],
+    [t('detail.targetSdk'), fields.targetSdk],
+    [t('detail.lastUpdated'), fields.updatedAt],
   ] : [];
 
   const summaryBlock = block(
-    'Summary', `Project + ${method.code || device.readMethod}`, [
-      ['Device name', device.name],
-      ['Type / subtype', typeLabel(device.typeLabel)],
-      ['Version', fields.version, fields.version ? 'ok' : null],
+    t('detail.summary'),
+    t('detail.summarySource', { method: method.code || device.readMethod }), [
+      [t('detail.deviceName'), device.name],
+      [t('col.typeSubtypeLower'), typeLabel(device.typeLabel)],
+      [t('col.version'), fields.version, fields.version ? 'ok' : null],
       ...androidRows,
-      ['Model', fields.model],
-      ['Device number', fields.serial],
+      [t('detail.model'), fields.model],
+      [t('field.serial'), fields.serial],
       [t('detail.accessState'), stateLabel(result.state, NONE), colour],
       [t('detail.checkResult'),
         verificationLabel(result.verification, NONE), colour],
-      ['Description', result.detail],
-      ['Uptime', fields.uptime],
+      [t('detail.description'), result.detail],
+      [t('col.uptime'), fields.uptime],
     ]);
 
   const networkBlock = block(
-    'Network', `Project default ${device.ipTemplate}`, [
-      ['IP template', device.ipTemplate],
-      ['Expected IP', device.ip],
-      ['Reached at',
-        result.state === 'ok' ? device.ip : 'No verified access',
+    t('detail.network'),
+    t('detail.networkSource', { template: device.ipTemplate }), [
+      [t('col.ipTemplate'), device.ipTemplate],
+      [t('col.expectedIp'), device.ip],
+      [t('detail.reachedAt'),
+        result.state === 'ok' ? device.ip : t('detail.noVerifiedAccess'),
         result.state === 'ok' ? 'ok' : 'text-dim'],
-      ['Switch · port', device.portLabel],
+      [t('col.switchPort'), device.portLabel],
       ['MAC', fields.mac],
-      ['Network / time', fields.networkTime],
-      ['Time zone', fields.timezone],
+      [t('detail.networkTime'), fields.networkTime],
+      [t('detail.timezone'), fields.timezone],
     ]);
 
   const sipRows = device.pbxExtension ? [
-    ['Project PBX IP', device.piscuIp],
-    ['Expected SIP extension', device.pbxExtension],
-    ['Read SIP extension', fields.sipExtension,
+    [t('detail.projectPbxIp'), device.piscuIp],
+    [t('detail.expectedSipExtension'), device.pbxExtension],
+    [t('detail.readSipExtension'), fields.sipExtension,
       fields.sipExtension
         ? (String(fields.sipExtension) === String(device.pbxExtension)
           ? 'ok' : 'failed')
         : null],
-    ['PBX reported by the device', fields.sipPbx],
+    [t('detail.pbxReportedByDevice'), fields.sipPbx],
     // On ADB devices the registration state comes from the app's own log; it
     // is not a verification asked of the PBX (see MIMARI §12).
     ...(device.readMethod === 'adb'
-      ? [['SIP registration state (device log)', fields.sipRegistration,
+      ? [[t('detail.sipRegistrationFromLog'), fields.sipRegistration,
           String(fields.sipRegistration || '').startsWith('registered')
             ? 'ok' : (fields.sipRegistration ? 'failed' : null)],
          // Did the number come from the device's log or from the broker's
          // announcement? Both should give the same value; hiding the source
          // would present a value never read from the device as though it had
          // been.
-         ['Source of the extension', fields.sipExtensionSource],
-         ['Source of the PBX address', fields.sipPbxSource]]
+         [t('detail.extensionSource'), fields.sipExtensionSource],
+         [t('detail.pbxSource'), fields.sipPbxSource]]
       // Gain is a setting separate from the volume (speakerGain / micGain on
       // the device); the two are not shown on one row. The outbound number is
       // the target the device calls, not its own extension.
-      : [['SIP outbound number', fields.sipOutbound],
-         ['Speaker volume', fields.speakerVolume],
-         ['Microphone volume', fields.micVolume],
-         ['Speaker gain', fields.speakerGain],
-         ['Microphone gain', fields.micGain]]),
+      : [[t('detail.sipOutbound'), fields.sipOutbound],
+         [t('detail.speakerVolume'), fields.speakerVolume],
+         [t('detail.micVolume'), fields.micVolume],
+         [t('field.speakerGain'), fields.speakerGain],
+         [t('field.micGain'), fields.micGain]]),
   ] : [
-    ['Read method', method.code || device.readMethod],
-    ['Path', method.path],
-    ['Period', method.period ? `${method.period} s` : 'Manual'],
-    ['Needs credentials', method.needsAuth ? 'Yes' : 'No'],
-    ['Credentials stored this session',
-      device.hasCredentials ? 'Yes (this session only)' : 'No'],
+    [t('detail.readMethod'), method.code || device.readMethod],
+    [t('detail.path'), method.path],
+    [t('detail.period'), method.period
+      ? t('detail.periodSeconds', { seconds: method.period })
+      : t('detail.manual')],
+    [t('detail.needsCredentials'),
+      method.needsAuth ? t('option.yes') : t('option.no')],
+    [t('detail.credentialsStored'),
+      device.hasCredentials ? t('detail.yesThisSessionOnly') : t('option.no')],
   ];
 
   const box = el('div', {
@@ -191,9 +196,11 @@ function render(device) {
     el('div', {
       class: 'info', style: 'margin-top:14px',
       text: result.readAt
-        ? `Last read: ${clockTime(result.readAt)} · Method: `
-          + `${method.code || device.readMethod}`
-        : 'This device has not been read yet.',
+        ? t('detail.lastRead', {
+          time: clockTime(result.readAt),
+          method: method.code || device.readMethod,
+        })
+        : t('detail.notReadYet'),
     }),
     summaryBlock,
     networkBlock,
@@ -201,7 +208,7 @@ function render(device) {
       ? block('SIP', method.path || '', sipRows)
       : el('details', { class: 'tech-detail' }, [
           el('summary', { text: t('detail.technicalDetails') }),
-          block('Data source', method.path || '', sipRows),
+          block(t('detail.dataSource'), method.path || '', sipRows),
         ]),
   ]);
 

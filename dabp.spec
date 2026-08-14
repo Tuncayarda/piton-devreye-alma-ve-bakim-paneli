@@ -2,15 +2,15 @@
 """PyInstaller configuration — Commissioning and Maintenance Panel.
 
     pip install -r docs/requirements-build.txt
-    pyinstaller CommissioningPanel.spec               # folder (onedir)
-    DAP_ONEFILE=1 pyinstaller CommissioningPanel.spec # single file (portable)
+    pyinstaller dabp.spec               # folder (onedir)
+    DAP_ONEFILE=1 pyinstaller dabp.spec           # single file (portable)
 
 On Windows, for onefile:  set DAP_ONEFILE=1 && pyinstaller ...
 
 Output:
-    dist/CommissioningPanel/                    onedir
-    dist/CommissioningPanel(.exe)               onefile
-    dist/Commissioning and Maintenance Panel.app  macOS (onedir only)
+    dist/dabp/                                  onedir
+    dist/dabp(.exe)                             onefile
+    dist/dabp.app                               macOS (onedir only)
 
 Notes:
   • The version comes from one place: APP_VERSION in panel/settings.py.
@@ -38,13 +38,23 @@ if (sys.version_info[:2] != TARGET_PYTHON
         f"{TARGET_PYTHON[0]}.{TARGET_PYTHON[1]}, running version is "
         f"{sys.version_info.major}.{sys.version_info.minor}.\n"
         f"        If another version is intentional: "
-        f"DAP_ALLOW_ANY_PYTHON=1 pyinstaller CommissioningPanel.spec")
+        f"DAP_ALLOW_ANY_PYTHON=1 pyinstaller dabp.spec")
 
 ROOT = Path(SPECPATH)
-INTERNAL_NAME = "CommissioningPanel"
-DISPLAY_NAME = "Commissioning and Maintenance Panel"
+# Two names, on purpose. INTERNAL_NAME names FILES — the exe, the dist
+# folder, the .app bundle, every release asset — so it is short and ASCII and
+# survives every shell, ZIP and installer it passes through. DISPLAY_NAME is
+# read by people (the Dock, the Windows file properties) and may be worded
+# freely; it is never part of a path.
+#
+# DISPLAY_NAME is stamped into the package at BUILD time, so unlike every
+# other visible name it cannot follow the language the user picks (that one
+# is "app.name" in panel/messages/*.json). It is written in the language of
+# the operators who commission the trains.
+INTERNAL_NAME = "dabp"
+DISPLAY_NAME = "Devreye Alma ve Bakım Paneli"
 ONEFILE = os.environ.get("DAP_ONEFILE") == "1"
-BUNDLE_IDENTIFIER = "com.piton.commissioningpanel"
+BUNDLE_IDENTIFIER = "com.piton.dabp"
 
 
 def read_version() -> str:
@@ -82,7 +92,18 @@ DATA_FILES = [
     (FIELD_SCRIPTS_DIR / "intercom_ip_assign.py", "intercom_ip_assign.py"),
 ]
 
-data = [("static", "static")]
+# The message catalogue: EVERY visible string in the panel, in both
+# languages. It is data sitting next to a Python package, and PyInstaller
+# collects packages by their .py files only — left out, the app opens with
+# every label showing its raw key. panel.i18n looks for it at "messages"
+# in the bundle (panel/settings.py:data_file).
+MESSAGES_DIR = ROOT / "panel" / "messages"
+catalogues = sorted(path.name for path in MESSAGES_DIR.glob("*.json"))
+if not catalogues:
+    raise SystemExit(f"[spec] no message catalogue under {MESSAGES_DIR}")
+print(f"[spec] message catalogues: {', '.join(catalogues)}")
+
+data = [("static", "static"), (str(MESSAGES_DIR), "messages")]
 missing = []
 for source_path, bundle_name in DATA_FILES:
     if source_path.exists():
@@ -155,7 +176,7 @@ VSVersionInfo(
     mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0,
     date=(0, 0)),
   kids=[
-    StringFileInfo([StringTable('040904b0', [
+    StringFileInfo([StringTable('041f04b0', [
       StringStruct('CompanyName', 'Piton Technology'),
       StringStruct('FileDescription', '{DISPLAY_NAME}'),
       StringStruct('FileVersion', '{VERSION}'),
@@ -164,10 +185,10 @@ VSVersionInfo(
       StringStruct('ProductName', '{DISPLAY_NAME}'),
       StringStruct('ProductVersion', '{VERSION}'),
       StringStruct('LegalCopyright', 'Piton Technology')])]),
-    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+    VarFileInfo([VarStruct('Translation', [1055, 1200])])
   ]
 )
-""", encoding="utf-8")   # 1033 = en-US, 1200 = Unicode
+""", encoding="utf-8")   # 1055 = tr-TR, 1200 = Unicode
 
 # ────────────────────────────────────────────────────────────── analysis ──
 analysis = Analysis(
@@ -220,7 +241,7 @@ else:
 if sys.platform == "darwin" and not ONEFILE:
     app = BUNDLE(
         final,
-        name=f"{DISPLAY_NAME}.app",
+        name=f"{INTERNAL_NAME}.app",
         icon=str(ICNS) if ICNS.exists() else None,
         bundle_identifier=BUNDLE_IDENTIFIER,
         version=VERSION,

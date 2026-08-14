@@ -30,14 +30,26 @@ from pathlib import Path
 
 from . import settings
 
-DEFAULT_LANGUAGE = "en"
 LANGUAGES = ("en", "tr")
+# The language to show when we cannot tell what the user speaks. The panel is
+# commissioned on Turkish trains by Turkish operators, so an unknown machine
+# is far more likely to be theirs than anyone else's.
+DEFAULT_LANGUAGE = "tr"
+# The catalogue a MISSING key is read from — a different question, and it has
+# a different answer. The code is written in English and every key is coined
+# in English, so en.json is the one guaranteed to have an entry. Reading the
+# gap from the default instead would drop a Turkish sentence into an English
+# screen. tests/test_i18n.py keeps the two catalogues in step, so this should
+# never fire; it is the net under that test, not a substitute for it.
+FALLBACK_LANGUAGE = "en"
 
 MESSAGES_DIR = settings.data_file("messages", "panel", "messages")
 
 _LOCK = threading.RLock()
 _CATALOGUES: dict[str, dict[str, str]] = {}
 _LANGUAGE: str | None = None
+# Called after every language change — see on_change().
+_LISTENERS: list = []
 
 
 class _Blanks(dict):
@@ -111,6 +123,22 @@ def normalise(language) -> str:
     return head if head in LANGUAGES else DEFAULT_LANGUAGE
 
 
+def _recognised(value) -> str | None:
+    """The language in `value`, or None if it names one we do not have.
+
+    Separate from normalise(), which answers "what do we SHOW for this" and
+    therefore turns anything unknown into the default. Here the difference
+    matters: `LANG=C` must not count as a stated preference, while a genuine
+    `LANG=tr_TR` must — and once the default is Turkish those two normalise
+    to the same string.
+    """
+    code = str(value or "").strip().lower().replace("_", "-")
+    if code in LANGUAGES:
+        return code
+    head = code.split("-")[0]
+    return head if head in LANGUAGES else None
+
+
 def system_language() -> str:
     """The operating system's language, when we speak it.
 
@@ -121,8 +149,8 @@ def system_language() -> str:
     for name in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
         value = os.environ.get(name)
         if value:
-            code = normalise(value.split(":")[0].split(".")[0])
-            if code != DEFAULT_LANGUAGE:
+            code = _recognised(value.split(":")[0].split(".")[0])
+            if code:
                 return code
     try:
         code, _encoding = locale.getlocale()
@@ -166,12 +194,25 @@ def current() -> str:
         return _LANGUAGE
 
 
+def on_change(callback) -> None:
+    """Run `callback(language)` whenever the language changes.
+
+    Almost everything the user reads is redrawn from the catalogue the switch
+    hands back, so almost nothing needs this. The window title does: it is
+    painted by the operating system, outside the WebView, and no redraw of
+    the UI can reach it.
+    """
+    with _LOCK:
+        _LISTENERS.append(callback)
+
+
 def use(language: str, *, persist: bool = True) -> str:
     """Select a language. Returns the one actually in effect."""
     global _LANGUAGE
     code = normalise(language)
     with _LOCK:
         _LANGUAGE = code
+        listeners = list(_LISTENERS)
     if persist:
         path = settings.ui_settings_file()
         try:
@@ -183,15 +224,28 @@ def use(language: str, *, persist: bool = True) -> str:
             temporary.replace(path)     # never leave a half-written file
         except OSError:
             pass                        # a read-only home must not break the UI
+    for callback in listeners:
+        try:
+            callback(code)
+        except Exception:
+            # A follower is decoration. The language HAS changed by now, and
+            # failing the request over a title bar would undo a switch the
+            # user already sees in the rest of the screen.
+            pass
     return code
 
 
 def reset() -> None:
-    """Forget the selection and the cached catalogues (used by tests)."""
+    """Forget the selection, the cached catalogues and the followers.
+
+    Used by tests: a listener registered by one test must not still be firing
+    during the next.
+    """
     global _LANGUAGE
     with _LOCK:
         _LANGUAGE = None
         _CATALOGUES.clear()
+        _LISTENERS.clear()
 
 
 def t(key: str, _language: str | None = None, **params) -> str:
@@ -201,8 +255,8 @@ def t(key: str, _language: str | None = None, **params) -> str:
     an empty label, and `tests/test_i18n.py` fails the build if one exists.
     """
     text = catalogue(_language).get(key)
-    if text is None and normalise(_language or current()) != DEFAULT_LANGUAGE:
-        text = catalogue(DEFAULT_LANGUAGE).get(key)
+    if text is None and normalise(_language or current()) != FALLBACK_LANGUAGE:
+        text = catalogue(FALLBACK_LANGUAGE).get(key)
     if text is None:
         return key
     if not params:

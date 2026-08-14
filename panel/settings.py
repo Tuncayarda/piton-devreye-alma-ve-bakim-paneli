@@ -10,8 +10,13 @@ import os
 import sys
 from pathlib import Path
 
-APP_NAME = "Commissioning and Maintenance Panel"
-APP_SLUG = "CommissioningPanel"
+# The name people read is NOT here: it follows the chosen language and
+# lives in the catalogue as "app.name" (panel/messages/*.json). APP_SLUG
+# names THINGS ON DISK — the settings folder below, and the same word names
+# the executable, the .app bundle and every release asset (see dabp.spec).
+# Short and ASCII so it survives every shell, ZIP and installer it passes
+# through, and unchanged by the language.
+APP_SLUG = "dabp"
 APP_VERSION = "0.9.7"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a

@@ -94,9 +94,9 @@ function evaluate(row, columns) {
   if (row.state !== 'ok') {
     const code = row.state === 'auth' ? 'auth'
       : row.state === 'unknown' ? 'unread' : 'reach';
-    const text = code === 'auth' ? 'A username or password is needed'
-      : code === 'unread' ? 'Not read yet'
-        : (row.detail || 'The device could not be reached');
+    const text = code === 'auth' ? t('verify.authrequired')
+      : code === 'unread' ? t('verify.notread')
+        : (row.detail || t('checklist.notReachable'));
     problems.push({ code, text });
     return { problems, values, passed: false };
   }
@@ -108,8 +108,9 @@ function evaluate(row, columns) {
     problems.push({
       code: 'ip',
       text: isEmpty(readIp)
-        ? `The IP could not be verified · expected ${expectedIp}`
-        : `IP mismatch · expected ${expectedIp}, read ${readIp}`,
+        ? t('checklist.ipUnverified', { expected: expectedIp })
+        : t('checklist.ipMismatch',
+          { expected: expectedIp, read: readIp }),
     });
   }
 
@@ -120,9 +121,9 @@ function evaluate(row, columns) {
     problems.push({
       code: 'sip',
       text: isEmpty(readSip)
-        ? `The SIP extension could not be read · expected ${expectedSip}`
-        : `SIP extension mismatch · expected ${expectedSip}, `
-          + `read ${readSip}`,
+        ? t('checklist.sipUnread', { expected: expectedSip })
+        : t('checklist.sipMismatch',
+          { expected: expectedSip, read: readSip }),
     });
   }
 
@@ -195,10 +196,9 @@ function excelPreview(rows, data) {
     + data.columns.length * 10;
 
   return [
-    el('div', { class: 'info check-excel-note' }, [
-      'This view shows the exact column layout of the Excel file that will ',
-      'be produced. For day-to-day review, use the Deviations tab.',
-    ]),
+    el('div', {
+      class: 'info check-excel-note', text: t('checklist.excelNote'),
+    }),
     el('div', { class: 'table-wrap' }, [
       el('div', { class: 'table', style: `--table-min:${minimum}px` }, [
         el('div', {
@@ -216,13 +216,13 @@ function excelPreview(rows, data) {
     ]),
     el('div', { class: 'legend legend-plain' }, [
       el('span', {}, [el('i', { style: 'background:var(--auth)' }),
-        'Amber: project default']),
+        t('checklist.legendAmber')]),
       el('span', {}, [el('i', { style: 'background:var(--ok)' }),
-        'Green: matches the expected value']),
+        t('checklist.legendGreen')]),
       el('span', {}, [el('i', { style: 'background:var(--failed)' }),
-        'Red: does not match the expected value']),
+        t('checklist.legendRed')]),
       el('span', {}, [el('i', { style: 'background:#2a3339' }),
-        'Grey: not used on this device type']),
+        t('checklist.legendGrey')]),
       el('span', {
         style: 'margin-left:auto',
         text: t('checklist.rowsColumns', {
@@ -256,12 +256,13 @@ function writeFreshness() {
   if (!node) return;
   const ts = Number(node.dataset.readAt) || 0;
   if (!ts) {
-    node.textContent = 'No scan has run yet';
+    node.textContent = t('checklist.noScanYet');
     node.dataset.stale = '1';
     return;
   }
   const seconds = Math.max(0, Math.round(Date.now() / 1000 - ts));
-  node.textContent = `Last scan ${clockTime(ts)} · ${age(ts)} ago`;
+  node.textContent = t('checklist.lastScanAgo',
+    { time: clockTime(ts), age: age(ts) });
   node.dataset.stale = seconds > STALE_SECONDS ? '1' : '0';
 }
 
@@ -330,13 +331,13 @@ export function render(root, refreshNow) {
     class: 'local-tabs report-tabs', role: 'tablist',
     'aria-label': t('checklist.reportView'),
   }, [
-    ['deviations', 'Sapmalar'],
-    ['excel', 'Excel preview'],
-  ].map(([id, label]) => el('button', {
+    ['deviations', 'checklist.tabDeviations'],
+    ['excel', 'checklist.tabExcel'],
+  ].map(([id, labelKey]) => el('button', {
     type: 'button', class: 'local-tab', role: 'tab',
     'aria-selected': String(reportTab === id),
     'aria-pressed': String(reportTab === id),
-    text: label,
+    text: t(labelKey),
     onclick: () => { reportTab = id; render(root); },
   }))));
 
@@ -384,14 +385,15 @@ export function render(root, refreshNow) {
     el('span', { text: t('checklist.accessIpSipExtension') }),
   ]));
   parts.push(el('div', { class: 'check-summary-grid' }, [
-    summaryCard('Passed the basic checks', passed, 'ok',
-      `${rows.length} devices in total`),
-    summaryCard('Access problems', reachIssues, reachIssues ? 'failed' : 'ok',
-      'Devices that did not answer or need credentials'),
-    summaryCard('IP deviations', ipIssues, ipIssues ? 'failed' : 'ok',
-      'Beklenen ve okunan IP'),
-    summaryCard('SIP deviations', sipIssues, sipIssues ? 'failed' : 'ok',
-      'SIP kullanan cihazlarda'),
+    summaryCard(t('checklist.passedBasicChecks'), passed, 'ok',
+      t('checklist.devicesInTotal', { count: rows.length })),
+    summaryCard(t('checklist.accessProblems'), reachIssues,
+      reachIssues ? 'failed' : 'ok',
+      t('checklist.accessProblemsNote')),
+    summaryCard(t('checklist.ipDeviations'), ipIssues,
+      ipIssues ? 'failed' : 'ok', t('checklist.ipDeviationsNote')),
+    summaryCard(t('checklist.sipDeviations'), sipIssues,
+      sipIssues ? 'failed' : 'ok', t('checklist.sipDeviationsNote')),
   ]));
 
   if (reportTab === 'excel') {
@@ -439,17 +441,17 @@ function confirmExport() {
   const content = el('div', {}, [
     el('p', { class: 'description' }, [
       ts
-        ? 'The Excel is built from the values read in the last scan. That '
-          + `scan finished at ${clockTime(ts)}.`
-        : 'No scan has run on this train set yet. The Excel will be built '
-          + 'with empty values.',
+        ? t('checklist.builtFromLastScan', { time: clockTime(ts) })
+        : t('checklist.builtEmpty'),
     ]),
     el('div', { class: 'summary-box' }, [
-      line('Age of the data', ts ? `${age(ts)} ago` : NONE,
+      line(t('checklist.dataAge'),
+        ts ? t('checklist.agoValue', { age: age(ts) }) : NONE,
         stale ? 'var(--auth)' : 'var(--ok)'),
-      line('Reachable', `${counts.ok ?? 0}`, 'var(--ok)'),
-      line('Credentials needed', `${counts.auth ?? 0}`, 'var(--auth)'),
-      line('Needs review', `${counts.failed ?? 0}`, 'var(--failed)'),
+      line(t('devices.reachable'), `${counts.ok ?? 0}`, 'var(--ok)'),
+      line(t('state.auth'), `${counts.auth ?? 0}`, 'var(--auth)'),
+      line(t('devices.needsReview'), `${counts.failed ?? 0}`,
+        'var(--failed)'),
     ]),
     stale ? el('p', {
       class: 'warning', style: 'margin-top:12px',
@@ -480,14 +482,14 @@ function confirmExport() {
       el('button', {
         type: 'button', class: 'btn', text: t('checklist.scanFirst'),
         disabled: state.scanRunning,
-        title: state.scanRunning
-          ? 'A scan is already running'
-          : 'Pull the scan forward, then generate the Excel',
+        title: t(state.scanRunning ? 'checklist.scanAlreadyRunning'
+          : 'checklist.scanThenGenerate'),
         onclick: () => { dialog.close(); pullScanForward(); },
       }),
       el('button', {
         type: 'button', class: 'btn btn-primary',
-        text: stale ? 'Generate anyway' : 'Generate Excel',
+        text: t(stale ? 'checklist.generateAnyway'
+          : 'checklist.generateExcel'),
         onclick: produce,
       }),
     ],
@@ -518,7 +520,8 @@ function cellHighlight(column, cell, values) {
     const active = normalise(text) === STATUS_ACTIVE;
     return {
       colour: active ? 'var(--ok)' : 'var(--failed)',
-      hint: active ? 'The device was reached' : 'The device was not reached',
+      hint: t(active ? 'checklist.deviceWasReached'
+        : 'checklist.deviceNotReached'),
     };
   }
 

@@ -136,9 +136,10 @@ function jobCard(job) {
         ? el('button', {
             type: 'button', class: 'btn btn-close',
             disabled: stopping,
-            title: stopping ? 'Stopping…' : 'Stop the job',
+            title: t(stopping ? 'queue.stoppingShort'
+              : 'queue.stopJobShort'),
             'aria-label': stopping
-              ? `${job.title} durduruluyor`
+              ? t('queue.stoppingJob', { job: job.title })
               : t('queue.stopJob', { job: job.title }),
             onclick: async () => {
               try {
@@ -194,8 +195,8 @@ function renderRow(row, jobId) {
       el('span', { class: 'name', text: row.name }),
       row.file
         ? el('span', { class: 'file-actions' }, [
-            fileButton('Open the file', jobId, row.deviceId, false),
-            fileButton('Show in folder', jobId, row.deviceId, true),
+            fileButton(t('queue.openTheFile'), jobId, row.deviceId, false),
+            fileButton(t('queue.showInFolder'), jobId, row.deviceId, true),
           ])
         : (row.ip ? el('span', { class: 'sub', text: row.ip }) : null),
     ]),
@@ -303,15 +304,19 @@ export function flash() {
 export function summaryText(refreshed = 0) {
   const job = (state.jobs || []).find(
     j => j.state === 'running' || j.state === 'queued');
-  if (job && job.cancelRequested) return `${job.title} · durduruluyor…`;
+  if (job && job.cancelRequested) {
+    return t('queue.jobStopping', { job: job.title });
+  }
   if (!job) {
     // "No scan yet" is no longer a gap but a few seconds of transition: the
     // scan starts on its own at start-up.
-    if (!state.lastScan) return 'Waiting for the first scan…';
-    const fresh = `Last scan ${clockTime(state.lastScan)}`;
+    if (!state.lastScan) return t('queue.waitingFirstScan');
+    const fresh = t('queue.lastScan', { time: clockTime(state.lastScan) });
     return refreshed
-      ? `${fresh} · ${refreshed} device(s) re-read`
-      : `${fresh} · no device could be re-read`;
+      ? t('queue.lastScanReread', { scan: fresh, count: refreshed })
+      : t('queue.lastScanNoReread', { scan: fresh });
   }
-  return `${job.title} · %${Math.round((job.progress || 0) * 100)}`;
+  return t('queue.jobProgress', {
+    job: job.title, percent: Math.round((job.progress || 0) * 100),
+  });
 }

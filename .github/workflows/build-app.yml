@@ -24,7 +24,10 @@ on:
         required: true
         type: string
       display_name:
-        description: Visible name of the macOS .app bundle
+        description: >-
+          The product name people read: the Release title and the job
+          summaries. NOT a path — every file is named after app_name,
+          so this one may hold spaces and non-ASCII letters.
         required: true
         type: string
       spec:
@@ -203,7 +206,7 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          BIN="dist/${{ inputs.display_name }}.app/Contents/MacOS/${{ inputs.app_name }}"
+          BIN="dist/${{ inputs.app_name }}.app/Contents/MacOS/${{ inputs.app_name }}"
           test -x "$BIN" || { echo "executable not found: $BIN"; exit 1; }
           "$BIN" --self-test
 
@@ -286,7 +289,7 @@ jobs:
           mkdir -p release
           # ditto: macOS file attributes and symlinks are preserved
           ditto -c -k --sequesterRsrc --keepParent \
-            "dist/${{ inputs.display_name }}.app" "release/$ZIP_NAME"
+            "dist/${{ inputs.app_name }}.app" "release/$ZIP_NAME"
           ls -lh "release/$ZIP_NAME"
 
       - name: Package — Linux (AppImage)
@@ -448,13 +451,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          PRODUCT_NAME: ${{ inputs.display_name }}
         run: |
           set -euo pipefail
           NOTES="$GITHUB_WORKSPACE/${{ inputs.app_dir }}/docs/RELEASE_NOTES.md"
           VERSION="${TAG#*-v}"; VERSION="${VERSION#v}"
-          # The title carries the application name + version rather than the
+          # The title carries the product name + version rather than the
           # raw tag, so the Releases list stays readable.
-          TITLE="${{ inputs.display_name }} v$VERSION"
+          TITLE="$PRODUCT_NAME v$VERSION"
 
           cd downloaded
 
@@ -502,6 +506,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          PRODUCT_NAME: ${{ inputs.display_name }}
         run: |
           set -euo pipefail
           # If gh release create quietly did half the job, it is caught here.
@@ -531,7 +536,7 @@ jobs:
           echo "Release assets match the expected list exactly."
 
           {
-            echo "## ${{ inputs.display_name }} — Release published"
+            echo "## $PRODUCT_NAME — Release published"
             echo ""
             echo "$URL"
             echo ""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from .. import settings
+from .. import i18n, settings
 from ..errors import AuthError
 from ..inventory.catalog import find_group, group_matches
 from ..inventory.device_map import Inventory
@@ -97,7 +97,7 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
         "switchId": resolved_switch,
         "rows": rows,
         "targetCount": sum(1 for row in rows if row["actionable"]),
-        "portText": format_ports(ports) or "No port selected",
+        "portText": format_ports(ports) or i18n.t("ip.noPortSelected"),
         "groups": [group["name"] for group in groups],
         # Groups with no script: the UI can say so before starting a run.
         "withoutRunner": [group["name"] for group in groups
@@ -114,7 +114,8 @@ def front_panel(inventory: Inventory, switch_id: str,
     """
     switch = inventory.find(switch_id)
     if switch is None:
-        return {"ports": [], "source": "none", "note": "Switch not found"}
+        return {"ports": [], "source": "none",
+                "note": i18n.t("ip.switchNotFound")}
     defined = {int(device.port): device.name for device in inventory.devices
                if device.switch_id == switch_id and device.port
                and str(device.port).isdigit()}
@@ -124,10 +125,10 @@ def front_panel(inventory: Inventory, switch_id: str,
         source, note = "switch", ""
     except AuthError:
         live, source = {}, "devicemap"
-        note = "The switch wants a username/password — port state unreadable"
+        note = i18n.t("ip.switchWantsCredentials")
     except Exception:
         live, source = {}, "devicemap"
-        note = "The switch is unreachable — port state unreadable"
+        note = i18n.t("ip.switchUnreachable")
 
     # The panel draws the device's whole face: showing only the ports present
     # in DeviceMap turned the map into a sparse list of numbers with no sense

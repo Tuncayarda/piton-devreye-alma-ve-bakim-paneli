@@ -52,42 +52,42 @@ class PanelBridge:
         """Run one GET/POST API call as a safe result envelope."""
         with self._condition:
             if self._closing:
-                return _error(503, "The panel is shutting down")
+                return _error(503, i18n.t("error.panelShuttingDown"))
             self._in_flight += 1
 
         try:
             if (not isinstance(capability, str)
                     or not secrets.compare_digest(capability,
                                                   self.capability)):
-                return _error(403, "The desktop bridge capability could not be verified")
+                return _error(403, i18n.t("error.capabilityUnverified"))
             if extra:
-                return _error(400, "Too many arguments in the bridge call")
+                return _error(400, i18n.t("error.tooManyArguments"))
             if not isinstance(method, str):
-                return _error(400, "The request method is invalid")
+                return _error(400, i18n.t("error.methodInvalid"))
             verb = method.upper()
             if verb not in ("GET", "POST"):
-                return _error(405, "The request method is not supported")
+                return _error(405, i18n.t("error.methodUnsupported"))
             if not isinstance(path, str) or len(path) > PATH_LIMIT:
-                return _error(400, "The request path is invalid")
+                return _error(400, i18n.t("error.pathInvalid"))
 
             url = urlsplit(path)
             if (url.scheme or url.netloc or url.fragment
                     or not url.path.startswith("/api/")):
-                return _error(400, "Only panel API paths may be used")
+                return _error(400, i18n.t("error.onlyApiPaths"))
 
             if body is None:
                 payload = {}
             elif isinstance(body, dict):
                 payload = body
             else:
-                return _error(400, "The request body must be an object")
+                return _error(400, i18n.t("error.bodyMustBeObject"))
             try:
                 raw = json.dumps(payload, ensure_ascii=False,
                                  separators=(",", ":")).encode("utf-8")
             except (TypeError, ValueError):
-                return _error(400, "The request body is not JSON serialisable")
+                return _error(400, i18n.t("error.bodyNotSerialisable"))
             if len(raw) > settings.BODY_LIMIT:
-                return _error(400, "The request body is too large")
+                return _error(400, i18n.t("error.bodyTooLarge"))
 
             query = parse_qs(url.query, keep_blank_values=True)
             return self._dispatch(verb, url.path, query=query, body=payload)
@@ -95,7 +95,7 @@ class PanelBridge:
             # A Python traceback never leaks into the JS promise or onto the
             # user's screen.
             traceback.print_exc(file=sys.stderr)
-            return _error(500, "Something unexpected went wrong in the panel")
+            return _error(500, i18n.t("error.unexpectedPanelProblem"))
         finally:
             with self._condition:
                 self._in_flight -= 1

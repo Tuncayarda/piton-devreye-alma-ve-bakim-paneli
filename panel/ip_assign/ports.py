@@ -13,6 +13,24 @@ from ..system import interfaces
 from .. import i18n
 
 
+# Why a switch's MAC table could not be read. The codes are the contract —
+# they travel to the UI and are worded there too (static/js/views/ip) — so a
+# rewording here must not change them.
+SWITCH_STATE_LABEL = {
+    "auth": "ip.switchStateAuth",
+    "unreachable": "ip.switchStateUnreachable",
+    "unreadable": "ip.switchStateUnreadable",
+    "empty": "ip.switchStateEmpty",
+    "read": "ip.switchStateRead",
+}
+
+
+def switch_state_label(state: str) -> str:
+    """The reading of a `tried[].state` code, in the current language."""
+    key = SWITCH_STATE_LABEL.get(str(state or ""))
+    return i18n.t(key) if key else str(state or "")
+
+
 def port_key(port: int) -> str:
     return f"p{int(port)}"
 
@@ -108,9 +126,9 @@ def _switch_tables(inventory: Inventory, credentials_for=None):
             table = switch_probe.mac_table(switch.ip, credentials,
                                            timeout=timeout)
         except AuthError:
-            return switch, {}, "", "wants a username/password"
+            return switch, {}, "", "auth"
         except UnreachableError:
-            return switch, {}, "", "unreachable"
+            return switch, {}, "", "unreachable"      # stable code, not text
         except Exception:
             return switch, {}, "", "unreadable"
         # The switch's OWN MAC: finding it in a neighbour's table reveals the
@@ -129,9 +147,10 @@ def _switch_tables(inventory: Inventory, credentials_for=None):
     finally:
         pool.shutdown(wait=True)
 
+    # `state` is a CODE, not a sentence: it is written on screen in two
+    # places and both have to be able to say it in the user's language.
     tried = [{"switchId": switch.id, "name": switch.name, "ip": switch.ip,
-              "state": problem or ("empty MAC table" if not table
-                                   else "read")}
+              "state": problem or ("empty" if not table else "read")}
              for switch, table, _own, problem in results]
     return results, tried
 
@@ -180,7 +199,7 @@ def protected_ports(inventory: Inventory, credentials_for=None) -> dict:
               "ports": [], "tried": [], "note": ""}
 
     if not inventory.switches():
-        return {**result, "note": "No switch is defined in the project"}
+        return {**result, "note": i18n.t("ip.noSwitchInProject")}
     # The interface dump is read once; running a command per switch is
     # pointless.
     local_interfaces = interfaces.list_interfaces()
@@ -194,10 +213,12 @@ def protected_ports(inventory: Inventory, credentials_for=None) -> dict:
                 for switch, table, own, problem in results
                 if table and not problem]
     if not readable:
-        reasons = ", ".join(f"{entry['name']} {entry['state']}"
-                            for entry in tried)
+        reasons = ", ".join(
+            i18n.t("ip.switchStateLine", switch=entry["name"],
+                   state=switch_state_label(entry["state"]))
+            for entry in tried)
         return {**result,
-                "note": f"No switch MAC table could be read ({reasons})"}
+                "note": i18n.t("ip.noMacTableRead", reasons=reasons)}
 
     # ── which switch, which port learned the computer's MAC? ──
     findings = []

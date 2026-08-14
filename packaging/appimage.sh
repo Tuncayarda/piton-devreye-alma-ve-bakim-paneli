@@ -5,8 +5,8 @@
 #   ./packaging/appimage.sh <dist_dir> <output.AppImage> <version>
 #
 # Example:
-#   ./packaging/appimage.sh dist/CommissioningPanel \
-#       release/CommissioningPanel-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
+#   ./packaging/appimage.sh dist/dabp \
+#       release/dabp-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
 #
 # The appimagetool version is pinned (APPIMAGETOOL_VERSION below). Give a
 # sha256 and the download is verified; leave it empty and the sha256 of what
@@ -20,8 +20,8 @@ VERSION="${3:-0.0.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP_BINARY_NAME="CommissioningPanel"
-DESKTOP_ID="commissioningpanel"
+APP_BINARY_NAME="dabp"
+DESKTOP_ID="dabp"
 
 APPIMAGETOOL_VERSION="1.9.1"
 APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"

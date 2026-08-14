@@ -100,9 +100,14 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
     try:
         data = module.sw_get(ip, "stat/basicInfo", timeout=limit,
                              credentials=credentials)
-    except module.AuthError as exc:
-        # 401/403, WWW-Authenticate, or a login page instead of JSON
-        raise AuthError(str(exc) or i18n.t("error.probeAuth"))
+    except module.AuthError:
+        # 401/403, WWW-Authenticate, or a login page instead of JSON.
+        # The script's own wording is dropped on purpose: it is an
+        # untranslatable English sentence written in a file this panel
+        # only borrows (field_scripts/switch_api.py), and it says nothing
+        # the message below does not, the address included — the UI shows
+        # that beside it.
+        raise AuthError(i18n.t("error.probeAuth"))
     except Exception as exc:                       # network / HTTP layer
         code = getattr(getattr(exc, "response", None), "status_code", None)
         if code in (401, 403):
@@ -138,8 +143,8 @@ def ports(ip: str, credentials: tuple[str, str] | None = None,
         try:
             return module.sw_get(ip, endpoint, timeout=limit,
                                  credentials=credentials)
-        except module.AuthError as exc:
-            raise AuthError(str(exc) or i18n.t("error.probeAuth"))
+        except module.AuthError:                # see read() on the wording
+            raise AuthError(i18n.t("error.probeAuth"))
         except Exception as exc:
             raise classify(exc)
 
@@ -213,8 +218,8 @@ def mac_table(ip: str, credentials: tuple[str, str] | None = None,
         try:
             data = module.sw_get(ip, endpoint, timeout=limit,
                                  credentials=credentials)
-        except module.AuthError as exc:
-            raise AuthError(str(exc) or i18n.t("error.switchAuth"))
+        except module.AuthError:                # see read() on the wording
+            raise AuthError(i18n.t("error.switchAuth"))
         except Exception as exc:
             error = classify(exc)
             # No point trying the remaining endpoints on an unreachable

@@ -12,24 +12,35 @@ v0.9.5 ve v0.9.6 için hazırlanan bütün değişiklikler bu paketin içindedir
 
 ### Uygulama artık Türkçe ve İngilizce
 
-- Arayüzün tamamı **iki dilli**. Dil, rol seçim ekranında ve üst barda duran
-  **TR / EN** düğmesiyle değiştiriliyor; seçim kaydediliyor ve uygulama bir
-  daha aynı dille açılıyor.
-- İlk açılışta işletim sisteminin dili kullanılıyor: sistem Türkçeyse panel
-  Türkçe açılıyor.
+- Arayüzün tamamı **iki dilli**. Dil, rol seçim ekranının sağ üst köşesinde
+  ve üst barda duran **TR / EN** düğmesiyle değiştiriliyor; seçim
+  kaydediliyor ve uygulama bir daha aynı dille açılıyor.
+- **Varsayılan Türkçe.** İşletim sisteminin dili İngilizceyse panel İngilizce
+  açılır; başka bir dilse ya da hiç belirtilmemişse Türkçe açılır.
 - Çeviri yalnız etiketleri değil **hata mesajlarını, işlem kuyruğu
   satırlarını ve iş başlıklarını** da kapsıyor. Dil süren bir koşunun
   ortasında değiştirilirse kuyruktaki satırlar da o anda yeni dile geçiyor.
+- **Uygulamanın adı da dili izliyor:** Türkçede *Devreye Alma ve Bakım
+  Paneli*, İngilizcede *Commissioning and Maintenance Panel*. Pencerenin
+  başlık çubuğu dil değiştiği anda güncelleniyor. Kurulum sihirbazı, Başlat
+  menüsü girdisi ve macOS paket adı derleme sırasında sabitlendiği için her
+  zaman Türkçe.
 - Bütün metinler tek bir sözlük dosyasında toplandı; bir ifadeyi düzeltmek
   için uygulamanın yeniden derlenmesi gerekmiyor.
+- **Çeviri artık gerçekten her ekranı kapsıyor.** İlk turda geçmiş ekranı,
+  Excel önizleme, doğrulama bulguları, IP atama uyarıları, switch ön paneli,
+  cihaz detay paneli ve firmware ekranı kısmen İngilizce kalmıştı; bu
+  sürümde arayüzün tamamı gözden geçirildi. Excel dosyasının **sütun
+  başlıkları** şablondan geldiği için hem ekranda hem dosyada İngilizce
+  kalır — önizleme, üretilecek dosyanın birebir aynısıdır.
 
 ### Dikkat: bu sürümde taşınmayanlar
 
-- **Uygulama adı ve dosya adları değişti.** Paketler artık
-  `CommissioningPanel-<sürüm>-…` adıyla yayımlanıyor, Windows kurulumu
-  `Commissioning Panel` klasörüne yapılıyor. Eski sürümün kısayolu yeni
-  kuruluma işaret etmez; kısayolu yeniden oluşturun. Eski kurulumu Windows
-  "Uygulamalar" listesinden ayrıca kaldırabilirsiniz.
+- **Dosya adları değişti.** Paketler artık `dabp-<sürüm>-…` adıyla
+  yayımlanıyor; çalıştırılabilir dosya `dabp`, Windows kurulumu ise
+  `dabp` klasörüne yapılıyor. Eski sürümün kısayolu yeni kuruluma işaret
+  etmez; kısayolu yeniden oluşturun. Eski kurulumu Windows "Uygulamalar"
+  listesinden ayrıca kaldırabilirsiniz.
 - **Konfigürasyon ekranında kayıtlı hedef değerler taşınmıyor.** Ayarların
   saklandığı klasör uygulama adıyla birlikte değiştiği için, önceki
   sürümlerde girilmiş varsayılanlar bu sürümde boş gelir ve bir kez yeniden

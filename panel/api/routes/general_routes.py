@@ -16,7 +16,7 @@ from .helpers import single
 
 def get_version(query):
     return respond(200, {
-        "version": settings.APP_VERSION, "name": settings.APP_NAME,
+        "version": settings.APP_VERSION, "name": i18n.t("app.name"),
         "adminPasswordRequired": admin_password_required(),
     })
 

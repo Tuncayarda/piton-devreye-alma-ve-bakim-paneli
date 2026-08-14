@@ -6,6 +6,20 @@ import {
   createTransport,
   TRANSPORT_FLAG,
 } from "../../static/js/core/transport.js";
+import { applyCatalogue, t } from "../../static/js/core/i18n.js";
+
+// The real catalogue, exactly as the app loads it over /api/language.
+// Without it every message here would render as its own key, and this
+// file would be asserting that the wiring is broken.
+applyCatalogue({
+  language: "en",
+  languages: ["en", "tr"],
+  messages: JSON.parse(
+    Deno.readTextFileSync(
+      new URL("../../panel/messages/en.json", import.meta.url),
+    ),
+  ),
+});
 
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
@@ -106,7 +120,7 @@ Deno.test("a malformed envelope reports the service as unreachable", async () =>
     () => api.version(),
     (error) => {
       assert.equal(error.status, 0);
-      assert.equal(error.message, "The panel service is unreachable");
+      assert.equal(error.message, t("error.serviceUnreachable"));
       assert.deepEqual(error.body, {});
       return true;
     },

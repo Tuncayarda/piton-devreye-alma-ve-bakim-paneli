@@ -32,10 +32,14 @@ jobs:
       contents: write            # for the Release step
     with:
       app_dir: .
-      app_name: CommissioningPanel
-      display_name: Commissioning and Maintenance Panel
-      spec: CommissioningPanel.spec
-      iss: packaging/windows/CommissioningPanel.iss
+      # Every produced file is named after this: dabp.exe, dist/dabp,
+      # dabp.app, dabp-<version>-<target>.zip.
+      app_name: dabp
+      # Read by people on the Release page, in the language of the
+      # operators who commission the trains.
+      display_name: Devreye Alma ve Bakım Paneli
+      spec: dabp.spec
+      iss: packaging/windows/dabp.iss
       # This panel has unit tests; they run before the package is produced.
       tests: python -m unittest discover -s tests -t .
       frontend_bundle_tool: tools/build_desktop_bundle.py

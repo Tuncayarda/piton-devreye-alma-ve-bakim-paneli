@@ -82,8 +82,8 @@ export function render(root) {
   ]));
 
   parts.push(el('div', { class: 'overview-grid' }, [
-    card('MQTT / application clients', clients, 'PISCU and HMI not read'),
-    card('SIP extensions', [
+    card(t('piscu.mqttClients'), clients, t('piscu.piscuAndHmiNotRead')),
+    card(t('piscu.sipExtensions'), [
       el('div', {
         class: 'label',
         style: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;'
@@ -95,7 +95,7 @@ export function render(root) {
         el('span', { text: t('piscu.state') }),
       ]),
       ...extensions,
-    ], 'No device has SIP defined'),
+    ], t('piscu.noDeviceHasSip')),
   ]));
 
   fill(root, parts);

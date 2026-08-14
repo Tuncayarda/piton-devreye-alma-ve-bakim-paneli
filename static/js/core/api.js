@@ -5,6 +5,7 @@
 // request. The server does not send it back either.
 
 import { transport } from "./transport.js";
+import { t } from "./i18n.js";
 
 class ApiError extends Error {
   constructor(message, status, body) {
@@ -24,7 +25,7 @@ export function createApi(carrier = transport) {
         !Number.isInteger(envelope.status)
       ) throw new Error("invalid response");
     } catch {
-      throw new ApiError("The panel service is unreachable", 0, {});
+      throw new ApiError(t("error.serviceUnreachable"), 0, {});
     }
     const body = envelope.body && typeof envelope.body === "object" &&
         !Array.isArray(envelope.body)
@@ -32,7 +33,7 @@ export function createApi(carrier = transport) {
       : {};
     if (!envelope.ok) {
       throw new ApiError(
-        body.error || `The request failed (${envelope.status})`,
+        body.error || t("error.requestFailed", { status: envelope.status }),
         envelope.status,
         body,
       );

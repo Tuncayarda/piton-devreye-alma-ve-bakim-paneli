@@ -12,10 +12,17 @@ These tests are what makes it visible.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
+
+# Also redirects PANEL_DATA_DIR to a temp folder. Not optional here:
+# one test below stores a language choice, and without this the run
+# would write into the user's real settings directory.
+from .support.base import ROOT  # noqa: F401  (sys.path + temp data dir)
 
 from panel import i18n, settings
 
@@ -133,14 +140,47 @@ class Selection(unittest.TestCase):
         i18n.reset()
         i18n.use("en")
 
-    def test_an_unknown_language_falls_back_to_english(self):
-        self.assertEqual(i18n.normalise("de"), "en")
-        self.assertEqual(i18n.normalise(""), "en")
-        self.assertEqual(i18n.normalise(None), "en")
+    def test_an_unknown_language_is_shown_in_the_default(self):
+        """The panel is commissioned by Turkish operators."""
+        self.assertEqual(i18n.normalise("de"), "tr")
+        self.assertEqual(i18n.normalise(""), "tr")
+        self.assertEqual(i18n.normalise(None), "tr")
 
     def test_a_regional_code_resolves_to_its_language(self):
         self.assertEqual(i18n.normalise("tr_TR"), "tr")
         self.assertEqual(i18n.normalise("en-GB"), "en")
+
+    def test_a_stated_system_language_wins_over_the_default(self):
+        """`LANG=C` is not a preference; `LANG=tr_TR` is.
+
+        Both used to normalise to the default and were skipped alike, which
+        only stopped mattering by accident. They are told apart now.
+        """
+        for value, expected in (("tr_TR.UTF-8", "tr"), ("en_GB.UTF-8", "en"),
+                                ("C", None), ("POSIX", None),
+                                ("de_DE.UTF-8", None)):
+            self.assertEqual(i18n._recognised(value), expected, value)
+
+    def test_the_system_language_is_read_from_the_environment(self):
+        for value, expected in (("en_GB.UTF-8", "en"), ("tr_TR.UTF-8", "tr")):
+            with mock.patch.dict(os.environ, {"LANGUAGE": value}):
+                self.assertEqual(i18n.system_language(), expected, value)
+
+    def test_a_gap_in_a_catalogue_is_read_from_english_not_the_default(self):
+        """A key coined in English must not surface as Turkish prose.
+
+        Every key exists in both catalogues (the parity test above sees to
+        that), so this only ever fires while someone is mid-edit — exactly
+        when a Turkish sentence appearing in an English screen would be most
+        confusing.
+        """
+        self.assertEqual(i18n.FALLBACK_LANGUAGE, "en")
+        with mock.patch.object(i18n, "catalogue",
+                               side_effect=lambda code=None: (
+                                   {"a.b": "from English"}
+                                   if code == "en" else {})):
+            i18n.use("tr", persist=False)
+            self.assertEqual(i18n.t("a.b"), "from English")
 
     def test_a_message_renders_in_the_selected_language(self):
         i18n.use("en", persist=False)
@@ -176,6 +216,67 @@ class Selection(unittest.TestCase):
         self.assertEqual(i18n.render(body),
                          {"rows": [{"note": "Queued", "n": 1}],
                           "title": "Admin"})
+
+
+class Followers(unittest.TestCase):
+    """Anything outside the WebView has to be told the language changed."""
+
+    def tearDown(self):
+        i18n.reset()
+        i18n.use("en", persist=False)
+
+    def test_a_follower_is_told_which_language_was_chosen(self):
+        seen = []
+        i18n.on_change(seen.append)
+        i18n.use("tr", persist=False)
+        i18n.use("en", persist=False)
+        self.assertEqual(seen, ["tr", "en"])
+
+    def test_a_failing_follower_does_not_undo_the_switch(self):
+        """The rest of the screen has already changed by then.
+
+        Losing the whole switch because a title bar refused would be a far
+        worse outcome than a stale title bar.
+        """
+        def explode(_language):
+            raise RuntimeError("the window is gone")
+
+        i18n.on_change(explode)
+        self.assertEqual(i18n.use("tr", persist=False), "tr")
+        self.assertEqual(i18n.current(), "tr")
+
+    def test_reset_forgets_the_followers(self):
+        """A follower from one test must not still fire during the next."""
+        seen = []
+        i18n.on_change(seen.append)
+        i18n.reset()
+        i18n.use("tr", persist=False)
+        self.assertEqual(seen, [])
+
+
+class Packaging(unittest.TestCase):
+    """The catalogue has to be carried into the built package by hand."""
+
+    def test_the_catalogue_is_read_from_beside_the_package(self):
+        self.assertEqual(Path(i18n.MESSAGES_DIR),
+                         Path(settings.ROOT) / "panel" / "messages")
+
+    def test_the_spec_ships_the_catalogue(self):
+        """PyInstaller collects a package by its .py files only.
+
+        The catalogue is JSON sitting beside them, so nothing pulls it in on
+        its own. Left out, the packaged panel opens with every label showing
+        its raw key — and ONLY a packaged build shows that, which is why the
+        line is pinned here instead of being found in the field.
+
+        The destination has to be "messages" exactly: that is where
+        settings.data_file() looks once frozen.
+        """
+        spec = (Path(settings.ROOT) / "dabp.spec").read_text(encoding="utf-8")
+        self.assertIn('MESSAGES_DIR = ROOT / "panel" / "messages"', spec,
+                      "dabp.spec no longer locates the catalogue")
+        self.assertIn('(str(MESSAGES_DIR), "messages")', spec,
+                      "dabp.spec no longer packages the catalogue")
 
 
 if __name__ == "__main__":
