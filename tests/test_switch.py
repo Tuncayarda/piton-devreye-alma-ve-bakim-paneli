@@ -481,7 +481,7 @@ class WindowsCodePage(unittest.TestCase):
             self.assertIn("5C-01-3B-8A-76-43", text, code)
 
     def test_an_unknown_code_page_falls_back_to_latin1(self):
-        with mock.patch.object(interfaces, "_CODE_PAGE", "boyle-bir-kod-yok"):
+        with mock.patch.object(interfaces, "_CODE_PAGE", "no-such-code-page"):
             text = interfaces.decode(IPCONFIG_TR.encode("cp857"))
         self.assertIn("5C-01-3B-8A-76-43", text)
 
@@ -580,7 +580,7 @@ class WindowsArp(unittest.TestCase):
     def test_command_output_never_raises_on_any_byte(self):
         """An undecodable byte must produce a wrong letter, not an exception."""
         command = FakeCommand(bytes(range(256)))
-        for code in ("cp1254", "utf-8", "oem", "yok-boyle-kod"):
+        for code in ("cp1254", "utf-8", "oem", "no-such-code-page"):
             with mock.patch.object(self.module, "_CODE_PAGE", code), \
                     mock.patch.object(self.module.subprocess, "run", command):
                 status_code, text = self.module.command_output(["arp", "-a"])

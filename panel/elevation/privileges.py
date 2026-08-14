@@ -177,8 +177,61 @@ def elevation_plan(system: str | None = None, executable: str = "",
             "command": [], "directory": directory}
 
 
+# Windows constants — see _windows_process_alive below.
+_SYNCHRONIZE = 0x00100000
+_WAIT_OBJECT_0 = 0x00000000            # signalled: the process has ended
+_WAIT_TIMEOUT = 0x00000102             # not signalled: still running
+_ERROR_ACCESS_DENIED = 5
+
+
+def _windows_process_alive(pid: int) -> bool:
+    """Is the PID up, asked the way Windows wants to be asked.
+
+    `os.kill(pid, 0)` is a POSIX idiom with no counterpart here: on Windows
+    signal 0 IS signal.CTRL_C_EVENT, so the call does not ask a question, it
+    sends Ctrl+C down the console — which killed the whole test run instead of
+    answering. Any other signal number would be worse: os.kill() then calls
+    TerminateProcess and shoots the process it was supposed to be checking.
+
+    So the process is opened for waiting only and waited on for zero
+    milliseconds. A handle that is already signalled means the process has
+    exited. GetExitCodeProcess is deliberately not used: a process that
+    genuinely exited with code 259 is indistinguishable from STILL_ACTIVE.
+    """
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int,
+                                     ctypes.c_uint32)
+    # HANDLE is pointer-sized; the default c_int return would truncate it.
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+    kernel32.CloseHandle.argtypes = (ctypes.c_void_p,)
+
+    handle = kernel32.OpenProcess(_SYNCHRONIZE, False, pid)
+    if not handle:
+        # An elevated process is there but closed to us — that counts as
+        # alive. Anything else (no such PID) means it is gone.
+        return ctypes.get_last_error() == _ERROR_ACCESS_DENIED
+    try:
+        state = kernel32.WaitForSingleObject(handle, 0)
+        if state == _WAIT_OBJECT_0:
+            return False
+        if state == _WAIT_TIMEOUT:
+            return True
+        return True                    # WAIT_FAILED: no answer, do not blame
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _process_alive(pid: int) -> bool:
     """Does the PID still exist? Another user's process counts as alive."""
+    # 0 and negatives address a whole process group on POSIX, not a process.
+    if pid <= 0:
+        return False
+    if platform.system() == "Windows":
+        return _windows_process_alive(pid)
     try:
         os.kill(pid, 0)
     except PermissionError:            # root's process: closed to us but there
@@ -306,7 +359,7 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
             if code is not None:
                 _output, error_text = process.communicate()
                 lines = (error_text or "").strip().splitlines()
-                last = lines[-1] if lines else f"kod {code}"
+                last = lines[-1] if lines else f"code {code}"
                 if "-128" in last or "User canceled" in last:
                     return False, "Administrator permission was not granted"
                 return False, f"Could not restart: {last}"

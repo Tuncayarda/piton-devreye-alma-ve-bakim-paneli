@@ -268,6 +268,74 @@ class ElevationResult(unittest.TestCase):
             self.assertEqual(privileges.elevate(_PLAN), (False, "crashed"))
 
 
+class _FakeKernel32:
+    """Just enough of kernel32 to drive _windows_process_alive off Windows."""
+
+    def __init__(self, handle: int, state: int):
+        self.OpenProcess = mock.Mock(return_value=handle)
+        self.WaitForSingleObject = mock.Mock(return_value=state)
+        self.CloseHandle = mock.Mock(return_value=1)
+
+
+class ProcessProbe(unittest.TestCase):
+    """Asking whether a PID is up, without disturbing it.
+
+    `os.kill(pid, 0)` is a POSIX idiom that does NOT carry over: on Windows
+    signal 0 is signal.CTRL_C_EVENT, so the "question" is a Ctrl+C down the
+    console — it tore the whole Windows CI run down mid-suite with a
+    KeyboardInterrupt. Any other signal number is worse: os.kill() then calls
+    TerminateProcess and kills the process it was asked about.
+    """
+
+    def _probe(self, handle: int, state: int = 0, last_error: int = 0):
+        import ctypes
+
+        kernel32 = _FakeKernel32(handle, state)
+        with (mock.patch.object(ctypes, "WinDLL", return_value=kernel32,
+                                create=True),
+              mock.patch.object(ctypes, "get_last_error",
+                                return_value=last_error, create=True)):
+            alive = privileges._windows_process_alive(4242)
+        return alive, kernel32
+
+    def test_on_windows_no_signal_is_sent(self):
+        with (mock.patch.object(privileges.platform, "system",
+                                return_value="Windows"),
+              mock.patch.object(privileges.os, "kill") as kill,
+              mock.patch.object(privileges, "_windows_process_alive",
+                                return_value=False) as probe):
+            self.assertFalse(privileges._process_alive(4194303))
+
+        kill.assert_not_called()
+        self.assertEqual(probe.call_args.args, (4194303,))
+
+    def test_a_running_process_does_not_signal_its_handle(self):
+        alive, kernel32 = self._probe(handle=7, state=0x102)   # WAIT_TIMEOUT
+        self.assertTrue(alive)
+        kernel32.CloseHandle.assert_called_once_with(7)
+
+    def test_a_signalled_handle_means_the_process_ended(self):
+        alive, kernel32 = self._probe(handle=7, state=0)       # WAIT_OBJECT_0
+        self.assertFalse(alive)
+        kernel32.CloseHandle.assert_called_once_with(7)
+
+    def test_an_unopenable_pid_is_gone(self):
+        alive, _ = self._probe(handle=0, last_error=87)  # ERROR_INVALID_PARAM
+        self.assertFalse(alive)
+
+    def test_a_process_closed_to_us_counts_as_alive(self):
+        """The whole point is checking an ELEVATED process from a plain one."""
+        alive, _ = self._probe(handle=0, last_error=5)   # ERROR_ACCESS_DENIED
+        self.assertTrue(alive)
+
+    def test_a_missing_pid_is_never_probed(self):
+        """0 and negatives address a process GROUP on POSIX, not a process."""
+        with mock.patch.object(privileges.os, "kill") as kill:
+            self.assertFalse(privileges._process_alive(0))
+            self.assertFalse(privileges._process_alive(-1))
+        kill.assert_not_called()
+
+
 class NewProcessStatus(unittest.TestCase):
 
     def _files(self, pid: str, log: str):
