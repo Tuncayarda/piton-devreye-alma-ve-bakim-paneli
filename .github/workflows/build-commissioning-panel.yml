@@ -1,0 +1,41 @@
+name: Build · Commissioning Panel
+
+# Packages and Releases for the Commissioning and Maintenance Panel.
+#   • workflow_dispatch     -> artifact only
+#   • dap-v* tag push       -> artifact + GitHub Release
+#
+# Why the tag prefix: the repository used to hold two applications, each on
+# its own branch with its own version. Unprefixed "v*" and "syp-v*" tags
+# belong to the Switch Management Panel, which is built on the `syp` branch.
+# Example: dap-v0.9.0-dev  →  must match APP_VERSION 0.9.0-dev.
+#
+# Pre-release tags (-dev, -alpha, -beta, -rc) are marked "pre-release" on the
+# Release page.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "dap-v*"
+
+concurrency:
+  group: build-commissioning-panel-${{ github.ref }}
+  cancel-in-progress: false      # never cancel a half-finished release build
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    uses: ./.github/workflows/build-app.yml
+    permissions:
+      contents: write            # for the Release step
+    with:
+      app_dir: .
+      app_name: CommissioningPanel
+      display_name: Commissioning and Maintenance Panel
+      spec: CommissioningPanel.spec
+      iss: packaging/windows/CommissioningPanel.iss
+      # This panel has unit tests; they run before the package is produced.
+      tests: python -m unittest discover -s tests -t .
+      frontend_bundle_tool: tools/build_desktop_bundle.py

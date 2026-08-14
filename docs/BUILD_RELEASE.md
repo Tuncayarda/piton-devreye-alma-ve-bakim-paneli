@@ -22,20 +22,24 @@ Switch Yönetim Paneli `syp` dalındadır.
 ├── .github/workflows/
 │   ├── ci.yml                          bağımlılık + self-test + testler
 │   ├── build-app.yml                   ortak derleme akışı (workflow_call)
-│   └── build-devreye.yml               bu uygulamanın yayını   (dap-v*)
+│   └── build-commissioning-panel.yml   bu uygulamanın yayını   (dap-v*)
 ├── app.py                              giriş noktası, pencere, self-test
-├── masaustu.py                         soketsiz pywebview köprüsü
-├── panel_api.py                        ortak servis + tarayıcı HTTP adaptörü
-├── core/                               iş mantığı (ayar, okuma, konfig, …)
-├── betikler/                           çalışma anında yüklenen motorlar
+├── panel/                              uygulama paketi
+│   ├── api/                            servis katmanı + HTTP adaptörü
+│   ├── desktop/                        soketsiz pywebview köprüsü
+│   ├── i18n.py                         mesaj kataloğu (t / lazy)
+│   ├── messages/                       en.json · tr.json — bütün metinler
+│   ├── settings.py                     sabitler ve yol çözümü
+│   └── …                               ip_assign, config_sync, probe, jobs
+├── field_scripts/                      çalışma anında yüklenen motorlar
 │   ├── switch_api.py                   Switch Yönetim Paneli'nden kopya
 │   ├── device_verify.py                saha doğrulama betiği
 │   └── intercom_ip_assign.py           IP atama betiği
-├── DevreyeAlmaPaneli.spec              PyInstaller yapılandırması
+├── CommissioningPanel.spec             PyInstaller yapılandırması
 ├── DeviceMap.json                      topoloji envanteri (pakete girer)
-├── Yatakli_Saha_Cihaz_Dogrulama.xlsx   Excel şablonu (pakete girer)
-├── static/                             kaynak arayüz + üretilmiş masaustu.html
-├── tools/masaustu_paketi.py            Deno 2.9.4 paketleme/doğrulama aracı
+├── Field_Device_Verification.xlsx      Excel şablonu (pakete girer)
+├── static/                             kaynak arayüz + üretilmiş desktop.html
+├── tools/build_desktop_bundle.py       Deno 2.9.4 paketleme/doğrulama aracı
 ├── tests/                              birim testler (pakete GİRMEZ)
 ├── packaging/
 │   ├── appimage.sh                     Linux AppImage
@@ -52,20 +56,20 @@ Switch Yönetim Paneli `syp` dalındadır.
 ### Pakete giren veri dosyaları
 
 Panel switch erişimini ve saha betiklerini yeniden yazmaz; çalışma anında
-dosya yolundan içe aktarır (`core/betik.py`). Kaynaktan çalışırken bunlar
+dosya yolundan içe aktarır (`panel/script_loader.py`). Kaynaktan çalışırken bunlar
 depodaki yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 
 | Dosya | Nereden | Ne için |
 |---|---|---|
-| `switch_api.py` | `betikler/` | switch okuma, PoE |
-| `device_verify.py` | `betikler/` | alan ayıklama, Excel şeması |
-| `intercom_ip_assign.py` | `betikler/` | IP atama koşusu |
+| `switch_api.py` | `field_scripts/` | switch okuma, PoE |
+| `device_verify.py` | `field_scripts/` | alan ayıklama, Excel şeması |
+| `intercom_ip_assign.py` | `field_scripts/` | IP atama koşusu |
 | `DeviceMap.json` | uygulama kökü | cihaz envanteri |
-| `Yatakli_Saha_Cihaz_Dogrulama.xlsx` | uygulama kökü | kontrol listesi şablonu |
+| `Field_Device_Verification.xlsx` | uygulama kökü | kontrol listesi şablonu |
 
-Yol çözümü `core/ayar.py` → `veri_dosyasi()` içindedir: paketlenmiş durumda
+Yol çözümü `panel/settings.py` → `data_file()` içindedir: paketlenmiş durumda
 paketin kökü, kaynaktan çalışırken depodaki göreli yol. Beşinden biri
-eksikse `DevreyeAlmaPaneli.spec` derlemeyi durdurur; `--self-test` de bu
+eksikse `CommissioningPanel.spec` derlemeyi durdurur; `--self-test` de bu
 dosyaları tek tek arar. Böylece eksik paket üretilmesi ve sahada
 "DeviceMap bulunamadı" hatasıyla karşılaşılması önlenir.
 
@@ -93,7 +97,7 @@ python3 app.py
 ```bash
 python3 app.py --self-test                    # varlıklar + soketsiz köprü
 python3 -m unittest discover -s tests -t .    # birim testler
-python3 tools/masaustu_paketi.py --check      # tek HTML güncel mi
+python3 tools/build_desktop_bundle.py --check      # tek HTML güncel mi
 ```
 
 **Self-test kapsamı:** Veri dosyalarını ve kardeş betikleri arar, DeviceMap'i
@@ -129,17 +133,17 @@ Linux için:
 
 ```bash
 python3 -m pip install -r docs/requirements-build.txt
-python3 tools/masaustu_paketi.py --check
+python3 tools/build_desktop_bundle.py --check
 rm -rf build dist
-python3 -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
+python3 -m PyInstaller --noconfirm --clean CommissioningPanel.spec
 ```
 
 Windows PowerShell için:
 
 ```powershell
 python -m pip install -r docs/requirements-build.txt
-python tools/masaustu_paketi.py --check
-python -m PyInstaller --noconfirm --clean DevreyeAlmaPaneli.spec
+python tools/build_desktop_bundle.py --check
+python -m PyInstaller --noconfirm --clean CommissioningPanel.spec
 ```
 
 Derleme **Python 3.12** ile yapılır. Bilerek başka bir Python sürümü
@@ -150,9 +154,9 @@ Paketlenmiş uygulamayı macOS ve Linux'ta doğrulama:
 
 ```bash
 # macOS
-"dist/Devreye Alma Paneli.app/Contents/MacOS/DevreyeAlmaPaneli" --self-test
+"dist/Commissioning and Maintenance Panel.app/Contents/MacOS/CommissioningPanel" --self-test
 # Linux
-./dist/DevreyeAlmaPaneli/DevreyeAlmaPaneli --self-test
+./dist/CommissioningPanel/CommissioningPanel --self-test
 ```
 
 Windows uygulaması GUI alt sistemiyle derlendiği için PowerShell doğrudan
@@ -160,7 +164,7 @@ Windows uygulaması GUI alt sistemiyle derlendiği için PowerShell doğrudan
 için `Start-Process -Wait -PassThru` kullanın:
 
 ```powershell
-$exe = (Resolve-Path '.\dist\DevreyeAlmaPaneli\DevreyeAlmaPaneli.exe').Path
+$exe = (Resolve-Path '.\dist\CommissioningPanel\CommissioningPanel.exe').Path
 $islem = Start-Process -FilePath $exe -ArgumentList '--self-test' `
   -Wait -PassThru -NoNewWindow
 if ($islem.ExitCode -ne 0) {
@@ -171,12 +175,12 @@ if ($islem.ExitCode -ne 0) {
 ### Windows kurulum paketi
 
 ```powershell
-$surum = "0.9.6"  # core/ayar.py içindeki APP_VERSION ile aynı olmalı
+$surum = "0.9.7"  # panel/settings.py içindeki APP_VERSION ile aynı olmalı
 & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
   "/DMyAppVersion=$surum" `
-  "/DSourceDir=..\..\dist\DevreyeAlmaPaneli" `
+  "/DSourceDir=..\..\dist\CommissioningPanel" `
   "/DOutputDir=..\..\release" `
-  "packaging\windows\DevreyeAlmaPaneli.iss"
+  "packaging\windows\CommissioningPanel.iss"
 ```
 
 Kurulum paketinin AppId GUID'i Switch Yönetim Paneli'nden **ayrıdır**. Bu
@@ -187,8 +191,8 @@ sayede iki uygulama aynı makinede yan yana kurulabilir; biri diğerinin
 
 ```bash
 SURUM="$(python3 app.py --version)"
-./packaging/appimage.sh dist/DevreyeAlmaPaneli \
-  "release/DevreyeAlmaPaneli-${SURUM}-linux-x86_64.AppImage" "$SURUM"
+./packaging/appimage.sh dist/CommissioningPanel \
+  "release/CommissioningPanel-${SURUM}-linux-x86_64.AppImage" "$SURUM"
 ```
 
 ---
@@ -212,8 +216,8 @@ değildir.
 bağımlılıklar kurulur; `compileall`, birim testler, kaynak koddan
 `--self-test` ve `--version` çalıştırılır.
 
-Etiket gönderimlerinde `surum-kontrol` işi, `dap-v*` etiketindeki değer ile
-`core/ayar.py` içindeki `APP_VERSION` değerini karşılaştırır. `repo-kontrol`
+Etiket gönderimlerinde `version-check` işi, `dap-v*` etiketindeki değer ile
+`panel/settings.py` içindeki `APP_VERSION` değerini karşılaştırır. `repo-checks`
 işi ise izlenen hassas dosya adlarını ve temiz depo durumunu denetler.
 
 ### `build-app.yml` — ortak derleme akışı
@@ -238,7 +242,7 @@ Linux paketi Ubuntu 22.04 üzerinde derlenir. Daha yeni bir sistemde derlenen
 ikili eski bir `glibc` sürümünde çalışmayabileceğinden, bu seçim desteklenen
 dağıtım aralığını genişletir.
 
-### `build-devreye.yml` — bu uygulamanın paketleri
+### `build-commissioning-panel.yml` — bu uygulamanın paketleri
 
 - **Elle çalıştırma (`workflow_dispatch`):** Dört hedef için paket ve GitHub
   Actions çıktı arşivi üretir; GitHub sürümü yayımlamaz.
@@ -252,7 +256,7 @@ GitHub sürümüne dokunmaz.
 ### Sürüm etiketiyle yayınlama
 
 ```bash
-# Önce core/ayar.py içindeki APP_VERSION değerini yeni sürüme yükseltin.
+# Önce panel/settings.py içindeki APP_VERSION değerini yeni sürüme yükseltin.
 SURUM="$(python3 app.py --version)"
 git tag "dap-v${SURUM}"
 git push origin "dap-v${SURUM}"
@@ -264,7 +268,7 @@ git push origin "dap-v${SURUM}"
 | `syp-v…` | Switch Yönetim Paneli |
 | `v…` | Switch Yönetim Paneli (depoda tek uygulama varken kullanılan eski biçim) |
 
-Etiketteki sürüm ile `core/ayar.py` içindeki `APP_VERSION` **aynı olmalıdır**;
+Etiketteki sürüm ile `panel/settings.py` içindeki `APP_VERSION` **aynı olmalıdır**;
 değilse derleme açık bir hatayla durur. Bütün derleme hedefleri başarıyla
 tamamlanmadan GitHub sürümü oluşturulmaz. Ön sürüm ekleri (`-dev`, `-alpha`,
 `-beta`, `-rc`) sürümü GitHub'da **ön sürüm** (pre-release) olarak işaretler.
@@ -296,7 +300,7 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 |---|---|
 | Başlık | `Devreye Alma Paneli v0.9.6` — ham etiket değil, uygulama adı + sürüm |
 | Etiket | `dap-v*` / `syp-v*` · `v*` |
-| Dosya adları | `DevreyeAlmaPaneli-…` / `SwitchYonetimPaneli-…` |
+| Dosya adları | `CommissioningPanel-…` / `SwitchYonetimPaneli-…` |
 | Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |
 | README bağlantısı | `../../releases?q=dap-v`; yalnız Devreye Alma Paneli sürümlerini gösterir |
 
@@ -322,11 +326,11 @@ kullanılmaz ve gizli değer istenmez.
 ## 5. Üretilen dosyalar
 
 ```
-DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe
-DevreyeAlmaPaneli-<sürüm>-windows-x64.zip
-DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip      (içinde .AppImage)
-DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip
-DevreyeAlmaPaneli-<sürüm>-macos-x64.zip
+CommissioningPanel-<sürüm>-windows-x64-Setup.exe
+CommissioningPanel-<sürüm>-windows-x64.zip
+CommissioningPanel-<sürüm>-linux-x86_64.zip      (içinde .AppImage)
+CommissioningPanel-<sürüm>-macos-arm64.zip
+CommissioningPanel-<sürüm>-macos-x64.zip
 SHA256SUMS.txt
 ```
 
@@ -347,15 +351,15 @@ dosyalar için hata üretir. Bu durumda ilgili dosyanın özetini hesaplayıp
 
 ```powershell
 # Windows PowerShell
-Get-FileHash -Algorithm SHA256 '.\DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe'
+Get-FileHash -Algorithm SHA256 '.\CommissioningPanel-<sürüm>-windows-x64-Setup.exe'
 ```
 
 ```bash
 # macOS
-shasum -a 256 'DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip'
+shasum -a 256 'CommissioningPanel-<sürüm>-macos-arm64.zip'
 
 # Linux
-sha256sum 'DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip'
+sha256sum 'CommissioningPanel-<sürüm>-linux-x86_64.zip'
 ```
 
 ---

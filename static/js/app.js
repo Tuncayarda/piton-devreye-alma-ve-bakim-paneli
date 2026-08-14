@@ -1,628 +1,658 @@
-// Devreye Alma Paneli — arayüz başlangıcı ve döngüler.
+// Devreye Alma Paneli — UI start-up and the refresh loops.
 //
-// Zamanlama kuralları:
-//   · setInterval kullanılmaz. Her tur, bir önceki istek BİTTİKTEN sonra
-//     setTimeout ile kurulur; yavaş bir cihaz yüzünden istekler üst üste
-//     binmez.
-//   · Yenileme iki hızda çalışır ve durdurulamaz:
-//       – Keşif (tam tarama) dakikada bir. DeviceMap'teki HER adrese
-//         bakar, yani ulaşılamayan cihaz başına zaman aşımı kadar bekler;
-//         pahalı olan bu. "Şimdi tara" düğmesi bu turu öne çeker.
-//       – Hafif yenileme birkaç saniyede bir, YALNIZ son turda yeşile
-//         düşmüş cihazlara. Ulaşılamayana dokunmaz, o yüzden hızlıdır.
-//   · Tam tarama sürerken hafif yenileme çalışmaz.
-//   · IP atama / konfigürasyon / yazılım yükleme koşusu sürerken
-//     kendiliğinden tarama başlatılmaz; koşu cihazları yeniden başlatıyor.
-//     Elle istenen tarama kuyruğa girer ve koşudan sonra çalışır.
-//   · Her yanıtın bir "nesli" vardır; geç gelen eski yanıt yenisini ezmez.
+// Timing rules:
+//   · setInterval is never used. Every round is set up with setTimeout AFTER
+//     the previous request finished, so a slow device cannot make requests
+//     pile up.
+//   · Refreshing runs at two speeds and cannot be stopped:
+//       – Discovery (full scan) once a minute. It looks at EVERY address in
+//         DeviceMap, so it waits one timeout per unreachable device; that is
+//         the expensive one. The "Scan now" button pulls that round forward.
+//       – The light refresh every few seconds, ONLY for devices that went
+//         green in the last round. It never touches an unreachable device,
+//         which is what makes it fast.
+//   · The light refresh does not run while a full scan is in progress.
+//   · No scan is started on its own while an IP assignment / configuration /
+//     firmware run is in progress; those runs reboot devices. A scan the user
+//     asks for enters the queue and runs after the job.
+//   · Every reply carries a generation; a late old reply never overwrites a
+//     newer one.
 
-import { $, kaydirmayiKoru } from './core/dom.js';
+import { $, preserveScroll } from './core/dom.js';
 import { api } from './core/api.js';
-import { durum, ata, abone } from './core/durum.js';
-import * as kenar from './parts/kenar.js';
-import * as kuyruk from './parts/kuyruk.js';
-import * as kilit from './parts/kilit.js';
-import * as detay from './parts/detay.js';
-import * as diyalog from './parts/diyalog.js';
-import { bildir, hata, basari } from './parts/bildirim.js';
-import * as vGenel from './views/genel.js';
-import * as vCihaz from './views/cihazlar.js';
-import * as vIp from './views/ip.js';
-import * as vCfg from './views/konfig.js';
-import * as vFw from './views/firmware.js';
-import * as vDog from './views/kontrol.js';
-import * as vGecmis from './views/gecmis.js';
-import * as vPiscu from './views/piscu.js';
-import * as vMqtt from './views/mqtt.js';
-import * as vAdmin from './views/admin.js';
+import { state, patch, subscribe } from './core/store.js';
+import { t } from './core/i18n.js';
+import * as language from './components/language.js';
+import * as sidebar from './components/sidebar.js';
+import * as queue from './components/queue.js';
+import * as locked from './components/locked.js';
+import * as detail from './components/detail.js';
+import * as dialog from './components/dialog.js';
+import { notify, showError, showSuccess } from './components/toast.js';
+import * as overviewView from './views/overview.js';
+import * as devicesView from './views/devices.js';
+import * as ipView from './views/ip/index.js';
+import * as configView from './views/config.js';
+import * as firmwareView from './views/firmware.js';
+import * as checklistView from './views/checklist.js';
+import * as historyView from './views/history.js';
+import * as piscuView from './views/piscu.js';
+import * as mqttView from './views/mqtt.js';
+import * as adminView from './views/admin.js';
 
-// Turlar arasındaki BOŞLUK (sürelerine değil). Hafif tur yalnız yeşil
-// cihazlara gittiği için kendi başına da hızlı biter; iki saniye, saha
-// gözünün "canlı" saydığı aralık. Sunucu turu sırayla okuduğundan bunu
-// kısaltmak istekleri üst üste bindirmez, yalnız cihazları daha sık yorar.
-const HAFIF_ARALIK = 2000;
-// Keşif turu: bu IP'de cihaz var mı? Ulaşılamayan her cihaz zaman aşımı
-// kadar beklettiği için seyrek çalışır.
-const TAM_TARAMA_ARALIK = 60000;
-// Oturum açılışında ve set değişiminde ekran boş gelir; ilk keşif tam bir
-// dakika beklemez. Kısa gecikme, ilk çizimle taramanın yarışmaması için.
-const ILK_TARAMA_GECIKME = 1500;
-// Tarama bir engel yüzünden atlandığında ne kadar sonra yeniden bakılır.
-const ENGEL_BEKLEME = 3000;
-const IS_ARALIK = 900;
+// The GAP between rounds (not their duration). The light round only visits
+// green devices so it finishes quickly on its own; two seconds is what a
+// field eye reads as "live". The server reads the round in order, so
+// shortening this does not overlap requests, it only tires the devices.
+const LIGHT_INTERVAL = 2000;
+// Discovery round: is there a device at this IP? It runs rarely because each
+// unreachable device costs a full timeout.
+const FULL_SCAN_INTERVAL = 60000;
+// The screen is empty when a session opens and when the set changes; the
+// first discovery does not wait a whole minute. The short delay keeps the
+// first render from racing the scan.
+const FIRST_SCAN_DELAY = 1500;
+// How long to wait before looking again when a scan was skipped for a reason.
+const BLOCKED_RETRY = 3000;
+const JOB_INTERVAL = 900;
 
-// Cihaza YAZAN koşular. Sürerken kendiliğinden tarama başlatılmaz
-// (sunucu tarafındaki karşılığı: panel_api.YAZAN_ISLER).
-const KOSU_TURU = new Set(['ip', 'ipfab', 'cfg', 'fw']);
+// Runs that WRITE to devices. No scan starts on its own while one is in
+// progress (the server-side counterpart: panel.api.presenters.
+// WRITING_JOB_KINDS).
+const WRITING_JOB_KINDS = new Set(['ip', 'ipfactory', 'config', 'firmware']);
 
-let durumNesli = 0;
-let hafifZaman = null;
-let isZaman = null;
-let taramaZaman = null;
+let stateGeneration = 0;
+let lightTimer = null;
+let jobTimer = null;
+let scanTimer = null;
 
-// ───────────────────────────────────────────────────────── veri çekme ────
-async function durumuCek() {
-  const nesil = ++durumNesli;
-  const d = await api.durum(durum.setNo);
-  if (nesil !== durumNesli) return null;      // daha yeni bir istek var
-  kilit.uygulaDurum(d);
-  await acikEkraniTazele();
-  return d;
+// ───────────────────────────────────────────────────────── fetching ──────
+async function fetchState() {
+  const generation = ++stateGeneration;
+  const data = await api.state(state.setNo);
+  if (generation !== stateGeneration) return null;   // a newer request exists
+  locked.applyState(data);
+  await refreshOpenView();
+  return data;
 }
 
-// Kontrol listesi cihaz okumalarından değil kendi ucundan besleniyor
-// (/api/kontrol, şablon + o anki görüntü). Yalnız ekrana girerken
-// çekildiği için tarama sürerken ya da hafif yenileme yeni değer
-// getirdiğinde ekranda eski satırlar kalıyordu.
+// The checklist is fed by its own endpoint rather than by device reads
+// (/api/checklist, the template plus the current view). Because it was only
+// fetched on entering the screen, old rows stayed on screen while a scan ran
+// or the light refresh brought new values.
 //
-// İmza: cihaz sonuçlarının özeti. Aynıysa istek yapılmaz — 900 ms'lik iş
-// döngüsünde her turda şablon önizlemesi çekmenin anlamı yok.
-const TAZELE_ARALIK = 1500;
-let sonImza = '';
-let sonTazeleZamani = 0;
+// Signature: a digest of the device results. Unchanged, no request is made —
+// there is no point fetching the template preview on every 900 ms job round.
+const REFRESH_INTERVAL = 1500;
+let lastSignature = '';
+let lastRefreshAt = 0;
 
-function cihazImzasi() {
-  return (durum.cihazlar || [])
-    .map(c => `${c.id}${c.sonuc.durum}${c.sonuc.okumaZamani || 0}`)
+function deviceSignature() {
+  return (state.devices || [])
+    .map(d => `${d.id}${d.result.state}${d.result.readAt || 0}`)
     .join('|');
 }
 
-async function acikEkraniTazele() {
-  if (durum.gorunum !== 'dog') return;
-  const imza = cihazImzasi();
-  const simdi = Date.now();
-  if (imza === sonImza || simdi - sonTazeleZamani < TAZELE_ARALIK) return;
-  sonImza = imza;
-  sonTazeleZamani = simdi;
-  await vDog.tazele();
+async function refreshOpenView() {
+  if (state.view !== 'checklist') return;
+  const signature = deviceSignature();
+  const now = Date.now();
+  if (signature === lastSignature || now - lastRefreshAt < REFRESH_INTERVAL) {
+    return;
+  }
+  lastSignature = signature;
+  lastRefreshAt = now;
+  await checklistView.refresh();
 }
 
-// İş listesi her turda yeni bir dizi olarak gelir; `ata` referansa baktığı
-// için hiçbir şey değişmemiş olsa da bütün arayüz yeniden çiziliyordu.
-// Kuyruk paneli açıkken bu, saniyede bir tam çizim demekti.
-let sonIslerImzasi = null;
+// The job list arrives as a new array every round; because `patch` compares
+// by reference, the whole UI was redrawn even when nothing had changed. With
+// the queue panel open that meant a full render every second.
+let lastJobSignature = null;
 
-async function isleriCek() {
+async function fetchJobs() {
   try {
-    const y = await api.isler();
-    let isler = y.isler || [];
-    if (durum.acikIs) {
+    const body = await api.jobs();
+    let jobs = body.jobs || [];
+    if (state.openJob) {
       try {
-        const tam = await api.is(durum.acikIs);
-        isler = isler.map(j => (j.id === tam.id ? tam : j));
-      } catch { /* iş silinmiş olabilir */ }
+        const full = await api.job(state.openJob);
+        jobs = jobs.map(j => (j.id === full.id ? full : j));
+      } catch { /* the job may have been removed */ }
     }
-    const imza = JSON.stringify(isler);
-    if (imza === sonIslerImzasi) return;
-    sonIslerImzasi = imza;
-    ata({ isler });
-  } catch { /* servis bir tur cevap vermediyse bir sonrakinde denenir */ }
+    const signature = JSON.stringify(jobs);
+    if (signature === lastJobSignature) return;
+    lastJobSignature = signature;
+    patch({ jobs });
+  } catch { /* if the service missed a round, the next one retries */ }
 }
 
-// ───────────────────────────────────────────────────────── döngüler ──────
-function isDongusu() {
-  clearTimeout(isZaman);
-  const surenVar = (durum.isler || []).some(
-    j => j.durum === 'calisiyor' || j.durum === 'bekliyor');
-  const gerek = surenVar || durum.kuyrukAcik;
-  isZaman = setTimeout(async () => {
-    if (durum.rol) {
-      await isleriCek();
-      if (surenVar) { try { await durumuCek(); } catch { /* yoksay */ } }
+// ───────────────────────────────────────────────────────── loops ─────────
+function jobLoop() {
+  clearTimeout(jobTimer);
+  const running = (state.jobs || []).some(
+    j => j.state === 'running' || j.state === 'queued');
+  const needed = running || state.queueOpen;
+  jobTimer = setTimeout(async () => {
+    if (state.role) {
+      await fetchJobs();
+      if (running) { try { await fetchState(); } catch { /* ignore */ } }
     }
-    isDongusu();
-  }, gerek ? IS_ARALIK : 4000);
+    jobLoop();
+  }, needed ? JOB_INTERVAL : 4000);
 }
 
-// Hafif yenilemenin hedefi: YALNIZ son taramada yeşile düşen cihazlar.
-// Ulaşılamayan cihaz her turda yeniden denenirse tur onun zaman aşımı
-// kadar uzuyor ve çalışan cihazların verisi bayatlıyor. Ulaşılamayanı
-// yeniden denemek dakikalık keşif turunun işi. Sunucu da aynı süzgeci
-// uygular (panel_api._hafif_yenileme); burada listelemek isteği küçültür.
-function yenilemeHedefi() {
-  return (durum.cihazlar || [])
-    .filter(c => c.sonuc && c.sonuc.durum === 'yesil')
-    .map(c => c.id);
+// The light refresh targets ONLY devices that went green in the last scan.
+// Retrying an unreachable device every round grows the round by that device's
+// timeout and the working devices' data goes stale. Retrying the unreachable
+// is the minute-long discovery round's job. The server applies the same
+// filter (panel.api.routes.session_routes.post_refresh); listing them here
+// keeps the request small.
+function refreshTargets() {
+  return (state.devices || [])
+    .filter(d => d.result && d.result.state === 'ok')
+    .map(d => d.id);
 }
 
-function surenKosuVar() {
-  return (durum.isler || []).some(
-    j => KOSU_TURU.has(j.tur)
-      && (j.durum === 'calisiyor' || j.durum === 'bekliyor'));
+function writingRunInProgress() {
+  return (state.jobs || []).some(
+    j => WRITING_JOB_KINDS.has(j.kind)
+      && (j.state === 'running' || j.state === 'queued'));
 }
 
-// Süren tarama arayüzün kendi zamanlayıcısından mı geldi? Elle istenen
-// tarama kullanıcıyı bekletmeye değer; dakikada bir kendiliğinden çıkan
-// tur ise arayüzü kilitlememeli (bkz. setSeciciyiKur).
-function otomatikTaramaIsi() {
-  return (durum.isler || []).find(
-    j => j.tur === 'tarama' && j.otomatik
-      && (j.durum === 'calisiyor' || j.durum === 'bekliyor')) || null;
+// Did the running scan come from the UI's own timer? A scan the user asked
+// for is worth making them wait for; the round that appears once a minute on
+// its own must not lock the UI (see setUpSetPicker).
+function automaticScanJob() {
+  return (state.jobs || []).find(
+    j => j.kind === 'scan' && j.auto
+      && (j.state === 'running' || j.state === 'queued')) || null;
 }
 
-// Keşif turu. Ne kadar bekleneceği dışarıdan verilebiliyor: "Şimdi tara",
-// oturum açılışı ve set değişimi sayacı kendi süresiyle sıfırlar.
-function taramaDongusu(gecikme = TAM_TARAMA_ARALIK) {
-  clearTimeout(taramaZaman);
-  taramaZaman = setTimeout(async () => {
-    // Tur atlanınca sayaç baştan kurulmaz, kısa aralıkla tekrar bakılır:
-    // engel kalkar kalkmaz tarama çalışmalı, bir dakika daha beklememeli.
-    // Uzun bir yazılım yükleme koşusundan sonra cihazların durumu tepeden
-    // tırnağa değişmiş olur; oradaki gecikme en çok can sıkan yer. Denetim
-    // yerel durumdan yapıldığı için sık bakmanın bir maliyeti yok.
-    if (!durum.rol || durum.aktifTarama || surenKosuVar()) {
-      taramaDongusu(ENGEL_BEKLEME);
+// The discovery round. How long to wait can be passed in: "Scan now",
+// opening a session and changing the set each reset the timer with their own
+// delay.
+function scanLoop(delay = FULL_SCAN_INTERVAL) {
+  clearTimeout(scanTimer);
+  scanTimer = setTimeout(async () => {
+    // When a round is skipped the timer is not reset to a full minute but
+    // retried shortly: the scan should run the moment the obstacle clears,
+    // not a minute later. After a long firmware run the devices' state has
+    // changed from top to bottom, and the delay there is the most annoying
+    // one. The check reads local state, so looking often costs nothing.
+    if (!state.role || state.scanRunning || writingRunInProgress()) {
+      scanLoop(BLOCKED_RETRY);
       return;
     }
     try {
-      await api.tarama(durum.setNo, true);
-      await isleriCek();
-    } catch { /* servis bir tur cevap vermediyse bir sonrakinde denenir */ }
-    taramaDongusu();
-  }, gecikme);
+      await api.scan(state.setNo, true);
+      await fetchJobs();
+    } catch { /* if the service missed a round, the next one retries */ }
+    scanLoop();
+  }, delay);
 }
 
-function hafifDongu() {
-  clearTimeout(hafifZaman);
-  hafifZaman = setTimeout(async () => {
-    const uygun = durum.rol && !durum.aktifTarama
-      && !(durum.isler || []).some(j => j.durum === 'calisiyor');
-    if (uygun) {
-      const hedef = yenilemeHedefi();
-      if (hedef.length) {
-        const nesil = ++durumNesli;
+function lightLoop() {
+  clearTimeout(lightTimer);
+  lightTimer = setTimeout(async () => {
+    const allowed = state.role && !state.scanRunning
+      && !(state.jobs || []).some(j => j.state === 'running');
+    if (allowed) {
+      const targets = refreshTargets();
+      if (targets.length) {
+        const generation = ++stateGeneration;
         try {
-          const d = await api.yenile(durum.setNo, hedef);
-          if (nesil === durumNesli) {
-            kilit.uygulaDurum(d);
-            await acikEkraniTazele();
+          const data = await api.refresh(state.setNo, targets);
+          if (generation === stateGeneration) {
+            locked.applyState(data);
+            await refreshOpenView();
           }
         } catch (e) {
-          // 409 = tam tarama araya girdi; sessizce bir sonraki tura bırak
-          if (e.kod && e.kod !== 409) console.warn('hafif yenileme:', e.message);
+          // 409 = a full scan cut in; quietly leave it to the next round
+          if (e.status && e.status !== 409) {
+            console.warn('hafif yenileme:', e.message);
+          }
         }
       } else {
-        // Yenilenecek yeşil cihaz yok — ama açık ekranın kendi ucu
-        // (kontrol listesi) cihaz okumasına bağlı değil. Bu dal olmadan
-        // hiçbir cihaz yeşil değilken liste ilk girişteki görüntüde
-        // donuyordu. İmza denetimi zaten değişmemişse isteği yapmıyor.
-        await acikEkraniTazele();
+        // No green device to refresh — but the open screen's own endpoint
+        // (the checklist) does not depend on device reads. Without this
+        // branch the list froze at its first view whenever no device was
+        // green. The signature check already skips the request when nothing
+        // changed.
+        await refreshOpenView();
       }
     }
-    hafifDongu();
-  }, HAFIF_ARALIK);
+    lightLoop();
+  }, LIGHT_INTERVAL);
 }
 
-// ───────────────────────────────────────────────────────── çizim ─────────
-const EKRANLAR = {
-  genel: ['#v-genel', (k) => vGenel.ciz(k, guncelle)],
-  cihaz: ['#v-cihaz', (k) => vCihaz.ciz(k)],
-  ip: ['#v-ip', (k) => vIp.ciz(k)],
-  cfg: ['#v-cfg', (k) => vCfg.ciz(k)],
-  fw: ['#v-fw', (k) => vFw.ciz(k)],
-  dog: ['#v-dog', (k) => vDog.ciz(k, guncelle)],
-  gecmis: ['#v-gecmis', (k) => vGecmis.ciz(k)],
-  piscu: ['#v-piscu', (k) => vPiscu.ciz(k)],
-  mqtt: ['#v-mqtt', (k) => vMqtt.ciz(k)],
-  admin: ['#v-admin', (k) => vAdmin.ciz(k, setDegistir)],
+// ───────────────────────────────────────────────────────── rendering ─────
+const VIEWS = {
+  overview: ['#v-overview', (root) => overviewView.render(root, refreshNow)],
+  devices: ['#v-devices', (root) => devicesView.render(root)],
+  ip: ['#v-ip', (root) => ipView.render(root)],
+  config: ['#v-config', (root) => configView.render(root)],
+  firmware: ['#v-firmware', (root) => firmwareView.render(root)],
+  checklist: ['#v-checklist', (root) => checklistView.render(root, refreshNow)],
+  history: ['#v-history', (root) => historyView.render(root)],
+  piscu: ['#v-piscu', (root) => piscuView.render(root)],
+  mqtt: ['#v-mqtt', (root) => mqttView.render(root)],
+  admin: ['#v-admin', (root) => adminView.render(root, changeSet)],
 };
 
-let sonGorunum = null;
+let lastView = null;
 
-// Kaynak HTML'de eski ekran kökleri sabit duruyor. Geçmiş görünümünü burada
-// bir kez eklemek, hem tarayıcı sürümünü hem de aynı kaynaklardan üretilen tek
-// dosyalık masaüstü paketini ayrı bir HTML değişikliğine gerek kalmadan korur.
-function gecmisEkraniniKur() {
-  if ($('#v-gecmis')) return;
-  const icerik = $('#icerik');
-  if (!icerik) return;
-  const kok = document.createElement('div');
-  kok.id = 'v-gecmis';
-  kok.className = 'ekran';
-  kok.hidden = true;
-  icerik.insertBefore(kok, $('#v-piscu'));
+// Only the side panels depend on these keys. Opening and closing a job in the
+// queue does not need the rest of the screen (device table, sidebar, top bar)
+// rebuilt — and rebuilding it stuttered visibly.
+const PANEL_KEYS = new Set(['openJob', 'queueOpen', 'lockedOpen']);
+
+// A language switch changes every string on screen, so the whole shell is
+// redrawn: the sidebar is rebuilt from scratch (it is normally built once and
+// left alone) and the open view is drawn again from the same state.
+function redrawEverything() {
+  sidebar.reset();
+  lastView = null;
+  detail.close();
+  dialog.close();
+  render(state, null);
+  queue.render();
+  locked.render();
 }
 
-// Yalnız yan panelleri ilgilendiren anahtarlar. Kuyrukta bir işi açıp
-// kapatmak ekranın geri kalanını (cihaz tablosu, kenar çubuğu, üst bar)
-// baştan kurmayı gerektirmiyor; kurunca da gözle görülür şekilde takılıyordu.
-const PANEL_ANAHTAR = new Set(['acikIs', 'kuyrukAcik', 'kilitAcik']);
+function render(_state, changed) {
+  if (!state.role) return;
 
-function ciz(_d, degisen) {
-  if (!durum.rol) return;
-
-  if (Array.isArray(degisen) && degisen.length
-      && degisen.every(k => PANEL_ANAHTAR.has(k))) {
-    kuyruk.ciz();
-    kilit.ciz();
+  if (Array.isArray(changed) && changed.length
+      && changed.every(key => PANEL_KEYS.has(key))) {
+    queue.render();
+    locked.render();
     return;
   }
 
-  // üst bar
-  const meta = durum.meta;
+  // top bar
+  const meta = state.meta;
   if (meta) {
-    $('#proje-ad').textContent = meta.proje;
-    setSeciciyiKur();
+    $('#project-name').textContent = meta.project;
+    setUpSetPicker();
   }
-  $('#rol-rozet').textContent = durum.rol === 'admin' ? 'Admin' : 'Kullanıcı';
-  $('#rol-rozet').style.color = durum.rol === 'admin' ? 'var(--accent)' : '';
-  $('#alt-bilgi').textContent = kuyruk.ozetMetni(yenilemeHedefi().length);
-  $('#alt-surum').textContent = `v${durum.surum}`;
+  $('#role-badge').textContent =
+    state.role === 'admin' ? t('role.admin') : t('role.user');
+  $('#role-badge').style.color = state.role === 'admin' ? 'var(--accent)' : '';
+  $('#status-text').textContent = queue.summaryText(refreshTargets().length);
+  $('#footer-version').textContent = `v${state.version}`;
 
-  const guncelle = $('#guncelle-btn');
-  guncelle.disabled = !!durum.aktifTarama;
-  // Yalnız görünen etiket değişir; ölçü etiketi düğmenin genişliğini
-  // sabit tutmak için yerinde durur (bkz. index.html).
-  $('.etiket-oynak', guncelle).textContent = durum.aktifTarama
-    ? 'Taranıyor…' : 'Şimdi tara';
-  yanPaneliHizala();
+  const refreshButton = $('#refresh-btn');
+  refreshButton.disabled = !!state.scanRunning;
+  // Only the visible label changes; the measuring label stays in place to
+  // keep the button's width fixed (see index.html).
+  $('.label-live', refreshButton).textContent = state.scanRunning
+    ? t('topbar.scanning') : t('topbar.scanNow');
+  alignSidePanel();
 
-  kenar.ciz();
-  kuyruk.ciz();
-  kilit.ciz();
+  sidebar.render();
+  queue.render();
+  locked.render();
 
-  for (const [ad, [secici]] of Object.entries(EKRANLAR)) {
-    $(secici).hidden = ad !== durum.gorunum;
+  for (const [name, [selector]] of Object.entries(VIEWS)) {
+    $(selector).hidden = name !== state.view;
   }
-  const [secici, cizFn] = EKRANLAR[durum.gorunum] || EKRANLAR.genel;
-  const ekranDegisti = sonGorunum !== durum.gorunum;
+  const [selector, renderView] = VIEWS[state.view] || VIEWS.overview;
+  const viewChanged = lastView !== state.view;
 
-  // Aynı ekranda kalıyorsak kaydırma konumu korunur; ekran değiştiyse
-  // baştan başlamak doğru davranış.
+  // Staying on the same screen preserves the scroll position; on a screen
+  // change, starting at the top is the right behaviour.
   //
-  // Ekran yeniden kurulunca içindeki kutular da baştan yaratılır ve
-  // yazılmakta olan değer kaybolur (alanlar onchange ile, yani odak
-  // çıkınca kaydediyor). Yenileme turu artık saniyeler arayla geldiği
-  // için bu, konfigürasyon alanına yazarken sürekli metin kaybı demekti.
-  // Odak ekranın içindeki bir kutudayken o turun çizimi atlanır; ekran
-  // değişimi kullanıcının kendi eylemidir, o atlanmaz.
-  // Açık bir açılır listenin üstüne çizim yapmak listeyi kapatıyor. Tarama
-  // sürerken cihaz okumaları saniyede bir, cihaz okuması da zaman aşımıyla
-  // araya girdiği için kullanıcı seçeneğe basamadan liste kapanıyor, hedef
-  // grubu ya da cihazı seçmek imkânsız hale geliyordu.
+  // Rebuilding a screen recreates the boxes inside it and loses the value
+  // being typed (fields save on change, i.e. when focus leaves). With the
+  // refresh round now arriving seconds apart, that meant constantly losing
+  // text while typing in a configuration field. A round's render is skipped
+  // while focus is in a box on the screen; a screen change is the user's own
+  // action, so it is never skipped.
   //
-  // Hangi verinin geldiğine bakılmaz: liste odaktayken çizim bekler. Seçim
-  // yapıldığında ekranın yenilenmesi gereken yerlerde (hedef türü, hedef
-  // grup) `change` işleyicisi odağı listeden çıkarır — o zaman bu koşul
-  // düşer ve seçim anında çizilir (bkz. serit.secici).
-  if (ekranDegisti || !(odakEkranKutusunda() || odakAcilirListede())) {
-    kaydirmayiKoru(ekranDegisti ? null : $('#icerik'), () => cizFn($(secici)));
+  // Rendering over an open dropdown closes it. While a scan runs, device
+  // reads arrive every second and a device read can cut in on a timeout, so
+  // the list closed before the user could press an option and picking a
+  // target group or device became impossible.
+  //
+  // It does not matter which data arrived: rendering waits while a list has
+  // focus. Where the screen must refresh after a selection (target type,
+  // target group) the `change` handler moves focus off the list — this
+  // condition then falls away and the selection renders at once (see
+  // group_bar.picker).
+  if (viewChanged || !(focusInScreenField() || focusInDropdown())) {
+    preserveScroll(viewChanged ? null : $('#content'),
+                   () => renderView($(selector)));
   }
 
-  if (ekranDegisti) {
-    sonGorunum = durum.gorunum;
-    $('#icerik').scrollTop = 0;
-    gecisiOynat($(secici));
-    ekranaGirildi(durum.gorunum);
+  if (viewChanged) {
+    lastView = state.view;
+    $('#content').scrollTop = 0;
+    playTransition($(selector));
+    onViewEntered(state.view);
   }
 }
 
-// Ekran değişiminde kısa bir giriş animasyonu. Sekmeler arasında geçerken
-// içeriğin tek karede yer değiştirmesi, aynı yerde duran başlık ve şerit
-// yüzünden "hiçbir şey olmadı" gibi görünüyordu. Animasyon her geçişte
-// baştan başlamalı; bunun için sınıf önce kaldırılır ve yeniden akış
-// (reflow) zorlanır.
-function gecisiOynat(kok) {
-  if (!kok) return;
-  kok.classList.remove('ekran-gecis');
-  void kok.offsetWidth;
-  kok.classList.add('ekran-gecis');
+// A short entry animation on a screen change. Moving between tabs, the
+// content shifting in a single frame looked like "nothing happened" because
+// the heading and the group bar stay in place. The animation must restart on
+// every transition; hence the class is removed first and a reflow forced.
+function playTransition(root) {
+  if (!root) return;
+  root.classList.remove('view-enter');
+  void root.offsetWidth;
+  root.classList.add('view-enter');
 }
 
-// Çizim yalnız YAZILMAKTA olan bir kutu yüzünden atlanır. Açılır listeler
-// buna dahil değildi: seçim `change` ile bittiği anda odak hâlâ listedeydi
-// ve o turun çizimi atlanıyordu — cihaz ya da hedef grup değiştirildiğinde
-// yeni seçimin alanları ancak sekme değiştirilince görünüyordu.
-function odakEkranKutusunda() {
-  const a = document.activeElement;
-  if (!a || !$('#icerik').contains(a)) return false;
-  return a.matches(
+// A render is skipped only for a box being TYPED IN. Dropdowns were not
+// included: the moment a selection finished with `change`, focus was still on
+// the list and that round's render was skipped — so a changed device or
+// target group only showed its fields after switching tabs.
+function focusInScreenField() {
+  const active = document.activeElement;
+  if (!active || !$('#content').contains(active)) return false;
+  return active.matches(
     'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]),'
     + ' textarea, [contenteditable="true"]');
 }
 
-// Açık bir açılır liste odağı kendinde tutar. Liste ekranda da olabilir,
-// cihaz ayar penceresinde de (bkz. konfig.cihazAc) — ikisi de kullanıcının
-// o an baktığı yer.
-function odakAcilirListede() {
-  const a = document.activeElement;
-  if (!a || !a.matches('select')) return false;
-  return [$('#icerik'), $('#diyalog-yuva')].some(k => k && k.contains(a));
+// An open dropdown keeps focus on itself. The list may be on the screen or in
+// a device settings dialog (see config.openDevice) — both are where the user
+// is looking.
+function focusInDropdown() {
+  const active = document.activeElement;
+  if (!active || !active.matches('select')) return false;
+  return [$('#content'), $('#dialog-slot')].some(
+    root => root && root.contains(active));
 }
 
-// Ekran ilk açıldığında kendi verisini çeker (açılışta hepsi çekilmez).
-function ekranaGirildi(ad) {
-  if (ad === 'dog') vDog.tazele();
-  else if (ad === 'ip') vIp.tazele();
-  else if (ad === 'cfg') vCfg.tazele();
-  else if (ad === 'fw') vFw.tazele();
-  else if (ad === 'piscu') vPiscu.tazele();
-  else if (ad === 'mqtt') vMqtt.tazele();
+// A screen fetches its own data the first time it opens (not everything is
+// fetched at start-up).
+function onViewEntered(name) {
+  if (name === 'checklist') checklistView.refresh();
+  else if (name === 'ip') ipView.refresh();
+  else if (name === 'config') configView.refresh();
+  else if (name === 'firmware') firmwareView.refresh();
+  else if (name === 'piscu') piscuView.refresh();
+  else if (name === 'mqtt') mqttView.refresh();
 }
 
-// ───────────────────────────────────────────────────────── eylemler ──────
-// "Şimdi tara" artık tarama BAŞLATMAZ, sıradakini ÖNE ÇEKER: tarama zaten
-// dakikada bir çalışıyor, düğme o turu şimdi kuyruğa alır ve sayacı
-// baştan kurar. Bir koşu (IP atama, konfigürasyon, yazılım yükleme)
-// sürüyorsa tarama kuyrukta bekler — kuyruk tek işçili olduğu için koşuyla
-// asla çakışmaz; kullanıcıya da beklediği söylenir.
+// ───────────────────────────────────────────────────────── actions ───────
+// "Scan now" no longer STARTS a scan, it PULLS the next one FORWARD: the
+// scan already runs once a minute, and the button queues that round now and
+// resets the timer. If a run (IP assignment, configuration, firmware) is in
+// progress the scan waits in the queue — with a single worker it can never
+// collide with the run — and the user is told it is waiting.
 //
-// Tarama başlatmak kuyruk panelini AÇMAZ. İş kuyruğa girdiğinde haber
-// kuyruk düğmesinde belirir (rozet + kısa vurgu); paneli açmak isteyen
-// düğmeye basar. Ekranı kaplayan panel, tarama sürerken cihaz listesini
-// izlemek isteyen kullanıcıyı her seferinde kapatmaya zorluyordu.
-async function guncelle() {
-  const kosu = surenKosuVar();
+// Starting a scan does NOT open the queue panel. When the job enters the
+// queue the news appears on the queue button (badge + a short flash); whoever
+// wants the panel presses the button. A panel covering the screen forced a
+// user who wanted to watch the device list during a scan to close it every
+// time.
+async function refreshNow() {
+  const running = writingRunInProgress();
   try {
-    const y = await api.tarama(durum.setNo);
-    ata({ acikIs: y.id, aktifTarama: true });
-    if (y.yeni === false) {
-      bildir('Tarama zaten kuyrukta');
+    const job = await api.scan(state.setNo);
+    patch({ openJob: job.id, scanRunning: true });
+    if (job.new === false) {
+      notify(t('topbar.scanAlreadyQueued'));
     } else {
-      kuyruk.isaretle();
-      if (kosu) bildir('Tarama kuyrukta — süren koşu bitince çalışacak');
+      queue.flash();
+      if (running) notify(t('topbar.scanQueued'));
     }
-    await isleriCek();
+    await fetchJobs();
   } catch (e) {
-    hata(e.message);
+    showError(e.message);
   } finally {
-    // Elle tarandıktan sonra dakikalık sayaç sıfırdan başlar; yoksa
-    // düğmeye basmak bir saniye sonra ikinci bir turu tetikleyebilirdi.
-    taramaDongusu();
+    // After a manual scan the minute timer starts from zero; otherwise
+    // pressing the button could trigger a second round a second later.
+    scanLoop();
   }
 }
 
-// Sağdan açılan panellerin sol kenarını "Şimdi tara" düğmesinin sol
-// kenarına oturtur: paneli açan düğmeler panelin üstünde kalır, panel de
-// üst bara yapışık tek parça görünür. Genişlik sabit yazılamıyor, çünkü
-// üst bardaki düğme yazıları değişiyor ("Taranıyor…", rol rozeti).
-function yanPaneliHizala() {
-  const btn = $('#guncelle-btn');
-  const govde = $('.govde');
-  if (!btn || !govde) return;
-  const genislik = Math.round(
-    govde.getBoundingClientRect().right - btn.getBoundingClientRect().left);
-  if (genislik > 0) {
-    document.documentElement.style.setProperty('--yan-panel', `${genislik}px`);
+// Aligns the left edge of the panels that open from the right with the left
+// edge of the "Scan now" button: the buttons that open a panel stay above
+// it and the panel looks like one piece attached to the top bar. The width
+// cannot be hard-coded because the button labels in the top bar change
+// ("Scanning…", the role badge).
+function alignSidePanel() {
+  const button = $('#refresh-btn');
+  const body = $('.body');
+  if (!button || !body) return;
+  const width = Math.round(
+    body.getBoundingClientRect().right - button.getBoundingClientRect().left);
+  if (width > 0) {
+    document.documentElement.style.setProperty('--side-panel', `${width}px`);
   }
 }
 
-// Set numarası üst barda elle yazılır; rolden bağımsız olarak herkes
-// kullanabilir. Kullanıcı yazarken alana dokunulmaz — odak baştayken
-// değeri geri yazmak yazılanı siliyordu.
-function setSeciciyiKur(zorla = false) {
-  const secici = $('#set-secici');
-  if (!secici) return;
-  const { min, max } = setSiniri();
-  secici.min = String(min);
-  secici.max = String(max);
-  if ((zorla || document.activeElement !== secici)
-      && secici.value !== String(durum.setNo)) {
-    secici.value = String(durum.setNo);
+// The set number is typed into the top bar; anyone can use it regardless of
+// role. The field is not touched while the user types — writing the value
+// back while focus was in it erased what had been typed.
+function setUpSetPicker(force = false) {
+  const picker = $('#set-picker');
+  if (!picker) return;
+  const { min, max } = setLimits();
+  picker.min = String(min);
+  picker.max = String(max);
+  if ((force || document.activeElement !== picker)
+      && picker.value !== String(state.setNo)) {
+    picker.value = String(state.setNo);
   }
-  // Yalnız ELLE başlatılan tarama alanı kilitler. Tarama dakikada bir
-  // kendiliğinden çalıştığı için otomatik turu da saymak, set numarasını
-  // değiştirmeyi her dakika birkaç saniyeliğine imkânsız kılardı; kilidin
-  // ne zaman açılacağını kestiremeyen kullanıcı alana boşuna tıklıyordu.
-  const kilitli = elleTaramaSuruyor();
-  secici.disabled = kilitli;
-  secici.title = kilitli
-    ? 'Tarama sürerken tren seti değiştirilemez'
-    : `Tren setini değiştir (${min}–${max})`;
+  // Only a MANUALLY started scan locks the field. Because a scan runs once a
+  // minute on its own, counting the automatic round too would make changing
+  // the set number impossible for a few seconds every minute; unable to
+  // predict when the lock would lift, the user clicked the field for nothing.
+  const isLocked = manualScanRunning();
+  picker.disabled = isLocked;
+  picker.title = isLocked
+    ? t('topbar.setLockedByScan')
+    : t('topbar.changeTrainSet', { min, max });
 }
 
-function elleTaramaSuruyor() {
-  return !!durum.aktifTarama && !otomatikTaramaIsi();
+function manualScanRunning() {
+  return !!state.scanRunning && !automaticScanJob();
 }
 
-// Kabul edilen aralık sunucudan gelir; meta henüz yokken de bir sınır
-// gerekiyor, o yüzden sunucudakiyle aynı varsayılan burada duruyor.
-function setSiniri() {
-  const m = durum.meta || {};
-  return { min: m.setMin || 1, max: m.setMax || 254 };
+// The accepted range comes from the server; a limit is needed before meta
+// arrives too, so the same default as the server's lives here.
+function setLimits() {
+  const meta = state.meta || {};
+  return { min: meta.setMin || 1, max: meta.setMax || 254 };
 }
 
-async function setDegistir(n) {
-  const { min, max } = setSiniri();
-  const yeni = Number(String(n).trim());
-  if (!Number.isInteger(yeni) || yeni < min || yeni > max) {
-    bildir(`Set numarası ${min} ile ${max} arasında olmalı`);
-    setSeciciyiKur(true);
+async function changeSet(value) {
+  const { min, max } = setLimits();
+  const next = Number(String(value).trim());
+  if (!Number.isInteger(next) || next < min || next > max) {
+    notify(t('topbar.setOutOfRange', { min, max }));
+    setUpSetPicker(true);
     return;
   }
-  if (yeni === durum.setNo) return;
-  if (elleTaramaSuruyor()) {
-    bildir('Tarama sürerken tren seti değiştirilemez');
-    setSeciciyiKur(true);
+  if (next === state.setNo) return;
+  if (manualScanRunning()) {
+    notify(t('topbar.setLockedByScan'));
+    setUpSetPicker(true);
     return;
   }
-  // Otomatik tur eski setin cihazlarını okuyor; sonuçları yeni sette
-  // işimize yaramıyor, bitmesini beklemenin de anlamı yok.
-  const oto = otomatikTaramaIsi();
-  if (oto) {
-    try { await api.isIptal(oto.id); } catch { /* bitmiş olabilir */ }
+  // The automatic round is reading the old set's devices; its results are of
+  // no use in the new set and there is no point waiting for it.
+  const automatic = automaticScanJob();
+  if (automatic) {
+    try { await api.jobCancel(automatic.id); } catch { /* may have ended */ }
   }
-  // Görünüm seti başına tutulduğu için eski setin sonuçları taşınmaz.
-  detay.kapat();
-  ata({ setNo: yeni, cihazlar: [], kilit: [], sonTarama: null, ipDurum: null,
-    cfgDurum: null, piscuDurum: null, kontrolDurum: null, detayId: null });
+  // The view is kept per set, so the old set's results are not carried over.
+  detail.close();
+  patch({ setNo: next, devices: [], locked: [], lastScan: null, ipState: null,
+    configState: null, piscuState: null, checklistState: null,
+    detailId: null });
   try {
-    await baslangicVerisi();
-    ekranaGirildi(durum.gorunum);
-    basari(`Tren seti ${yeni} yüklendi`);
+    await loadInitialData();
+    onViewEntered(state.view);
+    showSuccess(t('topbar.setLoaded', { set: next }));
   } catch (e) {
-    hata(e.message);
+    showError(e.message);
   }
-  // Yeni set boş gelir: keşif turu dakika beklemeden çalışsın.
-  taramaDongusu(ILK_TARAMA_GECIKME);
+  // A new set arrives empty: run the discovery round without waiting a minute.
+  scanLoop(FIRST_SCAN_DELAY);
 }
 
-async function baslangicVerisi() {
-  const meta = await api.proje(durum.setNo);
-  ata({ meta, piscuIp: meta.piscuIp, setNo: meta.setNo });
-  await durumuCek();
-  await isleriCek();
+async function loadInitialData() {
+  const meta = await api.project(state.setNo);
+  patch({ meta, piscuIp: meta.piscuIp, setNo: meta.setNo });
+  await fetchState();
+  await fetchJobs();
 }
 
-// ───────────────────────────────────────────────────────── rol ekranı ────
-async function rolSec(rol) {
-  ata({ rol });
-  $('#rol-ekrani').hidden = true;
-  $('#uygulama').hidden = false;
+// ───────────────────────────────────────────────────────── role screen ───
+async function selectRole(role) {
+  patch({ role });
+  $('#role-screen').hidden = true;
+  $('#app').hidden = false;
   try {
-    await baslangicVerisi();
+    await loadInitialData();
   } catch (e) {
-    hata(e.message);
+    showError(e.message);
   }
-  isDongusu();
-  hafifDongu();
-  // Oturum boş bir tabloyla açılıyordu ve ilk veri için kullanıcının
-  // "Şimdi tara"ya basması gerekiyordu; yenileme sürekli olduğuna göre
-  // ilk keşif de kendiliğinden çalışmalı.
-  taramaDongusu(ILK_TARAMA_GECIKME);
-  ciz();
-  $('#icerik').focus();
+  jobLoop();
+  lightLoop();
+  // A session opened with an empty table and the user had to press "Scan
+  // tara" for the first data; since refreshing is continuous, the first
+  // discovery should run on its own too.
+  scanLoop(FIRST_SCAN_DELAY);
+  render();
+  $('#content').focus();
 }
 
-function cikis() {
-  // Oturumu kapatmak arayüzü sıfırlar. Bellekteki cihaz kimlikleri
-  // sunucuda kalır (uygulama hâlâ açık); "Kimlikleri Unut" admin
-  // ekranındadır. Uygulama kapanınca hepsi zaten silinir.
-  clearTimeout(hafifZaman);
-  clearTimeout(isZaman);
-  clearTimeout(taramaZaman);
-  detay.kapat();
-  diyalog.kapat();
-  ata({
-    rol: null, gorunum: 'genel', kategori: 'tum', altTip: null,
-    detayId: null, kuyrukAcik: false, kilitAcik: false, acikIs: null,
-    gecmisFiltresi: 'tumu', kenarAcik: false,
+function signOut() {
+  // Closing the session resets the UI. The device credentials in memory stay
+  // on the server (the application is still open); "Kimlikleri Unut" is on
+  // the admin screen. They are all cleared when the application closes.
+  clearTimeout(lightTimer);
+  clearTimeout(jobTimer);
+  clearTimeout(scanTimer);
+  detail.close();
+  dialog.close();
+  patch({
+    role: null, view: 'overview', category: 'all', subtype: null,
+    detailId: null, queueOpen: false, lockedOpen: false, openJob: null,
+    historyFilter: 'all', sidebarOpen: false,
   });
-  sonGorunum = null;
-  $('#uygulama').hidden = true;
-  $('#rol-ekrani').hidden = false;
+  lastView = null;
+  $('#app').hidden = true;
+  $('#role-screen').hidden = false;
   $('#admin-form').hidden = true;
-  $('#admin-parola').value = '';
-  $('#rol-hata').hidden = true;
-  $('#rol-kullanici').focus();
+  $('#admin-password').value = '';
+  $('#role-error').hidden = true;
+  $('#role-user').focus();
 }
 
-// ───────────────────────────────────────────────────────── başlangıç ─────
-async function basla() {
-  gecmisEkraniniKur();
+// ───────────────────────────────────────────────────────── start-up ──────
+async function start() {
+  // The catalogue comes first: every screen below reads from it, and the
+  // shell in index.html is translated in place.
   try {
-    const s = await api.surum();
-    ata({ surum: s.surum });
-    $('#rol-surum').textContent = `v${s.surum}`;
-    $('#alt-surum').textContent = `v${s.surum}`;
-    $('#rol-ekrani').dataset.parolaGerek = String(s.adminParolaGerekli);
+    await language.load();
+  } catch { /* the version call below reports an unreachable service */ }
+  language.renderAll(redrawEverything);
+
+  try {
+    const version = await api.version();
+    patch({ version: version.version });
+    $('#role-version').textContent = `v${version.version}`;
+    $('#footer-version').textContent = `v${version.version}`;
+    $('#role-screen').dataset.passwordRequired =
+      String(version.adminPasswordRequired);
   } catch {
-    hata('Panel servisine ulaşılamadı');
+    showError(t('error.serviceUnreachable'));
   }
 
-  $('#rol-kullanici').addEventListener('click', () => rolSec('saha'));
+  $('#role-user').addEventListener('click', () => selectRole('field'));
 
-  $('#rol-admin').addEventListener('click', async () => {
-    const gerek = $('#rol-ekrani').dataset.parolaGerek === 'true';
-    if (!gerek) {
-      try { await api.adminGiris(''); } catch { /* şifre yoksa açılır */ }
-      rolSec('admin');
+  $('#role-admin').addEventListener('click', async () => {
+    const required = $('#role-screen').dataset.passwordRequired === 'true';
+    if (!required) {
+      try { await api.adminLogin(''); } catch { /* opens without a password */ }
+      selectRole('admin');
       return;
     }
     $('#admin-form').hidden = false;
-    $('#admin-parola').focus();
+    $('#admin-password').focus();
   });
 
   $('#admin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const alan = $('#admin-parola');
-    const uyari = $('#rol-hata');
+    const field = $('#admin-password');
+    const warning = $('#role-error');
     try {
-      await api.adminGiris(alan.value);
-      alan.value = '';                      // parola arayüzde tutulmaz
-      uyari.hidden = true;
-      rolSec('admin');
+      await api.adminLogin(field.value);
+      field.value = '';                     // the password is not kept in the UI
+      warning.hidden = true;
+      selectRole('admin');
     } catch (err) {
-      alan.value = '';
-      uyari.textContent = err.message || 'Şifre doğrulanamadı';
-      uyari.hidden = false;
-      alan.focus();
+      field.value = '';
+      warning.textContent = err.message || t('role.passwordFailed');
+      warning.hidden = false;
+      field.focus();
     }
   });
 
-  $('#guncelle-btn').addEventListener('click', guncelle);
-  $('#kuyruk-btn').addEventListener('click', kuyruk.acKapat);
-  $('#kilit-btn').addEventListener('click', kilit.kilitAcKapat);
-  $('#cikis-btn').addEventListener('click', cikis);
-  $('#proje-btn').addEventListener('click', () => {
-    if (durum.rol === 'admin') ata({ gorunum: 'admin' });
-    else bildir('Proje ayrıntıları admin rolünde görüntülenir');
+  $('#refresh-btn').addEventListener('click', refreshNow);
+  $('#queue-btn').addEventListener('click', queue.toggle);
+  $('#locked-btn').addEventListener('click', locked.toggle);
+  $('#signout-btn').addEventListener('click', signOut);
+  $('#project-btn').addEventListener('click', () => {
+    if (state.role === 'admin') patch({ view: 'admin' });
+    else notify(t('role.adminOnlyProject'));
   });
-  globalThis.addEventListener('resize', yanPaneliHizala);
+  globalThis.addEventListener('resize', alignSidePanel);
 
-  // change alandan çıkınca da tetiklenir; Enter'ı beklemeye gerek yok.
-  $('#set-secici').addEventListener('change',
-    (e) => setDegistir(e.target.value));
-  $('#set-secici').addEventListener('keydown', (e) => {
+  // change also fires on leaving the field; there is no need to wait for
+  // Enter.
+  $('#set-picker').addEventListener('change',
+    (e) => changeSet(e.target.value));
+  $('#set-picker').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      setDegistir(e.target.value);
+      changeSet(e.target.value);
     } else if (e.key === 'Escape') {
-      setSeciciyiKur(true);
+      setUpSetPicker(true);
       e.target.blur();
     }
   });
 
-  for (const b of document.querySelectorAll('[data-kapat]')) {
-    b.addEventListener('click', () => ata(
-      b.dataset.kapat === 'kuyruk' ? { kuyrukAcik: false } : { kilitAcik: false }));
+  for (const button of document.querySelectorAll('[data-close]')) {
+    button.addEventListener('click', () => patch(
+      button.dataset.close === 'queue'
+        ? { queueOpen: false }
+        : { lockedOpen: false }));
   }
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (diyalog.acikMi()) return;             // diyalog kendi Escape'ini yönetir
-    if (durum.detayId) { detay.kapat(); return; }
-    if (durum.kuyrukAcik || durum.kilitAcik) {
-      ata({ kuyrukAcik: false, kilitAcik: false });
+    if (dialog.isOpen()) return;            // the dialog handles its own Escape
+    if (state.detailId) { detail.close(); return; }
+    if (state.queueOpen || state.lockedOpen) {
+      patch({ queueOpen: false, lockedOpen: false });
     }
   });
 
-  // Kimlik doğrulandıktan sonra açık ekran da tazelenir: IP atama ekranı
-  // switch kimliğine bakıp koşuyu kilitliyor, kullanıcı parolayı girince
-  // özetin güncellenmesi için sayfadan çıkıp girmek zorunda kalıyordu.
-  kilit.baglaYenile(() => {
-    isleriCek();
-    ekranaGirildi(durum.gorunum);
+  // The open screen is refreshed after a credential is verified too: the IP
+  // assignment screen locks the run on the switch credential, and the user
+  // had to leave and re-enter the page for the summary to update.
+  locked.onCredentialsAccepted(() => {
+    fetchJobs();
+    onViewEntered(state.view);
   });
-  abone(ciz);
-  $('#rol-kullanici').focus();
+  subscribe(render);
+  $('#role-user').focus();
 }
 
-// Sekme/pencere kapanırken süren döngüleri durdur.
+// Stop the running loops as the tab/window closes.
 globalThis.addEventListener('pagehide', () => {
-  clearTimeout(hafifZaman);
-  clearTimeout(isZaman);
-  clearTimeout(taramaZaman);
+  clearTimeout(lightTimer);
+  clearTimeout(jobTimer);
+  clearTimeout(scanTimer);
 });
 
-basla();
+start();

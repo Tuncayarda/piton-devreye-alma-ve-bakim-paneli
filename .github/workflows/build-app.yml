@@ -1,112 +1,111 @@
-name: Paket üret (ortak)
+name: Build app (reusable)
 
-# Bir uygulamayı dört platform için paketler ve etiket push'unda Release
-# yayınlar. Kendi başına çalışmaz: çağıran workflow'lar hangi uygulamanın
-# derleneceğini söyler.
+# Packages one application for four platforms and publishes a Release on a
+# tag push. It does not run on its own: the calling workflow says which
+# application is being built.
 #
-#   .github/workflows/build-switch.yml    Switch Yönetim Paneli
-#   .github/workflows/build-devreye.yml   Devreye Alma Paneli
+#   .github/workflows/build-commissioning-panel.yml   Commissioning Panel
 #
-# Depoda iki uygulama var ve ikisi AYRI AYRI derlenip ayrı Release alıyor.
-# Ortak adımlar (build, self-test, paketleme, Release doğrulaması) burada tek
-# yerde durur; iki kopya yan yana yaşarsa biri düzeltilip diğeri unutuluyor.
+# Common steps (build, self-test, packaging, release verification) live here
+# in one place; two copies side by side means one gets fixed and the other
+# forgotten.
 #
-# Çıktılar İMZASIZDIR (kod imzalama kapsam dışı).
+# Outputs are UNSIGNED (code signing is out of scope).
 
 on:
   workflow_call:
     inputs:
-      uygulama_dizini:
-        description: Uygulama kökü (depo köküne göre)
+      app_dir:
+        description: Application root (relative to the repository root)
         required: true
         type: string
-      ad:
-        description: Çıktı adı — exe/dist klasörü ve dosya adları (ASCII)
+      app_name:
+        description: Output name — exe/dist folder and file names (ASCII)
         required: true
         type: string
-      gorunen_ad:
-        description: macOS .app paketinin görünen adı
+      display_name:
+        description: Visible name of the macOS .app bundle
         required: true
         type: string
       spec:
-        description: PyInstaller spec dosyası (uygulama köküne göre)
+        description: PyInstaller spec file (relative to the application root)
         required: true
         type: string
       iss:
-        description: Inno Setup betiği (uygulama köküne göre)
+        description: Inno Setup script (relative to the application root)
         required: true
         type: string
-      testler:
-        description: Birim test komutu — boşsa test adımı atlanır
+      tests:
+        description: Unit test command — the test step is skipped when empty
         required: false
         type: string
         default: ""
-      frontend_paket:
-        description: Tek parça masaüstü arayüzü doğrulama aracı — boşsa atlanır
+      frontend_bundle_tool:
+        description: Single-file desktop UI verifier — skipped when empty
         required: false
         type: string
         default: ""
-      python_surumu:
+      python_version:
         required: false
         type: string
         default: "3.12"
 
 permissions:
-  contents: read          # build job'ları için okuma yeterli
+  contents: read          # read access is enough for the build jobs
 
 env:
-  UYGULAMA_DIZINI: ${{ inputs.uygulama_dizini }}
-  ADI: ${{ inputs.ad }}
-  PYTHON_SURUMU: ${{ inputs.python_surumu }}
-  # appimagetool'un beklenen sha256'sı. Boşken doğrulama yapılmaz, indirilen
-  # dosyanın özeti log'a yazılır; ilk çalıştırmadan sonra buraya yapıştırıp
-  # sabitleyin.
+  APP_DIR: ${{ inputs.app_dir }}
+  APP_NAME: ${{ inputs.app_name }}
+  PYTHON_VERSION: ${{ inputs.python_version }}
+  # Expected sha256 of appimagetool. While empty nothing is verified and the
+  # digest of the downloaded file is written to the log; paste it here after
+  # the first run to pin it.
   APPIMAGETOOL_SHA256: ""
 
 jobs:
   build:
-    name: ${{ inputs.ad }} · ${{ matrix.ad }}
+    name: ${{ inputs.app_name }} · ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
-          - ad: windows-x64
+          - name: windows-x64
             os: windows-2025
             req: requirements-windows.txt
-            hedef: windows-x64
-          - ad: linux-x86_64
+            target: windows-x64
+          - name: linux-x86_64
             os: ubuntu-22.04
             req: requirements-linux.txt
-            hedef: linux-x86_64
-          - ad: macos-arm64
+            target: linux-x86_64
+          - name: macos-arm64
             os: macos-15
             req: requirements-macos.txt
-            hedef: macos-arm64
-          - ad: macos-x64
+            target: macos-arm64
+          - name: macos-x64
             os: macos-15-intel
             req: requirements-macos.txt
-            hedef: macos-x64
+            target: macos-x64
 
     steps:
-      - name: Depoyu al
+      - name: Check out the repository
         uses: actions/checkout@v6
 
-      - name: Python ${{ env.PYTHON_SURUMU }}
+      - name: Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ env.PYTHON_SURUMU }}
+          python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: ${{ env.UYGULAMA_DIZINI }}/docs/requirements*.txt
+          cache-dependency-path: ${{ env.APP_DIR }}/docs/requirements*.txt
 
       - name: Deno 2.9.4
-        if: inputs.frontend_paket != ''
+        if: inputs.frontend_bundle_tool != ''
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.4
 
-      - name: Qt sistem kütüphaneleri (yalnız Ubuntu)
+      - name: Qt system libraries (Ubuntu only)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -114,427 +113,427 @@ jobs:
             libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
             libxkbcommon-x11-0 libegl1 libgl1 libnss3 desktop-file-utils
 
-      - name: Bağımlılıkları kur
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+      - name: Install dependencies
+        working-directory: ${{ env.APP_DIR }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r "docs/${{ matrix.req }}"
           python -m pip install -r docs/requirements-build.txt
 
-      - name: Sürümü belirle
-        id: surum
+      - name: Determine the version
+        id: version
         shell: bash
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          KAYNAK="$(python app.py --version)"
-          echo "Kaynaktaki sürüm: $KAYNAK"
+          SOURCE_VERSION="$(python app.py --version)"
+          echo "Version in source: $SOURCE_VERSION"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            # Etiket önekleri: "dap-v0.9.0" ya da eski biçim "v1.0.2".
-            ETIKET="${GITHUB_REF_NAME#*-v}"
-            ETIKET="${ETIKET#v}"
-            if [[ "$ETIKET" != "$KAYNAK" ]]; then
-              echo "::error::Etiket ($GITHUB_REF_NAME → $ETIKET) ile APP_VERSION ($KAYNAK) uyuşmuyor."
-              echo "Kaynaktaki sürümü güncelleyin ya da doğru etiketi atın."
+            # Tag prefixes: "dap-v0.9.0" or the older form "v1.0.2".
+            TAG_VERSION="${GITHUB_REF_NAME#*-v}"
+            TAG_VERSION="${TAG_VERSION#v}"
+            if [[ "$TAG_VERSION" != "$SOURCE_VERSION" ]]; then
+              echo "::error::Tag ($GITHUB_REF_NAME → $TAG_VERSION) does not match APP_VERSION ($SOURCE_VERSION)."
+              echo "Update the version in source or push the right tag."
               exit 1
             fi
-            SURUM="$ETIKET"
+            VERSION="$TAG_VERSION"
           else
-            SURUM="$KAYNAK"
+            VERSION="$SOURCE_VERSION"
           fi
-          echo "surum=$SURUM" >> "$GITHUB_OUTPUT"
-          echo "Kullanılacak sürüm: $SURUM"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version to use: $VERSION"
 
-      - name: Soketsiz masaüstü arayüzü güncel mi
-        if: inputs.frontend_paket != ''
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
-        run: python "${{ inputs.frontend_paket }}" --check
+      - name: Is the socketless desktop UI up to date
+        if: inputs.frontend_bundle_tool != ''
+        working-directory: ${{ env.APP_DIR }}
+        run: python "${{ inputs.frontend_bundle_tool }}" --check
 
-      - name: Birim testler
-        if: inputs.testler != ''
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
-        run: ${{ inputs.testler }}
+      - name: Unit tests
+        if: inputs.tests != ''
+        working-directory: ${{ env.APP_DIR }}
+        run: ${{ inputs.tests }}
 
-      - name: Self-test (kaynak koddan)
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+      - name: Self-test (from source)
+        working-directory: ${{ env.APP_DIR }}
         run: python app.py --self-test
 
-      - name: Temiz PyInstaller build
+      - name: Clean PyInstaller build
         shell: bash
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
           rm -rf build dist
           python -m PyInstaller --noconfirm --clean "${{ inputs.spec }}"
           ls -la dist
 
-      # ── paketlenmiş uygulamada self-test ────────────────────────────────
-      # Uygulama console=False (GUI alt sistemi) ile derleniyor. Böyle bir
-      # exe'yi PowerShell'de "& $exe" ile çağırınca kabuk onu BEKLEMEZ ve
-      # $LASTEXITCODE dolmaz. Start-Process -Wait -PassThru ile hem bekliyor
-      # hem gerçek çıkış kodunu alıyoruz; çıktıyı da dosyaya yönlendirip
-      # log'a basıyoruz.
-      - name: Self-test (paketlenmiş) — Windows
+      # ── self-test on the packaged application ───────────────────────────
+      # The app is built with console=False (GUI subsystem). Calling such an
+      # exe from PowerShell as "& $exe" does NOT make the shell wait and
+      # leaves $LASTEXITCODE unset. Start-Process -Wait -PassThru both waits
+      # and returns the real exit code; the output is redirected to a file
+      # and printed to the log.
+      - name: Self-test (packaged) — Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          $exe = "dist/${{ inputs.ad }}/${{ inputs.ad }}.exe"
-          if (-not (Test-Path $exe)) { throw "exe bulunamadı: $exe" }
-          $tam = (Resolve-Path $exe).Path
-          $cikti = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
-          $hata  = Join-Path $env:RUNNER_TEMP "selftest-err.txt"
+          $exe = "dist/${{ inputs.app_name }}/${{ inputs.app_name }}.exe"
+          if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
+          $fullPath = (Resolve-Path $exe).Path
+          $outFile = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
+          $errFile = Join-Path $env:RUNNER_TEMP "selftest-err.txt"
 
-          $p = Start-Process -FilePath $tam -ArgumentList '--self-test' `
-                 -Wait -PassThru -NoNewWindow `
-                 -RedirectStandardOutput $cikti -RedirectStandardError $hata
+          $proc = Start-Process -FilePath $fullPath -ArgumentList '--self-test' `
+                    -Wait -PassThru -NoNewWindow `
+                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
 
-          if (Test-Path $cikti) { Get-Content $cikti }
-          if ((Test-Path $hata) -and (Get-Item $hata).Length -gt 0) {
+          if (Test-Path $outFile) { Get-Content $outFile }
+          if ((Test-Path $errFile) -and (Get-Item $errFile).Length -gt 0) {
             Write-Host "--- stderr ---"
-            Get-Content $hata
+            Get-Content $errFile
           }
 
-          if ($null -eq $p.ExitCode) { throw "çıkış kodu okunamadı" }
-          if ($p.ExitCode -ne 0) { throw "self-test başarısız ($($p.ExitCode))" }
-          Write-Host "paketlenmiş self-test tamam (çıkış kodu 0)"
+          if ($null -eq $proc.ExitCode) { throw "could not read the exit code" }
+          if ($proc.ExitCode -ne 0) { throw "self-test failed ($($proc.ExitCode))" }
+          Write-Host "packaged self-test passed (exit code 0)"
 
-      - name: Self-test (paketlenmiş) — macOS
+      - name: Self-test (packaged) — macOS
         if: runner.os == 'macOS'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          BIN="dist/${{ inputs.gorunen_ad }}.app/Contents/MacOS/${{ inputs.ad }}"
-          test -x "$BIN" || { echo "çalıştırılabilir bulunamadı: $BIN"; exit 1; }
+          BIN="dist/${{ inputs.display_name }}.app/Contents/MacOS/${{ inputs.app_name }}"
+          test -x "$BIN" || { echo "executable not found: $BIN"; exit 1; }
           "$BIN" --self-test
 
-      - name: Self-test (paketlenmiş) — Linux
+      - name: Self-test (packaged) — Linux
         if: runner.os == 'Linux'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          "./dist/${{ inputs.ad }}/${{ inputs.ad }}" --self-test
+          "./dist/${{ inputs.app_name }}/${{ inputs.app_name }}" --self-test
 
-      # ── platforma göre paketleme ────────────────────────────────────────
-      - name: Paketle — Windows (onedir ZIP)
+      # ── packaging per platform ──────────────────────────────────────────
+      - name: Package — Windows (onedir ZIP)
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          $ad = "${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          $zipName = "${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path "dist/${{ inputs.ad }}" -DestinationPath "release/$ad" -Force
-          Get-Item "release/$ad" | Select-Object Name, Length
+          Compress-Archive -Path "dist/${{ inputs.app_name }}" -DestinationPath "release/$zipName" -Force
+          Get-Item "release/$zipName" | Select-Object Name, Length
 
-      # ── Windows kurulum paketi (Inno Setup) ─────────────────────────────
-      # ZIP'ten çıkarılan dosyalara Windows "internetten indirildi" damgası
-      # koyuyor ve .NET, Python.Runtime.dll'i 0x80131515 ile reddediyor.
-      # Installer ile kurulan dosyalarda bu damga oluşmaz.
-      - name: WebView2 bootstrapper indir
+      # ── Windows installer (Inno Setup) ──────────────────────────────────
+      # Windows marks files extracted from a ZIP as "downloaded from the
+      # internet" and .NET then rejects Python.Runtime.dll with 0x80131515.
+      # Files placed by an installer never get that mark.
+      - name: Download the WebView2 bootstrapper
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          $hedef = "packaging/windows/redist"
-          New-Item -ItemType Directory -Force -Path $hedef | Out-Null
-          $dosya = Join-Path $hedef "MicrosoftEdgeWebview2Setup.exe"
-          # Microsoft'un kalıcı Evergreen Bootstrapper bağlantısı
+          $destDir = "packaging/windows/redist"
+          New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+          $file = Join-Path $destDir "MicrosoftEdgeWebview2Setup.exe"
+          # Microsoft's permanent Evergreen Bootstrapper link
           Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
-            -OutFile $dosya -UseBasicParsing
-          $b = (Get-Item $dosya).Length
-          if ($b -lt 100kb) { throw "bootstrapper şüpheli küçük: $b bayt" }
-          Write-Host "bootstrapper: $b bayt"
-          Write-Host "sha256: $((Get-FileHash $dosya -Algorithm SHA256).Hash)"
+            -OutFile $file -UseBasicParsing
+          $bytes = (Get-Item $file).Length
+          if ($bytes -lt 100kb) { throw "bootstrapper suspiciously small: $bytes bytes" }
+          Write-Host "bootstrapper: $bytes bytes"
+          Write-Host "sha256: $((Get-FileHash $file -Algorithm SHA256).Hash)"
 
-      - name: Inno Setup hazırla
+      - name: Prepare Inno Setup
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) {
-            Write-Host "Inno Setup bulunamadı, kuruluyor…"
+            Write-Host "Inno Setup not found, installing…"
             choco install innosetup -y --no-progress
           }
-          if (-not (Test-Path $iscc)) { throw "ISCC.exe bulunamadı: $iscc" }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found: $iscc" }
           & $iscc /? | Select-Object -First 1
           "ISCC=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Paketle — Windows (kurulum paketi)
+      - name: Package — Windows (installer)
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
-          $surum = "${{ steps.surum.outputs.surum }}"
+          $version = "${{ steps.version.outputs.version }}"
           & "$env:ISCC" `
-            "/DMyAppVersion=$surum" `
-            "/DSourceDir=..\..\dist\${{ inputs.ad }}" `
+            "/DMyAppVersion=$version" `
+            "/DSourceDir=..\..\dist\${{ inputs.app_name }}" `
             "/DOutputDir=..\..\release" `
             "${{ inputs.iss }}".Replace('/', '\')
-          if ($LASTEXITCODE -ne 0) { throw "Inno Setup başarısız ($LASTEXITCODE)" }
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
 
-          $setup = "release/${{ inputs.ad }}-$surum-windows-x64-Setup.exe"
-          if (-not (Test-Path $setup)) { throw "kurulum paketi üretilmedi: $setup" }
-          $b = (Get-Item $setup).Length
-          if ($b -lt 5mb) { throw "kurulum paketi şüpheli küçük: $b bayt" }
-          Write-Host "kurulum paketi: $setup ($([math]::Round($b/1mb,1)) MB)"
+          $setup = "release/${{ inputs.app_name }}-$version-windows-x64-Setup.exe"
+          if (-not (Test-Path $setup)) { throw "installer was not produced: $setup" }
+          $bytes = (Get-Item $setup).Length
+          if ($bytes -lt 5mb) { throw "installer suspiciously small: $bytes bytes" }
+          Write-Host "installer: $setup ($([math]::Round($bytes/1mb,1)) MB)"
 
-      - name: Paketle — macOS (.app, ditto ile ZIP)
+      - name: Package — macOS (.app, zipped with ditto)
         if: runner.os == 'macOS'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          AD="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}.zip"
+          ZIP_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
           mkdir -p release
-          # ditto: macOS dosya öznitelikleri ve sembolik bağlar korunur
+          # ditto: macOS file attributes and symlinks are preserved
           ditto -c -k --sequesterRsrc --keepParent \
-            "dist/${{ inputs.gorunen_ad }}.app" "release/$AD"
-          ls -lh "release/$AD"
+            "dist/${{ inputs.display_name }}.app" "release/$ZIP_NAME"
+          ls -lh "release/$ZIP_NAME"
 
-      - name: Paketle — Linux (AppImage)
+      - name: Package — Linux (AppImage)
         if: runner.os == 'Linux'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          TEMEL="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
+          BASE_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           chmod +x packaging/appimage.sh
-          ./packaging/appimage.sh "dist/${{ inputs.ad }}" "release/$TEMEL.AppImage" \
-            "${{ steps.surum.outputs.surum }}"
+          ./packaging/appimage.sh "dist/${{ inputs.app_name }}" "release/$BASE_NAME.AppImage" \
+            "${{ steps.version.outputs.version }}"
 
-      - name: AppImage doğrulaması
+      - name: Verify the AppImage
         if: runner.os == 'Linux'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
           IMG="$(ls release/*.AppImage)"
-          test -s "$IMG" || { echo "AppImage boş"; exit 1; }
-          echo "boyut: $(du -h "$IMG" | cut -f1)"
-          # CI'da FUSE yok — içeriği açarak sınıyoruz
+          test -s "$IMG" || { echo "AppImage is empty"; exit 1; }
+          echo "size: $(du -h "$IMG" | cut -f1)"
+          # No FUSE on CI — test it by extracting the contents
           cd "$(mktemp -d)"
           "$OLDPWD/$IMG" --appimage-extract > /dev/null
-          test -x squashfs-root/AppRun || { echo "AppRun yok"; exit 1; }
-          "./squashfs-root/usr/bin/${{ inputs.ad }}" --self-test
+          test -x squashfs-root/AppRun || { echo "AppRun missing"; exit 1; }
+          "./squashfs-root/usr/bin/${{ inputs.app_name }}" --self-test
 
-      - name: AppImage'i ZIP'e koy
+      - name: Put the AppImage in a ZIP
         if: runner.os == 'Linux'
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          TEMEL="${{ inputs.ad }}-${{ steps.surum.outputs.surum }}-${{ matrix.hedef }}"
+          BASE_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           cd release
-          # ZIP çalıştırma iznini saklar; AppImage açıldığında chmod +x
-          # gerekmez. Ayrıca artifact/release boyutu küçülür.
-          zip -9 -q "$TEMEL.zip" "$TEMEL.AppImage"
-          rm -f "$TEMEL.AppImage"
-          unzip -l "$TEMEL.zip"
-          ls -lh "$TEMEL.zip"
+          # A ZIP keeps the execute bit, so no chmod +x is needed after
+          # extraction. It also shrinks the artifact/release size.
+          zip -9 -q "$BASE_NAME.zip" "$BASE_NAME.AppImage"
+          rm -f "$BASE_NAME.AppImage"
+          unzip -l "$BASE_NAME.zip"
+          ls -lh "$BASE_NAME.zip"
 
-      - name: Çıktıları doğrula
+      - name: Verify the outputs
         shell: bash
-        working-directory: ${{ env.UYGULAMA_DIZINI }}
+        working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          SURUM="${{ steps.surum.outputs.surum }}"
-          HEDEF="${{ matrix.hedef }}"
-          ADI="${{ inputs.ad }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          TARGET="${{ matrix.target }}"
+          APP="${{ inputs.app_name }}"
 
-          # Platform başına TAM olarak hangi dosyaların beklendiği.
-          # Eksik dosya sessizce geçmesin diye tek tek arıyoruz.
-          case "$HEDEF" in
+          # EXACTLY which files are expected per platform. Looked up one by
+          # one so a missing file cannot slip through.
+          case "$TARGET" in
             windows-x64)
-              BEKLENEN=("$ADI-$SURUM-windows-x64.zip"
-                        "$ADI-$SURUM-windows-x64-Setup.exe") ;;
+              EXPECTED=("$APP-$VERSION-windows-x64.zip"
+                        "$APP-$VERSION-windows-x64-Setup.exe") ;;
             *)
-              BEKLENEN=("$ADI-$SURUM-$HEDEF.zip") ;;
+              EXPECTED=("$APP-$VERSION-$TARGET.zip") ;;
           esac
 
-          echo "release/ içeriği:"
+          echo "contents of release/:"
           ls -lh release/
 
-          EKSIK=0
-          for d in "${BEKLENEN[@]}"; do
-            if [ ! -f "release/$d" ]; then
-              echo "::error::beklenen çıktı yok: $d"
-              EKSIK=1
-            elif [ ! -s "release/$d" ]; then
-              echo "::error::çıktı boş: $d"
-              EKSIK=1
+          MISSING=0
+          for f in "${EXPECTED[@]}"; do
+            if [ ! -f "release/$f" ]; then
+              echo "::error::expected output missing: $f"
+              MISSING=1
+            elif [ ! -s "release/$f" ]; then
+              echo "::error::output is empty: $f"
+              MISSING=1
             else
-              BOYUT=$(du -h "release/$d" | cut -f1)
-              echo "  OK  $d ($BOYUT)"
+              SIZE=$(du -h "release/$f" | cut -f1)
+              echo "  OK  $f ($SIZE)"
             fi
           done
-          [ "$EKSIK" -eq 0 ] || exit 1
+          [ "$MISSING" -eq 0 ] || exit 1
 
-          FAZLA=$(( $(find release -type f | wc -l) - ${#BEKLENEN[@]} ))
-          [ "$FAZLA" -eq 0 ] || echo "::warning::release/ içinde $FAZLA fazladan dosya var"
+          EXTRA=$(( $(find release -type f | wc -l) - ${#EXPECTED[@]} ))
+          [ "$EXTRA" -eq 0 ] || echo "::warning::release/ holds $EXTRA extra file(s)"
 
-          # İş özetine yaz: log'a girmeden görünür olsun
+          # Write to the job summary: visible without opening the log
           {
-            echo "### $ADI · $HEDEF"
-            for d in "${BEKLENEN[@]}"; do
-              echo "- \`$d\` — $(du -h "release/$d" | cut -f1)"
+            echo "### $APP · $TARGET"
+            for f in "${EXPECTED[@]}"; do
+              echo "- \`$f\` — $(du -h "release/$f" | cut -f1)"
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Artifact yükle
+      - name: Upload the artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.ad }}-portable-${{ matrix.hedef }}
-          path: ${{ env.UYGULAMA_DIZINI }}/release/*
+          name: ${{ inputs.app_name }}-portable-${{ matrix.target }}
+          path: ${{ env.APP_DIR }}/release/*
           if-no-files-found: error
           retention-days: 14
 
   release:
-    name: ${{ inputs.ad }} · GitHub Release
-    # Yalnızca etiket push'unda ve tüm build'ler geçtiyse
+    name: ${{ inputs.app_name }} · GitHub Release
+    # Only on a tag push and only if every build passed
     if: github.ref_type == 'tag'
     needs: build
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     permissions:
-      contents: write       # yalnızca burada yazma izni
+      contents: write       # write access only here
     steps:
-      - name: Depoyu al
+      - name: Check out the repository
         uses: actions/checkout@v6
 
-      - name: Artifact'leri indir
+      - name: Download the artifacts
         uses: actions/download-artifact@v8
         with:
-          path: indirilen
-          pattern: ${{ inputs.ad }}-portable-*
+          path: downloaded
+          pattern: ${{ inputs.app_name }}-portable-*
           merge-multiple: true
 
-      - name: Dosyaları doğrula
+      - name: Verify the files
         shell: bash
         run: |
           set -euo pipefail
-          SURUM="${GITHUB_REF_NAME#*-v}"; SURUM="${SURUM#v}"
-          ADI="${{ inputs.ad }}"
-          cd indirilen
-          echo "İndirilen dosyalar:"
+          VERSION="${GITHUB_REF_NAME#*-v}"; VERSION="${VERSION#v}"
+          APP="${{ inputs.app_name }}"
+          cd downloaded
+          echo "Downloaded files:"
           ls -lh
 
-          # Beklenen tam liste — biri eksikse Release YAYINLANMAZ.
-          BEKLENEN=(
-            "$ADI-$SURUM-windows-x64.zip"
-            "$ADI-$SURUM-windows-x64-Setup.exe"
-            "$ADI-$SURUM-linux-x86_64.zip"
-            "$ADI-$SURUM-macos-arm64.zip"
-            "$ADI-$SURUM-macos-x64.zip"
+          # The exact expected list — if one is missing the Release is NOT
+          # published.
+          EXPECTED=(
+            "$APP-$VERSION-windows-x64.zip"
+            "$APP-$VERSION-windows-x64-Setup.exe"
+            "$APP-$VERSION-linux-x86_64.zip"
+            "$APP-$VERSION-macos-arm64.zip"
+            "$APP-$VERSION-macos-x64.zip"
           )
-          EKSIK=0
-          for d in "${BEKLENEN[@]}"; do
-            if [ ! -s "$d" ]; then
-              echo "::error::eksik ya da boş: $d"
-              EKSIK=1
+          MISSING=0
+          for f in "${EXPECTED[@]}"; do
+            if [ ! -s "$f" ]; then
+              echo "::error::missing or empty: $f"
+              MISSING=1
             else
-              echo "  OK  $d ($(du -h "$d" | cut -f1))"
+              echo "  OK  $f ($(du -h "$f" | cut -f1))"
             fi
           done
-          [ "$EKSIK" -eq 0 ] || exit 1
+          [ "$MISSING" -eq 0 ] || exit 1
 
-      - name: SHA256SUMS.txt üret
+      - name: Generate SHA256SUMS.txt
         shell: bash
         run: |
           set -euo pipefail
-          cd indirilen
-          # Glob'u açıkça yazıyoruz: "*" kullanılırsa dosya kendini de
-          # listeleyebiliyor.
+          cd downloaded
+          # The glob is spelled out: with "*" the file can end up listing
+          # itself.
           sha256sum *.zip *.exe > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Release oluştur / güncelle
+      - name: Create / update the Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ETIKET: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          NOTLAR="$GITHUB_WORKSPACE/${{ inputs.uygulama_dizini }}/docs/RELEASE_NOTES.md"
-          SURUM="${ETIKET#*-v}"; SURUM="${SURUM#v}"
-          # Başlıkta ham etiket değil, uygulama adı + sürüm: depoda iki
-          # uygulama olduğu için Releases listesinde hangisinin hangisi
-          # olduğu tek bakışta anlaşılmalı.
-          BASLIK="${{ inputs.gorunen_ad }} v$SURUM"
+          NOTES="$GITHUB_WORKSPACE/${{ inputs.app_dir }}/docs/RELEASE_NOTES.md"
+          VERSION="${TAG#*-v}"; VERSION="${VERSION#v}"
+          # The title carries the application name + version rather than the
+          # raw tag, so the Releases list stays readable.
+          TITLE="${{ inputs.display_name }} v$VERSION"
 
-          cd indirilen
+          cd downloaded
 
-          if gh release view "$ETIKET" >/dev/null 2>&1; then
-            echo "Release zaten var — dosyalar üzerine yazılıyor."
-            gh release upload "$ETIKET" ./* --clobber
-            # Notları da tazele: yalnızca dosya yüklemek, gövdeyi ilk
-            # oluşturmadaki eski metinle bırakıyordu.
-            # --latest=false: "Latest" rozeti depo başına tektir. İki
-            # uygulamalı depoda hangisi sonra yayınlanırsa ötekinin
-            # rozetini çalıyordu; bilerek hiçbirine verilmiyor.
-            gh release edit "$ETIKET" \
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists — overwriting the files."
+            gh release upload "$TAG" ./* --clobber
+            # Refresh the notes too: uploading files alone left the body on
+            # the old text from the first creation.
+            # --latest=false: the "Latest" badge is per repository. Whichever
+            # application published last stole the other's badge, so it is
+            # deliberately given to neither.
+            gh release edit "$TAG" \
               --draft=false --latest=false \
-              --title "$BASLIK" --notes-file "$NOTLAR"
+              --title "$TITLE" --notes-file "$NOTES"
 
-            # Adı değişen çıktılar geride kalıyor: --clobber yalnızca aynı
-            # isimli dosyayı değiştirir, eskisini silmez. (Örn. AppImage
-            # ZIP'e alınınca eski .AppImage varlığı asılı kalmıştı.)
-            echo "Beklenmeyen eski varlıklar temizleniyor…"
-            gh release view "$ETIKET" --json assets --jq '.assets[].name' \
-            | while read -r AD; do
-                if [ ! -e "$AD" ]; then
-                  echo "  siliniyor: $AD"
-                  gh release delete-asset "$ETIKET" "$AD" --yes
+            # Renamed outputs linger: --clobber only replaces a file with the
+            # same name, it does not delete the old one. (For example, once
+            # the AppImage moved into a ZIP the old .AppImage asset stayed.)
+            echo "Cleaning up unexpected old assets…"
+            gh release view "$TAG" --json assets --jq '.assets[].name' \
+            | while read -r ASSET; do
+                if [ ! -e "$ASSET" ]; then
+                  echo "  deleting: $ASSET"
+                  gh release delete-asset "$TAG" "$ASSET" --yes
                 fi
               done
           else
-            echo "Yeni release oluşturuluyor: $ETIKET"
-            # Ön sürüm etiketleri (0.9.0-dev gibi) "pre-release" işaretlenir.
-            EK=()
-            case "$ETIKET" in
-              *-dev|*-alpha*|*-beta*|*-rc*) EK+=(--prerelease) ;;
+            echo "Creating a new release: $TAG"
+            # Pre-release tags (such as 0.9.0-dev) are marked "pre-release".
+            EXTRA_ARGS=()
+            case "$TAG" in
+              *-dev|*-alpha*|*-beta*|*-rc*) EXTRA_ARGS+=(--prerelease) ;;
             esac
-            # --generate-notes YOK: release gövdesi yalnız RELEASE_NOTES.md
-            # olsun isteniyor. GitHub'ın ürettiği commit listesi sayfayı
-            # uzatıyordu; sürüm geçmişi docs/DEGISIKLIKLER.md dosyasında.
-            gh release create "$ETIKET" ./* \
-              --title "$BASLIK" \
-              --notes-file "$NOTLAR" \
-              --latest=false "${EK[@]}"
+            # No --generate-notes: the release body should be RELEASE_NOTES.md
+            # only. GitHub's generated commit list made the page long; the
+            # version history lives in docs/DEGISIKLIKLER.md.
+            gh release create "$TAG" ./* \
+              --title "$TITLE" \
+              --notes-file "$NOTES" \
+              --latest=false "${EXTRA_ARGS[@]}"
           fi
 
-      - name: Release'i doğrula
+      - name: Verify the Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          ETIKET: ${{ github.ref_name }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # gh release create sessizce yarım kalırsa burada yakalanır.
-          BILGI="$(gh release view "$ETIKET" --json url,isDraft,assets)"
-          ADRES=$(echo "$BILGI" | jq -r .url)
-          TASLAK=$(echo "$BILGI" | jq -r .isDraft)
+          # If gh release create quietly did half the job, it is caught here.
+          INFO="$(gh release view "$TAG" --json url,isDraft,assets)"
+          URL=$(echo "$INFO" | jq -r .url)
+          IS_DRAFT=$(echo "$INFO" | jq -r .isDraft)
 
-          echo "Release : $ADRES"
-          echo "Taslak  : $TASLAK"
-          echo "$BILGI" | jq -r '.assets[] | "  \(.name)  \(.size) bayt"'
+          echo "Release : $URL"
+          echo "Draft   : $IS_DRAFT"
+          echo "$INFO" | jq -r '.assets[] | "  \(.name)  \(.size) bytes"'
 
-          if [ "$TASLAK" != "false" ]; then
-            echo "::error::Release taslak durumda kaldı"
+          if [ "$IS_DRAFT" != "false" ]; then
+            echo "::error::the Release was left as a draft"
             exit 1
           fi
 
-          # Yüklediğimiz dosyalarla release'deki varlıklar birebir aynı mı?
-          # Sayı saymak yerine ad ad karşılaştırıyoruz: fazlalık da eksiklik
-          # de görünür olsun.
-          ls indirilen | sort > /tmp/beklenen
-          echo "$BILGI" | jq -r '.assets[].name' | sort > /tmp/gelen
-          if ! diff -u /tmp/beklenen /tmp/gelen > /tmp/fark; then
-            echo "::error::Release varlıkları beklenenle uyuşmuyor:"
-            cat /tmp/fark
+          # Are the uploaded files and the release assets exactly the same?
+          # Compared name by name rather than by count, so both a surplus and
+          # a shortfall are visible.
+          ls downloaded | sort > /tmp/expected-assets
+          echo "$INFO" | jq -r '.assets[].name' | sort > /tmp/actual-assets
+          if ! diff -u /tmp/expected-assets /tmp/actual-assets > /tmp/asset-diff; then
+            echo "::error::Release assets do not match the expected list:"
+            cat /tmp/asset-diff
             exit 1
           fi
-          echo "Release varlıkları beklenenle birebir aynı."
+          echo "Release assets match the expected list exactly."
 
           {
-            echo "## ${{ inputs.gorunen_ad }} — Release yayınlandı"
+            echo "## ${{ inputs.display_name }} — Release published"
             echo ""
-            echo "$ADRES"
+            echo "$URL"
             echo ""
-            echo "$BILGI" | jq -r '.assets[] | "- `\(.name)` — \(.size) bayt"'
+            echo "$INFO" | jq -r '.assets[] | "- `\(.name)` — \(.size) bytes"'
           } >> "$GITHUB_STEP_SUMMARY"

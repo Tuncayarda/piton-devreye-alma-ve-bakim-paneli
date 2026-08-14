@@ -1,1 +1,1 @@
-"""Geliştirme, paketleme ve doğrulama araçları."""
+"""Development, packaging and verification tools."""

@@ -5,18 +5,22 @@ adresi atar ve bu cihazların yapılandırma işlemlerini yürütür.
 > **Ön sürümler.** Dosya adında `-dev`, `-alpha`, `-beta` veya `-rc` eki
 > bulunan paketler saha denemesi içindir ve kararlı sürüm sayılmaz.
 
+Arayüz Türkçe ve İngilizce çalışır. İlk açılışta işletim sisteminin dili
+kullanılır; dil, üst bardaki **TR / EN** düğmesiyle değiştirilir ve seçim
+kaydedilir.
+
 ## İndirme ve çalıştırma
 
 Dosya adlarındaki `<sürüm>` bölümü, sayfanın başlığında görünen sürüm
-numarasıdır; örneğin `0.9.6`.
+numarasıdır; örneğin `0.9.7`.
 
 | Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
-| **Windows x64** | `DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
-| Windows x64 | `DevreyeAlmaPaneli-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
-| macOS (Apple Silicon) | `DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| macOS (Intel) | `DevreyeAlmaPaneli-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| Linux x86_64 | `DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
+| **Windows x64** | `CommissioningPanel-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
+| Windows x64 | `CommissioningPanel-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
+| macOS (Apple Silicon) | `CommissioningPanel-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| macOS (Intel) | `CommissioningPanel-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| Linux x86_64 | `CommissioningPanel-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
 
 ## İşletim sistemi notları
 
@@ -37,7 +41,7 @@ gerekiyorsa arşivi çıkardıktan sonra, üst klasörde açtığınız PowerShe
 komutu çalıştırın:
 
 ```powershell
-Get-ChildItem -LiteralPath '.\DevreyeAlmaPaneli' -Recurse -File | Unblock-File
+Get-ChildItem -LiteralPath '.\CommissioningPanel' -Recurse -File | Unblock-File
 ```
 
 Paketler kod imzası taşımaz. SmartScreen uyarısı görünürse *Daha fazla bilgi*
@@ -64,7 +68,7 @@ sudo apt install libxcb-cursor0 libegl1 libgl1 zenity
 Arşiv yöneticiniz çalıştırma iznini korumadıysa izni yeniden verin:
 
 ```bash
-chmod +x DevreyeAlmaPaneli-*-linux-x86_64.AppImage
+chmod +x CommissioningPanel-*-linux-x86_64.AppImage
 ```
 
 ### Compartment LCD
@@ -82,15 +86,15 @@ Yalnızca bir paket indirdiyseniz önce o dosyanın özetini hesaplayın ve sonu
 
 ```powershell
 # Windows PowerShell
-Get-FileHash -Algorithm SHA256 '.\DevreyeAlmaPaneli-<sürüm>-windows-x64-Setup.exe'
+Get-FileHash -Algorithm SHA256 '.\CommissioningPanel-<sürüm>-windows-x64-Setup.exe'
 ```
 
 ```bash
 # macOS
-shasum -a 256 'DevreyeAlmaPaneli-<sürüm>-macos-arm64.zip'
+shasum -a 256 'CommissioningPanel-<sürüm>-macos-arm64.zip'
 
 # Linux
-sha256sum 'DevreyeAlmaPaneli-<sürüm>-linux-x86_64.zip'
+sha256sum 'CommissioningPanel-<sürüm>-linux-x86_64.zip'
 ```
 
 Bütün paketleri ve `SHA256SUMS.txt` dosyasını aynı klasöre indirdiyseniz tüm
@@ -109,4 +113,4 @@ sha256sum -c SHA256SUMS.txt
 ---
 
 Tüm sürümlerin değişiklik günlüğü:
-**[docs/DEGISIKLIKLER.md](https://github.com/Tuncayarda/DevreyeAlmaPaneli/blob/main/docs/DEGISIKLIKLER.md)**
+**[docs/DEGISIKLIKLER.md](https://github.com/Tuncayarda/piton-devreye-alma-ve-bakim-paneli/blob/main/docs/DEGISIKLIKLER.md)**

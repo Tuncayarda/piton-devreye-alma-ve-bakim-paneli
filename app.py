@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Devreye Alma Paneli — masaüstü uygulaması.
+"""Commissioning and Maintenance Panel — desktop application.
 
-Normal masaüstü kipinde arayüz tek parça HTML olarak belleğe yüklenir ve
-Python ile JavaScript pywebview'un doğrudan köprüsü üzerinden konuşur. Yerel
-HTTP sunucusu, TCP portu veya loopback bağlantısı açılmaz. Npcap/WFP gibi ağ
-süzgeçleri bu nedenle uygulamanın kendi arayüz iletişimine etki edemez.
+In normal desktop mode the UI is loaded into memory as a single HTML file and
+Python talks to JavaScript over pywebview's direct bridge. No local HTTP
+server, TCP port or loopback connection is opened, so network filters like
+Npcap/WFP cannot affect the app's own UI traffic.
 
-HTTP yalnız açıkça ``--tarayici`` istendiğinde geliştirme/tanı amacıyla
-başlatılır. Kapanışta iş kuyruğu durdurulur, MQTT dinleyicisi kapatılır ve
-bellekteki bütün cihaz kimlikleri unutulur (bkz. panel_api.temizle).
+HTTP starts only when ``--browser`` is asked for explicitly, for
+development/diagnostics. On shutdown the job queue stops, the MQTT listener
+closes and every device credential in memory is forgotten (see
+panel.api.reset).
 
-Uygulama yükseltilmiş (yönetici) yetkiyle çalıştırılır; ağ arayüzü, ARP
-önbelleği ve switch portlarıyla yapılan işler bunu gerektiriyor. Yetki yoksa
-panel açılmaz; bunun yerine kullanıcıya bir pencere çıkar ve iki yol sunar —
-yönetici olarak yeniden başlatmak ya da çıkmak (bkz. yetki.py).
+The app runs elevated; reading the network interface, the ARP cache and switch
+ports requires it. Without the privilege the panel does not open — instead the
+user gets a window offering to restart elevated or quit (see panel.elevation).
 
-Çalıştırma:
+Run:
     python3 app.py
-    python3 app.py --tarayici              # pencere yerine tarayıcıda aç
-    python3 app.py --admin-parolasi ****   # admin ekranını şifreye bağla
-    python3 app.py --self-test             # pencere açmadan doğrula
+    python3 app.py --browser               # open in a browser, not a window
+    python3 app.py --admin-password ****   # protect the admin screen
+    python3 app.py --self-test             # verify without opening a window
 """
 from __future__ import annotations
 
@@ -30,303 +30,317 @@ import sys
 import traceback
 from pathlib import Path
 
-BURASI = Path(__file__).resolve().parent
-sys.path.insert(0, str(BURASI))
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 
-import yetki
-from yetki import yonetici_mi                      # noqa: F401  (test yaması)
+from panel import elevation                          # noqa: E402
+from panel.elevation import is_elevated              # noqa: F401,E402  (test patch point)
 
-ASGARI_PYTHON = (3, 10)
-GENISLIK, YUKSEKLIK = 1440, 900
+MINIMUM_PYTHON = (3, 10)
+WIDTH, HEIGHT = 1440, 900
 
-PYWEBVIEW_YOK = (
-    "Uygulama penceresi için pywebview gerekli ve kurulu değil.\n\n"
-    "Kurulum:\n"
+PYWEBVIEW_MISSING = (
+    "pywebview is required for the application window and is not installed."
+    "\n\n"
+    "Install it with:\n"
     "    python3 -m pip install -r docs/requirements.txt\n\n"
-    "Pencere olmadan denemek için:\n"
-    "    python3 app.py --tarayici"
+    "To try it without a window:\n"
+    "    python3 app.py --browser"
 )
 
 
-def yaz(mesaj: str) -> None:
+def write(message: str) -> None:
     try:
-        print(mesaj)
+        print(message)
     except Exception:
         pass
 
 
-def http_hazir(url: str, saniye: float = 5.0) -> bool:
-    """Tarayıcı kipindeki HTTP adaptörünün gerçekten yanıtını doğrular."""
+def http_ready(url: str, seconds: float = 5.0) -> bool:
+    """Confirm the browser-mode HTTP adapter really answers."""
     import json
     import time
     import urllib.request
 
-    acici = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    son = time.monotonic() + saniye
-    while time.monotonic() < son:
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
         try:
-            with acici.open(f"{url}/api/surum", timeout=0.5) as yanit:
-                veri = json.loads(yanit.read())
-            if (yanit.status == 200 and isinstance(veri, dict)
-                    and isinstance(veri.get("surum"), str)):
+            with opener.open(f"{url}/api/version", timeout=0.5) as response:
+                data = json.loads(response.read())
+            if (response.status == 200 and isinstance(data, dict)
+                    and isinstance(data.get("version"), str)):
                 return True
         except (OSError, ValueError):
             time.sleep(0.05)
     return False
 
 
-def macos_kimlik(ad: str) -> None:
-    """Dock'ta yorumlayıcının adı yerine uygulama adı görünsün."""
+def set_macos_identity(name: str) -> None:
+    """Show the app's name in the Dock instead of the interpreter's."""
     if platform.system() != "Darwin" or getattr(sys, "frozen", False):
         return
     try:
         from Foundation import NSBundle
-        bilgi = (NSBundle.mainBundle().localizedInfoDictionary()
-                 or NSBundle.mainBundle().infoDictionary())
-        if bilgi is not None:
-            bilgi["CFBundleName"] = ad
-            bilgi["CFBundleDisplayName"] = ad
+        info = (NSBundle.mainBundle().localizedInfoDictionary()
+                or NSBundle.mainBundle().infoDictionary())
+        if info is not None:
+            info["CFBundleName"] = name
+            info["CFBundleDisplayName"] = name
     except Exception:
         pass
 
 
 def self_test() -> int:
-    """Pencere ve soket açmadan üretim masaüstü yolunu doğrular."""
-    from core import ayar, device_map
-    from masaustu import PanelKoprusu, html_yukle
-    import panel_api
+    """Verify the production desktop path without a window or a socket."""
+    from panel import api, settings
+    from panel.desktop import PanelBridge, load_html
+    from panel.inventory import device_map
 
-    sonuc = []
+    outcomes = []
 
-    def kontrol(ad: str, kosul: bool, ek: str = "") -> bool:
-        yaz(f"  [{'OK  ' if kosul else 'HATA'}] {ad}" + (f" — {ek}" if ek else ""))
-        sonuc.append(kosul)
-        return kosul
+    def check(name: str, condition: bool, extra: str = "") -> bool:
+        write(f"  [{'OK  ' if condition else 'FAIL'}] {name}"
+              + (f" — {extra}" if extra else ""))
+        outcomes.append(condition)
+        return condition
 
-    yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — self-test")
+    write(f"{settings.APP_NAME} {settings.APP_VERSION} — self-test")
 
-    kontrol("DeviceMap bulundu", ayar.DEVICE_MAP.exists(), str(ayar.DEVICE_MAP))
-    kontrol("Excel şablonu bulundu", ayar.EXCEL_SABLON.exists())
-    for varlik in ("index.html", "masaustu.html", "css/temel.css", "js/app.js",
-                   "piton-logo.svg", "piton-favicon.png"):
-        kontrol(f"static/{varlik}", (ayar.STATIC_DIR / varlik).exists())
-    # Kardeş projelerdeki üç betik (bkz. core/betik.py). Paketlenmiş
-    # uygulamada bunlar paketin içine kopyalanır; biri eksikse switch
-    # okuması, IP atama ya da Excel çıktısı sahada çalışmaz — paket
-    # üretildiği yerde anlaşılsın.
-    for ad, yol in (("Switch Yönetim Paneli backend'i", ayar.SWITCH_PANELI),
-                    ("Saha doğrulama betiği", ayar.DEVICE_VERIFY),
-                    ("IP atama betiği", ayar.INTERCOM_IP_ASSIGN)):
-        kontrol(ad, yol.exists(), str(yol))
+    check("DeviceMap found", settings.DEVICE_MAP.exists(),
+          str(settings.DEVICE_MAP))
+    check("Excel template found", settings.EXCEL_TEMPLATE.exists())
+    for asset in ("index.html", "desktop.html", "css/base.css", "js/app.js",
+                  "piton-logo.svg", "piton-favicon.png"):
+        check(f"static/{asset}", (settings.STATIC_DIR / asset).exists())
+    # The three field scripts (see panel.script_loader). In a packaged app
+    # they are copied into the bundle; if one is missing, switch reads, IP
+    # assignment or the Excel export will not work in the field — better to
+    # find out where the package is built.
+    for name, path in (("Switch Management Panel backend",
+                        settings.SWITCH_API_SCRIPT),
+                       ("Field verification script",
+                        settings.DEVICE_VERIFY_SCRIPT),
+                       ("IP assignment script", settings.IP_ASSIGN_SCRIPT)):
+        check(name, path.exists(), str(path))
 
     try:
-        env = device_map.yukle(1)
-        kontrol("DeviceMap okundu", len(env.cihazlar) > 0,
-                f"{len(env.cihazlar)} cihaz")
+        inventory = device_map.load(1)
+        check("DeviceMap read", len(inventory.devices) > 0,
+              f"{len(inventory.devices)} devices")
     except Exception as exc:
-        kontrol("DeviceMap okundu", False, str(exc))
+        check("DeviceMap read", False, str(exc))
 
-    kopru = None
+    bridge = None
     try:
-        kopru = PanelKoprusu()
-        html = html_yukle(kopru._yetenek)
-        kontrol("Masaüstü arayüzü tek parça", "dap-transport" in html)
-        panel_api.baslat()
-        for yol in ("/api/surum", "/api/proje?set=1", "/api/durum?set=1"):
-            zarf = kopru.invoke(kopru._yetenek, "GET", yol, {})
-            kontrol(f"Köprü GET {yol}",
-                    zarf.get("ok") is True and isinstance(zarf.get("body"), dict),
-                    str(zarf.get("body", {}).get("hata", "")))
+        bridge = PanelBridge()
+        html = load_html(bridge.capability)
+        check("The desktop UI is a single file", "dap-transport" in html)
+        api.start()
+        for path in ("/api/version", "/api/project?set=1", "/api/state?set=1"):
+            envelope = bridge.invoke(bridge.capability, "GET", path, {})
+            check(f"Bridge GET {path}",
+                  envelope.get("ok") is True
+                  and isinstance(envelope.get("body"), dict),
+                  str(envelope.get("body", {}).get("error", "")))
     except Exception as exc:
-        kontrol("Soketsiz masaüstü köprüsü", False, str(exc))
+        check("Socketless desktop bridge", False, str(exc))
     finally:
-        if kopru is not None:
-            kopru._kapat()
-        panel_api.temizle()
+        if bridge is not None:
+            bridge._close()
+        api.reset()
 
-    basarili = all(sonuc)
-    yaz("SONUÇ: " + ("başarılı" if basarili else "başarısız"))
-    return 0 if basarili else 1
+    passed = all(outcomes)
+    write("RESULT: " + ("passed" if passed else "failed"))
+    return 0 if passed else 1
 
 
-def tarayici_kipi(port: int) -> int:
-    """İsteğe bağlı geliştirme/tanı sunucusunu çalıştırır."""
+def browser_mode(port: int) -> int:
+    """Run the optional development/diagnostic server."""
     import threading
     import time
     import webbrowser
 
-    from core import ayar
-    import panel_api
+    from panel import api, settings
+    from panel.api.http_adapter import serve
 
     try:
-        # Port 0 doğrudan gerçek dinleyiciye verilir. Ayrı bir sokette port
-        # seçip kapatmak Windows'ta başka süreçlerle yarış oluşturuyordu.
-        srv = panel_api.sunucu("127.0.0.1", port)
+        # Port 0 goes straight to the real listener. Picking a port on a
+        # separate socket and closing it raced with other processes on
+        # Windows.
+        server = serve("127.0.0.1", port)
     except (OSError, ValueError, OverflowError) as exc:
-        yaz(f"[HATA] Tarayıcı servisi açılamadı: {exc}")
+        write(f"[ERROR] Could not start the browser service: {exc}")
         return 1
 
-    gercek_port = int(srv.server_address[1])
-    url = f"http://127.0.0.1:{gercek_port}"
-    t = threading.Thread(target=srv.serve_forever, daemon=True,
-                         name="panel-http")
-    t.start()
+    actual_port = int(server.server_address[1])
+    url = f"http://127.0.0.1:{actual_port}"
+    thread = threading.Thread(target=server.serve_forever, daemon=True,
+                              name="panel-http")
+    thread.start()
     try:
-        if not http_hazir(url):
-            yaz("[HATA] Tarayıcı servisi HTTP yanıtı vermedi.")
+        if not http_ready(url):
+            write("[ERROR] The browser service gave no HTTP response.")
             return 1
-        yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — tarayıcı tanı kipi")
-        yaz(f"Adres: {url}")
-        yaz("Durdurmak için Ctrl-C")
+        write(f"{settings.APP_NAME} {settings.APP_VERSION} — "
+              "browser diagnostic mode")
+        write(f"Address: {url}")
+        write("Press Ctrl-C to stop")
         webbrowser.open(url)
         try:
-            while t.is_alive():
+            while thread.is_alive():
                 time.sleep(0.5)
         except KeyboardInterrupt:
-            yaz("\nKapatılıyor.")
+            write("\nShutting down.")
         return 0
     finally:
-        srv.shutdown()
-        srv.server_close()
-        panel_api.temizle()
+        server.shutdown()
+        server.server_close()
+        api.reset()
 
 
 def main() -> int:
-    for akis in (sys.stdout, sys.stderr):
+    for stream in (sys.stdout, sys.stderr):
         try:
-            akis.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
 
-    if sys.version_info < ASGARI_PYTHON:
-        yaz(f"[HATA] Python {ASGARI_PYTHON[0]}.{ASGARI_PYTHON[1]}+ gerekli.")
+    if sys.version_info < MINIMUM_PYTHON:
+        write(f"[ERROR] Python {MINIMUM_PYTHON[0]}.{MINIMUM_PYTHON[1]}+ "
+              "is required.")
         return 1
 
-    ap = argparse.ArgumentParser(description="Devreye Alma Paneli")
-    ap.add_argument("--tarayici", action="store_true",
-                    help="HTTP tabanlı geliştirme/tanı kipini tarayıcıda aç")
-    ap.add_argument("--port", type=int, default=None,
-                    help="yalnız --tarayici kipindeki port (0 = otomatik)")
-    ap.add_argument("--admin-parolasi", default=None,
-                    help="admin ekranı bu şifreyi sorar; hiçbir yere yazılmaz")
-    ap.add_argument("--self-test", action="store_true",
-                    help="pencere açmadan paketi doğrula")
-    ap.add_argument("--version", action="store_true")
-    a = ap.parse_args()
+    parser = argparse.ArgumentParser(
+        description="Commissioning and Maintenance Panel")
+    parser.add_argument("--browser", action="store_true",
+                        help="open the HTTP development/diagnostic mode in a "
+                             "browser")
+    parser.add_argument("--port", type=int, default=None,
+                        help="port for --browser mode only (0 = automatic)")
+    parser.add_argument("--admin-password", default=None,
+                        help="the admin screen asks for this password; it is "
+                             "never written anywhere")
+    parser.add_argument("--self-test", action="store_true",
+                        help="verify the package without opening a window")
+    parser.add_argument("--version", action="store_true")
+    args = parser.parse_args()
 
-    from core import ayar
-    if a.version:
-        yaz(ayar.APP_VERSION)
+    from panel import settings
+    if args.version:
+        write(settings.APP_VERSION)
         return 0
-    if a.self_test:
+    if args.self_test:
         return self_test()
 
-    # Argüman doğrulaması yetki denetiminden önce: yanlış kullanım, yetki
-    # uyarısının arkasına saklanmasın.
-    if a.port is not None and not a.tarayici:
-        yaz("[HATA] --port yalnız --tarayici ile kullanılabilir.")
+    # Argument validation before the privilege check: a misuse must not hide
+    # behind the elevation warning.
+    if args.port is not None and not args.browser:
+        write("[ERROR] --port can only be used together with --browser.")
         return 2
 
-    # Dock kimliği yetki denetiminden ÖNCE kurulur: yetki penceresi de bu
-    # uygulamanın penceresi. Kurulmayınca Dock'ta yorumlayıcının adıyla
-    # ("Python") ayrı bir simge çıkıyor ve panel İKİNCİ bir uygulama gibi
-    # görünüyordu.
-    macos_kimlik(ayar.APP_ADI)
+    # The Dock identity is set BEFORE the privilege check: the elevation
+    # window is this app's window too. Without it a separate icon appeared in
+    # the Dock under the interpreter's name ("Python") and the panel looked
+    # like a SECOND application.
+    set_macos_identity(settings.APP_NAME)
 
-    # Yetki denetimi paket doğrulamasından (--self-test, --version) sonra
-    # ama servis kurulmadan önce: o iki kip cihaza ve ağa hiç dokunmadığı
-    # için yükseltilmiş yetki istemez.
+    # The privilege check comes after package verification (--self-test,
+    # --version) but before the service is set up: those two modes never touch
+    # a device or the network, so they need no elevation.
     #
-    # Yetki yoksa panel yine açılmaz; ama kullanıcı sebebini bir pencerede
-    # görür ve oradan yönetici olarak yeniden başlatabilir (bkz. yetki.akis).
-    if not yonetici_mi():
-        return yetki.akis(yaz)
+    # Without the privilege the panel still does not open; but the user sees
+    # why in a window and can restart elevated from there.
+    if not is_elevated():
+        return elevation.require_elevation(write)
 
-    import panel_api
-    panel_api.admin_parolasi_ayarla(
-        a.admin_parolasi or os.environ.get("PANEL_ADMIN_PAROLASI"))
+    from panel import api
+    api.set_admin_password(
+        args.admin_password or os.environ.get("PANEL_ADMIN_PASSWORD"))
 
-    if a.tarayici:
-        return tarayici_kipi(0 if a.port is None else a.port)
+    if args.browser:
+        return browser_mode(0 if args.port is None else args.port)
 
-    kopru = None
+    bridge = None
     try:
         try:
             import webview
         except ImportError:
-            yaz("[HATA] " + PYWEBVIEW_YOK)
+            write("[ERROR] " + PYWEBVIEW_MISSING)
             return 1
 
-        from masaustu import PanelKoprusu, html_yukle
+        from panel.desktop import PanelBridge, load_html
 
-        panel_api.baslat()
-        kopru = PanelKoprusu()
-        html = html_yukle(kopru._yetenek)
-        # Pywebview 6.x'te dosya URL'leri kimi platformlarda varsayılan
-        # olarak açık olabilir. Arayüz bellekte olduğu için ikisine de gerek
-        # yoktur; açıkça kapatmak yanlış paketlemenin sessizce çalışmasını da
-        # önler.
+        api.start()
+        bridge = PanelBridge()
+        html = load_html(bridge.capability)
+        # In pywebview 6.x file URLs may be enabled by default on some
+        # platforms. The UI lives in memory so neither is needed; disabling
+        # them explicitly also stops a mispackaged build from working
+        # silently.
         webview.settings["ALLOW_FILE_URLS"] = False
         webview.settings["ALLOW_DOWNLOADS"] = False
-        # Gelecekte arayüze target=_blank bağlantı eklenirse ayrıcalıklı
-        # WebView içinde gezinmesin; işletim sisteminin tarayıcısına çıksın.
+        # If a target=_blank link is ever added to the UI, it must not
+        # navigate inside the privileged WebView; send it to the OS browser.
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
         webview.settings["REMOTE_DEBUGGING_PORT"] = None
 
-        pencere = webview.create_window(
-            ayar.APP_ADI, html=html,
-            width=GENISLIK, height=YUKSEKLIK,
+        window = webview.create_window(
+            settings.APP_NAME, html=html,
+            width=WIDTH, height=HEIGHT,
             min_size=(980, 620),
             background_color="#101820",
         )
-        # js_api=nesne kullanılmaz: pywebview'un düşük seviyeli çağrı
-        # dağıtıcısında nesnenin gizli üyelerine adla erişim yüzeyi kalır.
-        # Exact-name allowlist'e yalnız oturum anahtarı denetleyen bu tek
-        # fonksiyon eklenir; köprünün durumu WebView'a aktarılmaz.
-        pencere.expose(kopru.invoke)
-        yaz(f"{ayar.APP_ADI} {ayar.APP_VERSION} — soketsiz masaüstü kipi")
-        yaz(f"DeviceMap: {ayar.DEVICE_MAP}")
-        yaz("Kimlik bilgileri arayüzden istenir, hiçbir yere yazılmaz.")
+        # js_api=object is not used: pywebview's low-level call dispatcher
+        # leaves a name-addressable surface onto the object's private members.
+        # Only this one function, which checks the session key, joins the
+        # exact-name allowlist; the bridge's state never enters the WebView.
+        window.expose(bridge.invoke)
+        write(f"{settings.APP_NAME} {settings.APP_VERSION} — "
+              "socketless desktop mode")
+        write(f"DeviceMap: {settings.DEVICE_MAP}")
+        write("Credentials are asked for in the UI and written nowhere.")
         if platform.system() == "Windows":
-            # Eski MSHTML motoruna sessiz geri dönüş yok: modern modül ve
-            # güvenlik davranışı için WebView2 zorunludur.
+            # No silent fallback to the old MSHTML engine: WebView2 is
+            # required for modern module and security behaviour.
             webview.start(gui="edgechromium", http_server=False)
         else:
             webview.start(http_server=False)
         return 0
     except Exception:
-        yaz("[HATA] Pencere açılamadı:\n" + traceback.format_exc(limit=4))
+        write("[ERROR] The window could not be opened:\n"
+              + traceback.format_exc(limit=4))
         return 1
     finally:
-        # Pencere kapandı: yeni köprü çağrıları kesilir; kuyruk, MQTT ve
-        # bellekteki kimlikler temizlenir. Burada kapatılacak HTTP sunucusu
-        # yoktur.
-        if kopru is not None:
-            kopru._kapat()
-        yaz("Arka plan işlemleri durduruluyor.")
-        panel_api.temizle()
+        # The window closed: new bridge calls are cut off, and the queue, MQTT
+        # and in-memory credentials are cleared. There is no HTTP server to
+        # close here.
+        if bridge is not None:
+            bridge._close()
+        write("Stopping background work.")
+        api.reset()
 
 
-def _hemen_cik(kod: int) -> None:
-    """Yorumlayıcıyı doğrudan bitirir.
+def _exit_now(code: int) -> None:
+    """End the interpreter directly.
 
-    Pencere motoru (pywebview → Cocoa/GTK) olay döngüsü kapandıktan sonra
-    süreci ayakta tutabiliyor: yetki penceresinden yükseltilmiş süreç
-    başlatıldıktan sonra ESKİ süreç kendiliğinden kapanmadı, dışarıdan
-    sonlandırılana kadar açık kaldı. Aynı panelin iki kopyasının aynı
-    switch'e ve aynı DeviceMap'e bakması tam da kaçınılan durum.
+    The window engine (pywebview → Cocoa/GTK) can keep the process alive after
+    its event loop closes: after starting an elevated process from the
+    privilege window, the OLD process did not exit on its own and stayed up
+    until killed from outside. Two copies of the panel looking at the same
+    switch and the same DeviceMap is exactly what we avoid.
 
-    `main()` çoktan döndüğü için kapatılacak bir şey kalmıyor: köprü ve
-    servisler onun `finally` bloğunda zaten kapandı (bkz. main). Geriye
-    yalnız tamponlardaki çıktıyı boşaltmak kalıyor.
+    `main()` has already returned, so nothing is left to close: the bridge and
+    services were shut down in its `finally` block. Only flushing the output
+    buffers remains.
     """
-    for akis in (sys.stdout, sys.stderr):
+    for stream in (sys.stdout, sys.stderr):
         try:
-            akis.flush()
+            stream.flush()
         except Exception:
             pass
-    os._exit(int(kod))
+    os._exit(int(code))
 
 
 if __name__ == "__main__":
-    _hemen_cik(main())
+    _exit_now(main())

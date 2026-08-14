@@ -1,0 +1,655 @@
+/* Reused parts: buttons, cards, tables, badges, the credentials menu, the
+   queue panel and the dialogs. */
+
+/* ──────────────────────────────────────────────────────────── buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--text);
+  cursor: pointer;
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
+  white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease;
+}
+.btn:hover:not(:disabled) { background: rgba(214, 235, 255, .06); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent); border-color: var(--accent); color: var(--deep);
+}
+.btn-primary:hover:not(:disabled) { background: #59a3e8; }
+
+.btn-danger { border-color: var(--failed-soft); color: #e05c59; }
+.btn-danger:hover:not(:disabled) { background: rgba(218, 54, 51, .12); }
+
+.btn-small { padding: 5px 11px; font-size: 12px; }
+
+/* Fixed-width button: the two labels sit on top of each other in the same
+   grid cell and the longer one sets the cell width. No pixel value is
+   written — if the font is not installed the fallback kicks in and a fixed
+   width no longer holds. */
+#refresh-btn { display: inline-grid; place-items: center; }
+#refresh-btn > span { grid-area: 1 / 1; }
+#refresh-btn .label-measure { visibility: hidden; }
+
+.btn-icon {
+  width: 30px; height: 30px; padding: 0; flex: none;
+  border-color: var(--line); color: var(--text-mid);
+}
+.btn-icon:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+.btn-icon[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+.btn-close {
+  width: 24px; height: 24px; padding: 0; flex: none;
+  border-color: var(--line); color: var(--text-mid);
+  font-family: var(--font-body); font-size: 13px; letter-spacing: 0;
+}
+
+/* ────────────────────────────────────────────────────────── alanlar ──── */
+.field {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  padding: 8px 10px;
+  font-family: var(--font-mono); font-size: 12.5px;
+}
+.field:focus-visible { border-color: var(--accent); }
+.field[aria-invalid="true"] { border-color: var(--failed); color: #e05c59; }
+
+.label {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
+}
+
+/* ──────────────────────────────────────────────────── corner marks ── */
+.corner { position: relative; }
+.corner::before, .corner::after {
+  content: ""; position: absolute; width: 11px; height: 11px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--line-corner), var(--line-corner)) center/100% 1px no-repeat,
+    linear-gradient(var(--line-corner), var(--line-corner)) center/1px 100% no-repeat;
+}
+.corner::before { left: -6px; top: -6px; }
+.corner::after { right: -6px; bottom: -6px; }
+
+/* ──────────────────────────────────────────────────────────── kartlar ── */
+.card {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 15px 17px 16px;
+}
+
+.card-head {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-bottom: 13px; flex-wrap: wrap;
+}
+.card-head .spacer { flex: 1; }
+
+.page-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* The single line under the heading: how fresh the numbers on the page are. */
+.page-sub {
+  margin-top: 5px;
+  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
+}
+/* The checklist refreshes itself. When the data goes stale this line draws
+   attention: producing an Excel from that view means a wrong document. */
+.check-freshness[data-stale="1"] { color: var(--auth); }
+
+/* The age of the data and the counters in the Excel confirmation. */
+.dialog .summary-box {
+  margin-top: 12px;
+  padding: 2px 12px;
+  border: 1px solid var(--line-soft);
+  background: var(--deep);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.dialog .summary-box .summary-row:last-child { border-bottom: 0; }
+.eyebrow {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
+}
+
+/* ───────────────────────────────────────────────────── state colours ── */
+.dot {
+  width: 7px; height: 7px; flex: none; display: block;
+  background: var(--unknown);
+}
+[data-state="ok"] { --state-colour: var(--ok); }
+[data-state="auth"] { --state-colour: var(--auth); }
+[data-state="failed"] { --state-colour: var(--failed); }
+[data-state="unknown"] { --state-colour: var(--unknown); }
+/* A running job: green means "finished" and queued grey reads as dormant.
+   Running is blue — the accent colour already means "happening now". */
+[data-state="busy"] { --state-colour: var(--accent); }
+.dot[data-state] { background: var(--state-colour); }
+.state-text[data-state] { color: var(--state-colour); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .02em;
+  color: var(--text-mid);
+}
+
+.mono { font-family: var(--font-mono); }
+.text-dim { color: var(--text-dim); }
+.text-mid { color: var(--text-mid); }
+.text-bright { color: var(--text-bright); }
+
+/* ───────────────────────────────────────────────────────── tablolar ──── */
+/* A grid-based table: column widths are tuned per screen, and it scrolls
+   horizontally inside itself so rows do not break on a narrow screen. */
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 14px;
+}
+
+.table {
+  min-width: var(--table-min, 900px);
+}
+
+.table-head, .table-row {
+  display: grid;
+  grid-template-columns: var(--table-columns);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+}
+
+.table-head {
+  background: var(--panel);
+  border-bottom: 0;
+  font-family: var(--font-body); font-size: 11.5px; font-weight: 600;
+  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
+  position: sticky; top: 0; z-index: 2;
+}
+
+.table-row {
+  border-top: 0;
+  background: var(--panel-2);
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+}
+button.table-row { cursor: pointer; }
+button.table-row:hover { background: #16212a; }
+button.table-row[aria-selected="true"] { background: var(--accent-soft); }
+
+
+.table-row .truncate {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+
+.table-empty {
+  border: 1px solid var(--line); border-top: 0;
+  background: var(--panel-2);
+  padding: 22px 12px; text-align: center;
+  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
+}
+
+/* ───────────────────────────────────────────────────── target strip ── */
+/* The group strip scrolls horizontally when it does not fit. The fade on the
+   right edge says the list continues: a clipped last chip looked like the
+   end, and users were not looking for the remaining groups. */
+.chip-bar {
+  display: flex; align-items: center; gap: 7px;
+  flex-wrap: nowrap; overflow-x: auto;
+  min-height: 44px; margin-top: 16px;
+  padding: 6px 12px;
+  border: 1px solid var(--line); background: var(--panel);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+/* No fade is needed at the end, or when everything fits. */
+.chip-bar[data-at-end="1"] { -webkit-mask-image: none; mask-image: none; }
+.chip-bar .label { flex: none; margin-right: 4px; }
+
+/* The operation target: a compact dropdown instead of a row of chips when
+   only one can be chosen. The counts appear in the operation table; the
+   picker's only job is the scope. */
+.target-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.target-picker .label { margin: 0; color: var(--text-mid); }
+.target-picker .field {
+  width: auto;
+  min-width: 190px;
+  min-height: 35px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.chip {
+  flex: none;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 10px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text-bright);
+  cursor: pointer;
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
+  white-space: nowrap;
+}
+.chip .count { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.chip[aria-pressed="true"] {
+  background: var(--accent); border-color: var(--accent); color: var(--deep);
+}
+.chip[aria-pressed="true"] .count { color: rgba(11, 17, 22, .65); }
+
+/* ──────────────────────────────────────────────────── progress bars ── */
+.bar { height: 3px; background: rgba(214, 235, 255, .1); }
+.bar > i { display: block; height: 3px; background: var(--accent); }
+
+/* ─────────────────────────────────────────── credentials and queue ─── */
+.count-badge {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--auth); color: var(--deep);
+  font-family: var(--font-mono); font-size: 10px;
+}
+.count-badge[data-kind="queue"] { background: var(--accent); }
+
+/* A job was added to the queue — the panel does not open, so the news is
+   given on the button. Three short pulses, then the button settles. */
+#queue-btn[data-flash] {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: queue-pulse .85s ease-out 3;
+}
+@keyframes queue-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(66, 148, 224, .55); }
+  70%  { box-shadow: 0 0 0 7px rgba(66, 148, 224, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(66, 148, 224, 0); }
+}
+/* For a user who asks for reduced motion, a flat accent replaces the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  #queue-btn[data-flash] { animation: none; background: var(--accent-soft); }
+}
+
+/* The panel ends at the left edge of the top bar's refresh button: with the
+   buttons that open a panel and the panel itself in line, the panel reads as
+   one piece with the top bar. app.js measures the width (--side-panel) so the
+   alignment does not drift when button text changes (the role badge,
+   "Scanning…"). */
+.side-panel {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: min(92vw, max(300px, var(--side-panel, 340px)));
+  z-index: 30;
+  background: var(--panel);
+  border-left: 1px solid var(--line-strong);
+  box-shadow: -14px 0 34px rgba(6, 10, 13, .55);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.side-panel > header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.side-panel > header .title {
+  font-family: var(--font-heading); font-weight: 600; font-size: 16px;
+  letter-spacing: 0; text-transform: none;
+}
+.side-panel > .list {
+  flex: 1; overflow-y: auto;
+  padding: 12px 14px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+/* The job card has no coloured edge strip: the job's state is read from the
+   dot in the heading, the percentage and the counters, and painting the card
+   edge as well made the queue noisy. */
+.job-card {
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+/* The running row is set apart by a thin border: the run works through the
+   ports in order, so this border is on exactly one row at a time and is the
+   calmest way to say "here, right now". A light sweeping across the row was
+   tried and made the queue boil. The negative margin stops the border from
+   shifting the text relative to the other rows. */
+.job-row[data-row-state="running"] {
+  border: 1px solid var(--accent-line);
+  background: rgba(66, 148, 224, .06);
+  padding: 6px 7px;
+  margin: 0 -8px;
+}
+/* The only motion is on the dot: it answers "stalled, or still running?". */
+.job-row[data-row-state="running"] .dot {
+  animation: job-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes job-pulse {
+  0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 rgba(66, 148, 224, .45); }
+  50%      { opacity: .45; box-shadow: 0 0 0 3px rgba(66, 148, 224, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-row[data-row-state="running"] .dot { animation: none; }
+}
+/* The title button and the stop button share one row. `width:100%` used to
+   be here, and with the title button asking for the whole width the stop
+   button spilled outside the card (the queue panel is narrow). Now the title
+   flexes and the stop button keeps its fixed width. */
+.job-card-head { display: flex; align-items: stretch; min-width: 0; }
+.job-card-head > .btn-close { align-self: center; margin-right: 9px; flex: none; }
+.job-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 11px; flex: 1; min-width: 0;
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+}
+.job-head .name {
+  display: block;
+  font-family: var(--font-heading); font-weight: 600; font-size: 14.5px;
+  letter-spacing: 0; text-transform: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-head .sub {
+  display: block; margin-top: 3px;
+  font-family: var(--font-mono); font-size: 10px;
+}
+/* The phase text ("Port 14 · writing the IP (3/6)"). One line: a long phase
+   must not grow the card and push the other queued jobs down. */
+.job-phase {
+  display: block; margin-top: 2px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-counts {
+  display: flex; gap: 7px; flex: none;
+  font-family: var(--font-mono); font-size: 10px;
+}
+/* A thin progress bar — flush with the bottom of the card, running job only. */
+.job-bar { height: 2px; background: var(--line-soft); overflow: hidden; }
+.job-bar i {
+  display: block; height: 100%;
+  background: var(--state-colour, var(--accent));
+  transition: width .3s ease;
+}
+.job-rows { padding: 4px 11px 10px; }
+.job-row {
+  display: flex; gap: 9px; padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.job-row .dot { margin-top: 5px; width: 6px; height: 6px; }
+/* The class cannot be called ".body": that name is used by the application's
+   main body, and its display:flex laid this row out side by side. */
+.job-row .job-row-body { min-width: 0; flex: 1; }
+/* A long file name ("..._set1.xlsx") spilled out of its box and over the
+   state text on the right: the browser does not treat an underscore or a dot
+   as a break opportunity, so breaking is asked for explicitly. */
+.job-row .name {
+  display: block; font-family: var(--font-mono); font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.job-row .sub {
+  display: block; margin-top: 2px;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  word-break: break-word;
+}
+.job-row .state {
+  flex: none; align-self: flex-start;
+  font-family: var(--font-heading); font-weight: 600; font-size: 11px;
+  letter-spacing: .08em; text-transform: uppercase;
+}
+
+/* ---- the step accordion under a row ----
+   Where a port is within the run ("searching for the device", "writing the
+   IP") did not fit into a one-line note: each new step erased the previous
+   one, and when the port failed, what happened when was lost. A row with
+   steps turns into a button; the button's own appearance is reset and the row
+   appearance
+   .job-row'dan gelir. */
+.job-row-btn {
+  width: 100%; color: inherit; font: inherit;
+  background: transparent;
+  border-top: 0; border-left: 0; border-right: 0;
+  text-align: left; cursor: pointer;
+}
+.job-row-btn:hover { background: rgba(255, 255, 255, .02); }
+/* The only marker that a row expands; it turns downwards when open. */
+.job-chevron {
+  flex: none; align-self: center; width: 6px; height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  transform: rotate(-45deg);
+  transition: transform .18s ease;
+}
+.job-row-btn[data-open="true"] .job-chevron {
+  transform: rotate(45deg); margin-top: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .job-chevron { transition: none; }
+}
+
+.job-steps {
+  margin: 0 0 6px 3px; padding: 4px 0 4px 13px;
+  border-left: 1px solid var(--line-soft);
+}
+.job-step { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+.job-step .dot { width: 5px; height: 5px; margin-top: 0; }
+.job-step-text {
+  flex: 1; min-width: 0;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-mid);
+  overflow-wrap: anywhere;
+}
+.job-step[data-row-state="warning"] .job-step-text { color: var(--auth); }
+.job-step[data-row-state="failed"] .job-step-text { color: var(--failed); }
+.job-step-time {
+  flex: none; align-self: flex-start;
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+}
+
+/* The two buttons under a generated file: open / show in folder. */
+.file-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.file-btn {
+  gap: 5px; padding: 3px 8px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .04em; text-transform: none;
+  border-color: var(--line); color: var(--text-mid);
+}
+.file-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.file-btn svg { flex: none; }
+
+.locked-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 10px 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--auth-soft);
+  color: var(--text);
+  cursor: pointer; text-align: left;
+}
+.locked-row:hover { background: #1a232b; }
+.locked-row .name {
+  font-family: var(--font-mono); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.locked-row .sub {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* ────────────────────────────────────────────────────────── dialog ──── */
+.backdrop {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(6, 10, 13, .62);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.backdrop.right { align-items: stretch; justify-content: flex-end; padding: 0; }
+
+.dialog {
+  width: min(430px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  padding: 20px 22px 22px;
+  display: flex; flex-direction: column; gap: 14px;
+  max-height: 92vh; overflow-y: auto;
+}
+.dialog h3 { font-size: 19px; }
+.dialog .description { font-size: 12.5px; color: var(--text-bright); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.warning {
+  padding: 8px 10px;
+  border: 1px solid var(--failed-soft);
+  background: rgba(218, 54, 51, .08);
+  color: #e8817f;
+  font-size: 12px;
+}
+.info {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  font-size: 12px; color: var(--text-bright);
+}
+
+.checkbox {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 11px;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  color: var(--text); cursor: pointer; text-align: left; width: 100%;
+}
+.checkbox .box {
+  width: 12px; height: 12px; flex: none;
+  border: 1px solid var(--line-strong); display: block;
+}
+.checkbox[aria-pressed="true"] { border-color: var(--accent); }
+.checkbox[aria-pressed="true"] .box { background: var(--accent); border-color: var(--accent); }
+.checkbox span:last-child {
+  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  letter-spacing: 0; text-transform: none;
+}
+
+/* ────────────────────────────────────────────────────── device detail ── */
+.detail {
+  width: min(520px, 100%); height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--line-strong);
+  overflow-y: auto;
+  padding: 20px 24px 30px;
+}
+.detail-block { margin-top: 20px; }
+.detail-block > .head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding-bottom: 7px; border-bottom: 1px solid var(--line);
+}
+.detail-block > .head .spacer { flex: 1; }
+.detail-row {
+  display: grid; grid-template-columns: 1fr 1.1fr; gap: 12px;
+  padding: 7px 0; border-bottom: 1px solid rgba(214, 235, 255, .06);
+}
+.detail-row .name { font-size: 12.5px; color: var(--text-mid); }
+.detail-row .value {
+  font-family: var(--font-mono); font-size: 12px;
+  word-break: break-word;
+}
+
+/* ───────────────────────────────────────────────────── toast strip ─── */
+#toast {
+  position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
+  z-index: 70;
+  max-width: min(560px, 92vw);
+  padding: 9px 14px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  box-shadow: 0 8px 26px rgba(6, 10, 13, .6);
+  font-size: 12.5px;
+}
+#toast[data-kind="error"] { border-color: var(--failed-soft); color: #e8817f; }
+#toast[data-kind="success"] { border-color: var(--ok-soft); color: var(--ok); }
+
+/* ─────────────────────────────────────────── top bar project strip ─── */
+.project-bar {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+  white-space: nowrap;
+}
+.project-bar > button {
+  display: flex; align-items: center; gap: 7px;
+  padding: 2px 2px;
+  background: transparent; border: 0; color: var(--text);
+  cursor: pointer; font: inherit;
+}
+.project-bar > button:hover { color: var(--accent); }
+
+.set-field {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--text); cursor: pointer;
+}
+.set-field input {
+  width: 44px;
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 0;
+  padding: 1px 4px;
+  font-family: var(--font-mono); font-size: 11px;
+  text-align: center;
+}
+.set-field input:hover { border-color: var(--line-strong); }
+.set-field input:focus-visible { border-color: var(--accent); outline: none; }
+.set-field input:disabled { color: var(--text-dim); cursor: not-allowed; }
+/* The spinner arrows squeeze the number; the set number is typed anyway. */
+.set-field input::-webkit-outer-spin-button,
+.set-field input::-webkit-inner-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.set-field input { -moz-appearance: textfield; appearance: textfield; }
+
+/* ─────────────────────────────────────────────────── language picker ─── */
+/* Two buttons rather than a dropdown: with two options a dropdown hides
+   which one is active, and the active language is the thing a lost user is
+   looking for. Each language names ITSELF (EN / TR), never translated. */
+.language-picker {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--line-strong);
+}
+.language-btn {
+  height: 30px;
+  min-width: 34px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+}
+.language-btn + .language-btn { border-left: 1px solid var(--line); }
+.language-btn:hover { color: var(--text); background: rgba(214, 235, 255, .05); }
+.language-btn[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

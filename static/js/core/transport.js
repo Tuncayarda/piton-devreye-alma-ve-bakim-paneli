@@ -1,152 +1,153 @@
-// Arayüzün Python'a nasıl ulaştığını tek yerde seçer.
+// Chooses, in one place, how the UI reaches Python.
 //
-// Normal tarayıcı sayfasında işaret yoktur ve mevcut aynı-origin HTTP
-// uçları kullanılır. Masaüstü için üretilen tek HTML, modüller çalışmadan
-// önce açıkça şunu yazar:
+// On an ordinary browser page there is no marker and the existing
+// same-origin HTTP endpoints are used. The single HTML generated for the
+// desktop writes this explicitly before any module runs:
 //
 //   window.__PANEL_TRANSPORT__ = 'bridge';
-//   window.__PANEL_CAPABILITY__ = '<oturumluk-rastgele-deger>';
+//   window.__PANEL_CAPABILITY__ = '<per-session-random-value>';
 //
-// Bridge modu bilinçli olarak HTTP'ye geri düşmez. Köprü kurulamazsa hata
-// çağırana gider; aksi davranış paketleme hatasını gizler ve uygulamayı
-// yeniden yerel ağ döngüsüne bağımlı kılar.
+// Bridge mode deliberately does not fall back to HTTP. If the bridge cannot
+// be established the error goes to the caller; anything else would hide a
+// packaging fault and put the app back on the local network loop.
 
-export const TRANSPORT_ISARETI = "__PANEL_TRANSPORT__";
-export const CAPABILITY_ISARETI = "__PANEL_CAPABILITY__";
+export const TRANSPORT_FLAG = "__PANEL_TRANSPORT__";
+export const CAPABILITY_FLAG = "__PANEL_CAPABILITY__";
 
-const BRIDGE_MODU = "bridge";
-const BRIDGE_BEKLEME_MS = 15000;
-const CAPABILITY_DESENI = /^[A-Za-z0-9_-]{43}$/;
+const BRIDGE_MODE = "bridge";
+const BRIDGE_TIMEOUT_MS = 15000;
+const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-const nesne = (deger) =>
-  deger !== null &&
-  typeof deger === "object" &&
-  !Array.isArray(deger);
+const isObject = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value);
 
-function zarfDogrula(zarf) {
+function validateEnvelope(envelope) {
   if (
-    !nesne(zarf) ||
-    typeof zarf.ok !== "boolean" ||
-    !Number.isInteger(zarf.status)
+    !isObject(envelope) ||
+    typeof envelope.ok !== "boolean" ||
+    !Number.isInteger(envelope.status)
   ) {
-    throw new Error("Masaüstü köprüsü geçersiz yanıt verdi");
+    throw new Error("The desktop bridge returned an invalid response");
   }
   return {
-    ok: zarf.ok,
-    status: zarf.status,
-    body: nesne(zarf.body) ? zarf.body : {},
+    ok: envelope.ok,
+    status: envelope.status,
+    body: isObject(envelope.body) ? envelope.body : {},
   };
 }
 
-export function tasimaOlustur(kok = globalThis) {
-  let bridgeBekleme = null;
+export function createTransport(root = globalThis) {
+  let bridgePromise = null;
 
-  const bridgeModu = () => kok[TRANSPORT_ISARETI] === BRIDGE_MODU;
+  const isBridgeMode = () => root[TRANSPORT_FLAG] === BRIDGE_MODE;
 
   const bridgeCapability = () => {
-    const capability = kok[CAPABILITY_ISARETI];
+    const capability = root[CAPABILITY_FLAG];
     if (
       typeof capability !== "string" ||
-      !CAPABILITY_DESENI.test(capability)
+      !CAPABILITY_PATTERN.test(capability)
     ) {
-      throw new Error("Masaüstü köprü yeteneği geçersiz");
+      throw new Error("The desktop bridge capability is invalid");
     }
     return capability;
   };
 
   const bridgeApi = () => {
-    const api = kok.pywebview && kok.pywebview.api;
+    const api = root.pywebview && root.pywebview.api;
     return api && typeof api.invoke === "function" ? api : null;
   };
 
-  // İlk denetim ile olay dinleyicisinin kurulması arasında pywebviewready
-  // gelebilir. Dinleyici eklendikten sonra ikinci kez bakılması bu yarışı
-  // kapatır. API zaten hazırsa olayı boşuna beklemeyiz.
-  const bridgeBekle = () => {
-    const hazir = bridgeApi();
-    if (hazir) return hazir;
-    if (bridgeBekleme) return bridgeBekleme;
+  // pywebviewready can arrive between the first check and the listener
+  // being installed. Looking a second time after the listener is added
+  // closes that race. If the API is already there we do not wait for the
+  // event at all.
+  const awaitBridge = () => {
+    const ready = bridgeApi();
+    if (ready) return ready;
+    if (bridgePromise) return bridgePromise;
 
-    bridgeBekleme = new Promise((resolve, reject) => {
-      let bitti = false;
-      let zaman = null;
-      const zamanKur = (kok.setTimeout || globalThis.setTimeout).bind(kok);
-      const zamanSil = (kok.clearTimeout || globalThis.clearTimeout).bind(kok);
+    bridgePromise = new Promise((resolve, reject) => {
+      let settled = false;
+      let timer = null;
+      const setTimer = (root.setTimeout || globalThis.setTimeout).bind(root);
+      const clearTimer = (root.clearTimeout || globalThis.clearTimeout).bind(root);
 
-      const temizle = () => {
-        kok.removeEventListener("pywebviewready", olay);
-        if (zaman !== null) zamanSil(zaman);
+      const cleanup = () => {
+        root.removeEventListener("pywebviewready", onReady);
+        if (timer !== null) clearTimer(timer);
       };
-      const bitir = (islem, deger) => {
-        if (bitti) return;
-        bitti = true;
-        temizle();
-        islem(deger);
+      const finish = (settle, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        settle(value);
       };
-      const olay = () => {
+      const onReady = () => {
         const api = bridgeApi();
-        if (api) bitir(resolve, api);
-        else bitir(reject, new Error("Masaüstü köprüsü hazır değil"));
+        if (api) finish(resolve, api);
+        else finish(reject, new Error("The desktop bridge is not ready"));
       };
 
-      kok.addEventListener("pywebviewready", olay, { once: true });
+      root.addEventListener("pywebviewready", onReady, { once: true });
 
-      // Olay, yukarıdaki dinleyici kurulmadan hemen önce gelmiş olabilir.
-      const aradaHazirlanan = bridgeApi();
-      if (aradaHazirlanan) {
-        bitir(resolve, aradaHazirlanan);
+      // The event may have arrived just before the listener above was set.
+      const readyMeanwhile = bridgeApi();
+      if (readyMeanwhile) {
+        finish(resolve, readyMeanwhile);
         return;
       }
 
-      zaman = zamanKur(() =>
-        bitir(
+      timer = setTimer(() =>
+        finish(
           reject,
-          new Error("Masaüstü köprüsü zamanında hazırlanmadı"),
-        ), BRIDGE_BEKLEME_MS);
+          new Error("The desktop bridge did not become ready in time"),
+        ), BRIDGE_TIMEOUT_MS);
     });
-    return bridgeBekleme;
+    return bridgePromise;
   };
 
-  const httpIstek = async (yontem, yol, govde) => {
-    const secenek = {
+  const httpRequest = async (method, path, body) => {
+    const options = {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
     };
-    if (yontem !== "GET") {
-      secenek.method = yontem;
-      secenek.body = JSON.stringify(govde || {});
+    if (method !== "GET") {
+      options.method = method;
+      options.body = JSON.stringify(body || {});
     }
-    const yanit = await kok.fetch(yol, secenek);
-    let body = {};
-    const tur = yanit.headers.get("Content-Type") || "";
-    if (tur.includes("application/json")) {
+    const response = await root.fetch(path, options);
+    let payload = {};
+    const contentType = response.headers.get("Content-Type") || "";
+    if (contentType.includes("application/json")) {
       try {
-        body = await yanit.json();
+        payload = await response.json();
       } catch {
-        body = {};
+        payload = {};
       }
     }
     return {
-      ok: yanit.ok,
-      status: yanit.status,
-      body: nesne(body) ? body : {},
+      ok: response.ok,
+      status: response.status,
+      body: isObject(payload) ? payload : {},
     };
   };
 
-  const bridgeIstek = async (yontem, yol, govde) => {
+  const bridgeRequest = async (method, path, body) => {
     const capability = bridgeCapability();
-    const api = await bridgeBekle();
-    const zarf = await api.invoke(capability, yontem, yol, govde || {});
-    return zarfDogrula(zarf);
+    const api = await awaitBridge();
+    const envelope = await api.invoke(capability, method, path, body || {});
+    return validateEnvelope(envelope);
   };
 
   return {
-    istek(yontem, yol, govde = {}) {
-      return bridgeModu()
-        ? bridgeIstek(yontem, yol, govde)
-        : httpIstek(yontem, yol, govde);
+    request(method, path, body = {}) {
+      return isBridgeMode()
+        ? bridgeRequest(method, path, body)
+        : httpRequest(method, path, body);
     },
   };
 }
 
-export const tasima = tasimaOlustur();
+export const transport = createTransport();

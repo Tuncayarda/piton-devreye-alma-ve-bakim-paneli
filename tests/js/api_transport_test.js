@@ -1,291 +1,258 @@
 import assert from "node:assert/strict";
 
-import { apiOlustur } from "../../static/js/core/api.js";
+import { createApi } from "../../static/js/core/api.js";
 import {
-  CAPABILITY_ISARETI,
-  tasimaOlustur,
-  TRANSPORT_ISARETI,
+  CAPABILITY_FLAG,
+  createTransport,
+  TRANSPORT_FLAG,
 } from "../../static/js/core/transport.js";
 
-const basarili = (body = {}) => ({ ok: true, status: 200, body });
+const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("api yüzeyi mevcut 37 metodunu korur", () => {
-  const api = apiOlustur({ istek: () => basarili() });
-  const metotlar = Object.keys(api).filter((ad) => ad !== "ApiHatasi").sort();
+Deno.test("the api surface keeps its 39 methods", () => {
+  const api = createApi({ request: () => ok() });
+  const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
-    metotlar,
+    methods,
     [
-      "adminGiris",
-      "cihaz",
-      "durum",
-      "excel",
+      "adminLogin",
+      "checklist",
+      "checklistExport",
+      "config",
+      "configApply",
+      "configFields",
+      "configReset",
+      "configTarget",
+      "device",
       "firmware",
-      "firmwareSec",
-      "firmwareSil",
-      "firmwareSurum",
-      "firmwareYukle",
-      "ipFabrika",
-      "ipKorunan",
-      "ipKosu",
+      "firmwareInstall",
+      "firmwarePick",
+      "firmwareRemove",
+      "firmwareVersion",
+      "forgetAllCredentials",
+      "forgetCredentials",
+      "ipAddressMap",
+      "ipFactoryReset",
       "ipPanel",
       "ipPlan",
-      "is",
-      "isDosya",
-      "isIptal",
-      "isSil",
-      "isler",
-      "kimlikDene",
-      "kimlikHepsiniUnut",
-      "kimlikUnut",
-      "kilit",
-      "konfig",
-      "konfigAlanlar",
-      "konfigHedef",
-      "konfigSifirla",
-      "konfigUygula",
-      "kontrol",
+      "ipProtected",
+      "ipRun",
+      "job",
+      "jobCancel",
+      "jobFile",
+      "jobRemove",
+      "jobs",
+      "language",
       "mqtt",
-      "mqttBasla",
-      "mqttDur",
+      "mqttStart",
+      "mqttStop",
       "piscu",
-      "proje",
-      "surum",
-      "tarama",
-      "yenile",
-    ].sort(),
+      "project",
+      "refresh",
+      "scan",
+      "setLanguage",
+      "state",
+      "tryCredentials",
+      "version",
+    ],
   );
 });
 
-Deno.test("api GET sorgusunu ve POST gövdesini taşıyıcıya aynen verir", async () => {
-  const cagrilar = [];
-  const api = apiOlustur({
-    istek: (...args) => {
-      cagrilar.push(args);
-      return basarili({ tamam: true });
+Deno.test("empty query values are dropped from the URL", async () => {
+  const calls = [];
+  const api = createApi({
+    request: (...args) => {
+      calls.push(args);
+      return ok({ done: true });
     },
   });
 
-  await api.ipPlan(2, "A B", "1,2", "sw/1");
-  const govde = { set: 2, switch: "sw-1", portlar: "1,2" };
-  await api.ipKosu(govde);
+  await api.ipPlan(2, "Intercom", "", "sw-1");
+  const body = { set: 2, switch: "sw-1", ports: "1,2" };
+  await api.ipRun(body);
 
-  assert.deepEqual(cagrilar[0], [
+  assert.deepEqual(calls[0], [
     "GET",
-    "/api/ip/plan?set=2&gruplar=A+B&portlar=1%2C2&switch=sw%2F1",
+    "/api/ip/plan?set=2&groups=Intercom&switch=sw-1",
     {},
   ]);
-  assert.deepEqual(cagrilar[1], ["POST", "/api/ip/kosu", govde]);
+  assert.deepEqual(calls[1], ["POST", "/api/ip/run", body]);
 });
 
-Deno.test("başarısız zarf ApiHatasi kodunu ve gövdesini korur", async () => {
-  const govde = { hata: "Tarama sürüyor", durum: { aktifTarama: true } };
-  const api = apiOlustur({
-    istek: () => ({ ok: false, status: 409, body: govde }),
+Deno.test("a failing envelope becomes an ApiError carrying the body", async () => {
+  const body = { error: "A scan is running", state: { scanRunning: true } };
+  const api = createApi({
+    request: () => ({ ok: false, status: 409, body }),
   });
 
   await assert.rejects(
-    () => api.yenile(1, ["d1"]),
-    (hata) => {
-      assert.ok(hata instanceof api.ApiHatasi);
-      assert.equal(hata.message, "Tarama sürüyor");
-      assert.equal(hata.kod, 409);
-      assert.equal(hata.govde, govde);
+    () => api.version(),
+    (error) => {
+      assert.equal(error.name, "Error");
+      assert.equal(error.constructor, api.ApiError);
+      assert.equal(error.status, 409);
+      assert.equal(error.message, "A scan is running");
+      assert.equal(error.body, body);
       return true;
     },
   );
 });
 
-Deno.test("taşıma arızası kod 0 olan ApiHatasi olur", async () => {
-  const api = apiOlustur({
-    istek: () => {
-      throw new Error("iç ayrıntı");
-    },
-  });
+Deno.test("a malformed envelope reports the service as unreachable", async () => {
+  const api = createApi({ request: () => ({ ok: "yes" }) });
 
   await assert.rejects(
-    () => api.surum(),
-    (hata) => {
-      assert.ok(hata instanceof api.ApiHatasi);
-      assert.equal(hata.message, "Panel servisine ulaşılamadı");
-      assert.equal(hata.kod, 0);
-      assert.deepEqual(hata.govde, {});
+    () => api.version(),
+    (error) => {
+      assert.equal(error.status, 0);
+      assert.equal(error.message, "The panel service is unreachable");
+      assert.deepEqual(error.body, {});
       return true;
     },
   );
 });
 
-Deno.test("işaretsiz sayfa mevcut HTTP fetch taşımasını kullanır", async () => {
-  const kok = new EventTarget();
-  let cagri = null;
-  // Capability yalnız bridge işareti varsa anlamlıdır.
-  kok[CAPABILITY_ISARETI] = null;
-  kok.fetch = (yol, secenek) => {
-    cagri = { yol, secenek };
-    return {
+Deno.test("without the transport flag the request goes over HTTP", async () => {
+  const root = new EventTarget();
+  let call = null;
+  root[TRANSPORT_FLAG] = undefined;
+  root[CAPABILITY_FLAG] = null;
+  root.fetch = (path, options) => {
+    call = { path, options };
+    return Promise.resolve({
       ok: true,
       status: 200,
-      headers: { get: () => "application/json; charset=utf-8" },
-      json: () => ({ tamam: true }),
-    };
+      headers: new Headers({ "Content-Type": "application/json" }),
+      json: () => Promise.resolve({ done: true }),
+    });
   };
-  const tasima = tasimaOlustur(kok);
+  const transport = createTransport(root);
 
-  const sonuc = await tasima.istek("POST", "/api/tarama", { set: 3 });
+  const result = await transport.request("POST", "/api/scan", { set: 3 });
 
-  assert.deepEqual(sonuc, basarili({ tamam: true }));
-  assert.equal(cagri.yol, "/api/tarama");
-  assert.equal(cagri.secenek.method, "POST");
-  assert.equal(cagri.secenek.body, '{"set":3}');
-  assert.equal(cagri.secenek.cache, "no-store");
-  assert.equal(cagri.secenek.headers["Content-Type"], "application/json");
+  assert.deepEqual(result, ok({ done: true }));
+  assert.equal(call.path, "/api/scan");
+  assert.equal(call.options.method, "POST");
+  assert.equal(call.options.body, '{"set":3}');
+  assert.equal(call.options.cache, "no-store");
+  assert.equal(call.options.headers["Content-Type"], "application/json");
 });
 
-Deno.test("bridge işareti invoke kullanır ve fetch çağırmaz", async () => {
-  const kok = new EventTarget();
-  let fetchSayisi = 0;
-  let cagri = null;
-  kok[TRANSPORT_ISARETI] = "bridge";
-  kok[CAPABILITY_ISARETI] = CAPABILITY;
-  kok.fetch = () => {
-    fetchSayisi += 1;
+Deno.test("in bridge mode the call goes to pywebview, never to fetch", async () => {
+  const root = new EventTarget();
+  let fetchCount = 0;
+  let call = null;
+  root[TRANSPORT_FLAG] = "bridge";
+  root[CAPABILITY_FLAG] = CAPABILITY;
+  root.fetch = () => {
+    fetchCount += 1;
   };
-  kok.pywebview = {
+  root.pywebview = {
     api: {
       invoke: (...args) => {
-        cagri = args;
-        return basarili({ surum: "1.0" });
+        call = args;
+        return ok({ version: "1.0" });
       },
     },
   };
-  const tasima = tasimaOlustur(kok);
+  const transport = createTransport(root);
 
-  const sonuc = await tasima.istek("GET", "/api/surum");
+  const result = await transport.request("GET", "/api/version");
 
-  assert.deepEqual(cagri, [CAPABILITY, "GET", "/api/surum", {}]);
-  assert.deepEqual(sonuc, basarili({ surum: "1.0" }));
-  assert.equal(fetchSayisi, 0);
+  assert.deepEqual(call, [CAPABILITY, "GET", "/api/version", {}]);
+  assert.deepEqual(result, ok({ version: "1.0" }));
+  assert.equal(fetchCount, 0);
 });
 
-Deno.test("bridge ilk çağrıda pywebviewready olayını bekler", async () => {
-  const kok = new EventTarget();
-  kok[TRANSPORT_ISARETI] = "bridge";
-  kok[CAPABILITY_ISARETI] = CAPABILITY;
-  kok.fetch = () => {
-    throw new Error("fetch kullanılmamalı");
+Deno.test("a bridge that is not ready yet waits for pywebviewready", async () => {
+  const root = new EventTarget();
+  root[TRANSPORT_FLAG] = "bridge";
+  root[CAPABILITY_FLAG] = CAPABILITY;
+  root.fetch = () => {
+    throw new Error("fetch must not be used");
   };
-  const tasima = tasimaOlustur(kok);
-  const bekleyen = tasima.istek("GET", "/api/surum");
+  const transport = createTransport(root);
+  const pending = transport.request("GET", "/api/version");
 
-  queueMicrotask(() => {
-    kok.pywebview = {
-      api: { invoke: () => basarili({ hazir: true }) },
+  setTimeout(() => {
+    root.pywebview = {
+      api: { invoke: () => ok({ ready: true }) },
     };
-    kok.dispatchEvent(new Event("pywebviewready"));
-  });
+    root.dispatchEvent(new Event("pywebviewready"));
+  }, 0);
 
-  assert.deepEqual(await bekleyen, basarili({ hazir: true }));
+  assert.deepEqual(await pending, ok({ ready: true }));
 });
 
-Deno.test("pywebviewready kurulum yarışında ikinci denetim köprüyü bulur", async () => {
-  class YarisliKok extends EventTarget {
-    addEventListener(tur, dinleyici, secenek) {
-      super.addEventListener(tur, dinleyici, secenek);
-      if (tur === "pywebviewready" && !this.pywebview) {
+Deno.test("the second check finds a bridge that raced the listener setup", async () => {
+  class RacingRoot extends EventTarget {
+    addEventListener(type, listener, options) {
+      super.addEventListener(type, listener, options);
+      if (type === "pywebviewready" && !this.pywebview) {
         this.pywebview = {
           api: {
-            invoke: () => basarili({ hazir: true }),
+            invoke: () => ok({ ready: true }),
           },
         };
       }
     }
   }
 
-  const kok = new YarisliKok();
-  kok[TRANSPORT_ISARETI] = "bridge";
-  kok[CAPABILITY_ISARETI] = CAPABILITY;
-  kok.fetch = () => {
-    throw new Error("fetch kullanılmamalı");
+  const root = new RacingRoot();
+  root[TRANSPORT_FLAG] = "bridge";
+  root[CAPABILITY_FLAG] = CAPABILITY;
+  root.fetch = () => {
+    throw new Error("fetch must not be used");
   };
-  const tasima = tasimaOlustur(kok);
+  const transport = createTransport(root);
 
   assert.deepEqual(
-    await tasima.istek("GET", "/api/surum"),
-    basarili({ hazir: true }),
+    await transport.request("GET", "/api/version"),
+    ok({ ready: true }),
   );
 });
 
-Deno.test("bridge invoke hatasında HTTP geri dönüşü yapılmaz", async () => {
-  const kok = new EventTarget();
-  let fetchSayisi = 0;
-  kok[TRANSPORT_ISARETI] = "bridge";
-  kok[CAPABILITY_ISARETI] = CAPABILITY;
-  kok.fetch = () => {
-    fetchSayisi += 1;
+Deno.test("a failing bridge invoke never falls back to HTTP", async () => {
+  const root = new EventTarget();
+  let fetchCount = 0;
+  root[TRANSPORT_FLAG] = "bridge";
+  root[CAPABILITY_FLAG] = CAPABILITY;
+  root.fetch = () => {
+    fetchCount += 1;
   };
-  kok.pywebview = {
+  root.pywebview = {
     api: {
       invoke: () => {
-        throw new Error("bridge kapandı");
+        throw new Error("the bridge closed");
       },
     },
   };
-  const tasima = tasimaOlustur(kok);
+  const transport = createTransport(root);
 
-  await assert.rejects(() => tasima.istek("GET", "/api/surum"));
-  assert.equal(fetchSayisi, 0);
+  await assert.rejects(() => transport.request("GET", "/api/version"));
+  assert.equal(fetchCount, 0);
 });
 
-Deno.test("bridge capability eksikse fail-closed kalır", async () => {
-  const kok = new EventTarget();
-  let fetchSayisi = 0;
-  let invokeSayisi = 0;
-  kok[TRANSPORT_ISARETI] = "bridge";
-  kok.fetch = () => {
-    fetchSayisi += 1;
+Deno.test("a missing bridge capability stays fail-closed", async () => {
+  const root = new EventTarget();
+  let fetchCount = 0;
+  let invokeCount = 0;
+  root[TRANSPORT_FLAG] = "bridge";
+  root.fetch = () => {
+    fetchCount += 1;
   };
-  kok.pywebview = {
+  root.pywebview = {
     api: {
       invoke: () => {
-        invokeSayisi += 1;
-        return basarili();
+        invokeCount += 1;
+        return ok();
       },
     },
   };
-  const tasima = tasimaOlustur(kok);
+  const transport = createTransport(root);
 
-  await assert.rejects(
-    () => tasima.istek("GET", "/api/surum"),
-    /köprü yeteneği geçersiz/,
-  );
-  assert.equal(invokeSayisi, 0);
-  assert.equal(fetchSayisi, 0);
-});
-
-Deno.test("bridge geçersiz capability değerlerini reddeder", async () => {
-  for (
-    const capability of [
-      null,
-      {},
-      "",
-      "A".repeat(42),
-      "A".repeat(44),
-      `${"A".repeat(42)}!`,
-    ]
-  ) {
-    const kok = new EventTarget();
-    kok[TRANSPORT_ISARETI] = "bridge";
-    kok[CAPABILITY_ISARETI] = capability;
-    kok.fetch = () => {
-      throw new Error("fetch kullanılmamalı");
-    };
-    kok.pywebview = {
-      api: { invoke: () => basarili() },
-    };
-
-    await assert.rejects(
-      () => tasimaOlustur(kok).istek("GET", "/api/surum"),
-      /köprü yeteneği geçersiz/,
-    );
-  }
+  await assert.rejects(() => transport.request("GET", "/api/version"));
+  assert.equal(fetchCount, 0);
+  assert.equal(invokeCount, 0);
 });

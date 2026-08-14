@@ -1,6 +1,6 @@
-"""Devreye Alma Paneli test paketi.
+"""Test suite for the Commissioning and Maintenance Panel.
 
-Tamamı tek komutla çalışır:
+All of it runs with one command:
 
     python3 -m unittest discover -s tests -t .
 """

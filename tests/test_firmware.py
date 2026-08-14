@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Yazılım yükleme — iki cihaz ailesi.
+"""Software installation — two device families.
 
-Buradaki testlerin ortak derdi: hangi cihaza hangi dosyanın gittiği belli
-olmalı. Dosya cihaz başına seçiliyor — bir intercom farklı bir
-revizyondan olabiliyor ve grubun geri kalanıyla aynı .bin'i almıyor. Tek
-bir "seçili dosya" tutulduğunda bu görünmüyor, yanlış imaj sessizce
-gidiyordu.
+The shared concern here: it must be clear which file went to which device.
+The file is chosen PER DEVICE — an intercom can be a different hardware
+revision and not take the same .bin as the rest of the group. Keeping a single
+"selected file" hid that, and the wrong image went out silently.
 
-Anons ekipmanı HTTP ile imaj alır, Compartment LCD adb ile APK. İkisinde
-de "istek kabul edildi" tek başına başarı sayılmaz: cihaz yeniden okunur
-ve sürümün gerçekten değiştiği görülür.
+Announcement equipment takes an image over HTTP, the Compartment LCD an APK
+over adb. On both, "request accepted" alone is not success: the device is read
+again and the version must really have changed.
 """
 from __future__ import annotations
 
@@ -17,574 +16,580 @@ from pathlib import Path
 import tempfile
 import time
 
-from core import ayar, firmware, isler
-from core.hata import DogrulamaHatasi, UygulanmazHatasi
+from panel import firmware, jobs, settings
+from panel.errors import NotApplicableError, VerificationError
+from panel.firmware import apk_install
+from panel.system import files
 
-from .ortak import PanelTesti, ServisTesti
-from . import sahte
-
-
-def imaj(ad: str, icerik: bytes = b"BIN") -> str:
-    yol = Path(tempfile.mkdtemp(prefix="fw-test-")) / ad
-    yol.write_bytes(icerik)
-    return str(yol)
+from .support import fakes
+from .support.base import PanelTest, ServiceTest
 
 
-class DosyaSecimi(PanelTesti):
+def image(name: str, content: bytes = b"BIN") -> str:
+    path = Path(tempfile.mkdtemp(prefix="fw-test-")) / name
+    path.write_bytes(content)
+    return str(path)
 
-    def kur(self, sayi=2):
-        cihazlar = [{
+
+class FileSelection(PanelTest):
+
+    def build(self, count=2):
+        devices = [{
             "Name": f"Intercom_{i}", "IP": "127.0.0.1", "IsActive": True,
             "Type": "Announcement", "SubType": "Intercom", "Port": str(10 + i),
             "Status": {"NoError": True},
-        } for i in range(1, sayi + 1)]
-        env = self.kur_harita(sahte.device_map(cihazlar))
-        return env, env.tip_ile("Announcement")
+        } for i in range(1, count + 1)]
+        inventory = self.build_map(fakes.device_map(devices))
+        return inventory, inventory.by_type("Announcement")
 
-    def test_her_cihaz_kendi_imajini_tutar(self):
-        _, cihazlar = self.kur()
-        a, b = cihazlar[0], cihazlar[1]
-        firmware.dosya_sec([a.id], imaj("intercom-1.2.6.bin"), "1.2.6")
-        firmware.dosya_sec([b.id], imaj("intercom-1.1.9.bin"), "1.1.9")
+    def test_each_device_keeps_its_own_image(self):
+        _, devices = self.build()
+        a, b = devices[0], devices[1]
+        firmware.select_file([a.id], image("intercom-1.2.6.bin"), "1.2.6")
+        firmware.select_file([b.id], image("intercom-1.1.9.bin"), "1.1.9")
 
-        self.assertEqual(firmware.secili_of(a.id)["ad"], "intercom-1.2.6.bin")
-        self.assertEqual(firmware.secili_of(a.id)["surum"], "1.2.6")
-        self.assertEqual(firmware.secili_of(b.id)["ad"], "intercom-1.1.9.bin")
-        self.assertEqual(len(firmware.secilenler()), 2)
+        self.assertEqual(firmware.selection_for(a.id)["name"],
+                         "intercom-1.2.6.bin")
+        self.assertEqual(firmware.selection_for(a.id)["version"], "1.2.6")
+        self.assertEqual(firmware.selection_for(b.id)["name"],
+                         "intercom-1.1.9.bin")
+        self.assertEqual(len(firmware.selections()), 2)
 
-    def test_secim_silinebilir(self):
-        _, cihazlar = self.kur()
-        a, b = cihazlar[0], cihazlar[1]
-        firmware.dosya_sec([a.id, b.id], imaj("ortak.bin"))
-        self.assertEqual(firmware.sil([a.id]), 1)
-        self.assertFalse(firmware.secili_var(a.id))
-        self.assertTrue(firmware.secili_var(b.id))
-        firmware.temizle()
-        self.assertEqual(firmware.secilenler(), {})
+    def test_a_selection_can_be_removed(self):
+        _, devices = self.build()
+        a, b = devices[0], devices[1]
+        firmware.select_file([a.id, b.id], image("ortak.bin"))
+        self.assertEqual(firmware.clear_selection([a.id]), 1)
+        self.assertFalse(firmware.has_selection(a.id))
+        self.assertTrue(firmware.has_selection(b.id))
+        firmware.clear_all()
+        self.assertEqual(firmware.selections(), {})
 
-    def test_ayni_cihaz_kimligi_setler_arasinda_secim_sizdirmaz(self):
-        _, cihazlar = self.kur(1)
-        c = cihazlar[0]
-        firmware.dosya_sec([c.id], imaj("set1.bin"), "1.0", set_no=1)
+    def test_the_same_device_id_does_not_leak_between_sets(self):
+        _, devices = self.build(1)
+        device = devices[0]
+        firmware.select_file([device.id], image("set1.bin"), "1.0", set_no=1)
 
-        self.assertTrue(firmware.secili_var(c.id, set_no=1))
-        self.assertFalse(firmware.secili_var(c.id, set_no=2))
-        self.assertEqual(firmware.secili_of(c.id, set_no=2)["secili"], False)
-        self.assertEqual(firmware.secilenler(set_no=2), {})
+        self.assertTrue(firmware.has_selection(device.id, set_no=1))
+        self.assertFalse(firmware.has_selection(device.id, set_no=2))
+        self.assertEqual(
+            firmware.selection_for(device.id, set_no=2)["selected"], False)
+        self.assertEqual(firmware.selections(set_no=2), {})
 
-        firmware.dosya_sec([c.id], imaj("set2.bin"), "2.0", set_no=2)
-        self.assertEqual(firmware.secili_of(c.id, set_no=1)["ad"], "set1.bin")
-        self.assertEqual(firmware.secili_of(c.id, set_no=2)["ad"], "set2.bin")
+        firmware.select_file([device.id], image("set2.bin"), "2.0", set_no=2)
+        self.assertEqual(firmware.selection_for(device.id, set_no=1)["name"],
+                         "set1.bin")
+        self.assertEqual(firmware.selection_for(device.id, set_no=2)["name"],
+                         "set2.bin")
 
-        firmware.temizle(1)
-        self.assertFalse(firmware.secili_var(c.id, set_no=1))
-        self.assertTrue(firmware.secili_var(c.id, set_no=2))
+        firmware.clear_all(1)
+        self.assertFalse(firmware.has_selection(device.id, set_no=1))
+        self.assertTrue(firmware.has_selection(device.id, set_no=2))
 
-    def test_gecersiz_dosya_secilmez(self):
-        _, cihazlar = self.kur(1)
-        c = cihazlar[0]
-        bos = Path(tempfile.mkdtemp(prefix="fw-test-")) / "bos.bin"
-        bos.write_bytes(b"")
-        for yol, beklenen in (("/yok/olmayan.bin", "bulunamadı"),
-                              (str(bos), "boş")):
-            with self.assertRaises(ValueError, msg=yol) as t:
-                firmware.dosya_sec([c.id], yol)
-            self.assertIn(beklenen, str(t.exception))
-        # Hiçbiri seçime yazılmamalı.
-        self.assertFalse(firmware.secili_var(c.id))
+    def test_an_invalid_file_is_not_selected(self):
+        _, devices = self.build(1)
+        device = devices[0]
+        empty = Path(tempfile.mkdtemp(prefix="fw-test-")) / "empty.bin"
+        empty.write_bytes(b"")
+        for path, expected in (("/no/such/file.bin", "not found"),
+                               (str(empty), "is empty")):
+            with self.assertRaises(ValueError, msg=path) as caught:
+                firmware.select_file([device.id], path)
+            self.assertIn(expected, str(caught.exception))
+        # None of them may reach the selection.
+        self.assertFalse(firmware.has_selection(device.id))
 
-    def test_dosyasi_olmayan_cihaza_yukleme_yapilmaz(self):
-        _, cihazlar = self.kur(1)
-        with self.assertRaises(ValueError) as t:
-            firmware.yukle(cihazlar[0])
-        self.assertIn("dosya seçilmedi", str(t.exception))
+    def test_no_install_on_a_device_without_a_file(self):
+        _, devices = self.build(1)
+        with self.assertRaises(ValueError) as caught:
+            firmware.install(devices[0])
+        self.assertIn("No file was selected", str(caught.exception))
 
-    def test_yukleme_ucu_olmayan_cihaz_reddedilir(self):
-        """Yalnız kendi HTTP ucu olan cihazlarda yükleme var."""
-        harita = sahte.device_map([{
-            "Name": "Kamera_1", "IP": "127.0.0.1", "IsActive": True,
+    def test_a_device_without_an_install_endpoint_is_rejected(self):
+        """Installing exists only on devices with their own HTTP endpoint."""
+        topology = fakes.device_map([{
+            "Name": "Camera_1", "IP": "127.0.0.1", "IsActive": True,
             "Type": "Camera", "SubType": "", "Port": "11", "Status": {}}])
-        env = self.kur_harita(harita)
-        c = env.tip_ile("Camera")[0]
-        firmware.dosya_sec([c.id], imaj("x.bin"))
-        with self.assertRaises(UygulanmazHatasi):
-            firmware.yukle(c)
+        inventory = self.build_map(topology)
+        device = inventory.by_type("Camera")[0]
+        firmware.select_file([device.id], image("x.bin"))
+        with self.assertRaises(NotApplicableError):
+            firmware.install(device)
 
 
-class Yukleme(PanelTesti):
+class Install(PanelTest):
 
-    def kur(self):
-        harita = sahte.device_map([{
+    def build(self):
+        topology = fakes.device_map([{
             "Name": "Intercom_1", "IP": "127.0.0.1", "IsActive": True,
             "Type": "Announcement", "SubType": "Intercom", "Port": "11",
             "Status": {"NoError": True}}])
-        env = self.kur_harita(harita)
-        return env, env.tip_ile("Announcement")[0]
+        inventory = self.build_map(topology)
+        return inventory, inventory.by_type("Announcement")[0]
 
-    def test_imaj_cihaza_gonderilir_ve_surum_dogrulanir(self):
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("intercom-1.2.6.bin", b"IMAJ-VERISI"),
-                           "1.2.6")
-        with sahte.anons(yeni_surum="1.2.6") as an:
-            ayar.ANONS_PORT = an.port
-            sonuc = firmware.yukle(c, dogrula_sure=10.0)
-            gonderilen = list(an.yuklenen)
+    def test_the_image_is_sent_and_the_version_verified(self):
+        _, device = self.build()
+        firmware.select_file([device.id],
+                             image("intercom-1.2.6.bin", b"IMAJ-VERISI"),
+                             "1.2.6")
+        with fakes.announcement(new_version="1.2.6") as fake:
+            settings.ANNOUNCEMENT_PORT = fake.port
+            result = firmware.install(device, verify_window=10.0)
+            sent = list(fake.uploaded)
 
-        self.assertEqual(sonuc["yeni"], "1.2.6")
-        self.assertEqual(sonuc["onceki"], "1.2.5")
-        self.assertTrue(sonuc["degisti"])
-        # Cihaza giden gövde gerçekten seçilen dosya.
-        self.assertEqual(len(gonderilen), 1)
-        self.assertIn(b"IMAJ-VERISI", gonderilen[0])
-        self.assertIn(b"intercom-1.2.6.bin", gonderilen[0])
-        # İstek cihazın kendi arayüzünün gönderdiğiyle aynı biçimde:
-        # alan adı "firmware", parça türü application/macbinary.
-        self.assertIn(b'name="firmware"', gonderilen[0])
-        self.assertIn(b"application/macbinary", gonderilen[0])
+        self.assertEqual(result["current"], "1.2.6")
+        self.assertEqual(result["previous"], "1.2.5")
+        self.assertTrue(result["changed"])
+        # The body that reached the device really is the selected file.
+        self.assertEqual(len(sent), 1)
+        self.assertIn(b"IMAJ-VERISI", sent[0])
+        self.assertIn(b"intercom-1.2.6.bin", sent[0])
+        # The request has the same shape as the device's own UI sends: field
+        # name "firmware", part type application/macbinary.
+        self.assertIn(b'name="firmware"', sent[0])
+        self.assertIn(b"application/macbinary", sent[0])
 
-    def test_yukleme_cihazin_kendi_ucuna_gider(self):
-        """Uç /api/v1/system/firmware — "update" değil.
+    def test_the_install_goes_to_the_devices_own_endpoint(self):
+        """The endpoint is /api/v1/system/firmware — not "update".
 
-        Yanlış adrese giden yükleme cihazda HTTP 404 ile düşüyordu.
+        An install sent to the wrong address failed with HTTP 404.
         """
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("intercom-1.2.6.bin"), "")
-        with sahte.anons(yeni_surum="1.2.6") as an:
-            ayar.ANONS_PORT = an.port
-            firmware.yukle(c, dogrula_sure=10.0)
-            yollar = [y for yontem, y in an.gecmis if yontem == "POST"]
-        self.assertEqual(yollar, ["/api/v1/system/firmware"])
+        _, device = self.build()
+        firmware.select_file([device.id], image("intercom-1.2.6.bin"), "")
+        with fakes.announcement(new_version="1.2.6") as fake:
+            settings.ANNOUNCEMENT_PORT = fake.port
+            firmware.install(device, verify_window=10.0)
+            paths = [p for method, p in fake.history if method == "POST"]
+        self.assertEqual(paths, ["/api/v1/system/firmware"])
 
-    def test_beklenen_surum_gelmezse_basarisiz(self):
-        """HTTP 200 yeterli değil: cihaz başka sürüm bildiriyorsa hata."""
-        from core.hata import DogrulamaHatasi
+    def test_it_fails_when_the_expected_version_does_not_arrive(self):
+        """HTTP 200 is not enough: a different reported version is an error."""
+        _, device = self.build()
+        firmware.select_file([device.id], image("intercom-1.3.0.bin"), "1.3.0")
+        with fakes.announcement(new_version="1.2.6") as fake:
+            settings.ANNOUNCEMENT_PORT = fake.port
+            with self.assertRaises(VerificationError) as caught:
+                firmware.install(device, verify_window=10.0)
+        self.assertIn("1.2.6", str(caught.exception))
 
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("intercom-1.3.0.bin"), "1.3.0")
-        with sahte.anons(yeni_surum="1.2.6") as an:
-            ayar.ANONS_PORT = an.port
-            with self.assertRaises(DogrulamaHatasi) as t:
-                firmware.yukle(c, dogrula_sure=10.0)
-        self.assertIn("1.2.6", str(t.exception))
-
-    def test_secildikten_sonra_silinen_dosya_yakalanir(self):
-        _, c = self.kur()
-        yol = imaj("gecici.bin")
-        firmware.dosya_sec([c.id], yol)
-        Path(yol).unlink()
-        with self.assertRaises(ValueError) as t:
-            firmware.yukle(c)
-        self.assertIn("artık yok", str(t.exception))
+    def test_a_file_deleted_after_selection_is_caught(self):
+        _, device = self.build()
+        path = image("gecici.bin")
+        firmware.select_file([device.id], path)
+        Path(path).unlink()
+        with self.assertRaises(ValueError) as caught:
+            firmware.install(device)
+        self.assertIn("no longer exists", str(caught.exception))
 
 
-DUMPSYS_ESKI = "    versionCode=1 minSdk=21 targetSdk=35\n    versionName=0.0.5"
-DUMPSYS_YENI = "    versionCode=2 minSdk=21 targetSdk=35\n    versionName=0.0.6"
+DUMPSYS_OLD = "    versionCode=1 minSdk=21 targetSdk=35\n    versionName=0.0.5"
+DUMPSYS_NEW = "    versionCode=2 minSdk=21 targetSdk=35\n    versionName=0.0.6"
 
 
-class SahteAdbKurulum:
-    """subprocess.run yerine geçer; adb install akışını taklit eder.
+class FakeAdbInstall:
+    """Stands in for subprocess.run; imitates the adb install flow.
 
-    `install_cikti` ile cihazın yanıtı, `surumler` ile dumpsys'in art
-    arda döndüreceği sürümler verilir.
+    `install_output` sets the device's answer, `versions` the versions dumpsys
+    returns in succession.
     """
 
-    def __init__(self, install_cikti="Success\n", surumler=None,
+    def __init__(self, install_output="Success\n", versions=None,
                  install_stderr=""):
-        self.install_cikti = install_cikti
+        self.install_output = install_output
         self.install_stderr = install_stderr
-        self.surumler = list(surumler or [DUMPSYS_ESKI, DUMPSYS_YENI])
-        self.cagrilar: list[list[str]] = []
+        self.versions = list(versions or [DUMPSYS_OLD, DUMPSYS_NEW])
+        self.calls: list[list[str]] = []
 
     def __call__(self, args, **kwargs):
-        self.cagrilar.append(list(args))
+        self.calls.append(list(args))
         out, err = "", ""
         if "install" in args:
-            out, err = self.install_cikti, self.install_stderr
+            out, err = self.install_output, self.install_stderr
         elif "dumpsys" in args:
-            out = (self.surumler.pop(0) if self.surumler
-                   else DUMPSYS_YENI)
+            out = self.versions.pop(0) if self.versions else DUMPSYS_NEW
         elif "connect" in args:
             out = "connected"
 
-        class Sonuc:
+        class Result:
             stdout = out
             stderr = err
             returncode = 0
-        return Sonuc()
+        return Result()
 
-    def komut(self, ad: str) -> list[str] | None:
-        return next((c for c in self.cagrilar if ad in c), None)
+    def command(self, name: str) -> list[str] | None:
+        return next((c for c in self.calls if name in c), None)
 
 
-class ApkKurulumu(PanelTesti):
-    """Compartment LCD — imaj değil APK, HTTP değil adb."""
+class ApkInstall(PanelTest):
+    """Compartment LCD — an APK, not an image; adb, not HTTP."""
 
-    def kur(self):
-        harita = sahte.device_map([{
+    def build(self):
+        topology = fakes.device_map([{
             "Name": "Compartment_Lcd_1", "IP": "10.n.1.40", "IsActive": True,
             "Type": "LCD", "SubType": "Compartment", "Port": "13",
             "Status": {}}])
-        env = self.kur_harita(harita)
-        return env, env.tip_ile("LCD")[0]
+        inventory = self.build_map(topology)
+        return inventory, inventory.by_type("LCD")[0]
 
-    def yamala(self, sahte_adb):
-        eski = firmware.subprocess.run
-        firmware.subprocess.run = sahte_adb
-        self.addCleanup(lambda: setattr(firmware.subprocess, "run", eski))
-        return sahte_adb
+    def patch(self, fake_adb):
+        previous = apk_install.subprocess.run
+        apk_install.subprocess.run = fake_adb
+        self.addCleanup(
+            lambda: setattr(apk_install.subprocess, "run", previous))
+        return fake_adb
 
-    def test_lcd_apk_bekler(self):
-        _, c = self.kur()
-        self.assertTrue(firmware.destekli(c))
-        self.assertEqual(firmware.uzanti(c), "apk")
+    def test_an_lcd_expects_an_apk(self):
+        _, device = self.build()
+        self.assertTrue(firmware.is_supported(device))
+        self.assertEqual(firmware.file_extension(device), "apk")
 
-    def test_apk_adb_ile_kurulur_ve_surum_dogrulanir(self):
-        _, c = self.kur()
-        apk = imaj("panel-0.0.6.apk")
-        firmware.dosya_sec([c.id], apk, "0.0.6")
-        adb = self.yamala(SahteAdbKurulum())
+    def test_the_apk_is_installed_with_adb_and_verified(self):
+        _, device = self.build()
+        apk = image("panel-0.0.6.apk")
+        firmware.select_file([device.id], apk, "0.0.6")
+        adb = self.patch(FakeAdbInstall())
 
-        sonuc = firmware.yukle(c)
+        result = firmware.install(device)
 
-        self.assertEqual((sonuc["onceki"], sonuc["yeni"]), ("0.0.5", "0.0.6"))
-        self.assertTrue(sonuc["degisti"])
-        kur = adb.komut("install")
-        self.assertIsNotNone(kur)
-        self.assertIn("-r", kur)
-        self.assertEqual(kur[-1], apk)
-        # Bağlantı açılıp kapatılır; cihazda asılı adb oturumu kalmaz.
-        self.assertIsNotNone(adb.komut("connect"))
-        self.assertIsNotNone(adb.komut("disconnect"))
-        # Sürüm panelin okuma tarafıyla aynı yerden doğrulanır.
-        self.assertIsNotNone(adb.komut("dumpsys"))
+        self.assertEqual((result["previous"], result["current"]),
+                         ("0.0.5", "0.0.6"))
+        self.assertTrue(result["changed"])
+        install = adb.command("install")
+        self.assertIsNotNone(install)
+        self.assertIn("-r", install)
+        self.assertEqual(install[-1], apk)
+        # The connection is opened and closed; no adb session is left hanging.
+        self.assertIsNotNone(adb.command("connect"))
+        self.assertIsNotNone(adb.command("disconnect"))
+        # The version is verified from the same place the probe reads it.
+        self.assertIsNotNone(adb.command("dumpsys"))
 
-    def test_kurulum_hatasi_anlasilir_mesaja_donusur(self):
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("bozuk.apk"))
-        self.yamala(SahteAdbKurulum(
-            install_cikti="Failure [INSTALL_FAILED_INVALID_APK]"))
-        with self.assertRaises(DogrulamaHatasi) as t:
-            firmware.yukle(c)
-        self.assertIn("geçerli bir APK değil", str(t.exception))
+    def test_an_install_error_becomes_a_clear_message(self):
+        _, device = self.build()
+        firmware.select_file([device.id], image("bozuk.apk"))
+        self.patch(FakeAdbInstall(
+            install_output="Failure [INSTALL_FAILED_INVALID_APK]"))
+        with self.assertRaises(VerificationError) as caught:
+            firmware.install(device)
+        self.assertIn("not a valid APK", str(caught.exception))
 
-    def test_surum_dusurme_ikinci_denemede_yapilir(self):
-        """Sahada eski sürüme dönmek gerekebiliyor: -d ile yeniden denenir."""
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("panel-0.0.4.apk"))
+    def test_a_downgrade_is_done_on_the_second_attempt(self):
+        """Going back to an older build happens in the field: retried with -d."""
+        _, device = self.build()
+        firmware.select_file([device.id], image("panel-0.0.4.apk"))
 
-        class Dusurme(SahteAdbKurulum):
+        class Downgrade(FakeAdbInstall):
             def __init__(self):
-                super().__init__(surumler=[DUMPSYS_YENI, DUMPSYS_ESKI])
-                self.deneme = 0
+                super().__init__(versions=[DUMPSYS_NEW, DUMPSYS_OLD])
+                self.attempt = 0
 
             def __call__(self, args, **kwargs):
                 if "install" in args:
-                    self.deneme += 1
-                    self.install_cikti = (
+                    self.attempt += 1
+                    self.install_output = (
                         "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]"
-                        if self.deneme == 1 else "Success")
+                        if self.attempt == 1 else "Success")
                 return super().__call__(args, **kwargs)
 
-        adb = self.yamala(Dusurme())
-        sonuc = firmware.yukle(c)
-        self.assertEqual(sonuc["yeni"], "0.0.5")
-        kurulumlar = [c_ for c_ in adb.cagrilar if "install" in c_]
-        self.assertEqual(len(kurulumlar), 2)
-        self.assertNotIn("-d", kurulumlar[0])
-        self.assertIn("-d", kurulumlar[1])
+        adb = self.patch(Downgrade())
+        result = firmware.install(device)
+        self.assertEqual(result["current"], "0.0.5")
+        installs = [c for c in adb.calls if "install" in c]
+        self.assertEqual(len(installs), 2)
+        self.assertNotIn("-d", installs[0])
+        self.assertIn("-d", installs[1])
 
-    def test_baska_paketin_apk_si_yakalanir(self):
-        """Kurulum başarılı ama beklenen paket ortada yok."""
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("baska.apk"))
-        self.yamala(SahteAdbKurulum(surumler=[DUMPSYS_ESKI, ""]))
-        with self.assertRaises(DogrulamaHatasi) as t:
-            firmware.yukle(c)
-        self.assertIn("sürümü okunamadı", str(t.exception))
+    def test_another_packages_apk_is_caught(self):
+        """The install succeeded but the expected package is nowhere."""
+        _, device = self.build()
+        firmware.select_file([device.id], image("baska.apk"))
+        self.patch(FakeAdbInstall(versions=[DUMPSYS_OLD, ""]))
+        with self.assertRaises(VerificationError) as caught:
+            firmware.install(device)
+        self.assertIn("version could not be read", str(caught.exception))
 
-    def test_hedef_surum_tutmazsa_hata(self):
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("panel-0.0.9.apk"), "0.0.9")
-        self.yamala(SahteAdbKurulum())
-        with self.assertRaises(DogrulamaHatasi) as t:
-            firmware.yukle(c)
-        self.assertIn("0.0.6", str(t.exception))
+    def test_a_mismatched_target_version_is_an_error(self):
+        _, device = self.build()
+        firmware.select_file([device.id], image("panel-0.0.9.apk"), "0.0.9")
+        self.patch(FakeAdbInstall())
+        with self.assertRaises(VerificationError) as caught:
+            firmware.install(device)
+        self.assertIn("0.0.6", str(caught.exception))
 
-    def test_adb_yoksa_uygulanmaz_hatasi(self):
-        _, c = self.kur()
-        firmware.dosya_sec([c.id], imaj("panel.apk"))
+    def test_a_missing_adb_is_a_not_applicable_error(self):
+        _, device = self.build()
+        firmware.select_file([device.id], image("panel.apk"))
 
-        def yok(*a, **k):
+        def missing(*a, **k):
             raise FileNotFoundError("adb")
 
-        self.yamala(yok)
-        with self.assertRaises(UygulanmazHatasi):
-            firmware.yukle(c)
+        self.patch(missing)
+        with self.assertRaises(NotApplicableError):
+            firmware.install(device)
 
 
-class FirmwareUclari(ServisTesti):
+class FirmwareEndpoints(ServiceTest):
 
-    def kur(self, sayi=2):
-        cihazlar = [{
+    def build(self, count=2):
+        devices = [{
             "Name": f"Intercom_{i}", "IP": "127.0.0.1", "IsActive": True,
             "Type": "Announcement", "SubType": "Intercom", "Port": str(10 + i),
             "Status": {"NoError": True},
-        } for i in range(1, sayi + 1)]
-        # Kamera aynı sette: "gruba uygula" onu kapsamamalı.
-        cihazlar.append({
-            "Name": "Kamera_1", "IP": "127.0.0.1", "IsActive": True,
+        } for i in range(1, count + 1)]
+        # A camera in the same set: "apply to group" must not include it.
+        devices.append({
+            "Name": "Camera_1", "IP": "127.0.0.1", "IsActive": True,
             "Type": "Camera", "SubType": "", "Port": "20", "Status": {}})
-        env = self.kur_harita(sahte.device_map(cihazlar))
-        return env
+        return self.build_map(fakes.device_map(devices))
 
-    def test_grup_listesi_ve_secim_uctan_gorunur(self):
-        env = self.kur()
-        taban = self.servis_ac()
-        cihazlar = env.tip_ile("Announcement")
+    def test_the_group_list_and_selection_are_visible_from_the_endpoint(self):
+        inventory = self.build()
+        base = self.start_service()
+        devices = inventory.by_type("Announcement")
 
-        kod, y = self.cagir(taban, "/api/firmware?set=1&grup=Intercom")
-        self.assertEqual(kod, 200)
-        self.assertEqual(len(y["cihazlar"]), 2)
-        self.assertTrue(all(c["yuklenebilir"] for c in y["cihazlar"]))
-        self.assertEqual(y["seciliSayi"], 0)
-        # Tarama yapılmadan sürüm uydurulmaz.
-        self.assertEqual(y["cihazlar"][0]["mevcutSurum"], "")
+        code, body = self.call(base, "/api/firmware?set=1&group=Intercom")
+        self.assertEqual(code, 200)
+        self.assertEqual(len(body["devices"]), 2)
+        self.assertTrue(all(d["installable"] for d in body["devices"]))
+        self.assertEqual(body["selectedCount"], 0)
+        # No version is invented before a scan.
+        self.assertEqual(body["devices"][0]["currentVersion"], "")
 
-        kod, y = self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "cihazlar": [cihazlar[0].id],
-            "yol": imaj("intercom-1.2.6.bin"), "surum": "1.2.6"})
-        self.assertEqual(kod, 200)
-        self.assertEqual(y["seciliSayi"], 1)
+        code, body = self.call(base, "/api/firmware/file", {
+            "set": 1, "devices": [devices[0].id],
+            "path": image("intercom-1.2.6.bin"), "version": "1.2.6"})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["selectedCount"], 1)
 
-        kod, y = self.cagir(taban, "/api/firmware?set=1&grup=Intercom")
-        secili = {c["cihazId"]: c["dosya"] for c in y["cihazlar"]}
-        self.assertTrue(secili[cihazlar[0].id]["secili"])
-        self.assertEqual(secili[cihazlar[0].id]["ad"], "intercom-1.2.6.bin")
-        self.assertFalse(secili[cihazlar[1].id]["secili"])
+        code, body = self.call(base, "/api/firmware?set=1&group=Intercom")
+        selected = {d["deviceId"]: d["file"] for d in body["devices"]}
+        self.assertTrue(selected[devices[0].id]["selected"])
+        self.assertEqual(selected[devices[0].id]["name"],
+                         "intercom-1.2.6.bin")
+        self.assertFalse(selected[devices[1].id]["selected"])
 
-    def test_api_set_parametresi_firmware_secimini_ayirir(self):
-        env = self.kur()
-        taban = self.servis_ac()
-        c = env.tip_ile("Announcement")[0]
+    def test_the_api_set_parameter_separates_the_selection(self):
+        inventory = self.build()
+        base = self.start_service()
+        device = inventory.by_type("Announcement")[0]
 
-        kod, y = self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "cihazlar": [c.id], "yol": imaj("set1.bin")})
-        self.assertEqual(kod, 200)
-        self.assertEqual(y["seciliSayi"], 1)
+        code, body = self.call(base, "/api/firmware/file", {
+            "set": 1, "devices": [device.id], "path": image("set1.bin")})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["selectedCount"], 1)
 
-        # DeviceMap kimliği aynı olsa da Set 2'de seçim görünmez ve yükleme
-        # kuyruğu başlamaz.
-        kod, set2 = self.cagir(taban, "/api/firmware?set=2&grup=Intercom")
-        self.assertEqual(kod, 200)
-        self.assertEqual(set2["seciliSayi"], 0)
-        self.assertFalse(next(x for x in set2["cihazlar"]
-                              if x["cihazId"] == c.id)["dosya"]["secili"])
-        kod, _hata = self.cagir(taban, "/api/firmware/yukle", {
-            "set": 2, "cihazlar": [c.id]})
-        self.assertEqual(kod, 400)
+        # Even with the same DeviceMap id, Set 2 shows no selection and no
+        # install queue starts.
+        code, set2 = self.call(base, "/api/firmware?set=2&group=Intercom")
+        self.assertEqual(code, 200)
+        self.assertEqual(set2["selectedCount"], 0)
+        self.assertFalse(next(d for d in set2["devices"]
+                              if d["deviceId"] == device.id)["file"]["selected"])
+        code, _error = self.call(base, "/api/firmware/install", {
+            "set": 2, "devices": [device.id]})
+        self.assertEqual(code, 400)
 
-        self.cagir(taban, "/api/firmware/dosya", {
-            "set": 2, "cihazlar": [c.id], "yol": imaj("set2.bin")})
-        _kod1, set1 = self.cagir(
-            taban, "/api/firmware?set=1&grup=Intercom")
-        _kod2, set2 = self.cagir(
-            taban, "/api/firmware?set=2&grup=Intercom")
-        dosya1 = next(x for x in set1["cihazlar"]
-                      if x["cihazId"] == c.id)["dosya"]
-        dosya2 = next(x for x in set2["cihazlar"]
-                      if x["cihazId"] == c.id)["dosya"]
-        self.assertEqual((dosya1["ad"], dosya2["ad"]),
+        self.call(base, "/api/firmware/file", {
+            "set": 2, "devices": [device.id], "path": image("set2.bin")})
+        _c1, set1 = self.call(base, "/api/firmware?set=1&group=Intercom")
+        _c2, set2 = self.call(base, "/api/firmware?set=2&group=Intercom")
+        file1 = next(d for d in set1["devices"]
+                     if d["deviceId"] == device.id)["file"]
+        file2 = next(d for d in set2["devices"]
+                     if d["deviceId"] == device.id)["file"]
+        self.assertEqual((file1["name"], file2["name"]),
                          ("set1.bin", "set2.bin"))
 
-        # "hepsi" yalnız açık setin seçimlerini temizler.
-        self.cagir(taban, "/api/firmware/sil", {"set": 1, "hepsi": True})
-        self.assertFalse(firmware.secili_var(c.id, set_no=1))
-        self.assertTrue(firmware.secili_var(c.id, set_no=2))
+        # "all" clears only the open set's selections.
+        self.call(base, "/api/firmware/remove", {"set": 1, "all": True})
+        self.assertFalse(firmware.has_selection(device.id, set_no=1))
+        self.assertTrue(firmware.has_selection(device.id, set_no=2))
 
-    def test_gruba_uygulamak_yalniz_o_grubu_kapsar(self):
-        env = self.kur()
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "grup": "Intercom", "yol": imaj("ortak.bin")})
-        self.assertEqual(kod, 200)
-        self.assertEqual(y["cihazSayisi"], 2)
-        # Kamera aynı sette ama Intercom grubunda değil; seçim ona gitmez.
-        kamera = env.tip_ile("Camera")[0]
-        self.assertFalse(firmware.secili_var(kamera.id))
+    def test_applying_to_a_group_covers_only_that_group(self):
+        inventory = self.build()
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/file", {
+            "set": 1, "group": "Intercom", "path": image("ortak.bin")})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["deviceCount"], 2)
+        # The camera is in the same set but not the Intercom group.
+        camera = inventory.by_type("Camera")[0]
+        self.assertFalse(firmware.has_selection(camera.id))
 
-    def test_yukleme_ucu_olmayan_gruba_dosya_atanmaz(self):
-        self.kur()
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "grup": "Kamera", "yol": imaj("ortak.bin")})
-        self.assertEqual(kod, 400)
-        self.assertIn("yükleme tanımlı değil", y["hata"])
+    def test_no_file_is_assigned_to_a_group_without_an_endpoint(self):
+        self.build()
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/file", {
+            "set": 1, "group": "Camera", "path": image("shared.bin")})
+        self.assertEqual(code, 400)
+        self.assertIn("is not defined for the selected devices", body["error"])
 
-    def test_gecersiz_yol_400_doner(self):
-        self.kur()
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "grup": "Intercom", "yol": "/yok/olmayan.bin"})
-        self.assertEqual(kod, 400)
-        self.assertIn("bulunamadı", y["hata"])
+    def test_an_invalid_path_returns_400(self):
+        self.build()
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/file", {
+            "set": 1, "group": "Intercom", "path": "/yok/olmayan.bin"})
+        self.assertEqual(code, 400)
+        self.assertIn("not found", body["error"])
 
-    def test_secim_yokken_yukleme_baslamaz(self):
-        self.kur()
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/yukle",
-                            {"set": 1, "grup": "Intercom"})
-        self.assertEqual(kod, 400)
-        self.assertIn("dosyası seçilmiş cihaz yok", y["hata"])
-        self.assertEqual(isler.YONETICI.liste(), [])
+    def test_no_install_starts_without_a_selection(self):
+        self.build()
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/install",
+                               {"set": 1, "group": "Intercom"})
+        self.assertEqual(code, 400)
+        self.assertIn("No device has a file selected", body["error"])
+        self.assertEqual(jobs.QUEUE.list(), [])
 
-    def test_yalniz_dosyasi_olan_cihaz_kuyruga_girer(self):
-        env = self.kur()
-        cihazlar = env.tip_ile("Announcement")
-        with sahte.anons(yeni_surum="1.2.6") as an:
-            ayar.ANONS_PORT = an.port
-            taban = self.servis_ac()
-            self.cagir(taban, "/api/firmware/dosya", {
-                "set": 1, "cihazlar": [cihazlar[0].id],
-                "yol": imaj("intercom-1.2.6.bin"), "surum": "1.2.6"})
-            kod, y = self.cagir(taban, "/api/firmware/yukle",
-                                {"set": 1, "grup": "Intercom"})
-            self.assertEqual(kod, 200)
-            is_ = self.isi_bekle(isler.YONETICI.bul(y["id"]), 40.0)
+    def test_only_a_device_with_a_file_enters_the_queue(self):
+        inventory = self.build()
+        devices = inventory.by_type("Announcement")
+        with fakes.announcement(new_version="1.2.6") as fake:
+            settings.ANNOUNCEMENT_PORT = fake.port
+            base = self.start_service()
+            self.call(base, "/api/firmware/file", {
+                "set": 1, "devices": [devices[0].id],
+                "path": image("intercom-1.2.6.bin"), "version": "1.2.6"})
+            code, body = self.call(base, "/api/firmware/install",
+                                   {"set": 1, "group": "Intercom"})
+            self.assertEqual(code, 200)
+            job = self.await_job(jobs.QUEUE.find(body["id"]), 40.0)
 
-        satirlar = is_.dto()["satirlar"]
-        self.assertEqual(len(satirlar), 1, "dosyasız cihaz kuyruğa girmemeli")
-        self.assertEqual(satirlar[0]["durum"], "tamam")
-        self.assertIn("intercom-1.2.6.bin", satirlar[0]["not"])
+        rows = job.dto()["rows"]
+        self.assertEqual(len(rows), 1,
+                         "a device without a file must not enter the queue")
+        self.assertEqual(rows[0]["state"], "done")
+        self.assertIn("intercom-1.2.6.bin", rows[0]["note"])
 
-    def test_dosya_seciciden_atanir(self):
-        """İmaj yolu istemciden gelmez; işletim sisteminin seçicisinden."""
-        from core import dosya
+    def test_the_file_is_assigned_from_the_picker(self):
+        """The image path does not come from the client; it comes from the OS
+        picker."""
+        inventory = self.build()
+        devices = inventory.by_type("Announcement")
+        chosen = image("intercom-1.2.6.bin")
+        call = {}
 
-        env = self.kur()
-        cihazlar = env.tip_ile("Announcement")
-        secilen = imaj("intercom-1.2.6.bin")
-        cagri = {}
+        def fake_pick(title="", extensions=()):
+            call.update(title=title, extensions=extensions)
+            return chosen
 
-        def sahte_sec(baslik="", uzantilar=()):
-            cagri.update(baslik=baslik, uzantilar=uzantilar)
-            return secilen
+        previous = files.pick_file
+        files.pick_file = fake_pick
+        self.addCleanup(lambda: setattr(files, "pick_file", previous))
 
-        eski = dosya.sec
-        dosya.sec = sahte_sec
-        self.addCleanup(lambda: setattr(dosya, "sec", eski))
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/pick", {
+            "set": 1, "devices": [devices[0].id], "version": "1.2.6"})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["selectedCount"], 1)
+        self.assertEqual(call["extensions"], ("bin",))
+        self.assertIn(devices[0].name, call["title"])
+        record = firmware.selection_for(devices[0].id)
+        self.assertEqual((record["name"], record["version"]),
+                         ("intercom-1.2.6.bin", "1.2.6"))
 
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/sec", {
-            "set": 1, "cihazlar": [cihazlar[0].id], "surum": "1.2.6"})
-        self.assertEqual(kod, 200)
-        self.assertEqual(y["seciliSayi"], 1)
-        self.assertEqual(cagri["uzantilar"], ("bin",))
-        self.assertIn(cihazlar[0].ad, cagri["baslik"])
-        d = firmware.secili_of(cihazlar[0].id)
-        self.assertEqual((d["ad"], d["surum"]), ("intercom-1.2.6.bin", "1.2.6"))
+    def test_cancelling_the_picker_does_not_break_the_selection(self):
+        inventory = self.build()
+        devices = inventory.by_type("Announcement")
+        firmware.select_file([devices[0].id], image("onceki.bin"), "1.0.0")
 
-    def test_seciciden_vazgecmek_secimi_bozmaz(self):
-        from core import dosya
+        previous = files.pick_file
+        files.pick_file = lambda *a, **k: None      # the user cancelled
+        self.addCleanup(lambda: setattr(files, "pick_file", previous))
 
-        env = self.kur()
-        cihazlar = env.tip_ile("Announcement")
-        firmware.dosya_sec([cihazlar[0].id], imaj("onceki.bin"), "1.0.0")
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/pick",
+                               {"set": 1, "devices": [devices[0].id]})
+        self.assertEqual(code, 200)
+        self.assertTrue(body["cancelled"])
+        self.assertEqual(firmware.selection_for(devices[0].id)["name"],
+                         "onceki.bin")
 
-        eski = dosya.sec
-        dosya.sec = lambda *a, **k: None          # kullanıcı vazgeçti
-        self.addCleanup(lambda: setattr(dosya, "sec", eski))
+    def test_an_unopenable_picker_returns_an_error(self):
+        self.build()
+        previous = files.pick_file
 
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/sec",
-                            {"set": 1, "cihazlar": [cihazlar[0].id]})
-        self.assertEqual(kod, 200)
-        self.assertTrue(y["iptal"])
-        self.assertEqual(firmware.secili_of(cihazlar[0].id)["ad"], "onceki.bin")
+        def explode(*a, **k):
+            raise RuntimeError("No file picker found")
 
-    def test_secici_acilamazsa_hata_doner(self):
-        from core import dosya
+        files.pick_file = explode
+        self.addCleanup(lambda: setattr(files, "pick_file", previous))
 
-        self.kur()
-        eski = dosya.sec
+        base = self.start_service()
+        code, body = self.call(base, "/api/firmware/pick",
+                               {"set": 1, "group": "Intercom"})
+        self.assertEqual(code, 500)
+        self.assertIn("picker", body["error"])
 
-        def patlat(*a, **k):
-            raise RuntimeError("Dosya seçici bulunamadı")
+    def test_the_target_version_changes_without_touching_the_file(self):
+        inventory = self.build()
+        devices = inventory.by_type("Announcement")
+        firmware.select_file([devices[0].id], image("intercom-1.2.6.bin"),
+                             "1.2.6")
+        base = self.start_service()
+        code, _ = self.call(base, "/api/firmware/version", {
+            "set": 1, "devices": [devices[0].id], "version": "1.3.0"})
+        self.assertEqual(code, 200)
+        record = firmware.selection_for(devices[0].id)
+        self.assertEqual((record["name"], record["version"]),
+                         ("intercom-1.2.6.bin", "1.3.0"))
 
-        dosya.sec = patlat
-        self.addCleanup(lambda: setattr(dosya, "sec", eski))
+    def test_installs_run_in_parallel(self):
+        """Devices are independent of each other; waiting in turn is wasteful.
 
-        taban = self.servis_ac()
-        kod, y = self.cagir(taban, "/api/firmware/sec",
-                            {"set": 1, "grup": "Intercom"})
-        self.assertEqual(kod, 500)
-        self.assertIn("seçici", y["hata"])
-
-    def test_hedef_surum_dosyaya_dokunmadan_degisir(self):
-        env = self.kur()
-        cihazlar = env.tip_ile("Announcement")
-        firmware.dosya_sec([cihazlar[0].id], imaj("intercom-1.2.6.bin"), "1.2.6")
-        taban = self.servis_ac()
-        kod, _ = self.cagir(taban, "/api/firmware/surum", {
-            "set": 1, "cihazlar": [cihazlar[0].id], "surum": "1.3.0"})
-        self.assertEqual(kod, 200)
-        d = firmware.secili_of(cihazlar[0].id)
-        self.assertEqual((d["ad"], d["surum"]), ("intercom-1.2.6.bin", "1.3.0"))
-
-    def test_yuklemeler_paralel_yurur(self):
-        """Cihazlar birbirinden bağımsız; sırayla beklemek gereksiz.
-
-        12 intercomluk bir sette sıralı koşu bütün bekleme sürelerini uç
-        uca ekliyordu.
+        On a twelve-intercom set a serial run added every wait end to end.
         """
         import threading
-        import panel_api
 
-        env = self.kur(sayi=6)
-        cihazlar = env.tip_ile("Announcement")
-        taban = self.servis_ac()
-        self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "grup": "Intercom", "yol": imaj("ortak.bin")})
+        inventory = self.build(count=6)
+        base = self.start_service()
+        self.call(base, "/api/firmware/file", {
+            "set": 1, "group": "Intercom", "path": image("ortak.bin")})
 
-        kilit = threading.Lock()
-        durum = {"anlik": 0, "enCok": 0}
-        eski = firmware.yukle
+        lock = threading.Lock()
+        state = {"current": 0, "peak": 0}
+        previous = firmware.install
 
-        def yavas_yukle(cihaz, kimlik=None, **k):
-            with kilit:
-                durum["anlik"] += 1
-                durum["enCok"] = max(durum["enCok"], durum["anlik"])
+        def slow_install(device, credentials=None, **kwargs):
+            with lock:
+                state["current"] += 1
+                state["peak"] = max(state["peak"], state["current"])
             time.sleep(0.25)
-            with kilit:
-                durum["anlik"] -= 1
-            return {"onceki": "1.2.5", "yeni": "1.2.6", "degisti": True}
+            with lock:
+                state["current"] -= 1
+            return {"previous": "1.2.5", "current": "1.2.6", "changed": True}
 
-        firmware.yukle = yavas_yukle
-        self.addCleanup(lambda: setattr(firmware, "yukle", eski))
+        firmware.install = slow_install
+        self.addCleanup(lambda: setattr(firmware, "install", previous))
 
-        kod, y = self.cagir(taban, "/api/firmware/yukle",
-                            {"set": 1, "grup": "Intercom"})
-        self.assertEqual(kod, 200)
-        is_ = self.isi_bekle(isler.YONETICI.bul(y["id"]), 30.0)
+        code, body = self.call(base, "/api/firmware/install",
+                               {"set": 1, "group": "Intercom"})
+        self.assertEqual(code, 200)
+        job = self.await_job(jobs.QUEUE.find(body["id"]), 30.0)
 
-        self.assertEqual(durum["enCok"], ayar.FIRMWARE_WORKER,
-                         "havuz genişliği kadar cihaz aynı anda yüklenmeli")
-        satirlar = is_.dto()["satirlar"]
-        self.assertEqual(len(satirlar), 6)
-        self.assertTrue(all(s["durum"] == "tamam" for s in satirlar), satirlar)
-        # Ama hepsi birden değil: yükleme cihazı karartıyor, sahadaki
-        # kişi neyin kapandığını görebilmeli.
-        self.assertLess(durum["enCok"], 6)
-        self.assertIs(panel_api.firmware, firmware)
+        self.assertEqual(state["peak"], settings.FIRMWARE_WORKERS,
+                         "as many devices as the pool width must install at once")
+        rows = job.dto()["rows"]
+        self.assertEqual(len(rows), 6)
+        self.assertTrue(all(r["state"] == "done" for r in rows), rows)
+        # But not all at once: installing blacks the device out and the person
+        # in the field must be able to see what went down.
+        self.assertLess(state["peak"], 6)
 
-    def test_secim_silme_ucu(self):
-        env = self.kur()
-        cihazlar = env.tip_ile("Announcement")
-        taban = self.servis_ac()
-        self.cagir(taban, "/api/firmware/dosya", {
-            "set": 1, "grup": "Intercom", "yol": imaj("ortak.bin")})
-        kod, y = self.cagir(taban, "/api/firmware/sil",
-                            {"set": 1, "cihazlar": [cihazlar[0].id]})
-        self.assertEqual(kod, 200)
-        self.assertEqual(y["seciliSayi"], 1)
-        kod, y = self.cagir(taban, "/api/firmware/sil", {"hepsi": True})
-        self.assertEqual(y["seciliSayi"], 0)
+    def test_the_selection_remove_endpoint(self):
+        inventory = self.build()
+        devices = inventory.by_type("Announcement")
+        base = self.start_service()
+        self.call(base, "/api/firmware/file", {
+            "set": 1, "group": "Intercom", "path": image("ortak.bin")})
+        code, body = self.call(base, "/api/firmware/remove",
+                               {"set": 1, "devices": [devices[0].id]})
+        self.assertEqual(code, 200)
+        self.assertEqual(body["selectedCount"], 1)
+        code, body = self.call(base, "/api/firmware/remove", {"all": True})
+        self.assertEqual(body["selectedCount"], 0)
+
+
+if __name__ == "__main__":
+    import unittest
+    unittest.main()

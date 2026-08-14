@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+"""Constants and path resolution.
+
+No credentials live here and none are read from any settings file — see
+`panel.credentials`.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+APP_NAME = "Commissioning and Maintenance Panel"
+APP_SLUG = "CommissioningPanel"
+APP_VERSION = "0.9.7"
+
+# From source this is the parent of this file; PyInstaller unpacks data into a
+# temp dir and reports it via sys._MEIPASS.
+_HERE = Path(__file__).resolve().parent
+ROOT = _HERE.parent
+FROZEN = bool(getattr(sys, "frozen", False))
+
+
+def resource_dir() -> Path:
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base) if base else ROOT
+
+
+def data_file(name: str, *source_path: str) -> Path:
+    """Path of a data file shipped with the app.
+
+    From source the file stays where it lives in the tree (`source_path`,
+    relative to ROOT). Once frozen the same file sits at the bundle root, so
+    tree-relative paths would point outside the install directory.
+    """
+    if FROZEN:
+        return resource_dir() / name
+    return ROOT.joinpath(*(source_path or (name,)))
+
+
+STATIC_DIR = resource_dir() / "static"
+DEVICE_MAP = Path(os.environ.get("DEVICE_MAP_FILE")
+                  or data_file("DeviceMap.json"))
+EXCEL_TEMPLATE = data_file("Field_Device_Verification.xlsx")
+
+
+def documents_dir() -> Path:
+    """Where generated files go — the operating system's Documents folder.
+
+    An installed app may sit in a read-only directory, and writing next to the
+    source tree just litters it.
+    """
+    override = os.environ.get("PANEL_OUTPUT_DIR")
+    if override:
+        return Path(override).expanduser()
+    home = Path.home()
+    # On Linux the folder name may be localised; the desktop environment
+    # reports the real path through XDG_DOCUMENTS_DIR.
+    xdg = os.environ.get("XDG_DOCUMENTS_DIR")
+    if xdg:
+        return Path(os.path.expandvars(xdg)).expanduser()
+    documents = home / "Documents"
+    return documents if documents.is_dir() else home
+
+
+OUTPUT_DIR = documents_dir()
+
+
+def data_dir() -> Path:
+    """Where the panel keeps its own persistent state.
+
+    Only values the user set in the UI land here. NO PASSWORDS — neither device
+    credentials nor SIP passwords; those stay in memory (see
+    `panel.credentials`).
+    """
+    override = os.environ.get("PANEL_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / "Library" / "Application Support" / APP_SLUG
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA")
+                    or (home / "AppData" / "Roaming")) / APP_SLUG
+    return Path(
+        os.environ.get("XDG_CONFIG_HOME") or (home / ".config")) / APP_SLUG
+
+
+def config_defaults_file() -> Path:
+    """Target values entered on the configuration screen; never passwords."""
+    return data_dir() / "config_defaults.json"
+
+
+def ui_settings_file() -> Path:
+    """Choices about the interface itself — currently just the language.
+
+    Kept next to the panel's own state rather than in the browser: browser
+    storage is closed to this application (see tests/test_frontend.py), and
+    the server needs the language too, to translate its own messages.
+    """
+    return data_dir() / "ui.json"
+
+
+# ── engines under field_scripts/ ────────────────────────────────────────
+# The panel imports three field-proven scripts at runtime instead of
+# rewriting them (see panel.script_loader). Packaging copies them to the
+# bundle root, so path resolution knows both locations.
+SWITCH_API_SCRIPT = Path(
+    os.environ.get("SWITCH_API_SCRIPT")
+    or data_file("switch_api.py", "field_scripts", "switch_api.py"))
+DEVICE_VERIFY_SCRIPT = Path(
+    os.environ.get("DEVICE_VERIFY_SCRIPT")
+    or data_file("device_verify.py", "field_scripts", "device_verify.py"))
+IP_ASSIGN_SCRIPT = Path(
+    os.environ.get("IP_ASSIGN_SCRIPT")
+    or data_file("intercom_ip_assign.py",
+                 "field_scripts", "intercom_ip_assign.py"))
+
+# ────────────────────────────────────────────────────── network / ports ──
+KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", 80))
+
+# Physical layout of the front panel. The SICOM3028GPT in the field has
+# 24 PoE + 4 uplink ports. The panel draws the device's real face, empty
+# ports included — otherwise the map does not match the hardware.
+SWITCH_POE_PORTS = int(os.environ.get("SWITCH_POE_PORTS", 24))
+SWITCH_UPLINK_PORTS = int(os.environ.get("SWITCH_UPLINK_PORTS", 4))
+VIDEO_PORT = int(os.environ.get("VIDEO_HTTP_PORT", 80))
+ANNOUNCEMENT_PORT = int(os.environ.get("ARDUINO_HTTP_PORT", 80))
+MQTT_PORT = int(os.environ.get("PISCU_MQTT_PORT", 1883))
+ADB_PORT = int(os.environ.get("COMPARTMENT_LCD_ADB_PORT", 5555))
+
+# Panel app running on the Compartment LCD. This is the authoritative
+# version source: `ro.build.display.id` is the Android build id, not the
+# app version (see dumpsys package ... versionName).
+ADB_PACKAGE = os.environ.get("COMPARTMENT_LCD_PACKAGE",
+                             "com.piton.train_lcd_panel")
+# SIP registration is read from the app's own log; the PBX has no ARI account.
+ADB_LOG_TAG = os.environ.get("COMPARTMENT_LCD_LOG_TAG", "AnnounceSip")
+
+MQTT_DEVICE_MAP_TOPIC = os.environ.get("PISCU_DEVICE_MAP_TOPIC", "ALFA/DeviceMap")
+MQTT_APP_STATUS_PREFIX = os.environ.get("PISCU_APP_STATUS_PREFIX", "ALFA/AppStatus")
+# SIP extension per device: ALFA/SipPort/10.1.1.40 -> {"SipPort": 6001}
+MQTT_SIP_PORT_PREFIX = os.environ.get("PISCU_SIP_PORT_PREFIX", "ALFA/SipPort")
+
+# ──────────────────────────────────────────────────────────── timeouts ────
+# Per-device ceiling during a full scan. Kept short: one silent device must
+# not hold up a 30-device sweep.
+PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", 5.0))
+# A credential attempt keeps the user waiting; slightly more generous.
+AUTH_TIMEOUT = float(os.environ.get("AUTH_TIMEOUT", 6.0))
+MQTT_TIMEOUT = float(os.environ.get("MQTT_TIMEOUT", 4.0))
+ADB_TIMEOUT = int(os.environ.get("ADB_TIMEOUT", 12))
+# Installing an APK takes far longer than reading: push, then package manager.
+ADB_INSTALL_TIMEOUT = int(os.environ.get("ADB_INSTALL_TIMEOUT", 180))
+SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", 12))
+
+# How many devices are flashed at once. Lower than scanning: every install
+# reboots a device and then waits for version verification, and blacking out
+# 12 devices behind one switch strains both the PoE budget and the person
+# standing next to them. Four cuts a 12-intercom set to a quarter of serial.
+FIRMWARE_WORKERS = int(os.environ.get("FIRMWARE_WORKERS", 4))
+
+# How many devices are configured at once. Serial writes stacked every
+# device's read + write + verify wait end to end. Same width as firmware:
+# a write can reboot the device, so it must stay narrower than scanning.
+CONFIG_WORKERS = int(os.environ.get("CONFIG_WORKERS", FIRMWARE_WORKERS))
+
+# ────────────────────────────────────────────────────────── verification ──
+EXPECTED_TIMEZONE = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")
+EXPECTED_SUBNET_MASK = os.environ.get("EXPECTED_SUBNET_MASK", "255.255.0.0")
+
+# Address an unconfigured device ships with. This does NOT vary by train set:
+# a device leaves the factory without knowing which set it will join, so they
+# all arrive on the same address.
+FACTORY_IP = os.environ.get("INTERCOM_FACTORY_IP", "10.1.1.12")
+
+# Train set (the n in the IP template). Every set number from outside must
+# fall in this range. It feeds the second octet directly (10.n.1.x), so the
+# bound is the valid octet range; field sets are not a fixed list (49, 112
+# are in use), and a tighter ceiling would only exclude real sets.
+SET_MIN, SET_MAX = 1, 254
+
+# API body ceiling. Local service or not, bodies are not read unbounded.
+BODY_LIMIT = 64 * 1024
+
+# Most devices read in one light-refresh round.
+REFRESH_LIMIT = 64
+# How many devices a light refresh reads at once. This round only visits
+# devices that already answered, so no timeouts are expected and the same
+# width as scanning does not tire them.
+REFRESH_WORKERS = int(os.environ.get("REFRESH_WORKERS", SCAN_WORKERS))
