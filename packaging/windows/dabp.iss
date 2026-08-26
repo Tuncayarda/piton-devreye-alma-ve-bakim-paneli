@@ -59,7 +59,13 @@
 ; Fixed PER EDITION: it makes an update install over the same installation,
 ; and it is what keeps two editions — and the Switch Management Panel —
 ; installed side by side instead of on top of each other.
-AppId={#MyAppId}
+;
+; THE DOUBLED BRACE IS NOT A TYPO. "{" opens a constant in Inno Setup, so a
+; GUID written plainly is read as one: the compiler stopped with
+; `Unknown constant "1D33CE96-…"` and the release build died at the last
+; step of the Windows package. "{{" is the escape for a literal brace; the
+; preprocessor fills in the rest, braces included, from the edition table.
+AppId={{#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}

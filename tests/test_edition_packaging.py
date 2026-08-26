@@ -271,8 +271,18 @@ class InnoSetup(unittest.TestCase):
             with self.subTest(name):
                 self.assertIn(f"#ifndef {name}", text)
 
-    def test_the_app_id_is_no_longer_hard_coded(self):
-        self.assertIn("AppId={#MyAppId}", read(ISS))
+    def test_the_app_id_comes_from_the_table_and_is_escaped(self):
+        """Two things at once, and the second one cost a release build.
+
+        The GUID is not hard coded — it comes from the edition table — AND
+        the brace in front of it is DOUBLED. "{" opens a constant in Inno
+        Setup, so `AppId={#MyAppId}` expands to `{GUID}` and the compiler
+        stops with `Unknown constant "1D33CE96-…"`. "{{" is the escape for a
+        literal brace and is what the hard-coded line used to have.
+        """
+        text = read(ISS)
+        self.assertIn("AppId={{#MyAppId}", text)
+        self.assertNotIn("AppId={#MyAppId}", text)
 
     def test_the_workflow_passes_all_four(self):
         text = read(BUILD)
