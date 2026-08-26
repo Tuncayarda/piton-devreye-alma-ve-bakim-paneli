@@ -60,8 +60,12 @@ def _read_switch(device, credentials, telemetry, timeout):
 
 
 def _read_camera(device, credentials, timeout, expected_ntp):
+    # An NVR and a camera answer the same protocol but are not checked for
+    # the same things: a recorder has a disk and a buzzer, a camera has a
+    # card, an IR lamp and a third stream.
     data = camera.read(device.ip, credentials, timeout,
-                       expected_ntp=expected_ntp)
+                       expected_ntp=expected_ntp,
+                       is_nvr=device.type == "NVR")
     return result.success({
         "version": data["version"], "serial": data["serial"],
         "model": data["model"], "networkTime": data["networkTime"],

@@ -62,3 +62,19 @@ _VIEWS_LOCK = threading.Lock()
 def view_for(set_no: int) -> DeviceStateView:
     with _VIEWS_LOCK:
         return _VIEWS.setdefault(int(set_no), DeviceStateView(int(set_no)))
+
+
+def clear_all() -> None:
+    """Drop every set's results.
+
+    For when the device ids stop meaning what they meant: switching to
+    another project's DeviceMap (see `panel.api.lifecycle.switch_project`),
+    and between tests. Ids are positional — "sw1.d3" is the third device on
+    the first switch — so a result kept across the switch would be shown
+    against different hardware, in green, with a timestamp that looks fresh.
+    """
+    with _VIEWS_LOCK:
+        views = list(_VIEWS.values())
+        _VIEWS.clear()
+    for view in views:
+        view.clear()

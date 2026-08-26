@@ -184,9 +184,9 @@ class Selection(unittest.TestCase):
 
     def test_a_message_renders_in_the_selected_language(self):
         i18n.use("en", persist=False)
-        self.assertEqual(i18n.t("role.user"), "User")
+        self.assertEqual(i18n.t("topbar.adminMode"), "Admin mode")
         i18n.use("tr", persist=False)
-        self.assertEqual(i18n.t("role.user"), "Kullanıcı")
+        self.assertEqual(i18n.t("topbar.adminMode"), "Admin modu")
 
     def test_a_deferred_message_follows_the_language(self):
         """This is why job rows hold a Message and not a string."""
@@ -212,10 +212,10 @@ class Selection(unittest.TestCase):
     def test_render_walks_a_whole_structure(self):
         i18n.use("en", persist=False)
         body = {"rows": [{"note": i18n.lazy("row.queued"), "n": 1}],
-                "title": i18n.lazy("role.admin")}
+                "title": i18n.lazy("topbar.adminMode")}
         self.assertEqual(i18n.render(body),
                          {"rows": [{"note": "Queued", "n": 1}],
-                          "title": "Admin"})
+                          "title": "Admin mode"})
 
 
 class Followers(unittest.TestCase):

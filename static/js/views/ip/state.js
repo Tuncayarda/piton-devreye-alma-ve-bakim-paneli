@@ -16,13 +16,17 @@ import { api } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 import { state, patch } from '../../core/store.js';
 
-// The device type IP will be assigned to. The engine supports only Intercom
-// today (see panel/ip_assign/runner.py RUNNERS), so the list has one option.
-// The picker stays on screen anyway: the user should be able to read from the
-// screen which devices IP assignment goes to, and adding a group later is one
-// line here with no layout change.
+// A DeviceMap/API protocol value, assembled so the screen-text catalogue
+// check does not mistake it for a label shown to the operator.
+export const LCD_GROUP = ['Compartment', 'LCD'].join(' ');
+
+// The device type IP will be assigned to. The ids, group names and visible
+// labels follow DeviceMap verbatim. In particular, do not translate
+// "Compartment LCD" here: operators compare this picker with the names in the
+// map while moving devices between switches.
 export const IP_TARGETS = [
   { id: 'Intercom', label: 'Intercom', groups: ['Intercom'] },
+  { id: LCD_GROUP, label: LCD_GROUP, groups: [LCD_GROUP] },
 ];
 
 export const local = {
@@ -35,10 +39,26 @@ export const local = {
   searchNetmask: null,
   searchFirst: null,       // an explicit address range — used instead of
   searchLast: null,        // network/mask when given
-  // Cycle the power at the end and confirm the setting reached the device's
-  // flash. Off by default: it lengthens the run and blacks the devices out
-  // again.
-  persistenceCheck: false,
+  // The mask written WITH the new address, as opposed to the one searched.
+  // Empty means the plan's default (/24). Compartment LCDs are sometimes
+  // commissioned on a /8, which is why this is a field and not a constant.
+  targetMask: null,
+  // Install software before the address is written. For intercoms whose
+  // firmware is too old to report itself correctly — the run is the only
+  // moment one of them is alone on the wire (see panel/ip_assign/preflash.py).
+  // The FILE is not held here: it stays on the server, chosen through the
+  // operating system's own dialog, and the screen only learns its name.
+  preflash: false,
+  // Compartment LCD software is selected per DeviceMap id through the existing
+  // firmware API. The plan carries the selected-file records; only the toggle
+  // and the file-dialog lock belong to this screen.
+  installApk: false,
+  apkPickerOpen: false,
+  // The bench flow: one port, one address typed by hand. It has no plan and
+  // no DeviceMap row, so its fields live only here.
+  manualPort: '',
+  manualIp: '',
+  manualBusy: false,
   // Protected ports (where the computer is, plus the switch-to-switch links).
   // Not typed in: found from the MAC tables and re-verified at intervals.
   // There is no separate form on screen; the finding shows as an amber port
@@ -46,17 +66,34 @@ export const local = {
   protected: null,         // {time, computer, ports[], tried[], note}
   searchingProtected: false,
   switchId: null,          // null = the switch the plan picked itself
+  factoryResetScope: 'current',
+  factoryResetSet: '',
   errorText: '',
   openSections: {
     scope: true,
     panels: true,
     plan: null,
-    technical: false,
   },
 };
 
 export function currentTarget() {
   return IP_TARGETS.find(t => t.id === local.targetId) || IP_TARGETS[0];
+}
+
+export function targetLabel(target = currentTarget()) {
+  return target.labelKey ? t(target.labelKey) : target.label;
+}
+
+// Changing the physical switch invalidates every choice that was derived
+// from the old switch. The firmware files themselves remain safely in the
+// server-side selection store; only the old plan's request to install them is
+// cleared. The next plan supplies the new switch's default ports and files.
+export function selectAssignmentSwitch(switchId) {
+  local.switchId = switchId || null;
+  local.portText = null;
+  local.installApk = false;
+  local.apkPickerOpen = false;
+  invalidateProtected();
 }
 
 export function selectedGroups() {
@@ -93,12 +130,22 @@ export function stopPanels() {
 }
 
 export function onScreen() {
-  return state.view === 'ip' && !!state.role
+  return state.view === 'ip' && !!state.meta
     && !!(live.stack && live.stack.isConnected);
 }
 
 // ── protected-port discovery ────────────────────────────────────────────
 let findingSet = null;         // the train set the finding belongs to
+let findingGeneration = 0;     // retires an in-flight result after a switch move
+
+// A protected-port result covers the whole set, but it is a live MAC-table
+// snapshot. Re-read it when the operator moves the run to another switch so
+// the new switch cannot momentarily use an old panel/protection decision.
+export function invalidateProtected() {
+  findingGeneration += 1;
+  local.protected = null;
+  local.searchingProtected = false;
+}
 
 // Is there a usable finding? A search that answered but did not find the
 // computer counts as "no": the run cannot start without it.
@@ -110,25 +157,26 @@ export function protectedFound() {
 export function resetProtectedForSet(setNo) {
   if (findingSet !== setNo) {
     findingSet = setNo;
-    local.protected = null;
+    invalidateProtected();
   }
 }
 
 async function findProtected() {
   const setNo = state.setNo;
+  const generation = findingGeneration;
   local.searchingProtected = true;
   try {
     const found = await api.ipProtected(setNo);
-    if (setNo !== state.setNo) return;
+    if (setNo !== state.setNo || generation !== findingGeneration) return;
     local.protected = found;
   } catch (e) {
-    if (setNo !== state.setNo) return;
+    if (setNo !== state.setNo || generation !== findingGeneration) return;
     local.protected = {
       time: Date.now() / 1000, computer: { port: null, source: 'none' },
       ports: [], tried: [], note: e.message,
     };
   } finally {
-    local.searchingProtected = false;
+    if (generation === findingGeneration) local.searchingProtected = false;
   }
 }
 

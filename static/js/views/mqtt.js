@@ -29,7 +29,7 @@ export function render(root) {
       el('span', {
         class: 'badge',
         style: data.running
-          ? 'border-color:var(--ok-soft);color:var(--ok)'
+          ? 'border-color:var(--ok-soft);color:var(--ok-text)'
           : 'color:var(--text-dim)',
         text: data.running
           ? t('mqtt.connected', {
@@ -71,15 +71,15 @@ export function render(root) {
           'aria-hidden': 'true',
         }),
         el('span', {
-          class: 'mono truncate', style: 'flex:1;font-size:11px',
+          class: 'mono truncate t-sm', style: 'flex:1',
           text: topic.name,
         }),
         el('span', {
-          class: 'mono text-dim', style: 'font-size:10px',
+          class: 'mono text-dim t-xs',
           text: String(topic.count),
         }),
       ])) : [el('div', {
-        class: 'mono text-dim', style: 'font-size:11px',
+        class: 'mono text-dim t-sm',
         text: t('mqtt.noMessageYet'),
       })]),
     ]),
@@ -91,7 +91,7 @@ export function render(root) {
         el('span', { class: 'label', text: t('mqtt.stream') }),
         el('span', { style: 'flex:1' }),
         el('span', {
-          class: 'mono text-dim', style: 'font-size:10px',
+          class: 'mono text-dim t-xs',
           text: t('mqtt.showingRows', { count: messages.length }),
         }),
       ]),
@@ -107,7 +107,7 @@ export function render(root) {
           class: 'payload', title: message.payload, text: message.payload,
         }),
       ])) : [el('div', {
-        class: 'mono text-dim', style: 'font-size:11px',
+        class: 'mono text-dim t-sm',
         text: t(data.running ? 'mqtt.waitingForMessages'
           : 'mqtt.listenerStopped'),
       })]),

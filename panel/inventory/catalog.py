@@ -87,16 +87,24 @@ GROUPS = [
      "ops": "cfg fw check"},
     {"name": "UIC", "type": "Announcement", "subtype": "UIC",
      "ops": "cfg fw check"},
-    # The Compartment LCD's software is an APK installed over adb.
-    {"name": "Compartment LCD", "labelKey": "group.compartmentLcd",
-     "type": "LCD", "subtype": "Compartment", "ops": "fw check"},
-    {"name": "Landing LCD", "labelKey": "group.landingLcd", "type": "LCD",
+    # The Compartment LCD is commissioned and receives its APK over adb.
+    # No labelKey on either LCD: "Compartment" and "Landing" are the SubType
+    # values in DeviceMap and appear in every device name it publishes
+    # (Compartment_Lcd_3). Translating the group heading while the rows under
+    # it keep the DeviceMap spelling makes them read as two different things.
+    {"name": "Compartment LCD", "type": "LCD", "subtype": "Compartment",
+     "ops": "ip cfg fw check"},
+    {"name": "Landing LCD", "type": "LCD",
      "subtype": "Landing", "ops": "check"},
     {"name": "LED", "type": "LED", "subtype": "Front", "ops": "check"},
     {"name": "ICU", "type": "ICU", "subtype": "", "ops": "check"},
+    # Video equipment is configured, not addressed: the camera and NVR
+    # addresses are set by hand in the field and the panel never writes one.
+    # What it writes is the configuration — time, streams, the NVR's input
+    # channels (see panel.video_config).
     {"name": "Camera", "labelKey": "group.camera", "type": "Camera",
-     "subtype": "", "ops": "check"},
-    {"name": "NVR", "type": "NVR", "subtype": "", "ops": "check"},
+     "subtype": "", "ops": "cfg check"},
+    {"name": "NVR", "type": "NVR", "subtype": "", "ops": "cfg check"},
     {"name": "AP", "type": "AP", "subtype": "", "ops": "check"},
     {"name": "PISCU", "type": "PISCU", "subtype": "", "ops": "check"},
     {"name": "HMI", "type": "HMI", "subtype": "", "ops": "check"},

@@ -80,6 +80,10 @@ PORT_STEPS = (
     ("poe_on", 0.10, "step.poeOn"),
     ("searching", 0.35, "step.searching"),
     ("device_found", 0.60, "step.deviceFound"),
+    # Only when the run was started with "flash before assigning". It sits
+    # between finding the device and writing its address because that is the
+    # only moment the device is alone on the wire (see ip_assign.preflash).
+    ("firmware", 0.70, "step.firmware"),
     ("writing_ip", 0.80, "step.writingIp"),
     ("verifying", 0.92, "step.verifying"),
 )
@@ -285,6 +289,22 @@ class RunProgress:
         detail = str(event.get("detail") or i18n.t(_STEP_LABEL[code]))
         self._job.update_row(self._port_key(port), "running", detail[:160])
         self._enter_phase("assign")
+
+    def _on_port_identified(self, event: dict) -> None:
+        """Replace the generic physical-port row with the proven map name."""
+        port = _port_of(event)
+        name = str(event.get("name", "")).strip()
+        target = str(event.get("target", "")).strip()
+        if port is None or port not in self._ports or not name:
+            return
+        note = (i18n.lazy("ip.willBeWritten", ip=target) if target
+                else i18n.lazy("ip.starting"))
+        # add_row preserves the step history while allowing the title to
+        # change from "Compartment LCD" to the exact DeviceMap identifier.
+        self._job.add_row(
+            self._port_key(port),
+            i18n.lazy("ip.portRow", port=port, name=name),
+            state="running", note=note, counted=True)
 
     def _on_port_note(self, event: dict) -> None:
         port = _port_of(event)

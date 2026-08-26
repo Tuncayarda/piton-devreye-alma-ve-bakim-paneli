@@ -113,7 +113,7 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     # Proving that a message renders in Turkish means writing the Turkish out.
     "tests/test_i18n.py": (
-        ('"Kullanıcı"', "expected Turkish rendering of role.user"),
+        ('"Admin modu"', "expected Turkish rendering of topbar.adminMode"),
         ('"Tren seti 3 yüklendi"',
          "expected Turkish rendering of topbar.setLoaded"),
     ),
@@ -143,6 +143,17 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
         ("Internet Adresi", "verbatim Turkish `arp -a` output"),
         ("IPv4 Adresi", "verbatim Turkish `ipconfig` output"),
     ),
+    # The same verbatim `ipconfig` output, for the other half of the problem:
+    # the labels are translated, so the adapter parser must read the numbers
+    # by position and never by label.
+    "tests/test_network.py": (
+        ("Windows IP Yapılandırması", "verbatim Turkish `ipconfig` output"),
+        ("Ethernet bağdaştırıcısı", "verbatim Turkish `ipconfig` output"),
+        ("Fiziksel Adres", "verbatim Turkish `ipconfig` output"),
+        ("Alt Ağ Maskesi", "verbatim Turkish `ipconfig` output"),
+        ("Varsayılan Ağ Geçidi", "verbatim Turkish `ipconfig` output"),
+        ("IPv4 Adresi", "verbatim Turkish `ipconfig` output"),
+    ),
     "tests/test_language.py": (
         ("__self__", "this file lists the very words it searches for"),
     ),
@@ -151,13 +162,17 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     # the catalogue); these three are stamped in at BUILD time and cannot,
     # so they are written in the language of the people who install and run
     # it. Every FILE the build produces is still named "dabp".
-    ".github/workflows/build-commissioning-panel.yml": (
-        ("Devreye Alma ve Bakım Paneli", "product name in the Release title"),
-    ),
-    "dabp.spec": (
+    # There is one place now: the edition table. `dabp.spec`, the Inno
+    # script and the Release title all read the name from there, so it is
+    # written once, in the language of the people who install and run it.
+    # Every FILE the build produces is still named "dabp-<edition>".
+    "panel/editions/catalogue.py": (
         ("Devreye Alma ve Bakım Paneli",
-         "macOS CFBundleName / Windows version resource"),
+         "product name: macOS bundle, Windows resource, setup wizard, "
+         "Release title"),
+        ("Yataklı", "project name as the customer's DeviceMap spells it"),
     ),
+    # Kept as the #ifndef fallback, for a build run by hand without /D.
     "packaging/windows/dabp.iss": (
         ("Devreye Alma ve Bakım Paneli",
          "setup wizard, Start menu and uninstall entry"),

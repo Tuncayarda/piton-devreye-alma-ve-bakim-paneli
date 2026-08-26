@@ -9,6 +9,8 @@ User-facing text NEVER contains a password, and never a raw traceback.
 """
 from __future__ import annotations
 
+import errno
+
 from . import status
 from . import i18n
 
@@ -73,11 +75,53 @@ UNREACHABLE_NAMES = {
 }
 
 
+def _os_errno(exc: BaseException) -> int | None:
+    """The OS error number behind a wrapped network exception.
+
+    `requests` raises its own ConnectionError with the real OSError two or
+    three levels down, so the chain is walked — through `__cause__`,
+    `__context__` and the exceptions libraries pass along as arguments.
+    """
+    pending, seen = [exc], set()
+    while pending:
+        current = pending.pop(0)
+        if not isinstance(current, BaseException) or id(current) in seen:
+            continue
+        seen.add(id(current))
+        number = getattr(current, "errno", None)
+        if isinstance(number, int):
+            return number
+        pending.extend([current.__cause__, current.__context__,
+                        *current.args])
+    return None
+
+
+def _no_local_address(exc: BaseException) -> bool:
+    """Did the machine have no address to send this from?
+
+    EADDRNOTAVAIL is not a device fault at all and must not be reported as
+    one: nothing left the computer. It is what a route left pointing at an
+    address that no longer exists produces (see `panel.network.routes`), and
+    read as "device unreachable" it sends the user to the cabinet to check a
+    cable that was never the problem — every device in the network fails at
+    once, in milliseconds.
+
+    urllib3 sometimes re-raises with the text only, hence the second test.
+    """
+    if _os_errno(exc) == errno.EADDRNOTAVAIL:
+        return True
+    text = str(exc).lower()
+    return "errno 49" in text or "can't assign requested address" in text
+
+
 def user_message(exc: BaseException) -> str:
     """Reduce a technical error to one sentence the user can read."""
     if isinstance(exc, DeviceError):
         text = str(exc).strip()
         return text or str(exc.title)
+
+    if _no_local_address(exc):
+        return i18n.t("error.noLocalAddress")
 
     name = type(exc).__name__
     if name in TIMEOUT_NAMES:
@@ -94,6 +138,7 @@ def classify(exc: BaseException) -> DeviceError:
     if isinstance(exc, DeviceError):
         return exc
     name = type(exc).__name__
-    if name in TIMEOUT_NAMES or name in UNREACHABLE_NAMES or name == "SSLError":
+    if (name in TIMEOUT_NAMES or name in UNREACHABLE_NAMES
+            or name == "SSLError" or _no_local_address(exc)):
         return UnreachableError(user_message(exc))
     return VerificationError(user_message(exc))

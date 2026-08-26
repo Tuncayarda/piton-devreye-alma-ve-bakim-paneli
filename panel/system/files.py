@@ -11,6 +11,7 @@ characters in names are harmless.
 """
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -101,10 +102,12 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
 def _picker_command(title: str, extensions: tuple[str, ...]) -> list[str]:
     system = platform.system()
     if system == "Darwin":
+        # ``choose file ... of type {"apk"}`` is not an extension filter on
+        # macOS.  It is a UTI filter, and on machines without Android Studio
+        # an APK is commonly classified only as dynamic ``public.data``; the
+        # requested file is then visible but greyed out.  Let the native
+        # dialog choose any file and validate the exact suffix in the API.
         types = ""
-        if extensions:
-            listed = ", ".join(f'"{e}"' for e in extensions)
-            types = f" of type {{{listed}}}"
         return ["osascript", "-e",
                 _MACOS_SCRIPT.format(title=title, types=types)]
     if system == "Windows":
@@ -130,6 +133,68 @@ def _picker_command(title: str, extensions: tuple[str, ...]) -> list[str]:
         i18n.t("error.noFilePicker"))
 
 
+# ─────────────────────────────────────────── back down to the user ──
+# The panel normally runs elevated: it configures interfaces and drives the
+# switches. A dialog opened by root, however, is not the operator's dialog.
+# It belongs to root's session, so it starts in /var/root, its sidebar has
+# none of the user's places, and macOS denies it the per-user folders it
+# protects (Desktop, Documents, Downloads, iCloud Drive). What the operator
+# sees is an empty window with nowhere to browse to and no file to pick.
+#
+# So the picker is pushed back down into the logged-in user's own session
+# before it opens. Two steps, and both are needed:
+#
+#   launchctl asuser <uid>  puts the process in that user's GUI session — a
+#                           dialog started outside it never comes forward;
+#   sudo -H -u <name>       drops the root identity, so the dialog gets the
+#                           user's home folder and their TCC permissions.
+#
+# Root elevated through the system's password dialog has no SUDO_USER, hence
+# the console owner is the primary answer and SUDO_USER only the fallback for
+# a panel started from a `sudo` shell.
+
+
+def _console_user() -> tuple[str, int] | None:
+    """(name, uid) of the user at the window server, or None if unknown."""
+    name = ""
+    try:
+        name = subprocess.run(["stat", "-f", "%Su", "/dev/console"],
+                              capture_output=True, text=True,
+                              timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        name = ""
+    if not name or name == "root":
+        name = os.environ.get("SUDO_USER", "")
+    if not name or name == "root":
+        return None
+    try:
+        import pwd                       # POSIX only; not imported on Windows
+
+        return name, pwd.getpwnam(name).pw_uid
+    except (ImportError, KeyError):
+        return None
+
+
+def as_console_user(command: list[str]) -> list[str]:
+    """`command` run in the logged-in user's session when this process is root.
+
+    Returns the command untouched whenever there is nothing to hand it back
+    to — not elevated, not macOS, or no one logged in graphically.
+
+    Public because the file picker is no longer the only thing root cannot do
+    on the operator's behalf: reading the service key off a USB stick is
+    refused for the same reason (see `panel.adminkey.handback`).
+    """
+    if platform.system() != "Darwin" or os.geteuid() != 0:
+        return command
+    user = _console_user()
+    if not user:
+        return command
+    name, uid = user
+    return ["launchctl", "asuser", str(uid), "sudo", "-H", "-u", name,
+            *command]
+
+
 def pick_file(title: str = "",
               extensions: tuple[str, ...] = ()) -> str | None:
     """Open the OS file picker.
@@ -137,7 +202,7 @@ def pick_file(title: str = "",
     Returns the full path, or None if the user cancelled. Raises RuntimeError
     when no picker can be opened at all.
     """
-    command = _picker_command(title, extensions)
+    command = as_console_user(_picker_command(title, extensions))
     try:
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=PICKER_TIMEOUT)

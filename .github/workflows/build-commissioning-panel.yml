@@ -1,22 +1,38 @@
 name: Build · Commissioning Panel
 
 # Packages and Releases for the Commissioning and Maintenance Panel.
-#   • workflow_dispatch     -> artifact only
-#   • dap-v* tag push       -> artifact + GitHub Release
+#   • workflow_dispatch          -> one chosen edition, artifact only
+#   • dap-<edition>-v* tag push  -> that edition, artifact + GitHub Release
 #
-# Why the tag prefix: the repository used to hold two applications, each on
-# its own branch with its own version. Unprefixed "v*" and "syp-v*" tags
-# belong to the Switch Management Panel, which is built on the `syp` branch.
-# Example: dap-v0.9.0-dev  →  must match APP_VERSION 0.9.0-dev.
+# ONE PACKAGE PER CUSTOMER. The panel is commissioned by several operators on
+# several trains, and each may only see their own project, so the separation
+# is made at build time: every edition is packaged on its own and carries
+# only its own DeviceMap (see panel/editions/catalogue.py). Cutting a release
+# for one customer therefore does not rebuild anyone else's.
 #
-# Pre-release tags (-dev, -alpha, -beta, -rc) are marked "pre-release" on the
-# Release page.
+# Tag examples:
+#   dap-vip-yatakli-v0.9.8   dap-gdm-v0.9.8   dap-gaziray-v0.9.8
+#
+# The version after "-v" must match APP_VERSION in panel/settings.py.
+# Pre-release tags (-dev, -alpha, -beta, -rc) are marked "pre-release".
+#
+# Why the "dap-" prefix at all: the repository used to hold two applications.
+# Unprefixed "v*" and "syp-v*" tags belong to the Switch Management Panel,
+# which is built on the `syp` branch.
 
 on:
   workflow_dispatch:
+    inputs:
+      edition:
+        description: Which package to build
+        required: true
+        type: choice
+        options: [vip-yatakli, gdm, gaziray]
   push:
     tags:
-      - "dap-v*"
+      - "dap-vip-yatakli-v*"
+      - "dap-gdm-v*"
+      - "dap-gaziray-v*"
 
 concurrency:
   group: build-commissioning-panel-${{ github.ref }}
@@ -26,18 +42,54 @@ permissions:
   contents: read
 
 jobs:
+  # `with:` is evaluated before any shell runs, so the edition cannot be
+  # pulled out of the tag inline. This job does it, and validates the answer
+  # against the table rather than trusting the tag's shape.
+  resolve:
+    name: Which edition
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      edition: ${{ steps.pick.outputs.edition }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.edition }}" ]; then
+            EDITION="${{ inputs.edition }}"
+          else
+            # dap-vip-yatakli-v0.9.8 -> vip-yatakli
+            EDITION="${GITHUB_REF_NAME#dap-}"
+            EDITION="${EDITION%-v*}"
+          fi
+          # The table is the authority; a tag that names no edition (an old
+          # unprefixed "dap-v0.9.7", or a typo) stops here rather than
+          # producing a package called after the mistake.
+          if ! python3 tools/edition_info.py --list | grep -qx "$EDITION"; then
+            echo "::error::'$EDITION' is not an edition. Known:"
+            python3 tools/edition_info.py --list
+            exit 1
+          fi
+          echo "edition=$EDITION" >> "$GITHUB_OUTPUT"
+          echo "Building the '$EDITION' package."
+
   package:
+    needs: resolve
     uses: ./.github/workflows/build-app.yml
     permissions:
       contents: write            # for the Release step
+    # Reusable workflows do NOT inherit secrets. Without this line the build
+    # produces a package that cannot recognise a service key, and nothing
+    # says so until somebody plugs one into it in the field.
+    secrets: inherit
     with:
       app_dir: .
-      # Every produced file is named after this: dabp.exe, dist/dabp,
-      # dabp.app, dabp-<version>-<target>.zip.
-      app_name: dabp
-      # Read by people on the Release page, in the language of the
-      # operators who commission the trains.
-      display_name: Devreye Alma ve Bakım Paneli
+      edition: ${{ needs.resolve.outputs.edition }}
+      # The file names and the Release title are read from the edition table
+      # inside the build (tools/edition_info.py), so they are written once.
       spec: dabp.spec
       iss: packaging/windows/dabp.iss
       # This panel has unit tests; they run before the package is produced.

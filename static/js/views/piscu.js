@@ -47,19 +47,20 @@ export function render(root) {
   }, [
     el('h3', { style: 'margin-bottom:12px', text: title }),
     ...(rows.length ? rows : [el('div', {
-      class: 'mono text-dim', style: 'font-size:11px', text: emptyText,
+      class: 'mono text-dim t-sm', text: emptyText,
     })]),
   ]);
 
   const clients = data.clients.map(client => el('div', {
+    class: 't-sm',
     style: 'display:grid;grid-template-columns:minmax(0,1fr) 104px 96px;'
       + 'gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);'
-      + 'font-family:var(--font-mono);font-size:11px',
+      + 'font-family:var(--font-mono)',
   }, [
     el('span', { class: 'truncate', text: client.name }),
     el('span', { class: 'text-mid', text: client.ip }),
     el('span', {
-      dataset: { state: client.state }, style: 'color:var(--state-colour)',
+      dataset: { state: client.state }, style: 'color:var(--state-text)',
       title: client.detail || '',
       text: client.version
         ? `v${client.version}`
@@ -68,15 +69,16 @@ export function render(root) {
   ]));
 
   const extensions = data.extensions.map(entry => el('div', {
+    class: 't-sm',
     style: 'display:grid;grid-template-columns:64px minmax(0,1fr) 96px 96px;'
       + 'gap:10px;padding:7px 0;border-bottom:1px solid var(--line-soft);'
-      + 'font-family:var(--font-mono);font-size:11px',
+      + 'font-family:var(--font-mono)',
   }, [
     el('span', { style: 'color:var(--accent)', text: entry.extension }),
     el('span', { class: 'truncate', text: entry.name }),
     el('span', { class: 'text-mid', text: value(entry.reportedExtension) }),
     el('span', {
-      dataset: { state: entry.state }, style: 'color:var(--state-colour)',
+      dataset: { state: entry.state }, style: 'color:var(--state-text)',
       text: stateLabel(entry.state, ' '),
     }),
   ]));

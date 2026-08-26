@@ -18,6 +18,10 @@ name: CI
 on:
   push:
     tags:
+      # One tag per customer package: dap-gdm-v0.9.8, dap-gaziray-v0.9.8 …
+      # The older single-edition "dap-v*" is still accepted while tags from
+      # before the split are around.
+      - "dap-*-v*"
       - "dap-v*"
   workflow_dispatch:
 
@@ -30,6 +34,10 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.12"
+  # Every edition is a customer's package now, so the suite runs as one of
+  # them; the admin screens it also has to exercise are reached the way the
+  # product reaches them — in admin mode (see tests/support/base.py).
+  DAP_EDITION: vip-yatakli
 
 jobs:
   self-test:
@@ -102,6 +110,30 @@ jobs:
       - name: Self-test (from source)
         run: python app.py --self-test
 
+      # A customer package too, not only the service one: it is the shape
+      # that actually ships, and it is the one whose screens are hidden.
+      - name: Self-test as a customer package
+        run: python app.py --edition vip-yatakli --self-test
+
+      # A bare run must refuse to start. There is no role screen any more and
+      # no default customer — "whichever DeviceMap the tree happens to hold"
+      # is not an answer anybody meant to give, so the panel names the
+      # editions and stops. This can be checked here because the edition is
+      # settled BEFORE the elevation gate, which CI cannot pass.
+      - name: A run with no edition is refused
+        shell: bash
+        env:
+          DAP_EDITION: ""
+        run: |
+          set +e
+          OUTPUT="$(python app.py 2>&1)"
+          CODE=$?
+          set -e
+          echo "$OUTPUT"
+          [ "$CODE" -ne 0 ] || {
+            echo "::error::a run with no edition must not start"; exit 1; }
+          echo "refused with exit code $CODE, as it must be."
+
       - name: Can the version be read
         run: python app.py --version
 
@@ -120,11 +152,13 @@ jobs:
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
           case "$TAG" in
-            dap-v*) : ;;
+            dap-*-v*|dap-v*) : ;;
             *) echo "::error::tag format does not belong to this branch: $TAG"
                exit 1 ;;
           esac
-          TAG_VERSION="${TAG#*-v}"; TAG_VERSION="${TAG_VERSION#v}"
+          # "##" (longest match), never "#": an edition id may itself
+          # contain "-v", and "#" would stop at the first one.
+          TAG_VERSION="${TAG##*-v}"; TAG_VERSION="${TAG_VERSION#v}"
           # Version source: the application's own constant (read with grep,
           # so no dependencies need installing).
           SOURCE_FILE="panel/settings.py"

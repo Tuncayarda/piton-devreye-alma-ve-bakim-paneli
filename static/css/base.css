@@ -9,18 +9,32 @@
   --panel-2: #111a20;
   --deep: #0b1116;
 
-  /* accent and text */
+  /* accent and text
+     ────────────────
+     EVERY VALUE BELOW THAT CARRIES TEXT REACHES 4.5:1 on --bg and --panel.
+     It is measured, not judged by eye, and `tests/test_frontend.py` fails the
+     build if one of them drops under. The panel is read standing up in a
+     depot, so this is a field requirement rather than a formality.
+
+     --text-dim used to be #5d7185 (3.38:1) and is the most widely used
+     secondary colour in the app — timestamps, hints, the footer, the "last
+     scan" line — almost always at the smallest size. */
   --accent: #4294E0;
   --accent-soft: rgba(66, 148, 224, .10);
   --accent-line: rgba(66, 148, 224, .45);
   --text: #e6edf3;
   --text-bright: #a9bacb;
   --text-mid: #7f93a6;
-  --text-dim: #5d7185;
+  --text-dim: #71879c;
+  /* Never used for text: two decorative fills only (see ip.css). */
   --text-faint: #3d4c5a;
   --brand: #8fa3b5;
 
-  /* state colours — the green/amber/red/grey set */
+  /* state colours — the green/amber/red/grey set.
+     These paint dots, borders and port graphics, where contrast against the
+     ground matters less than telling the four states apart. Red and grey are
+     too dark to READ, so the same states have their own text values below and
+     the two must not be swapped. */
   --ok: #3fb950;
   --auth: #d29922;
   --failed: #da3633;
@@ -28,6 +42,16 @@
   --ok-soft: rgba(63, 185, 80, .45);
   --auth-soft: rgba(210, 153, 34, .45);
   --failed-soft: rgba(218, 54, 51, .45);
+
+  /* the same states, as text. Green and amber already pass, so they point at
+     the fill value and stay one colour; red and grey do not. */
+  --ok-text: var(--ok);
+  --auth-text: var(--auth);
+  --failed-text: #e05c59;
+  --unknown-text: var(--text-dim);
+  /* The softer red of error sentences and invalid-field warnings — a whole
+     paragraph in --failed-text reads as an alarm. */
+  --danger-text: #e8817f;
 
   /* lines */
   --line: rgba(214, 235, 255, .14);
@@ -41,6 +65,33 @@
   --font-body: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Menlo", monospace;
 
+  /* THE TYPE SCALE — the only place a font size is chosen.
+     ─────────────────────────────────────────────────────
+     There used to be 125 font-size declarations across 22 distinct values,
+     from 9px to 32px, in half-pixel steps, plus 49 more written inline in
+     JavaScript. Eleven of those steps sat inside five pixels, so they carried
+     no meaning: nothing on screen told 11px apart from 11.5px, and the
+     smallest text was too small to read at arm's length.
+
+     Eight steps, in rem so the browser's zoom and the operating system's own
+     text-size setting both work. The floor is 11px: below that this stops
+     being a tool you can use standing up.
+
+     `tests/test_frontend.py` rejects any font-size in px outside this block
+     and any inline font-size in the JavaScript. */
+  --fs-xs: 0.6875rem;    /* 11px — badges, units, timestamps */
+  --fs-sm: 0.75rem;      /* 12px — table cells, notes, help text */
+  --fs-base: 0.8125rem;  /* 13px — the everyday reading size */
+  --fs-md: 0.9375rem;    /* 15px — body default, dialog prose */
+  --fs-lg: 1.125rem;     /* 18px — h3, card titles */
+  --fs-xl: 1.375rem;     /* 22px — h2 on a narrow window */
+  --fs-2xl: 1.75rem;     /* 28px — h2 */
+  --fs-3xl: 2rem;        /* 32px — the big KPI figures */
+
+  /* The column a side panel takes on a wide window. Fixed, because there it
+     sets the content's width rather than the other way round (see app.js
+     alignSidePanel). */
+  --queue-width: 340px;
   --top-height: 50px;
   /* The footer carries the main-menu button too; at 30px it did not fit. */
   --footer-height: 36px;
@@ -57,7 +108,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 14.5px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   overflow: hidden;
 }
@@ -71,9 +122,9 @@ h1, h2, h3, h4 {
   margin: 0;
 }
 
-h2 { font-size: 28px; }
-h3 { font-size: 18px; }
-h4 { font-size: 15.5px; }
+h2 { font-size: var(--fs-2xl); }
+h3 { font-size: var(--fs-lg); }
+h4 { font-size: var(--fs-md); }
 
 button { font: inherit; color: inherit; }
 input, select { font: inherit; }
@@ -87,6 +138,20 @@ input, select { font: inherit; }
    on a screen change). It is not a keyboard-navigable element, so no ring is
    drawn — it showed up as one huge blue box at startup. */
 #content:focus, #content:focus-visible { outline: none; }
+
+/* "Skip to content" — the first thing Tab reaches. Off-screen until it has
+   focus, because the alternative for a keyboard user is walking the top bar
+   and the whole menu rail on every screen. */
+.skip-link {
+  position: absolute; left: 8px; top: -100px; z-index: 60;
+  padding: 8px 12px;
+  border: 1px solid var(--accent-line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-decoration: none;
+}
+.skip-link:focus-visible { top: 8px; }
 
 ::selection { background: rgba(66, 148, 224, .35); }
 
@@ -110,94 +175,6 @@ input, select { font: inherit; }
 
 [hidden] { display: none !important; }
 
-/* ────────────────────────────────────────────────── role selection ── */
-#role-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: var(--bg);
-  background-image:
-    linear-gradient(rgba(214, 235, 255, .035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(214, 235, 255, .035) 1px, transparent 1px);
-  background-size: 48px 48px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  overflow-y: auto;
-}
-
-/* #role-screen is already `position: fixed`, so it is the containing block
-   for this. Raised above the card: on a short window the centred card can
-   grow up to meet the corner. */
-.role-language {
-  position: absolute;
-  top: 20px;
-  right: 24px;
-  z-index: 1;
-  background: var(--bg);
-}
-
-.role-brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 34px;
-}
-.role-brand img { height: 26px; display: block; }
-.role-brand .divider { width: 1px; height: 24px; background: var(--line-strong); }
-.role-brand span:last-child {
-  font-family: var(--font-heading);
-  font-weight: 600; font-size: 14px;
-  letter-spacing: .2em; text-transform: uppercase;
-  color: var(--brand);
-}
-
-.role-card {
-  position: relative;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  padding: 34px;
-  width: min(640px, 100%);
-}
-
-.role-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-.role-btn {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 18px;
-  padding: 38px 16px 30px;
-  background: transparent;
-  border: 1px solid var(--line-strong);
-  color: var(--text);
-  cursor: pointer;
-  transition: background .14s ease, border-color .14s ease;
-}
-.role-btn:hover { background: rgba(66, 148, 224, .12); border-color: var(--accent); }
-.role-btn span {
-  font-family: var(--font-heading); font-weight: 600; font-size: 20px;
-  letter-spacing: 0; text-transform: none;
-}
-
-.role-password {
-  margin-top: 18px; padding-top: 16px;
-  border-top: 1px solid var(--line);
-  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
-}
-.role-password label { flex: 1 1 220px; display: flex; flex-direction: column; gap: 6px; }
-
-.role-footer {
-  margin-top: 26px;
-  display: flex; gap: 22px; flex-wrap: wrap;
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint);
-}
-
 /* ─────────────────────────────────────────── application skeleton ── */
 #app {
   height: 100%;
@@ -216,17 +193,22 @@ input, select { font: inherit; }
 .top-bar img.logo { height: 24px; display: block; }
 .top-bar .divider { width: 1px; height: 22px; background: var(--line); flex: none; }
 .top-bar .app-name {
-  font-family: var(--font-heading); font-weight: 600; font-size: 13px;
+  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-base);
   letter-spacing: .18em; text-transform: uppercase; color: var(--brand);
   white-space: nowrap;
 }
 .top-bar .spacer { flex: 1; }
-/* The role badge is the same height as the icon buttons in the top bar; a
-   small chip floated between the 30px buttons next to it. */
-#role-badge {
+/* The mode badge is the same height as the icon buttons in the top bar; a
+   small chip floated between the 30px buttons next to it. It is only ever
+   shown in admin mode, so it is coloured like the thing it announces. */
+#mode-badge {
   height: 30px; padding: 0 11px; flex: none;
-  font-size: 11.5px; color: var(--text);
+  font-size: var(--fs-sm); color: var(--accent);
 }
+/* The key has been pulled out but a write is still running, so admin mode is
+   held open until the queue clears (see panel/adminkey/watcher.py). The
+   badge says so rather than changing silently under the user. */
+#mode-badge[data-pending="1"] { color: var(--auth); }
 
 .body {
   position: relative;
@@ -264,7 +246,7 @@ input, select { font: inherit; }
   padding: 0 18px;
   background: var(--panel);
   border-top: 1px solid var(--line);
-  font-family: var(--font-body); font-size: 11.5px; color: var(--text-dim);
+  font-family: var(--font-body); font-size: var(--fs-sm); color: var(--text-dim);
 }
 .footer-bar .divider { width: 1px; height: 14px; background: var(--line); }
 
@@ -280,5 +262,5 @@ input, select { font: inherit; }
 
 @media (max-width: 720px) {
   .top-bar { flex-wrap: wrap; padding: 6px 10px; min-height: auto; }
-  h2 { font-size: 21px; }
+  h2 { font-size: var(--fs-xl); }
 }

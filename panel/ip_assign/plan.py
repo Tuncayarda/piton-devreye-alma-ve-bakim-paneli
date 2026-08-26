@@ -7,18 +7,19 @@ import time
 from .. import i18n, settings
 from ..errors import AuthError
 from ..inventory.catalog import find_group, group_matches
-from ..inventory.device_map import Inventory
+from ..inventory.device_map import Inventory, resolve_template
 from ..probe import switch as switch_probe
-from .addressing import factory_ip
+from .addressing import DEFAULT_TARGET_PREFIX, factory_ip, netmask_for
 from .ports import format_ports
+
+_COMPARTMENT_LCD = "Compartment LCD"
 
 
 def resolve_groups(names) -> list[dict]:
     """Turn names that support IP assignment into group definitions.
 
-    This module's working engine is defined for Intercom only. The limit in
-    the UI is not enough on its own; a direct API call must not push another
-    device type through the Intercom write routine either.
+    The limit in the UI is not enough on its own; a direct API call must not
+    push a device type without a commissioning flow through a write routine.
     """
     out, seen = [], set()
     for name in names or []:
@@ -51,8 +52,47 @@ def devices_by_port(inventory: Inventory, groups: list[dict],
     return by_port
 
 
+def device_switch_for(inventory: Inventory, groups,
+                      execution_switch_id: str | None) -> str | None:
+    """Return the DeviceMap switch whose port map supplies the run rows.
+
+    ``execution_switch_id`` is always the physical switch whose PoE and MAC
+    table will be used.  Normally it is also where DeviceMap says the devices
+    live.  Compartment LCD commissioning deliberately permits a bench/field
+    override, though: the LCD definitions may all be under ``sw1`` while the
+    operator has plugged that same port layout into ``sw2``.
+
+    The override is intentionally narrow and deterministic:
+
+    * it applies only to an LCD-only run;
+    * a map already defined on the selected switch always wins;
+    * otherwise exactly one DeviceMap switch must contain LCD definitions.
+
+    With zero or several possible source switches we keep the selected switch
+    as the source too.  That yields no invented/ambiguous rows, and the API's
+    allowed-port validation rejects a write before it is queued.
+    """
+    requested = [groups] if isinstance(groups, str) else (groups or [])
+    selected = (requested if requested and isinstance(requested[0], dict)
+                else resolve_groups(requested))
+    names = [group["name"] for group in selected]
+    if names != [_COMPARTMENT_LCD] or not execution_switch_id:
+        return execution_switch_id
+
+    matching = [device for device in inventory.devices
+                if group_matches(selected[0], device)
+                and device.port and str(device.port).isdigit()]
+    if any(device.switch_id == execution_switch_id for device in matching):
+        return execution_switch_id
+    sources = list(dict.fromkeys(device.switch_id for device in matching))
+    return sources[0] if len(sources) == 1 else execution_switch_id
+
+
 def build_plan(inventory: Inventory, group_names, ports: list[int],
-               switch_id: str | None = None) -> dict:
+               switch_id: str | None = None,
+               device_switch_id: str | None = None, *,
+               target_prefix: int = DEFAULT_TARGET_PREFIX,
+               source_set: int = 0, target_set: int = 0) -> dict:
     """The run plan — from DeviceMap only, without touching the network.
 
     Each row: which port, which device, which group, the factory candidate and
@@ -62,30 +102,93 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
     groups can join one run. Each group has its own assignment script, so the
     run proceeds group by group (see runner.RUNNERS).
 
-    Port numbers are per switch: both switches have a port 11. With
-    `switch_id` the plan is built only from that switch's devices; otherwise
-    the same port number could point at a device on another switch.
+    Port numbers are per switch: both switches have a port 11.  ``switch_id``
+    is the physical execution switch.  Normally its own DeviceMap rows supply
+    the plan; the explicit LCD-only override can instead use the single
+    canonical LCD layout returned by :func:`device_switch_for`.
+
+    `source_set` is where the devices ARE at the moment, when that is not
+    where the run would normally look. Zero means the usual starting point:
+    the shared factory address for an Intercom, the set-1 form of each
+    display's own template for a Compartment LCD. Giving a number instead
+    turns the run into a set transfer — set 3's addresses become the sources
+    and the open set stays the destination.
+
+    `target_set` is the other end of the same idea: zero means the open set,
+    a number means the addresses are written for that set instead. A factory
+    reset is exactly `target_set=1`.
+
+    `target_prefix` is the mask written with the new address.
     """
     from .runner import RUNNERS
 
     if isinstance(group_names, str):
         group_names = [group_names]
     groups = resolve_groups(group_names)
-    by_port = devices_by_port(inventory, groups, switch_id)
+    resolved_device_switch = (device_switch_id
+                              or device_switch_for(inventory, groups,
+                                                   switch_id))
+    by_port = devices_by_port(inventory, groups, resolved_device_switch)
+    lcd_physical_mode = [group["name"] for group in groups] == [
+        _COMPARTMENT_LCD]
+
+    def device_row(port, device, group_name, *, actionable=True):
+        # Intercoms share one factory address.  Compartment LCDs instead
+        # arrive in a factory train layout: the set-1 form of each device's
+        # own DeviceMap template (10.1.1.40, .41, ...).
+        #
+        # A transfer overrides both: the device is not at any starting point,
+        # it is on the set it is being moved out of.
+        if not device:
+            source_ip = ""
+        elif source_set:
+            source_ip = resolve_template(device.ip_template, source_set)
+        elif group_name == _COMPARTMENT_LCD:
+            source_ip = resolve_template(device.ip_template, 1)
+        else:
+            source_ip = factory_ip(inventory)
+        return {
+            "port": port,
+            "deviceId": device.id if device else None,
+            "deviceSwitchId": device.switch_id if device else None,
+            "name": (device.name if device else
+                     _COMPARTMENT_LCD if lcd_physical_mode else "—"),
+            "type": device.dto()["typeLabel"] if device else "",
+            "group": group_name,
+            "sourceIp": source_ip,
+            "factoryIp": source_ip,
+            "targetIp": ("" if not device else
+                         resolve_template(device.ip_template, target_set)
+                         if target_set else device.ip),
+            "targetPrefix": int(target_prefix),
+            "actionable": actionable,
+            # In physical-port mode the actual DeviceMap identity is learned
+            # only after this port is isolated and MAC->port is proven.
+            "identityMode": ("discover" if lcd_physical_mode and not device
+                             else "mapped"),
+        }
+
+    # These are the only identities and addresses the LCD runner is allowed
+    # to discover.  They remain separate from the physical test ports: a
+    # display may be plugged into port 8 even though DeviceMap stores its
+    # normal train position as port 13.  No candidate comes from the client.
+    candidate_rows = ([
+        device_row(port, device, group_name)
+        for port, (device, group_name) in sorted(by_port.items())
+    ] if lcd_physical_mode else [])
 
     rows = []
     for port in ports:
-        device, group_name = by_port.get(port, (None, ""))
-        rows.append({
-            "port": port,
-            "deviceId": device.id if device else None,
-            "name": device.name if device else "—",
-            "type": device.dto()["typeLabel"] if device else "",
-            "group": group_name,
-            "factoryIp": factory_ip(inventory),
-            "targetIp": device.ip if device else "—",
-            "actionable": device is not None,
-        })
+        if lcd_physical_mode:
+            # A physical port deliberately carries no pre-selected identity.
+            # The Android address plus the switch MAC table resolve it during
+            # the run.  This prevents a moved cable from writing port 8's
+            # first candidate address to whichever display happens to answer.
+            rows.append(device_row(port, None, _COMPARTMENT_LCD))
+        else:
+            device, group_name = by_port.get(port, (None, ""))
+            rows.append(device_row(port, device, group_name,
+                                   actionable=device is not None))
     first = next(iter(by_port.values()), None)
     resolved_switch = switch_id or (
         first[0].switch_id if first
@@ -95,10 +198,21 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
         "switch": switch.name if switch else "",
         "switchIp": switch.ip if switch else "",
         "switchId": resolved_switch,
+        "deviceSwitchId": resolved_device_switch,
+        "switchOverride": bool(resolved_switch and resolved_device_switch
+                               and resolved_switch != resolved_device_switch),
+        "physicalPortMode": lcd_physical_mode,
+        "candidateRows": candidate_rows,
         "rows": rows,
         "targetCount": sum(1 for row in rows if row["actionable"]),
         "portText": format_ports(ports) or i18n.t("ip.noPortSelected"),
         "groups": [group["name"] for group in groups],
+        "targetPrefix": int(target_prefix),
+        "targetNetmask": netmask_for(target_prefix),
+        # Zero means "the usual starting point"; a number means the run is a
+        # transfer out of that set, or into it.
+        "sourceSet": int(source_set),
+        "targetSet": int(target_set) or int(inventory.set_no),
         # Groups with no script: the UI can say so before starting a run.
         "withoutRunner": [group["name"] for group in groups
                           if group["name"] not in RUNNERS],

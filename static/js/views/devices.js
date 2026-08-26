@@ -4,6 +4,7 @@
 // in the job queue. The list always shows a device's last known state.
 
 import { el, fill } from '../core/dom.js';
+import { dataTable } from '../components/table.js';
 import { state, patch, visibleDevices } from '../core/store.js';
 import {
   value, stateLabel, versionOf, uptimeOf, typeLabel,
@@ -15,6 +16,28 @@ import { t } from '../core/i18n.js';
 // left narrow, the text did not fit.
 const COLUMNS = 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(150px,1fr) '
   + '120px 100px 120px 96px';
+
+// One entry per column, in the same order as `headings` below: what a click
+// on that heading sorts by. An address sorts by its octets, not as text —
+// otherwise 10.1.1.100 lands between .1 and .2.
+const SORTS = [
+  { id: 'name', of: d => (d.name || '').toLowerCase() },
+  { id: 'type', of: d => (d.typeLabel || '').toLowerCase() },
+  { id: 'port', of: d => (d.portLabel || '').toLowerCase() },
+  { id: 'ip', of: d => ipOrder(d.ip) },
+  { id: 'version', of: d => (versionOf(d) || '').toLowerCase() },
+  { id: 'state', of: d => STATE_ORDER.indexOf((d.result || {}).state) },
+  { id: 'uptime', of: d => Number(uptimeOf(d)) || 0 },
+];
+
+// Worst first when sorting by state: the reason to sort by it at all is to
+// bring what needs attention to the top.
+const STATE_ORDER = ['failed', 'auth', 'unknown', 'ok'];
+
+function ipOrder(text) {
+  return String(text || '').split('.')
+    .reduce((total, part) => (total * 256) + (Number(part) || 0), 0);
+}
 
 // Keys, not text — see action_tabs.js: the module loads before the
 // catalogue arrives.
@@ -45,16 +68,19 @@ export function render(root) {
         }),
       }),
     ]),
-    el('div', {
-      class: 'local-tabs',
-      role: 'group', 'aria-label': t('devices.stateFilter'),
-    }, FILTERS.map(filter => el('button', {
-      type: 'button',
-      class: 'local-tab',
-      'aria-pressed': String(state.filter === filter.id),
-      text: t(filter.labelKey),
-      onclick: () => patch({ filter: filter.id }),
-    }))),
+    el('div', { class: 'device-head-actions' }, [
+      searchBox(root),
+      el('div', {
+        class: 'local-tabs',
+        role: 'group', 'aria-label': t('devices.stateFilter'),
+      }, FILTERS.map(filter => el('button', {
+        type: 'button',
+        class: 'local-tab',
+        'aria-pressed': String(state.filter === filter.id),
+        text: t(filter.labelKey),
+        onclick: () => patch({ filter: filter.id }),
+      }))),
+    ]),
   ]));
 
   // Categories are not top-level screens but a filter over the device list.
@@ -81,7 +107,7 @@ export function render(root) {
   const headings = ['col.device', 'col.typeSubtypeLower', 'col.switchPort',
     'col.ip', 'col.version', 'col.accessState', 'col.uptime'];
 
-  const rows = devices.map(device => {
+  const rows = sorted(devices).map(device => {
     const result = device.result || {};
     return el('button', {
       type: 'button', class: 'table-row',
@@ -98,48 +124,109 @@ export function render(root) {
           'aria-hidden': 'true',
         }),
         el('span', {
-          class: 'mono truncate', style: 'font-size:12.5px',
+          class: 'mono truncate t-base',
           text: device.name,
         }),
       ]),
       el('span', {
-        class: 'text-bright truncate', style: 'font-size:12.5px',
+        class: 'text-bright truncate t-base',
         text: typeLabel(device.typeLabel),
       }),
       el('span', {
-        class: 'mono text-mid truncate', style: 'font-size:11px',
+        class: 'mono text-mid truncate t-sm',
         title: device.portLabel, text: device.portLabel,
       }),
-      el('span', { class: 'mono', style: 'font-size:12px', text: device.ip }),
+      el('span', { class: 'mono t-base', text: device.ip }),
       el('span', {
-        class: 'mono truncate', style: 'font-size:11.5px'
-          + (versionOf(device) ? ';color:var(--ok)' : ';color:var(--text-dim)'),
+        // A version the device really reported is worth seeing; the dash
+        // that stands in for "not read yet" is not.
+        class: versionOf(device)
+          ? 'mono truncate t-sm version-read' : 'mono truncate t-sm text-dim',
         text: value(versionOf(device)),
       }),
       el('span', {
-        class: 'state-text', dataset: { state: result.state },
-        style: 'font-family:var(--font-heading);font-weight:600;font-size:13px;'
-          + 'letter-spacing:.08em;text-transform:uppercase',
+        class: 'state-text state-label', dataset: { state: result.state },
         text: stateLabel(result.state, ' '),
       }),
       el('span', {
-        class: 'mono text-mid', style: 'font-size:11px',
+        class: 'mono text-mid t-sm',
         text: value(uptimeOf(device)),
       }),
     ]);
   });
 
-  parts.push(el('div', { class: 'table-wrap' }, [
-    el('div', { class: 'table', style: '--table-min:960px' }, [
-      el('div', {
-        class: 'table-head', style: `--table-columns:${COLUMNS}`, role: 'row',
-      }, headings.map(key => el('span', { text: key ? t(key) : '' }))),
-      ...(rows.length ? rows
-        : [el('div', {
-          class: 'table-empty', text: t('devices.noDeviceMatchesTheseCriteria'),
-        })]),
-    ]),
-  ]));
+  parts.push(dataTable({
+    template: COLUMNS, minWidth: 960, label: t('nav.devices'),
+    columns: headings.map((key, index) => sortHeader(root, key, index)),
+    rows,
+    empty: t('devices.noDeviceMatchesTheseCriteria'),
+  }));
 
   fill(root, parts);
+}
+
+// Typing in a box on the screen SUPPRESSES the application's own render (see
+// app.js focusInScreenField) — which is what stops a refresh round wiping
+// what somebody is halfway through typing. The list would therefore never
+// filter while the box has focus, so this screen redraws itself and puts the
+// caret back where it was.
+function searchBox(root) {
+  return el('input', {
+    type: 'search', id: 'device-search', class: 'field device-search',
+    value: state.deviceSearch || '',
+    placeholder: t('devices.searchPlaceholder'),
+    'aria-label': t('devices.searchPlaceholder'),
+    autocomplete: 'off', spellcheck: 'false',
+    oninput: (event) => {
+      const caret = event.target.selectionStart;
+      patch({ deviceSearch: event.target.value });
+      render(root);
+      const again = root.querySelector('#device-search');
+      if (!again) return;
+      again.focus();
+      again.setSelectionRange(caret, caret);
+    },
+  });
+}
+
+function sorted(devices) {
+  const chosen = SORTS.find(entry => entry.id === state.deviceSort);
+  if (!chosen) return devices;
+  const direction = state.deviceSortDesc ? -1 : 1;
+  // A copy: `visibleDevices` hands back a filtered array, but sorting the
+  // list the caller holds is the kind of thing that bites later.
+  return [...devices].sort((one, other) => {
+    const left = chosen.of(one);
+    const right = chosen.of(other);
+    if (left === right) return 0;
+    return (left > right ? 1 : -1) * direction;
+  });
+}
+
+function sortHeader(root, key, index) {
+  const entry = SORTS[index];
+  const label = key ? t(key) : '';
+  if (!entry) return el('span', { role: 'columnheader', text: label });
+  const active = state.deviceSort === entry.id;
+  return el('span', {
+    role: 'columnheader',
+    'aria-sort': active ? (state.deviceSortDesc ? 'descending' : 'ascending')
+      : 'none',
+  }, [
+    el('button', {
+      type: 'button', class: 'sort-btn', 'aria-pressed': String(active),
+      onclick: () => {
+        patch(active
+          ? { deviceSortDesc: !state.deviceSortDesc }
+          : { deviceSort: entry.id, deviceSortDesc: false });
+        render(root);
+      },
+    }, [
+      el('span', { text: label }),
+      el('span', {
+        class: 'sort-mark', 'aria-hidden': 'true',
+        text: active ? (state.deviceSortDesc ? '\u25BE' : '\u25B4') : '',
+      }),
+    ]),
+  ]);
 }

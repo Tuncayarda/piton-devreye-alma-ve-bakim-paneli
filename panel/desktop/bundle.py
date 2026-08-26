@@ -256,9 +256,13 @@ def validate_bundle_html(html: str) -> None:
     ]
     logos = [value for tag, name, value, _attributes in data_attributes
              if tag == "img" and name == "src"]
-    if len(data_attributes) != 3 or len(favicons) != 1 or len(logos) != 2:
+    # Exactly one favicon and one logo, and nothing else embedded. The count
+    # is spelled out rather than bounded: a data: URI is the one way an asset
+    # can reach a page whose CSP forbids every network request, so the set of
+    # them is the set of assets, and it should not grow by accident.
+    if len(data_attributes) != 2 or len(favicons) != 1 or len(logos) != 1:
         raise BundleError(
-            "Only one PNG favicon and two SVG logo data URIs are allowed.")
+            "Only one PNG favicon and one SVG logo data URI are allowed.")
     if _decode_data_uri(favicons[0][0], "image/png") != FAVICON.read_bytes():
         raise BundleError("The embedded favicon does not match the source PNG.")
     for logo in logos:

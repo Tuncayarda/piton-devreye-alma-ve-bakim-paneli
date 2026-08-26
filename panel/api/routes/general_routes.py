@@ -6,7 +6,6 @@ from ... import i18n, jobs, settings, status
 from ...inventory import catalog
 from ...probe import reader
 from ...system import files
-from ..lifecycle import admin_password_required, check_admin_password
 from ..presenters import (credentials_for, device_dto, find_device,
                           inventory_for, state_body)
 from ..response import respond
@@ -15,9 +14,15 @@ from .helpers import single
 
 
 def get_version(query):
+    """Version and product name — and nothing that changes during a session.
+
+    This is the liveness probe `app.http_ready()` polls before it opens a
+    browser, so it must answer before the panel state is ready. Anything that
+    has to be re-read after a mode or project change belongs on
+    `/api/edition` instead.
+    """
     return respond(200, {
         "version": settings.APP_VERSION, "name": i18n.t("app.name"),
-        "adminPasswordRequired": admin_password_required(),
     })
 
 
@@ -62,7 +67,6 @@ def get_project(query):
                    for entry in catalog.GROUPS],
         "readMethods": catalog.READ_METHODS,
         "piscuIp": inventory.piscu_ip(),
-        "adminPasswordRequired": admin_password_required(),
     })
 
 
@@ -110,16 +114,6 @@ def get_device(query):
         "readMethodInfo": catalog.READ_METHODS.get(device.read_method, {}),
         "piscuIp": inventory.piscu_ip(),
     })
-
-
-def post_admin_login(body):
-    password = body.get("password", "")
-    if not isinstance(password, str) or len(password) > 256:
-        return respond(400, {"error": i18n.t("error.invalidPasswordField")})
-    if check_admin_password(password):
-        return respond(200, {"role": "admin"})
-    # The password is never echoed back in any form.
-    return respond(401, {"error": i18n.t("error.adminPasswordFailed")})
 
 
 def post_scan(body):
@@ -193,7 +187,6 @@ GET = {
 
 POST = {
     "/api/language": post_language,
-    "/api/admin/login": post_admin_login,
     "/api/scan": post_scan,
     "/api/job/cancel": post_job_cancel,
     "/api/job/remove": post_job_remove,

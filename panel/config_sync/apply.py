@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import requests
 
-from .. import settings
+from .. import settings, video_config
 from ..errors import (AuthError, NotApplicableError, VerificationError,
                       classify)
 from ..inventory.device_map import Device, Inventory
 from ..probe import announcement
 from ..probe import fields as probe_fields
-from .fields import (ENDPOINT_ORDER, FIELDS, REBOOTING_ENDPOINTS,
-                     REQUIRED_FIELDS, endpoint_for, fields_for_subtype,
-                     writable_for_subtype)
+from . import adb_network
+from .fields import (ADB_NETWORK, ENDPOINT_ORDER, FIELDS, ISAPI_CAMERA,
+                     ISAPI_NVR, REBOOTING_ENDPOINTS, REQUIRED_FIELDS,
+                     config_scope, endpoint_for, fields_for_scope,
+                     writable_for_scope)
 from .targets import device_targets, resolve_target, target_detail
 from .. import i18n
 
@@ -53,9 +56,9 @@ def _current(flat: dict, name: str):
                              exclude=field.exclude)
 
 
-def _current_values(flat: dict, subtype: str | None) -> dict:
+def _current_values(flat: dict, scope: str | None) -> dict:
     return {name: _current(flat, name)
-            for name in fields_for_subtype(subtype)}
+            for name in fields_for_scope(scope)}
 
 
 def _equal(current, target, kind: str | None = None) -> bool:
@@ -102,11 +105,12 @@ def _rows(device: Device, inventory: Inventory, flat: dict,
     """Screen rows from an already-performed read. The device is not visited
     twice — post-write verification and the screen share one read."""
     subtype = device.subtype or ""
-    current = _current_values(flat, subtype)
+    scope = config_scope(device)
+    current = _current_values(flat, scope)
     own = device_targets(device.id, set_no=inventory.set_no)
 
     rows = []
-    for name in fields_for_subtype(subtype):
+    for name in fields_for_scope(scope):
         field = FIELDS[name]
         value = current.get(name)
         target, source, warning = (
@@ -115,7 +119,13 @@ def _rows(device: Device, inventory: Inventory, flat: dict,
         # A secret field's value leaves in no column; the comparison happens
         # on the server and the UI sees only the outcome and the source.
         rows.append({
-            "field": name, "label": field.label, "section": field.section,
+            # The label is a message KEY in the table (it has to be, the
+            # table is read on every request and the answer must be in the
+            # language chosen at that moment). It is rendered here, the same
+            # way `field_list` renders it for the group card — a row went out
+            # reading "field.sipPbx" otherwise.
+            "field": name, "label": i18n.t(field.label),
+            "section": field.section,
             "current": "" if field.secret else _display(name, value),
             "hasCurrent": value not in (None, ""),
             "target": "" if field.secret else str(target or ""),
@@ -134,7 +144,21 @@ def _rows(device: Device, inventory: Inventory, flat: dict,
 
 def fetch(device: Device, inventory: Inventory, credentials=None,
           group: str | None = None) -> dict:
-    """Read the device's current values and compare them to the targets."""
+    """Read the device's current values and compare them to the targets.
+
+    Two transports, one shape of answer. Announcement equipment answers over
+    HTTP; a Compartment LCD has no settings API and answers over ADB, with
+    exactly one writable row (see config_sync.adb_network).
+    """
+    if device.read_method == "adb":
+        return _rows(device, inventory, adb_network.read(device), group)
+    if device.read_method == "isapi":
+        # Cameras and NVRs speak ISAPI and are configured as a procedure,
+        # not field by field; the state comes back flattened the same way,
+        # so the rows below are built from it unchanged.
+        return _rows(device, inventory,
+                     video_config.read_state(device, inventory, credentials),
+                     group)
     if device.read_method != "http":
         raise NotApplicableError(
             i18n.t("error.configTypeUnsupported"))
@@ -209,8 +233,77 @@ def _wait_for_reboot(device: Device, credentials=None,
     return False
 
 
+def _apply_adb(device: Device, inventory: Inventory,
+               group: str | None = None) -> dict:
+    """Write a Compartment LCD's address, then read it back at the new one.
+
+    Written deliberately apart from the HTTP path below rather than folded
+    into it: there is no endpoint, no partial body and no reboot to wait out.
+    What they do share is the rule that decides success — the value has to be
+    read back from the device, never assumed from a reply.
+    """
+    flat = adb_network.read(device)
+    target, _source = resolve_target(device, inventory, "ipAddress", group)
+    target = str(target or "").strip()
+    if not target:
+        raise ValueError(i18n.t("error.noTargetValue"))
+    if _equal(_current(flat, "ipAddress"), target):
+        return {**_rows(device, inventory, flat, group),
+                "writtenFields": [], "writtenEndpoints": [],
+                "rebooted": False}
+    adb_network.write_address(device, target)
+    # The display is at the new address now, so the read-back has to go there
+    # — `device` still carries the DeviceMap one.
+    moved = replace(device, ip=target)
+    return {**_rows(moved, inventory, adb_network.read(moved), group),
+            "writtenFields": [i18n.t(FIELDS["ipAddress"].label)],
+            "writtenEndpoints": [ADB_NETWORK], "rebooted": False}
+
+
+def _apply_isapi(device: Device, inventory: Inventory, credentials=None,
+                 group: str | None = None, report=None) -> dict:
+    """Configure a camera or an NVR, then verify against the device.
+
+    The procedure — which ISAPI calls, in what order, which of them reboot
+    the device — belongs to panel.video_config. What stays here is the rule
+    the whole screen runs on: a value counts as written only once it has
+    been READ BACK. The state returned by the procedure is that read; on the
+    NVR it deliberately happens before the reboot, because a device on its
+    way down answers nothing.
+
+    `report` is handed straight to the procedure, which narrates its steps
+    into the job's row (see panel.api.tasks.config_task).
+    """
+    scope = config_scope(device)
+    targets: dict[str, str] = {}
+    for name in writable_for_scope(scope):
+        value, _source = resolve_target(device, inventory, name, group)
+        if str(value).strip():
+            targets[name] = str(value).strip()
+    if not targets:
+        raise ValueError(i18n.t("error.noTargetValue"))
+
+    result = video_config.apply(device, inventory, targets, credentials,
+                                report)
+    flat = result["state"]
+    final = _current_values(flat, scope)
+    unconfirmed = [i18n.t(FIELDS[name].label) for name in targets
+                   if not _equal(final.get(name), targets[name],
+                                 FIELDS[name].kind)]
+    if unconfirmed:
+        raise VerificationError(
+            i18n.t("error.fieldsNotWritten", fields=", ".join(unconfirmed)))
+
+    written = result["written"]
+    marker = ISAPI_NVR if device.type == "NVR" else ISAPI_CAMERA
+    return {**_rows(device, inventory, flat, group),
+            "writtenFields": [i18n.t(FIELDS[name].label) for name in written],
+            "writtenEndpoints": [marker] if written else [],
+            "rebooted": bool(result["rebooted"])}
+
+
 def apply_targets(device: Device, inventory: Inventory, credentials=None,
-                  group: str | None = None) -> dict:
+                  group: str | None = None, report=None) -> dict:
     """Write the target values and verify them by reading back.
 
     Only fields that DIFFER from the device are sent: the SIP endpoint reboots
@@ -220,18 +313,25 @@ def apply_targets(device: Device, inventory: Inventory, credentials=None,
     and the value is confirmed to have changed. A device can ignore a field it
     does not know without erroring, so without verification "written" would
     cover a setting that never landed.
+
+    `report(text, state)` is used by the video procedures, which have several
+    steps worth naming; the announcement path writes fields and needs none.
     """
+    if device.read_method == "adb":
+        return _apply_adb(device, inventory, group)
+    if device.read_method == "isapi":
+        return _apply_isapi(device, inventory, credentials, group, report)
     if device.read_method != "http":
         raise NotApplicableError(
             i18n.t("error.writeTypeUnsupported"))
 
-    subtype = device.subtype or ""
+    scope = config_scope(device)
     flat = _read_flat(device, credentials)
-    current = _current_values(flat, subtype)
+    current = _current_values(flat, scope)
     previous_uptime = probe_fields.pick(flat, *probe_fields.UPTIME_KEYS)
 
     targets: dict[str, str] = {}
-    for name in writable_for_subtype(subtype):
+    for name in writable_for_scope(scope):
         value, _source = resolve_target(device, inventory, name, group)
         if str(value).strip():
             targets[name] = str(value).strip()
@@ -251,7 +351,7 @@ def apply_targets(device: Device, inventory: Inventory, credentials=None,
     # device.
     buckets: dict[str, dict[str, str]] = {}
     for name in changed:
-        endpoint = endpoint_for(name, subtype)
+        endpoint = endpoint_for(name, scope)
         if endpoint:
             buckets.setdefault(endpoint, {})[name] = targets[name]
 
@@ -261,7 +361,7 @@ def apply_targets(device: Device, inventory: Inventory, credentials=None,
             continue
         body = dict(buckets[endpoint])
         for name in REQUIRED_FIELDS.get(endpoint, ()):
-            if name in body or name not in writable_for_subtype(subtype):
+            if name in body or name not in writable_for_scope(scope):
                 continue
             value = targets.get(name) or current.get(name)
             if value in (None, ""):
@@ -285,12 +385,12 @@ def apply_targets(device: Device, inventory: Inventory, credentials=None,
     # would be expensive on a 12-intercom run.
     final_flat = _read_flat(device, credentials)
     result = _rows(device, inventory, final_flat, group)
-    final = _current_values(final_flat, subtype)
+    final = _current_values(final_flat, scope)
     # A secret field the device does not report back cannot be verified — but
     # that does not mean the write failed. On a device that masks the
     # password, "the device did not write this field" would flag a perfectly
     # good SIP setting as an error every time.
-    unconfirmed = [FIELDS[name].label for name in targets
+    unconfirmed = [i18n.t(FIELDS[name].label) for name in targets
                    if not (FIELDS[name].secret and final.get(name) in (None, ""))
                    and not _equal(final.get(name), targets[name],
                                   FIELDS[name].kind)]

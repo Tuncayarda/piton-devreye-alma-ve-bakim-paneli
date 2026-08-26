@@ -61,7 +61,10 @@ def post_target(body):
     # device only (overriding the group's). The value is validated here
     # against the device type's field definition: a bad value sitting in
     # memory until the write would surface in the queue instead.
-    subtype = device.subtype or ""
+    # Which fields exist on this device: its SubType, or its Type for video
+    # equipment (see config_sync.fields.config_scope). Not to be confused
+    # with the request's own "scope" below, which says group or device.
+    field_scope = config_sync.config_scope(device)
     definition = catalog.find_group(group) if group else None
     if not catalog.device_supports(device, "cfg"):
         return respond(400, {
@@ -73,10 +76,10 @@ def post_target(body):
         if not definition:
             return respond(400, {"error": i18n.t("error.deviceTypeRequired")})
         config_sync.set_group_target(group, field, value,
-                                     definition.get("subtype") or subtype,
+                                     definition.get("subtype") or field_scope,
                                      set_no=inventory.set_no)
     else:
-        config_sync.set_target(device.id, field, value, subtype,
+        config_sync.set_target(device.id, field, value, field_scope,
                                set_no=inventory.set_no)
     try:
         body_out = config_sync.fetch(device, inventory,

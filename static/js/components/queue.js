@@ -104,7 +104,7 @@ function jobCard(job) {
           el('span', { class: 'name', text: job.title }),
           el('span', {
             class: 'sub', dataset: { state: colour },
-            style: 'color:var(--state-colour)',
+            style: 'color:var(--state-text)',
             text: label,
           }),
           // The phase: a percentage alone does not answer "where am I".
@@ -120,17 +120,7 @@ function jobCard(job) {
             ok: counts.ok ?? 0, auth: counts.auth ?? 0,
             failed: counts.failed ?? 0,
           }),
-        }, [
-          el('span', {
-            style: 'color:var(--ok)', text: String(counts.ok ?? 0),
-          }),
-          el('span', {
-            style: 'color:var(--auth)', text: String(counts.auth ?? 0),
-          }),
-          el('span', {
-            style: 'color:var(--failed)', text: String(counts.failed ?? 0),
-          }),
-        ]),
+        }, countGlyphs(counts)),
       ]),
       active
         ? el('button', {
@@ -174,16 +164,52 @@ function jobCard(job) {
   ]);
 }
 
+// "0  0  33" told nobody which number was which: the three were separated by
+// colour alone, and colour alone is not information. Each count now carries
+// the shape of its state as well — a tick, a key, a cross — so the row reads
+// the same in greyscale and to anyone who cannot tell the three apart.
+//
+// The whole group already had an aria-label; that stays, and is what a screen
+// reader reads instead of three bare numbers.
+const COUNT_GLYPH = [
+  ['ok', 'ok-text', ['M3 8.5l3.2 3.2L13 5']],
+  ['auth', 'auth-text', ['M10.5 4a2.8 2.8 0 1 1-2.2 4.5L4 13v-1.6l1.4-1.4',
+                         'M11.4 6.2h.01']],
+  ['failed', 'failed-text', ['M4.5 4.5l7 7', 'M11.5 4.5l-7 7']],
+];
+
+function countGlyphs(counts) {
+  return COUNT_GLYPH.map(([name, colour, paths]) => el('span', {
+    class: 'job-count', style: `color:var(--${colour})`,
+  }, [
+    icon(paths, 11),
+    el('span', { text: String(counts[name] ?? 0) }),
+  ]));
+}
+
 function renderRow(row, jobId) {
   const colour = ROW_COLOUR[row.state] || 'unknown';
   const steps = row.steps || [];
   const key = `${jobId}:${row.deviceId}`;
   const expanded = steps.length > 0 && expandedRows.has(key);
 
-  // The sub-line carries the IP only. An error reason ("timed out", "adb
-  // connect reddedildi") made the queue unreadable; the detail lives in the
-  // device detail and in the row's title.
+  // WHY a row failed, on the row.
   //
+  // The reason used to live only in this element's `title`, because putting
+  // every row's note on screen made the queue unreadable — thirty rows of
+  // prose in a 340px panel. That reading was right, and the conclusion was
+  // not: a tooltip needs a mouse, needs a second of hovering, is skipped by
+  // screen readers, and never survives into the screenshot somebody sends a
+  // colleague. So the note goes on screen, but only where it is the answer to
+  // a question: a row that FAILED or WARNED. A row that succeeded says
+  // nothing extra and the list stays scannable.
+  //
+  // The Verification screen has done it this way all along, in a column
+  // called "Finding".
+  const reason = String(row.note || '').trim();
+  const explains = reason && (row.state === 'failed' || row.state === 'warning'
+                              || row.state === 'skipped');
+
   // On a file row (the generated Excel) the sub-line is not the IP but the
   // two buttons that open the file: there is no reason to leave the user on
   // the screen that produced the file and send them hunting in Finder.
@@ -199,10 +225,13 @@ function renderRow(row, jobId) {
             fileButton(t('queue.showInFolder'), jobId, row.deviceId, true),
           ])
         : (row.ip ? el('span', { class: 'sub', text: row.ip }) : null),
+      explains
+        ? el('span', { class: 'job-row-reason', text: reason })
+        : null,
     ]),
     el('span', {
       class: 'state', dataset: { state: colour },
-      style: 'color:var(--state-colour)',
+      style: 'color:var(--state-text)',
       text: rowStateLabel(row.state),
     }),
   ];
@@ -308,6 +337,14 @@ export function summaryText(refreshed = 0) {
     return t('queue.jobStopping', { job: job.title });
   }
   if (!job) {
+    // Paused comes before the "last scan" line and replaces it. The time of
+    // the last scan is exactly what stops meaning "current" while the
+    // automatic rounds are off, so it must not be the thing on screen.
+    if (!state.autoRefresh) {
+      return state.lastScan
+        ? t('queue.pausedSince', { time: clockTime(state.lastScan) })
+        : t('queue.pausedNoScan');
+    }
     // "No scan yet" is no longer a gap but a few seconds of transition: the
     // scan starts on its own at start-up.
     if (!state.lastScan) return t('queue.waitingFirstScan');

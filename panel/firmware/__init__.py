@@ -7,10 +7,11 @@ multipart/form-data, field name "firmware", endpoint
 
 **Compartment LCD (ADB).** Android; an APK is installed rather than an image:
 `adb install -r`. The new version is verified from the same place the probe
-layer reads it (see probe.android.package_info).
+layer reads it (see probe.android.package_info) against the version inside the
+chosen APK's own manifest — nobody types a version anywhere.
 
 On both paths, HTTP 200 / "Success" alone is not success: the device is read
-again and the app must really report the new version.
+again and it must really report a version.
 
 The file is chosen PER SET AND PER DEVICE. Two devices in one group need not
 take the same file: a field intercom can be an older hardware revision and
@@ -29,10 +30,11 @@ from pathlib import Path
 from ..errors import NotApplicableError
 from ..inventory.device_map import Device
 from .apk_install import install_apk
-from .http_upload import upload_image
-from .selection import (MAX_SIZE, clear_all, clear_selection, has_selection,
+from .http_upload import post_image, upload_image
+from .selection import (MAX_APK_SIZE, MAX_BIN_SIZE, MAX_SIZE, clear_all,
+                        clear_selection, has_selection, max_size_for,
                         selection_for, selections, select_file,
-                        set_target_version, validate_file, take_selection)
+                        validate_file, take_selection)
 from .. import i18n
 
 # Read method -> expected file extension. The file picker's filter and the
@@ -60,18 +62,18 @@ def install(device: Device, credentials=None, verify_window: float = 45.0, *,
     record = take_selection(device.id, set_no=set_no)
     if record is None:
         raise ValueError(i18n.t("error.noFileForDevice"))
-    path, expected = record["path"], record["version"]
+    path = record["path"]
     # The file may have been deleted or moved since selection; a clear error
     # beats an unopenable file mid-run.
     if not Path(path).is_file():
         raise ValueError(i18n.t("error.fileGone", name=Path(path).name))
 
     if device.read_method == "adb":
-        return install_apk(device, path, expected, verify_window)
-    return upload_image(device, path, expected, credentials, verify_window)
+        return install_apk(device, path, verify_window)
+    return upload_image(device, path, credentials, verify_window)
 
 
-__all__ = ["EXTENSIONS", "MAX_SIZE", "clear_all", "clear_selection",
-           "file_extension", "has_selection", "install", "is_supported",
-           "selection_for", "selections", "select_file",
-           "set_target_version", "validate_file"]
+__all__ = ["EXTENSIONS", "MAX_APK_SIZE", "MAX_BIN_SIZE", "MAX_SIZE",
+           "clear_all", "clear_selection", "file_extension", "has_selection",
+           "install", "is_supported", "max_size_for", "post_image",
+           "selection_for", "selections", "select_file", "validate_file"]

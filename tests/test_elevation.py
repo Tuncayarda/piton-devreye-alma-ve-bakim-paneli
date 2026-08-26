@@ -26,6 +26,7 @@ from unittest import mock
 
 from .support.base import ROOT  # noqa: F401  (sys.path setup)
 
+from panel.adminkey import handoff
 from panel.elevation import flow, privileges, prompt
 
 
@@ -112,6 +113,33 @@ class ElevationPlan(unittest.TestCase):
             self.assertEqual(plan["kind"], expected)
             self.assertNotIn("sudo", " ".join(plan["command"]))
 
+    def test_the_secret_travels_as_a_path_and_never_as_a_value(self):
+        """A COMMAND LINE IS PUBLIC — `ps` shows it to every account on the
+        machine — and the build secret is the one value that must never be
+        on one. What the elevation carries is the PATH of a file only this
+        user can read, which the new process reads and deletes (see
+        panel.adminkey.handoff)."""
+        with mock.patch.dict(os.environ, {handoff.FILE_VAR: "/tmp/k.txt",
+                                          handoff.SECRET_VAR: "s3cr3t"}):
+            for system in ("Darwin", "Linux"):
+                with self.subTest(system):
+                    with mock.patch.object(privileges.shutil, "which",
+                                           return_value="/usr/bin/pkexec"):
+                        plan = privileges.elevation_plan(
+                            system, executable="/usr/bin/py",
+                            argv=["/panel/app.py"], frozen=False)
+                    printed = " ".join(plan["command"])
+                    self.assertIn(f"{handoff.FILE_VAR}=/tmp/k.txt", printed)
+                    self.assertNotIn("s3cr3t", printed)
+
+    def test_nothing_is_carried_when_there_is_nothing_to_carry(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(handoff.FILE_VAR, None)
+            plan = privileges.elevation_plan("Darwin", executable="/usr/bin/py",
+                                             argv=["/panel/app.py"],
+                                             frozen=False)
+        self.assertNotIn(handoff.FILE_VAR, " ".join(plan["command"]))
+
     def test_macos_elevates_with_the_system_dialog(self):
         plan = privileges.elevation_plan("Darwin", executable="/usr/bin/py",
                                          argv=["/panel/app.py"], frozen=False,
@@ -196,15 +224,22 @@ class ProtectedFolder(unittest.TestCase):
         for system in ("Windows", "Linux"):
             self.assertEqual(privileges.protected_folder(path, system), "")
 
-    def test_the_flow_warns_first_in_a_protected_folder(self):
+    def test_the_flow_warns_in_a_protected_folder(self):
+        """The elevated process cannot read the app there, so it is said.
+
+        The warning reaches the failure window, which is the only window on
+        this path now — there is no dialog before the attempt any more.
+        """
         with (mock.patch.object(flow, "protected_folder",
                                 return_value="Desktop"),
               mock.patch.object(flow, "elevation_plan",
                                 return_value={"kind": "osascript"}),
-              mock.patch.object(flow, "ask", return_value="quit") as ask):
+              mock.patch.object(flow, "elevate",
+                                return_value=(False, "denied")),
+              mock.patch.object(flow, "show_failure") as shown):
             flow.require_elevation(lambda *_: None)
 
-        hint = ask.call_args.kwargs.get("hint", "")
+        hint = shown.call_args.kwargs.get("hint", "")
         self.assertIn("Desktop", hint)
         self.assertIn("move it out of that folder", hint)
 
@@ -304,7 +339,7 @@ class ProcessProbe(unittest.TestCase):
               mock.patch.object(privileges.os, "kill") as kill,
               mock.patch.object(privileges, "_windows_process_alive",
                                 return_value=False) as probe):
-            self.assertFalse(privileges._process_alive(4194303))
+            self.assertFalse(privileges.process_alive(4194303))
 
         kill.assert_not_called()
         self.assertEqual(probe.call_args.args, (4194303,))
@@ -331,8 +366,8 @@ class ProcessProbe(unittest.TestCase):
     def test_a_missing_pid_is_never_probed(self):
         """0 and negatives address a process GROUP on POSIX, not a process."""
         with mock.patch.object(privileges.os, "kill") as kill:
-            self.assertFalse(privileges._process_alive(0))
-            self.assertFalse(privileges._process_alive(-1))
+            self.assertFalse(privileges.process_alive(0))
+            self.assertFalse(privileges.process_alive(-1))
         kill.assert_not_called()
 
 
@@ -386,9 +421,33 @@ class NewProcessStatus(unittest.TestCase):
 
 
 class Flow(unittest.TestCase):
+    """The startup path when the process is not elevated.
 
-    def test_choosing_quit_does_not_open_the_application(self):
-        with mock.patch.object(flow, "ask", return_value="quit"):
+    One rule holds every test here together: no route ends with the panel
+    open. The system's password box is the only question asked, and every
+    answer except "granted" ends the process.
+    """
+
+    def test_the_system_box_is_asked_directly(self):
+        """No window of ours comes first.
+
+        It used to: a dialog asking whether to restart elevated, answered by
+        the same person who then answered the system's box. Two dialogs, one
+        decision, and the first one could not grant anything.
+        """
+        with (mock.patch.object(flow, "elevate",
+                                return_value=(True, "")) as elevate,
+              mock.patch.object(flow, "hide_dock_icon"),
+              mock.patch.object(flow, "show_failure") as shown):
+            self.assertEqual(flow.require_elevation(lambda *_: None), 0)
+
+        elevate.assert_called_once()
+        shown.assert_not_called()
+
+    def test_a_refused_permission_does_not_open_the_application(self):
+        with (mock.patch.object(flow, "elevate",
+                                return_value=(False, "denied")),
+              mock.patch.object(flow, "show_failure")):
             self.assertEqual(flow.require_elevation(lambda *_: None), 1)
 
     def test_the_dock_icon_is_removed_after_approval(self):
@@ -396,16 +455,31 @@ class Flow(unittest.TestCase):
 
         Visible, it looks like a second app next to the new panel.
         """
-        with (mock.patch.object(flow, "ask", return_value="elevate"),
-              mock.patch.object(flow, "hide_dock_icon") as hide,
+        with (mock.patch.object(flow, "hide_dock_icon") as hide,
               mock.patch.object(flow, "elevate", return_value=(True, ""))):
             self.assertEqual(flow.require_elevation(lambda *_: None), 0)
 
         hide.assert_called_once()
 
-    def test_the_dock_icon_is_untouched_on_quit(self):
-        """If the user says "Quit" the process is closing anyway."""
-        with (mock.patch.object(flow, "ask", return_value="quit"),
+    def test_the_dock_icon_stays_while_the_password_box_is_up(self):
+        """A system prompt from an invisible app looks like it came from
+        nowhere — and after a failure the window explaining why has to be
+        able to come to the front."""
+        order = []
+        with (mock.patch.object(flow, "hide_dock_icon",
+                                side_effect=lambda: order.append("hide")),
+              mock.patch.object(
+                  flow, "elevate",
+                  side_effect=lambda *_: (order.append("elevate"),
+                                          (True, ""))[1])):
+            flow.require_elevation(lambda *_: None)
+
+        self.assertEqual(order, ["elevate", "hide"])
+
+    def test_the_dock_icon_is_untouched_when_elevation_fails(self):
+        with (mock.patch.object(flow, "elevate",
+                                return_value=(False, "denied")),
+              mock.patch.object(flow, "show_failure"),
               mock.patch.object(flow, "hide_dock_icon") as hide):
             flow.require_elevation(lambda *_: None)
 
@@ -414,10 +488,10 @@ class Flow(unittest.TestCase):
     def test_no_handover_to_a_terminal(self):
         """Even a failed elevation does not divert to another route.
 
-        The user's rule: privilege is asked for through the system dialog only.
+        The rule: privilege is asked for through the system dialog only, and
+        it is asked once.
         """
-        with (mock.patch.object(flow, "ask",
-                                side_effect=["elevate", "quit"]),
+        with (mock.patch.object(flow, "show_failure"),
               mock.patch.object(flow, "elevate",
                                 return_value=(False, "crashed")) as elevate):
             self.assertEqual(flow.require_elevation(lambda *_: None), 1)
@@ -426,24 +500,38 @@ class Flow(unittest.TestCase):
 
     def test_a_failed_elevation_shows_the_reason(self):
         seen = []
-        with (mock.patch.object(flow, "ask",
-                                side_effect=["elevate", "quit"]) as ask,
+        with (mock.patch.object(flow, "show_failure") as shown,
               mock.patch.object(
                   flow, "elevate",
-                  return_value=(False, "Administrator permission was not granted"))):
+                  return_value=(False,
+                                "Administrator permission was not granted"))):
             code = flow.require_elevation(seen.append)
 
         self.assertEqual(code, 1)
-        # The reason goes to the console and the second window: the screen
-        # closing silently after a refused UAC was the bug itself.
+        # The reason goes to the console AND to the window: an app that closes
+        # silently after a refused prompt was the bug this replaced.
         self.assertIn("Administrator permission was not granted", " ".join(seen))
         self.assertIn("Administrator permission was not granted",
-                      ask.call_args.args[0])
+                      shown.call_args.args[0])
+
+    def test_an_unattended_run_never_reaches_the_password_box(self):
+        """PANEL_ELEVATION_PROMPT=0 → CI does not hang on a password prompt.
+
+        This guard mattered less when a window came first and could refuse on
+        its own. Now the next thing after this check IS the system box, so it
+        has to stop the run before that.
+        """
+        with (mock.patch.dict(os.environ, {"PANEL_ELEVATION_PROMPT": "0"}),
+              mock.patch.object(flow, "elevate") as elevate,
+              mock.patch.object(flow, "show_failure") as shown):
+            self.assertEqual(flow.require_elevation(lambda *_: None), 1)
+
+        elevate.assert_not_called()
+        shown.assert_not_called()
 
     def test_no_window_opens_in_an_unattended_environment(self):
-        """PANEL_ELEVATION_PROMPT=0 → an unattended run does not hang."""
         with mock.patch.dict(os.environ, {"PANEL_ELEVATION_PROMPT": "0"}):
-            self.assertEqual(prompt.ask(), "quit")
+            self.assertIsNone(prompt.show_failure())
 
 
 if __name__ == "__main__":

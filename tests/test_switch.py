@@ -387,15 +387,15 @@ class LocalNetwork(unittest.TestCase):
     )
 
     def test_windows_parses_with_turkish_labels_too(self):
-        blocks = interfaces._blocks(self.WINDOWS)
-        macs = [interfaces._block_mac(b) for b in blocks]
+        blocks = interfaces.blocks(self.WINDOWS)
+        macs = [interfaces.block_mac(b) for b in blocks]
         self.assertIn("00:11:22:33:44:55", macs)
         self.assertIn("aa:bb:cc:dd:ee:ff", macs)
 
     def test_ip_matching_does_not_trip_over_a_longer_address(self):
         """Searching 10.1.1.5 must not pick 10.1.1.50's interface."""
-        blocks = interfaces._blocks(self.MACOS)
-        found = [{"mac": interfaces._block_mac(b),
+        blocks = interfaces.blocks(self.MACOS)
+        found = [{"mac": interfaces.block_mac(b),
                   "addresses": interfaces._IPV4_PATTERN.findall(b)}
                  for b in blocks]
         matching = [e for e in found if "10.1.1.5" in e["addresses"]]

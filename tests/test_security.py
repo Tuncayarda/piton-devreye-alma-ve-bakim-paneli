@@ -216,8 +216,8 @@ class Security(ServiceTest):
             code, _ = self.call(base, path)
             self.assertIn(code, (400, 404), path)
 
-    def test_the_ip_endpoints_reject_a_non_intercom_target(self):
-        """Even past the UI boundary, no other device type can be written."""
+    def test_the_ip_endpoints_reject_a_group_without_an_ip_runner(self):
+        """Even past the UI boundary, unsupported device types stay read-only."""
         inventory = self.build_map(_topology())
         base = self.start_service()
 

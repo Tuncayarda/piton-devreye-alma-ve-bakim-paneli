@@ -5,6 +5,7 @@
 // application closes, the history goes with the server's in-memory job list.
 
 import { el, fill } from '../core/dom.js';
+import { dataTable } from '../components/table.js';
 import { state, patch } from '../core/store.js';
 import {
   NONE, jobOutcomeLabel, jobStateLabel, JOB_OUTCOME_COLOUR, LOCALE,
@@ -128,10 +129,10 @@ function jobRow(job) {
       style: 'display:flex;flex-direction:column;gap:3px;min-width:0',
     }, [
       el('span', {
-        class: 'text-bright', style: 'font-size:12.5px', text: jobName(job),
+        class: 'text-bright t-base', text: jobName(job),
       }),
       scope ? el('span', {
-        class: 'mono text-dim truncate', style: 'font-size:10.5px',
+        class: 'mono text-dim truncate t-xs',
         title: scope, text: scope,
       }) : null,
       job.auto ? el('span', {
@@ -145,32 +146,31 @@ function jobRow(job) {
         class: 'dot', dataset: { state: colour }, 'aria-hidden': 'true',
       }),
       el('span', {
-        class: 'state-text', dataset: { state: colour },
-        style: 'font-size:12px',
-        text: IN_PROGRESS.has(job.state)
+        class: 'state-text t-base', dataset: { state: colour },
+                text: IN_PROGRESS.has(job.state)
           ? t('history.stateWithPercent', { state: stateText(job), percent })
           : stateText(job),
       }),
     ]),
     el('span', {
-      class: 'mono text-mid', style: 'font-size:11px',
+      class: 'mono text-mid t-sm',
       text: t('history.trainSet', { set: job.setNo ?? NONE }),
     }),
     el('span', {
       style: 'display:flex;flex-direction:column;gap:3px',
     }, [
       el('span', {
-        class: 'mono text-bright', style: 'font-size:11px',
+        class: 'mono text-bright t-sm',
         text: timeText(startedAt),
       }),
       el('span', {
-        class: 'mono text-dim', style: 'font-size:10px',
+        class: 'mono text-dim t-xs',
         text: durationText(job),
       }),
     ]),
     el('span', {
-      class: 'state-text', dataset: { state: outcomeColour },
-      style: 'font-size:11.5px;line-height:1.45',
+      class: 'state-text t-sm', dataset: { state: outcomeColour },
+      style: 'line-height:1.45',
       title: outcomeText(job), text: outcomeText(job),
     }),
     el('button', {
@@ -189,19 +189,15 @@ function section(title, description, jobs, emptyText) {
       el('span', { class: 'badge', text: String(jobs.length) }),
       el('span', { class: 'page-sub', style: 'margin:0', text: description }),
     ]),
-    el('div', { class: 'table-wrap', style: 'margin-top:0' }, [
-      el('div', { class: 'table', style: '--table-min:1040px' }, [
-        el('div', {
-          class: 'table-head', style: `--table-columns:${COLUMNS}`,
-          role: 'row',
-        }, ['col.job', 'col.state', 'col.trainSet', 'col.startAndDuration',
-            'col.outcome', '']
-          .map(key => el('span', { text: key ? t(key) : '' }))),
-        ...(jobs.length
-          ? jobs.map(jobRow)
-          : [el('div', { class: 'table-empty', text: emptyText })]),
-      ]),
-    ]),
+    dataTable({
+      template: COLUMNS, minWidth: 1040, wrapStyle: 'margin-top:0',
+      label: title,
+      columns: ['col.job', 'col.state', 'col.trainSet',
+                'col.startAndDuration', 'col.outcome', '']
+        .map(key => (key ? t(key) : '')),
+      rows: jobs.map(jobRow),
+      empty: emptyText,
+    }),
   ]);
 }
 
@@ -219,9 +215,9 @@ function filters(active, finished) {
     style: 'display:flex;gap:2px;border:1px solid var(--line-strong)',
     role: 'group', 'aria-label': t('history.historyFilter'),
   }, options.map(option => el('button', {
-    type: 'button', class: 'btn btn-small',
+    type: 'button', class: 'btn btn-small t-base',
     style: 'border:0;letter-spacing:.02em;text-transform:none;'
-      + 'font-family:var(--font-body);font-size:12.5px'
+      + 'font-family:var(--font-body)'
       + (state.historyFilter === option.id
         ? ';background:var(--accent);color:var(--deep)' : ''),
     'aria-pressed': String(state.historyFilter === option.id),

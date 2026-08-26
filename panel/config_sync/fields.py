@@ -36,6 +36,22 @@ follows.
 This value is NEVER sent to the UI: the row shows only "matches/differs" and
 the source. It is for the device's SIP registration and is unrelated to the
 credential the panel uses to connect (see panel.credentials).
+
+VIDEO EQUIPMENT
+───────────────
+Cameras and NVRs are in this table too, but they have no write endpoint: the
+markers ISAPI_CAMERA / ISAPI_NVR stand for a PROCEDURE (panel.video_config),
+not a URL. They are here so the whole screen — target values, group and
+device overrides, validation, the DeviceMap project values — works for them
+without a second implementation.
+
+SCOPE
+─────
+Which fields a device has is decided by its SCOPE, not by its SubType alone.
+For announcement equipment the scope IS the SubType (Handset, UIC…), because
+that is what the fields differ by. Camera SubTypes are project vocabulary
+("Corridor", "Landing", and nothing at all on some projects) and say nothing
+about the ISAPI surface, so for video the scope is the device TYPE.
 """
 from __future__ import annotations
 
@@ -52,6 +68,18 @@ SIP_ENDPOINT = "api/v1/sip/settings"
 
 # Write order: SIP last, because the device reboots after it and any later
 # request would fail with a connection error.
+# Not an HTTP endpoint at all: the marker for a field written over ADB, on a
+# device that has no settings API. It is in ROUTES so `writable_for_subtype`
+# and the validation above it need no special case, and it is deliberately
+# absent from ENDPOINT_ORDER — the HTTP write loop must never try to post to
+# it (see config_sync.apply).
+ADB_NETWORK = "adb:network"
+# Not endpoints either: the video procedures in panel.video_config. A camera
+# is not configured by posting a body to one URL — it is a sequence of ISAPI
+# calls in which the order matters and two of the steps reboot the device.
+ISAPI_CAMERA = "isapi:camera"
+ISAPI_NVR = "isapi:nvr"
+
 ENDPOINT_ORDER = (AUDIO_ENDPOINT, MODES_ENDPOINT, UIC_ENDPOINT, SIP_ENDPOINT)
 REBOOTING_ENDPOINTS = {SIP_ENDPOINT}
 
@@ -78,24 +106,35 @@ ON_OFF = (("1", "option.on"), ("0", "option.off"))
 ANSWER_MODE = (("0", "option.pressButton"), ("1", "option.answerAuto"))
 CALL_MODE = (("0", "option.singlePress"), ("1", "option.longPress"))
 HANGUP_MODE = (("0", "option.singlePress"), ("1", "option.doublePress"), ("2", "option.dtmf"))
+# The camera's IR illuminator. "close" is the project setting: the trains'
+# cameras sit behind glass, where the IR lamp reflects straight back.
+IR_MODE = (("close", "option.irClose"), ("auto", "option.irAuto"),
+           ("open", "option.irOpen"))
+# Third-stream size. The list is the projects' own: the video wall runs at
+# one of these two resolutions.
+STREAM3 = (("1280x1024", "1280x1024"), ("1024x768", "1024x768"))
 
 # ── sections ────────────────────────────────────────────────────────────
 # A section id is a stable contract value shared with the UI; the label next
 # to it is the only thing on screen. Reworded headings must never move a
 # field between panels, which is why the two are separate.
+SECTION_NETWORK = "network"
 SECTION_SIP = "sip"
 SECTION_AUDIO = "audio"
 SECTION_MODE = "mode"
 SECTION_THRESHOLDS = "thresholds"
 SECTION_ROUTING = "routing"
+SECTION_VIDEO = "video"
 SECTION_INFORMATION = "information"
 
 SECTION_LABELS = {
+    SECTION_NETWORK: "section.network",
     SECTION_SIP: "section.sip",
     SECTION_AUDIO: "section.audio",
     SECTION_MODE: "section.mode",
     SECTION_THRESHOLDS: "section.thresholds",
     SECTION_ROUTING: "section.routing",
+    SECTION_VIDEO: "section.video",
     SECTION_INFORMATION: "section.information",
 }
 
@@ -132,6 +171,13 @@ class Field:
 
 
 FIELDS: dict[str, Field] = {
+    # ── network ──────────────────────────────────────────────────────
+    # The Compartment LCD's own address. Nothing else on a display is
+    # writable from this screen yet, and the mask deliberately is not: it is
+    # preserved from the device (see config_sync.adb_network).
+    "ipAddress": Field("field.ipAddress", "ip", SECTION_NETWORK, "ip",
+                       read_names=("ipaddress", "ip", "eth0ip"),
+                       hint="field.ipAddressHint"),
     # ── SIP ──────────────────────────────────────────────────────────
     "sipPbx": Field("field.sipPbx", "pbxIp", SECTION_SIP, "ip",
                     read_names=probe_fields.PBX_KEYS),
@@ -203,6 +249,45 @@ FIELDS: dict[str, Field] = {
                        "digits", read_names=("target3",)),
     "tlInbound": Field("field.tlInbound", "target4", SECTION_ROUTING,
                        "digits", read_names=("target4",)),
+    # ── video: Camera / NVR over ISAPI ───────────────────────────────
+    # `write_name` here is the DEVICEMAP key, not a payload key: nothing in
+    # this group is posted as JSON, so the name is free to be the one the
+    # project data uses. A value under Config["Camera"] in DeviceMap
+    # therefore becomes the target with no table of its own; where the
+    # project says nothing, panel.video_config.defaults answers.
+    "ntpServer": Field("field.ntpServer", "NtpServer", SECTION_NETWORK, "ip",
+                       read_names=("ntpserver",), hint="field.ntpServerHint"),
+    "timeZone": Field("field.timeZone", "TimeZone", SECTION_NETWORK, "text",
+                      read_names=("timezone",)),
+    # READ ONLY, and the comment is the reason: writing a mask over ISAPI
+    # loses the device. It answers the PUT, then stops answering at its
+    # address altogether — the recovery is a power cycle and SADP, in the
+    # cabinet. A setting whose failure mode is "walk to the train" does not
+    # belong in a routine apply run, so the panel reports the mask and the
+    # mask is set with SADP (see docs/DEGISIKLIKLER.md).
+    "subnetMask": Field("field.subnetMask", None, SECTION_NETWORK,
+                        read_names=("subnetmask",),
+                        hint="field.subnetMaskHint"),
+    "channelName": Field("field.channelName", "CameraName", SECTION_VIDEO,
+                         "text", read_names=("channelname",),
+                         hint="field.channelNameHint"),
+    "audioEnabled": Field("field.audioEnabled", "AudioEnabled", SECTION_VIDEO,
+                          "choice", options=ON_OFF,
+                          read_names=("audioenabled",),
+                          hint="field.audioEnabledHint"),
+    "irLight": Field("field.irLight", "IrLight", SECTION_VIDEO, "choice",
+                     options=IR_MODE, read_names=("irlight",),
+                     hint="field.irLightHint"),
+    "thirdStream": Field("field.thirdStream", "ThirdStream", SECTION_VIDEO,
+                         "choice", options=ON_OFF,
+                         read_names=("thirdstream",),
+                         hint="field.thirdStreamHint"),
+    "stream3Resolution": Field("field.stream3Resolution", "Stream3Resolution",
+                               SECTION_VIDEO, "choice", options=STREAM3,
+                               read_names=("stream3resolution",)),
+    "buzzer": Field("field.buzzer", "Buzzer", SECTION_VIDEO, "choice",
+                    options=ON_OFF, read_names=("buzzer",),
+                    hint="field.buzzerHint"),
     # ── read-only ────────────────────────────────────────────────────
     # SIP registration is what to check after writing extension/password:
     # the device may have accepted the setting yet failed to register with
@@ -211,6 +296,10 @@ FIELDS: dict[str, Field] = {
     "sipRegistration": Field("field.sipRegistration", None, SECTION_INFORMATION,
                              read_names=("status", "sipStatus",
                                          "registrationState")),
+    "storageStatus": Field("field.storageStatus", None, SECTION_INFORMATION,
+                           read_names=("storagestatus",)),
+    "proxyChannels": Field("field.proxyChannels", None, SECTION_INFORMATION,
+                           read_names=("proxychannels",)),
     "version": Field("field.version", None, SECTION_INFORMATION,
                      read_names=probe_fields.VERSION_KEYS),
     "serial": Field("field.serial", None, SECTION_INFORMATION,
@@ -220,6 +309,7 @@ FIELDS: dict[str, Field] = {
 # Which field goes to which endpoint on which device type. Every row matches
 # the body that device's own web UI sends.
 ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    (ADB_NETWORK, ("Compartment",), ("ipAddress",)),
     (AUDIO_ENDPOINT, ("Amplifier",),
      ("speakerVolume", "speakerGain", "logLevel")),
     (AUDIO_ENDPOINT, ("Intercom",),
@@ -242,54 +332,87 @@ ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
      ("sipPbx", "sipExtension", "sipPassword", "ringTimeout",
       "tcOutbound", "tlOutbound", "tcInbound", "tlInbound",
       "tcHigh", "tcLow", "tlHigh", "tlLow")),
+    # Video scopes are device TYPES, not SubTypes — see the note at the top.
+    (ISAPI_CAMERA, ("Camera",),
+     ("timeZone", "ntpServer", "channelName", "audioEnabled",
+      "irLight", "thirdStream", "stream3Resolution")),
+    (ISAPI_NVR, ("NVR",), ("timeZone", "ntpServer", "buzzer")),
 )
 
 # Display order — keeps each section tidy.
-ORDER = ("sipPbx", "sipExtension", "sipPassword", "sipOutbound", "ringTimeout",
+ORDER = ("ipAddress", "ntpServer", "timeZone", "subnetMask",
+         "channelName", "audioEnabled", "irLight", "thirdStream",
+         "stream3Resolution", "buzzer",
+         "sipPbx", "sipExtension", "sipPassword", "sipOutbound", "ringTimeout",
          "tcOutbound", "tlOutbound", "tcInbound", "tlInbound",
          "speakerVolume", "micVolume", "speakerGain", "micGain",
          "tcSpeakerGain", "tcMicGain", "tlSpeakerGain", "tlMicGain",
          "logLevel",
          "ptt", "answerMode", "callMode", "hangupMode",
          "tcHigh", "tcLow", "tlHigh", "tlLow",
+         "proxyChannels", "storageStatus",
          "sipRegistration", "version", "serial")
 
-# Read-only fields appear on every device type.
-READ_ONLY = tuple(name for name in ORDER if FIELDS[name].write_name is None)
+# Read-only rows, per scope. They are NOT the same everywhere: a camera has
+# no SIP registration and an intercom has no SD card. An empty row for
+# something the device cannot have reads as a failed read, so each scope
+# lists its own.
+ANNOUNCEMENT_READ_ONLY = ("sipRegistration", "version", "serial")
+SCOPE_READ_ONLY = {
+    "Camera": ("subnetMask", "storageStatus", "version", "serial"),
+    "NVR": ("subnetMask", "proxyChannels", "storageStatus", "version",
+            "serial"),
+}
+READ_ONLY = ANNOUNCEMENT_READ_ONLY
 
-WRITABLE = {name for _endpoint, _subtypes, names in ROUTES for name in names}
+WRITABLE = {name for _endpoint, _scopes, names in ROUTES for name in names}
 
 
-def endpoint_for(name: str, subtype: str | None) -> str | None:
-    """The endpoint this field is written to on this device type."""
-    for endpoint, subtypes, names in ROUTES:
-        if name in names and (subtype or "") in subtypes:
+def config_scope(device) -> str:
+    """What decides this device's field set.
+
+    The SubType for announcement equipment, the Type for video: see the
+    SCOPE note at the top of this file.
+    """
+    return (device.type if device.read_method == "isapi"
+            else (device.subtype or ""))
+
+
+def read_only_for_scope(scope: str | None) -> tuple[str, ...]:
+    return SCOPE_READ_ONLY.get(scope or "", ANNOUNCEMENT_READ_ONLY)
+
+
+def endpoint_for(name: str, scope: str | None) -> str | None:
+    """The endpoint (or procedure) this field is written by on this scope."""
+    for endpoint, scopes, names in ROUTES:
+        if name in names and (scope or "") in scopes:
             return endpoint
     return None
 
 
-def writable_for_subtype(subtype: str | None) -> tuple[str, ...]:
-    """Fields writable on this device type — in display order."""
-    available = {name for _endpoint, subtypes, names in ROUTES
-                 if (subtype or "") in subtypes for name in names}
+def writable_for_scope(scope: str | None) -> tuple[str, ...]:
+    """Fields writable on this scope — in display order."""
+    available = {name for _endpoint, scopes, names in ROUTES
+                 if (scope or "") in scopes for name in names}
     return tuple(name for name in ORDER if name in available)
 
 
-def fields_for_subtype(subtype: str | None) -> tuple[str, ...]:
-    """Every field shown for this device type, read-only ones included."""
-    writable = set(writable_for_subtype(subtype))
+def fields_for_scope(scope: str | None) -> tuple[str, ...]:
+    """Every field shown for this scope, read-only ones included."""
+    writable = set(writable_for_scope(scope))
+    read_only = read_only_for_scope(scope)
     return tuple(name for name in ORDER
-                 if name in writable or name in READ_ONLY)
+                 if name in writable or name in read_only)
 
 
-def field_list(subtype: str | None = None) -> list[dict]:
+def field_list(scope: str | None = None) -> list[dict]:
     """Field definitions for the screen — known even without reading a device.
 
     Group values must be enterable regardless: in the field, settings get
-    prepared while a device is unreachable. Without `subtype`, every type's
-    fields are returned.
+    prepared while a device is unreachable. Without `scope`, every field is
+    returned.
     """
-    names = fields_for_subtype(subtype) if subtype else ORDER
+    names = fields_for_scope(scope) if scope else ORDER
     out = []
     for name in names:
         field = FIELDS[name]

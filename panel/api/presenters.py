@@ -23,6 +23,11 @@ def inventory_for(set_no) -> inventory_module.Inventory:
     return inventory_module.load(inventory_module.valid_set(set_no))
 
 
+def inventory_for_write(set_no) -> inventory_module.Inventory:
+    """Resolve a write target only after strict set-number validation."""
+    return inventory_module.load(inventory_module.required_set(set_no))
+
+
 def find_device(inventory: inventory_module.Inventory, device_id):
     """Look a device up ONLY in the inventory.
 
@@ -173,7 +178,8 @@ def config_field_context(inventory, device, group: str) -> dict:
                if definition and catalog.group_matches(definition, candidate)]
     shared, varying = group_project_summary(inventory, members or [device])
     return {
-        "fields": config_sync.field_list(device.subtype or ""),
+        "fields": config_sync.field_list(
+            config_sync.config_scope(device)),
         "groupTargets": config_sync.group_target_display(
             group, set_no=inventory.set_no),
         "groupSecrets": config_sync.group_secret_fields(

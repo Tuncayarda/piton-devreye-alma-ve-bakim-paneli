@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from .. import settings
-from .fields import FIELDS, WRITABLE, writable_for_subtype
+from .fields import FIELDS, WRITABLE, writable_for_scope
 from .. import i18n
 
 
@@ -28,14 +28,18 @@ def _short(number) -> str:
     return (str(int(number)) if float(number).is_integer() else str(number))
 
 
-def validate(name: str, value, subtype: str | None = None) -> str:
-    """Check a value against its field type and return the cleaned form."""
+def validate(name: str, value, scope: str | None = None) -> str:
+    """Check a value against its field type and return the cleaned form.
+
+    `scope` is what decides which fields the device has — its SubType, or
+    its Type for video equipment (see fields.config_scope).
+    """
     if name not in WRITABLE:
         raise ValueError(i18n.t("error.fieldNotWritable", name=name))
-    if subtype and name not in writable_for_subtype(subtype):
+    if scope and name not in writable_for_scope(scope):
         raise ValueError(
             i18n.t("error.fieldNotOnType",
-                   field=i18n.t(FIELDS[name].label), subtype=subtype))
+                   field=i18n.t(FIELDS[name].label), subtype=scope))
 
     field = FIELDS[name]
     text = str(value).strip()

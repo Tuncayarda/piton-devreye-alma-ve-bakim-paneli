@@ -62,8 +62,32 @@ PHASE_VERIFY = "verify"
 STEP_POE_ON = "poe_on"
 STEP_SEARCHING = "searching"
 STEP_DEVICE_FOUND = "device_found"
+STEP_FIRMWARE = "firmware"
 STEP_WRITING_IP = "writing_ip"
 STEP_VERIFYING = "verifying"
+
+# ─────────────────────────────────────────────────────── extension point ────
+# Called once a device has been found on a port and verified to be on it, and
+# BEFORE its IP is written. Left as None here: run standalone, this script
+# does exactly what it always did.
+#
+# It exists for one field problem. Some intercoms shipped long ago are on
+# firmware old enough that they report their version and identity wrongly, and
+# they have to be flashed before anything else is done to them. The only
+# moment that is possible is this one: the run has just brought up a single
+# port, so exactly one device is reachable and it is still on the factory
+# address. Afterwards it has moved to its own address and is one of many.
+#
+# The panel installs a callable here before calling main() and clears it
+# afterwards (see panel/ip_assign/runner.py and preflash.py). Contract:
+#
+#     BEFORE_WRITE(port, ip, settings, cfg) -> (ok, note)
+#
+# `ok` False fails the port and the IP is NOT written — a device that could
+# not be flashed is a device that must not be quietly moved on to. `note` is a
+# sentence for the operator, printed either way. The callback must not raise:
+# whatever it does is its own to report.
+BEFORE_WRITE = None
 
 
 def emit_event(event: str, **fields) -> None:
@@ -690,12 +714,19 @@ def write_ip(ip: str, settings: dict, new_ip: str, cfg) -> None:
     The body is the full network block; everything but the IP is preserved
     from the device's current settings (netmask / gateway / ntpIp / useDhcp).
     After the write the device may reboot and the connection may drop.
+
+    The netmask normally follows the device: whatever it already reports is
+    sent back unchanged, and --netmask only fills the gap when it reports
+    none. --force-netmask reverses that, because then the mask is not a
+    fallback but the thing the operator asked to change.
     """
     # The device's own web UI sends only these three fields. Extra fields can
     # make the firmware reject the write silently.
+    forced = getattr(cfg, "force_netmask", False)
     payload = {
         "ip":      new_ip,
-        "netmask": settings.get("netmask") or cfg.netmask,
+        "netmask": (cfg.netmask if forced
+                    else (settings.get("netmask") or cfg.netmask)),
         "gateway": settings.get("gateway") or cfg.gateway or "",
     }
     if cfg.full_net_payload:
@@ -775,6 +806,10 @@ def parse_args(env):
     parser.add_argument("--netmask",
                         default=env.get("EXPECTED_SUBNET_MASK", "255.255.0.0"),
                         help="netmask to use when the device does not report one")
+    parser.add_argument("--force-netmask", action="store_true",
+                        help="write --netmask even when the device reports "
+                             "one of its own (the operator asked for this "
+                             "mask, so keeping the device's would ignore it)")
     parser.add_argument("--gateway", default=None,
                         help="gateway when the device does not report one "
                              "(default: the switch IP)")
@@ -1029,6 +1064,26 @@ def main() -> int:
             emit_event("port_step", port=port, step=STEP_DEVICE_FOUND,
                        detail=f"device found: {ip}")
             break
+
+        # The one moment a single device is reachable and still unconfigured
+        # (see BEFORE_WRITE at the top of this file).
+        if BEFORE_WRITE is not None and not cfg.dry_run:
+            emit_event("port_step", port=port, step=STEP_FIRMWARE,
+                       detail="firmware check")
+            ok, note = BEFORE_WRITE(port, found_ip, settings, cfg)
+            if note:
+                print(f"    {note}")
+            if not ok:
+                emit_event("port_note", port=port, level="warning",
+                           text=note or "the firmware step did not complete")
+                return False, note or "the firmware step did not complete"
+            # A firmware upload reboots the device, so the settings read
+            # before it are stale — and write_ip builds its payload out of
+            # them. Re-read; keep the old ones if the device is not back yet,
+            # because the write below is what will really tell us.
+            refreshed = read_settings(found_ip, cfg)
+            if refreshed:
+                settings = refreshed
 
         if found_ip == target:
             print("    the IP is already correct")

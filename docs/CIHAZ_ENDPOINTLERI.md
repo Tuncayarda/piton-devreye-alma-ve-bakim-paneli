@@ -212,6 +212,77 @@ Dikkat edilecek noktalar:
 - UIC yönlendirmesi: `target1` = TC (3+ 4-) → giden, `target2` = TL (3- 4+)
   → giden, `target3` = gelen → TC, `target4` = gelen → TL.
 
+## Kamera ve NVR'a ayar yazma
+
+Kamera ve NVR ayarları tek bir uca gövde göndererek yazılmaz; sırası önemli
+olan bir ISAPI çağrı dizisidir. Aşağıdakiler sahada kullanılan CCTV
+script'lerinden alınmıştır ve Devreye Alma Paneli'nde `panel/video_config/`
+paketinin birebir karşılığıdır. İstekler digest kimlik doğrulaması ister,
+gövde XML'dir, yanıt `ResponseStatus` taşır — `200` tek başına başarı
+anlamına gelmez.
+
+| Uç | Yön | Ne yapar | Yeniden başlatır |
+|---|---|---|---|
+| `PUT System/time` | kamera · NVR | `timeMode=NTP` + saat dilimi | hayır |
+| `PUT System/time/ntpServers/1` | kamera · NVR | NTP sunucusu (setin PISCU'su) | hayır |
+| `GET System/Network/interfaces` | kamera · NVR | **yalnız okuma** — adres ve maske SADP ile veriliyor | — |
+| `GET/PUT System/Hardware` | kamera | `IrLightSwitch/mode` (proje ayarı: `close`) | **evet** |
+| `GET/PUT System/Software/channels/1` | kamera | `ThirdStream` aç/kapa | **evet** |
+| `PUT Streaming/channels/101 · 102 · 103` | kamera | üç akış profili | hayır |
+| `GET ContentMgmt/Storage/hdd` + `PUT .../{id}/format` | kamera · NVR | yalnız `unformatted` / `uninitialized` / `error` diskleri biçimlendirir | hayır |
+| `GET/POST ContentMgmt/InputProxy/channels`, `PUT .../{id}` | NVR | kameraları kanal olarak ekler | hayır |
+| `GET Event/triggers`, `GET/PUT Event/triggers/{id}` | NVR | sesli uyarıyı (beep) kapatır | hayır |
+| `PUT System/reboot` | kamera · NVR | yeniden başlatma | **evet** |
+
+Dikkat edilecek noktalar:
+
+- **Ağ ayarı ISAPI üzerinden YAZILMAZ.** `PUT .../interfaces/{id}/ipAddress`
+  isteği `[OK]` dönüyor, ardından cihaz kendi adresinde kayboluyor: geri
+  getirmek için kabinde elektrik kesip SADP ile IP'yi yeniden vermek
+  gerekiyor. Sahada `nvr.py`'nin `set_network_mask` adımıyla görüldü; panel
+  bu adımı hiç almadı. Maske ve adres SADP'nin işi, panel ikisini de okuyup
+  raporluyor.
+- Eski NVR firmware'inin kendi kanal yönetimi sayfası ve sahadaki `nvr.py`,
+  `ContentMgmt/InputProxy/channels` yazımlarını XML gövdeyle fakat
+  `Content-Type: application/x-www-form-urlencoded` başlığıyla gönderiyor.
+  Panel yalnız bu kanal uçlarında aynı başlığı kullanır; kamera ve NVR'ın diğer
+  ISAPI yazımları `application/xml` olarak kalır. Başlığı bütün ISAPI istekleri
+  için ortaklaştırmak eski NVR'ın kanal güncellemesini HTTP 400 ile reddetmesine
+  yol açıyor. Aynı eski arayüz yeni kanalın POST gövdesine `<name>` eklerken
+  mevcut kanalın PUT gövdesinde bu alanı göndermiyor; panel de aynı iki ayrı
+  gövde biçimini kullanır.
+- **103 numaralı kanal, 3. akış kapalıyken yoktur.** Sıra bu yüzden şudur:
+  `System/Software/channels/1` ile aç → `System/reboot` → cihaz geri gelene
+  kadar bekle → `Streaming/channels/103` yaz. Panel 15 saniye bekler, sonra
+  5 saniye aralıkla 30 deneme yapar.
+- IR modu ve 3. akış dışındaki hiçbir ayar kamerayı yeniden başlatmaz.
+  Cihazda zaten doğru olan değer için istek atılmaz; bir ayar uğruna kamera
+  karartılmaz.
+- 102 ve 103 profilleri 101'den türetilir (`320x240` / proje çözünürlüğü,
+  farklı multicast portları). Üçü tek parça yazılır.
+- Sağlam disk **biçimlendirilmez**. Bir ayar uygulanırken kayıt silinmesi
+  kabul edilebilir bir yan etki değildir.
+- NVR kanal listesi projeye özel bir tablodan değil, DeviceMap'ten türer:
+  kameranın `CameraID` alanı kanal numarası, `CameraName` alanı kanal adıdır.
+- Mevcut Yataklı profili tam olarak 1–4 kanallarını taşır. Bu dört kanal
+  yazılıp cihazdan kanal numarası ve kamera adresiyle geri doğrulanmadan eski
+  kanallar silinmez; eksik/yarım DeviceMap bütün NVR kanal listesini
+  temizleyemez. Kanal listesi hiç okunamazsa panel güvenlik için yazmaya da
+  başlamaz. Ad yeni kanal eklenirken DeviceMap'ten gönderilir; eski firmware
+  mevcut kanal PUT'unda adı kabul etmediği için güncelleme doğrulaması adresle
+  yapılır.
+- Kanal gövdesi **kameranın** kullanıcı adı ve parolasını taşır: NVR akışı
+  çekmek için kameraya kendisi bağlanır. Panel parolayı diske yazmadığından
+  bu değer o oturumda girilen kimlik bilgisinden gelir.
+- Sesli uyarının `enabled` bayrağı yoktur; tetikçinin `beep` bildirim bloğu
+  gövdeden silinip geri yazılır.
+- NVR kanalları ancak yeniden başlatmadan sonra alır; panel bu yüzden bir
+  şey yazdıysa sonda `System/reboot` gönderir. Hiçbir şey değişmediyse
+  göndermez.
+- **Hareket algılama (motion detection) bu projede yoktur.** VMD tetikçisi,
+  7/24 takvimi ve grid haritası yalnız Gaziray'da kullanılır ve panele
+  bilerek alınmamıştır.
+
 ## Amplifier
 
 ### Komut

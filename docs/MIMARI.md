@@ -1,9 +1,10 @@
-# Devreye Alma Paneli — Mimari ve Çalıştırma
+# Devreye Alma ve Bakım Paneli — Mimari ve Çalıştırma
 
-Yataklı tren setlerini sahada devreye almak için geliştirilmiş bir masaüstü
-panelidir.
-DeviceMap topolojisini yükler, cihazları okur, kimlik isteyen cihazları
-kilit menüsünde toplar ve kontrol listesini Excel'e döker.
+Tren setlerini sahada devreye almak için geliştirilmiş bir masaüstü
+panelidir. DeviceMap topolojisini yükler, cihazları okur, kimlik isteyen
+cihazları kilit menüsünde toplar ve kontrol listesini Excel'e döker.
+Her müşteriye kendi paketi derlenir (§2.1) ve mühendis ekranları yalnız USB
+servis anahtarıyla açılır (§2.2).
 
 ---
 
@@ -34,17 +35,18 @@ penceresi için dağıtımın Qt sistem kitaplıkları, işletim sistemi dosya s
 için de `zenity` veya `kdialog` gerekebilir. Yayın paketleri Python 3.12 ile
 üretilir; ayrıntılar `docs/BUILD_RELEASE.md` içindedir.
 
-Bağımlılıklar kurulduktan sonra doğrudan açılış: `python3 app.py`
+Bağımlılıklar kurulduktan sonra açılış, **hangi müşterinin paketi olduğu
+söylenerek**: `python3 app.py --edition vip-yatakli`. Çıplak `python3 app.py`
+çalışmaz; geçerli adları yazıp 2 ile çıkar (§2.1).
 
 | Komut | Ne yapar |
 |---|---|
-| `python3 app.py` | HTTP/loopback kullanmadan pywebview penceresini açar |
-| `python3 app.py --tarayici` | HTTP tabanlı geliştirme/tanı kipini varsayılan tarayıcıda açar |
-| `python3 app.py --tarayici --port 8790` | Tanı servisinin portunu sabitler |
-| `python3 app.py --admin-parolasi ****` | Admin rolü seçim ekranına parola denetimi ekler; uygulama bu değeri kalıcılaştırmaz |
-| `python3 app.py --self-test` | Pencere/soket açmadan tek HTML paketini ve üretim köprüsünü doğrular; cihaz ağına bağlanmaz |
+| `python3 app.py --edition <paket>` | HTTP/loopback kullanmadan pywebview penceresini açar |
+| `python3 app.py --edition <paket> --browser` | HTTP tabanlı geliştirme/tanı kipini varsayılan tarayıcıda açar |
+| `python3 app.py --edition <paket> --browser --port 8790` | Tanı servisinin portunu sabitler |
+| `python3 app.py --edition <paket> --self-test` | Pencere/soket açmadan paketi, cihaz listesini ve üretim köprüsünü doğrular; cihaz ağına bağlanmaz |
 | `python3 app.py --version` | Uygulama sürümünü yazdırır |
-| `python3 panel_api.py --port 8790` | Yalnız API (hata ayıklama) |
+| `python3 -m panel.api --edition <paket> --port 8790` | Yalnız API (hata ayıklama) |
 | `python3 -m unittest discover -s tests -t .` | Bütün testler |
 
 ### Yükseltilmiş yetki kapısı
@@ -55,13 +57,21 @@ yarım** çalışıyor: en pahalı örneği ARP kaydının silinememesi, aynı a
 cihazların birbirinin arkasında kalması ve koşunun "cihaz bulunamadı" demesi
 (bkz. §9). Bu yüzden yetkisiz kip yok.
 
-Denetim `yetki.yonetici_mi()` ile yapılır (POSIX'te `geteuid`, Windows'ta
+Denetim `panel.elevation.is_elevated()` ile yapılır (POSIX'te `geteuid`, Windows'ta
 `IsUserAnAdmin`) ve `--self-test` / `--version` dışındaki bütün kipleri kapsar;
 o ikisi cihaza ve ağa hiç dokunmaz.
 
-Yetki yoksa eskiden konsola tek satır yazılıp çıkılıyordu: uygulamayı çift
-tıklayan kullanıcı **hiçbir şey görmüyordu**. Artık bir pencere açılır ve iki
-yol sunar — "Yönetici olarak yeniden başlat" ve "Çıkış". Üçüncü bir yol
+Yetki yoksa **doğrudan işletim sisteminin parola kutusu açılır.** Arada
+panelin kendi penceresi yoktur.
+
+Bir zamanlar vardı: "Yönetici olarak yeniden başlat / Çıkış" diye soran bir
+pencere. Sorduğu şeyi veremiyordu — yetkiyi yalnız işletim sistemi verebilir —
+ve kullanıcı aynı kararı iki kez veriyordu, önce bize sonra sisteme. Tek karar
+için iki pencere. Artık soru sistemin kendi kutusudur.
+
+Reddedilirse panel açılmaz. Ardından **sebebini söyleyen tek bir pencere**
+çıkar ve içeri giden bir yol sunmaz; uygulamayı çift tıklayan biri, bir kez
+zıplayıp hiçbir şey yapmayan bir simgeyle kalmasın diye. Üçüncü bir yol
 (yetkisiz devam) bilerek yok.
 
 | | yükseltme | parolayı kim sorar |
@@ -88,17 +98,25 @@ altında durduğundan orada da sorun çıkmaz.
 Parola uygulamaya girilmez, uygulama parola sormaz: istemi işletim sistemi
 gösterir, panel yalnız yeni süreci başlatır ve **kendisi çıkar** — aynı panelin
 iki kopyası aynı switch'e ve aynı DeviceMap'e yazmamalı. Kullanıcı istemi
-reddederse sebep hem konsola hem ikinci bir pencereye yazılır; sessizce
-kapanmak, hatanın kendisiydi.
+reddederse sebep hem konsola hem o tek pencereye yazılır; sessizce kapanmak,
+hatanın kendisiydi.
+
+**Dock simgesi ancak devir gerçekleştikten sonra gizlenir.** Önceden yükseltme
+denenmeden önce gizleniyordu; o zaman parola kutusu görünmeyen bir uygulamadan
+geliyormuş gibi duruyor, başarısızlıkta da sebebi anlatan pencere öne
+gelemiyordu. Şimdi `hide_dock_icon()` yalnız yeni süreç doğduktan sonra
+çağrılır — o andan sonra eski sürecin gösterecek bir şeyi kalmaz.
 
 Windows'ta paketlenmiş uygulamanın manifestine ayrıca yönetici isteği gömülür
-(`uac_admin=True`, bkz. `DevreyeAlmaPaneli.spec`): çift tıklamada UAC önce
-çıkar ve panel doğrudan yükseltilmiş açılır. Pencere yine de gerekli — betikten
+(`uac_admin=True`, bkz. `dabp.spec`): çift tıklamada UAC önce
+çıkar ve panel doğrudan yükseltilmiş açılır. Bu yol yine de gerekli — betikten
 çalıştırma ve eski kısayollar bu manifestten geçmez.
 
 Kimsenin başında olmadığı koşularda (CI, otomatik doğrulama) bekleyen bir
-pencere işi sonsuza kadar asar; `PANEL_YETKI_PENCERESI=0` pencereyi hiç açmaz
-ve akış doğrudan "çıkış" ile biter.
+parola kutusu işi sonsuza kadar asar. `PANEL_ELEVATION_PROMPT=0` bu yüzden
+artık **yükseltme denemesinin kendisini** de durdurur, yalnız pencereyi değil:
+kendi penceremiz kalktığı için bu denetimden hemen sonrası sistemin parola
+kutusudur ve akış ona ulaşmadan bitmelidir.
 
 İki ayrıntı sahada ölçülerek eklendi:
 
@@ -108,8 +126,9 @@ ve akış doğrudan "çıkış" ile biter.
   kadar açık kaldı. `app._hemen_cik()` `main()` döndükten sonra yorumlayıcıyı
   doğrudan bitirir — kapatılacak bir şey kalmamıştır, servisler `main`'in
   `finally` bloğunda zaten kapanmıştır.
-- **Yeni sürecin çıktısı bir günlüğe yazılır** (`yetki.gunluk_yolu()`,
-  geçici dizinde `devreye-yukseltme.log`). Arkaplandaki yükseltilmiş süreç
+- **Yeni sürecin çıktısı bir günlüğe yazılır**
+  (`panel.elevation.privileges.log_path()`, geçici dizinde
+  `dap-elevation.log`). Arkaplandaki yükseltilmiş süreç
   açılışta düşerse kullanıcı hiçbir şey görmez; geriye bakılacak tek yer
   orasıdır. Konsola da yolu yazılır.
 - **macOS'ta `nohup` kullanılmaz.** `do shell script` komutu terminalsiz
@@ -120,7 +139,7 @@ ve akış doğrudan "çıkış" ile biter.
 - **Onaydan sonra eski süreç görünmez olur.** Doğrulama boyunca (aşağıdaki
   madde) birkaç saniye daha yaşıyor ve o sırada Dock'ta yeni panelin yanında
   ikinci bir simge duruyordu. Pencere kapandığına göre simgenin durmasının
-  anlamı yok: `yetki.dock_gizle()` süreci Dock dışına alır
+  anlamı yok: `panel.elevation.prompt.hide_dock_icon()` süreci Dock dışına alır
   (`NSApplicationActivationPolicyAccessory`).
 - **Yükseltme kanalının bitmesi BEKLENMEZ.** macOS'ta
   `security_authtrampoline`, başlattığı sürecin bitmesini bekliyor:
@@ -140,14 +159,10 @@ ve akış doğrudan "çıkış" ile biter.
 
 ---
 
-Admin şifresi verilmezse admin ekranı şifresiz açılır. Şifre yalnız
-bellekte tutulur ve `secrets.compare_digest` ile karşılaştırılır. Bu denetim,
-yerel arayüzde Admin rolüne geçiş kapısıdır; servis işlemleri için oturum veya
-yetkilendirme belirteci üretmez. Normal masaüstü kipinde dinleyen bir sunucu
-yoktur ve köprü yalnız paket içindeki WebView'a açılır. İsteğe bağlı tarayıcı
-kipi ise yalnız geri döngü arayüzünde (`127.0.0.1`) dinler. Komut satırına
-yazılan bir değer kabuk geçmişinde ya da süreç listesinde görünebileceğinden
-işletim sistemi düzeyindeki komut geçmişi ayrıca dikkate alınmalıdır.
+Admin moda geçişin bir parolası **yoktur** — eskiden vardı ve kaldırıldı;
+tek kapı USB servis anahtarıdır (§2.2). Normal masaüstü kipinde dinleyen bir
+sunucu yoktur ve köprü yalnız paket içindeki WebView'a açılır. İsteğe bağlı
+tarayıcı kipi ise yalnız geri döngü arayüzünde (`127.0.0.1`) dinler.
 
 ---
 
@@ -155,37 +170,41 @@ işletim sistemi düzeyindeki komut geçmişi ayrıca dikkate alınmalıdır.
 
 ```
 app.py            pywebview penceresi + uygulama ömrü (soket açmaz)
-masaustu.py       tek public invoke() içeren pywebview köprüsü
-panel_api.py      ortak PanelService + isteğe bağlı HTTP adaptörü
-core/
-  ayar.py         sabitler, yollar, portlar, süreler
-  betik.py        kardeş projelerdeki çalışan betikleri içe aktarma
-  device_map.py   DeviceMap envanteri, IP şablonu çözümü, güvenli DTO
-  kategori.py     kategoriler, işlem grupları, yöntem eşlemesi
-  kimlik.py       RAM kimlik deposu (kalıcı depo YOK)
-  hata.py         cihaz hatalarının sınıflandırılması
-  dogrulama.py    yeşil/turuncu/kırmızı/gri kararı, nesil damgası
-  okuma.py        okuma dağıtıcısı + Announcement/ADB okuyucuları
-  switch_okuma.py KYLAND — Switch Yönetim Paneli'nin kodunu kullanır
-  video_okuma.py  Kamera/NVR — ISAPI, digest auth
-  piscu.py        MQTT telemetri + canlı dinleyici
-  isler.py        FIFO iş kuyruğu + tarama görünümü
-  ip_atama.py     IP atama planı ve koşusu
-  yerel_ag.py     bu bilgisayarın arayüz/MAC bilgisi (korunacak port için)
-  konfig.py       konfigürasyon oku/yaz
-  firmware.py     yazılım yükleme (anons: HTTP imaj, LCD: adb APK)
-  excel.py        kontrol listesi Excel çıktısı
-  kontrol.py      Excel şablonunun ekran önizlemesi
-static/           modüler kaynaklar + üretilmiş tek parça masaustu.html
-tools/            Deno tabanlı deterministik masaüstü paketleyicisi
+panel/
+  settings.py     sabitler, yollar, portlar, süreler
+  script_loader.py  kardeş projelerdeki çalışan betikleri içe aktarma
+  credentials.py  RAM kimlik deposu (kalıcı depo YOK)
+  errors.py       cihaz hatalarının sınıflandırılması
+  status.py       yeşil/turuncu/kırmızı/gri kararı, nesil damgası
+  i18n.py         iki dilli metin kataloğu (messages/tr.json, en.json)
+  desktop/        tek public invoke() içeren pywebview köprüsü + tek HTML
+  api/            ortak servis katmanı, yol tabloları, yetki süzgeci,
+                  isteğe bağlı HTTP adaptörü
+  editions/       paket tablosu: hangi paket hangi projeyi/ekranı taşır (§2.1)
+  adminkey/       USB servis anahtarı ve admin mod (§2.2)
+  elevation/      yükseltilmiş yetki kapısı ve yeniden başlatma (§1)
+  inventory/      DeviceMap envanteri, IP şablonu çözümü, kategoriler
+  probe/          okuma dağıtıcısı: switch (KYLAND), anons, kamera/NVR
+                  (ISAPI), ADB, MQTT telemetri
+  jobs/           FIFO iş kuyruğu + tarama görünümü
+  ip_assign/      IP atama planı, korunan portlar, koşu ve ilerleme
+  network/        bu bilgisayarın kendi adreslerinin hazırlanması
+  system/         arayüz/MAC bilgisi ve işletim sistemi dosya seçicisi
+  config_sync/    konfigürasyon oku/karşılaştır/yaz
+  firmware/       yazılım yükleme (anons: HTTP imaj, LCD: adb APK)
+  checklist/      Excel şablonunun ön izlemesi ve çıktısı
+  video_config/   kamera/NVR yapılandırma akışı
+field_scripts/    sahada doğrulanmış üç betik (§3)
+static/           modüler kaynaklar + üretilmiş tek parça desktop.html
+tools/            masaüstü paketleyicisi, paket bilgisi, anahtar araçları
 tests/            unittest paketi + sahte cihazlar
 ```
 
 Tarayıcı tanı kipinde `static/js` doğrudan ES module olarak servis edilir.
 Üretim masaüstü kipinde aynı modül grafiği Deno 2.9.4 ile IIFE'ye paketlenir;
-CSS, logo ve favicon ile birlikte `static/masaustu.html` içine gömülür.
+CSS, logo ve favicon ile birlikte `static/desktop.html` içine gömülür.
 `app.py` bu dosyayı belleğe okuyup `create_window(html=...)` ile açar ve
-yalnız `PanelKoprusu.invoke` metodunu `Window.expose(...)` izin listesine
+yalnız `PanelBridge.invoke` metodunu `Window.expose(...)` izin listesine
 ekler. Köprü nesnesinin kendisi `js_api` olarak verilmez; gizli Python üyeleri
 WebView'ın çağrı ağacına girmez. Pywebview'a yerel dosya yolu verilmediği için
 pywebview'un dahili HTTP sunucusu da başlamaz.
@@ -205,20 +224,113 @@ oturum anahtarıdır; tek HTML'deki doğrulanmış meta alanına çalışma anı
 yerleştirilir. Yanlış anahtar 403 alır. Böylece WebView başka bir belgeye
 yönlense bile yeni belge yalnız açık fonksiyonun adını bilerek servisi
 çağıramaz.
-Köprü yanıtları `{ok, status, body}` zarfındadır. `panel_api.PanelService`
-aynı çağrıyı işler; HTTP Handler yalnız ayrıştırma/serileştirme adaptörüdür.
+Köprü yanıtları `{ok, status, body}` zarfındadır. `panel.api` aynı çağrıyı
+işler; HTTP Handler yalnız ayrıştırma/serileştirme adaptörüdür.
+
+### 2.1 Paketler — her müşteri kendi programını alır
+
+Tek program, birden çok paket. Bir müşterinin teknisyeni cihaz listesini
+açtığında başka bir müşterinin envanterini, adreslerini ve dahili
+numaralarını **bulamamalıdır**; bu yüzden ayrım bir tıklamayla geri
+alınamayacak yerde, **derleme anında** yapılır. Her paket yalnız kendi
+DeviceMap'ini taşır.
+
+Tablo `panel/editions/catalogue.py` içindedir ve **yalnız standart kütüphane
+kullanır**: `dabp.spec` bu dosyayı `importlib` ile doğrudan yükleyip
+çalıştırılabilir adını, ürün adını ve paketlenecek cihaz listesini oradan
+okur (spec `panel`'i içe aktaramaz — derleme ortamında `requests` yoktur).
+
+Paketler arasında **kodda hiçbir dal yoktur**. Bir müşterinin görmemesi
+gereken ekran, o paketin `views` listesinde bulunmaz; hem kenar çubuğu hem
+de API süzgeci aynı listeyi okur (`panel/api/guard.py`), böylece "ekranı
+gizlemek" ile "verisini reddetmek" ayrışamaz. Ekranı gizlemek tek başına
+hiçbir şey değildir: köprü bütün API'yi sayfaya açar.
+
+Hangi paket olduğu şu sırayla belirlenir:
+
+1. **paketlenmiş build'de damga** (`panel/editions/_stamp.py`, derlemede
+   üretilir) — ve yalnız o. Müşteri kendi paketini `--edition` ile başka bir
+   paket gibi başlatamaz: bayrak sessizce yok sayılmaz, **reddedilir**.
+2. kaynaktan `--edition`
+3. kaynaktan `DAP_EDITION`
+4. hiçbiri — ve bu bir hatadır, varsayılan değil.
+
+Bir paket birden çok proje taşıyabilir (`vip-yatakli`: Yataklı ve VIP); üst
+çubuktaki proje adı o zaman bir menüdür. Proje değiştirmek DeviceMap'i,
+ayarları ve kuyruktaki cihaz sonuçlarını birlikte değiştirir — cihaz
+kimlikleri konumsaldır ("sw1.d3" başka projede başka bir cihazdır), o yüzden
+eski projeye ait sonuç yeni projede gösterilmez. Cihazlara **yazan** bir iş
+sürerken proje değiştirilemez.
+
+Ayarlar da paket başına ayrı klasörde tutulur (`panel/settings.py:data_dir`):
+GDM için girilen bir hedef değer Gaziray'da o yuvadaki donanıma yazılırdı.
+
+### 2.2 Servis anahtarı — admin moda tek kapı
+
+Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT) admin modda açılır.
+Admin moda geçişin parolası, gizli tıkı ve komut satırı seçeneği **yoktur**;
+tek yol, panelin tanıdığı bir USB belleğidir (`panel/adminkey/`).
+
+Bunun için iki değer ve aralarında tek yönlü bir işlev vardır:
+
+```
+S = build sırrı              yalnız derlemeyi kesen kişide
+K = pbkdf2(S, tuz, 600k)     USB'ye YAZILAN değer
+D = sha256(K)                PAKETE gömülen değer
+```
+
+Paket `D`'yi taşır. Bir belleği doğrulamak `sha256(K') == D` — hızlıdır,
+saniyede birkaç kez yapılabilir. Tersi mümkün değildir: `D`'den `K`
+üretilemez, yani **paket bellek üretemez**; `K`'den `S` üretilemez, yani
+kaybolan bir bellek sırrı ele vermez. Hiçbir pakete `S` gömülmez; CI bunu
+çıkan paketten geri okuyarak denetler.
+
+İlk bellek, bellek takılarak yazılamaz. Önyükleme bu yüzden sırrın kendisidir:
+sırrı ortamında ya da ağacın kökündeki `.adminkey-secret` dosyasında tutan
+bir **kaynak** çalıştırması hiçbir şey takılmadan admin açılır ve ilk belleği
+yazabilir. Paketlenmiş build ne ortam değişkenine ne o dosyaya bakar.
+
+| Parça | Görevi |
+|---|---|
+| `secret.py` | `S → K → D` ve neyin kabul edileceği |
+| `keyfile.py` | Bellekteki dosya: savunmacı okuma, atomik yazma |
+| `volumes.py` | Belleğin üç işletim sisteminde nerede göründüğü |
+| `handback.py` | macOS'ta çıkarılabilir disk iznini işletim kullanıcısının oturumuna devretme |
+| `handoff.py` | Sırrın yükseltme penceresini geçmesi (dosya yolu taşınır, değer taşınmaz) |
+| `media.py` | Belleği silip FAT32 kurma (panelin veri yok eden tek işlemi) |
+| `pack.py` | Bellekte taşınan ek proje cihaz listeleri |
+| `watcher.py` | Belleğin takılı olup olmadığı ve admin modun **bitmesi** |
+
+**Bellek çıkarılınca admin modu kapanır** — anahtarı anahtar yapan da budur.
+Tek istisna, cihazlara yazan bir iştir: yarım kalmış bir IP ataması ya da
+yazılım yüklemesi, kapıyı birkaç dakika daha açık tutmaktan kötüdür; kapanma
+kuyruk boşalana kadar bekletilir ve rozet bunu söyler.
+
+İzleme, sorunun **ucuz yarısını** (hangi birimler bağlı — bir glob ve bir
+stat) 0,35 sn'de bir, tamamını (belleği okumak) değişimde ve 2 sn'de bir
+sorar. Sebebi ölçülmüştü: çıkarma anında algılanıyor, takma geç
+algılanıyordu — 2 sn'lik tek nabız, bağlanması 1-2 sn süren bir birimi hep
+kaçırıyor.
+
+macOS'ta çıkarılabilir diskler ayrı bir gizlilik iznine bağlıdır ve panel
+yükseltilmiş çalıştığı için o izin onda yoktur: bellek görünür, üzerindeki
+her dosya `EPERM` döner. Okuma bu yüzden klavyedeki kullanıcının oturumuna
+devredilir (`handback.py`). **Sıralama kritiktir**: ölçüldü, ilk soran taraf
+bütün süreç ağacı adına karar veriyor — önce panel kendi adına sorup
+reddedilirse devretme de reddediliyor.
 
 ---
 
 ## 3. Çalışan kodu yeniden yazmama
 
-Panel üç betiği **çalışma anında içe aktarır** (`core/betik.py`), kopyalamaz:
+Panel üç betiği **çalışma anında içe aktarır** (`panel/script_loader.py`),
+kopyalamaz:
 
 | Betik | Ne için |
 |---|---|
-| `betikler/switch_api.py` | Switch erişiminin tamamı |
-| `betikler/device_verify.py` | Excel şeması ve alan tabloları |
-| `betikler/intercom_ip_assign.py` | IP atama koşusu |
+| `field_scripts/switch_api.py` | Switch erişiminin tamamı |
+| `field_scripts/device_verify.py` | Excel şeması ve alan tabloları |
+| `field_scripts/intercom_ip_assign.py` | IP atama koşusu |
 
 Switch okuması `switch_api.sw_get(ip, "stat/basicInfo", kimlik=(k, p))`
 çağrısına iner. URL, HTTP Basic kimlik doğrulama biçimi, port, zaman aşımı,
@@ -259,7 +371,7 @@ Tam tarama
         └─ durum: TURUNCU (kimlik_bekliyor)
              └─ üst bardaki kilit kutucuğuna düşer, rozet artar
                   └─ kullanıcı cihaza tıklar → iletişim kutusu
-                       └─ POST /api/kimlik  {cihazId, kullanici, parola}
+                       └─ POST /api/credentials  {cihazId, kullanici, parola}
                             ├─ cihazdan DOĞRULANMIŞ veri geldi
                             │    ├─ kimlik RAM'e yazılır
                             │    ├─ sonuç görünüme yazılır → YEŞİL
@@ -341,7 +453,7 @@ kanıtı değildir. Önceki davranışta bu durum, ağ bağlantısı olmayan ve 
 adresinde yanıt vermeyen bir HMI'ın, satır notu `disconnected` olduğu hâlde
 yeşil "Doğrulandı" gösterilmesine yol açabiliyordu.
 
-`core/okuma.py` iki bağımsız sinyali birlikte değerlendirir:
+`panel/probe/reader.py` iki bağımsız sinyali birlikte değerlendirir:
 
 | Kaynak | Alan | Anlam |
 |---|---|---|
@@ -386,7 +498,7 @@ Bazı alanlar birden çok kaynaktan beslenir; okuyucu bu verileri birleştirir:
   hangi kaynaktan geldiği cihaz detayında yazılır — cihazdan okunmamış bir
   değer okunmuş gibi gösterilmez.
 
-Kontrol listesi `/api/kontrol` ucundan beslenir. Cihaz verisi değiştiğinde ve
+Kontrol listesi `/api/checklist` ucundan beslenir. Cihaz verisi değiştiğinde ve
 ekran açık olduğunda sonuçlar en fazla 1,5 saniyede bir yeniden alınır; veri
 değişmediyse istek yapılmaz. Böylece tarama sürerken eski satırların ekranda
 kalması önlenir.
@@ -398,7 +510,7 @@ kalması önlenir.
 Açılışta **hiçbir cihaza bağlanılmaz**; yalnız yerel DeviceMap yüklenir.
 Önceki oturumdan kimlik yüklenmez.
 
-"Güncelle" → `POST /api/tarama` → FIFO kuyruğa iş eklenir.
+"Güncelle" → `POST /api/scan` → FIFO kuyruğa iş eklenir.
 
 - İş satırları **tarama başlamadan önce** kurulur; kullanıcı ilk saniyeden
   ne yapıldığını görür.
@@ -452,6 +564,15 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
   dakikalık turlar yirmi dakikada bütün geçmişi dışarı iterdi.
 - `setInterval` **kullanılmaz**: her tur, bir önceki istek bittikten sonra
   `setTimeout` ile kurulur. Aynı cihaz için istek birikmez.
+- **Her iki otomatik tur da duraklatılabilir** (üst çubuktaki düğme,
+  `state.autoRefresh`; karar `static/js/core/schedule.js` içinde). Sebebi:
+  cihaz okumak bedava değil — Kompartıman LCD adb üzerinden okunur ve tur,
+  o panelde çalışan kişinin adb oturumunu elinden alır. Duraklatma yalnız
+  **panelin kendiliğinden** başlattığı turları durdurur: "Güncelle" ile
+  istenen tarama da, kuyruktaki iş de çalışmaya devam eder. Tercih diske
+  **yazılmaz**; ertesi sabah duraklatılmış açılan bir panel, sebebini
+  söylemeden dünkü okumaları gösterirdi. Duraklatıldığı sürece durum
+  metni "son tarama ..." yerine bunu söyler.
 - Tam tarama sürerken hafif yenileme çalışmaz; sunucu `409` döner.
 - **Cihaza yazan koşu** (IP atama, konfigürasyon, yazılım yükleme)
   sürerken kendiliğinden tarama başlatılmaz; hafif yenileme de `409`
@@ -483,7 +604,7 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
   tipi ve boyutu doğrulanır. Dosya URL'leri, indirmeler ve uzaktan hata
   ayıklama kapalıdır.
 - Yalnız açıkça seçilen tarayıcı/tanı kipinde `127.0.0.1` dinlenir;
-  `panel_api.sunucu()` başka bir arayüz isteğini reddeder ve CORS açılmaz.
+  `panel.api.http_adapter.serve()` başka bir arayüz isteğini reddeder ve CORS açılmaz.
 - Okuma, kimlik doğrulama, konfigürasyon ve yazılım yükleme uçlarında
   **istemci keyfî bağlantı hedefi seçemez**. Gövdeye `ip` ya da `type`
   eklemek hedefi değiştirmez; cihaz, DeviceMap'ten `cihazId` ile bulunur.
@@ -506,17 +627,16 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
 
 | Ekran | İçerik |
 |---|---|
-| Rol seçimi | Kullanıcı / Admin (şifre yalnız tanımlıysa sorulur) |
 | Genel Bakış | KPI'lar, kategori durumu, sistem özeti, son işlemler |
 | Tüm Cihazlar | Kategori + durum filtresi; cihazın son bilinen durumu |
 | Cihaz detayı | Kimlik / Ağ / SIP blokları, kimlik gir, kimliği unut |
 | **Kontrol Listesi** | Çıktının ön izlemesi (şablonun tüm sütunları) + kategori filtresi |
 | IP Atama | DeviceMap'ten çıkan plan, canlı switch ön paneli, korunan portlar ve gerçek atama koşusu |
 | Konfigürasyon | Cihazdaki değer ↔ hedef değer karşılaştırması |
-| Yazılım Yükleme | Cihaz başına dosya seçimi (.bin / .apk), hedef sürüm, gruba toplu atama |
+| Yazılım Yükleme | Cihaz başına dosya seçimi (.bin / .apk), gruba toplu atama |
 | PISCU & PBX | MQTT istemcileri, SIP dahili numaraları |
 | MQTT İzleme | Canlı akış (kullanıcı başlatır, tampon sınırlı) |
-| Proje & Cihaz Listesi | DeviceMap, tren seti, kategori tanımı (admin) |
+| Proje & Cihaz Listesi | DeviceMap, tren seti, kategori tanımı, servis anahtarı yazma (yalnız admin modda) |
 | İşlem Kuyruğu | Sağdan açılan panel, canlı satırlar, iptal |
 | Kilit menüsü | Kimlik bekleyen cihazlar, rozet sayacı |
 
@@ -534,9 +654,9 @@ kullanılır.
 
 Amaç, Excel'e yazılacak bilginin önceden görülebilmesi. Tablo panelin
 standart tablo biçimindedir; şablonun **bütün sütunları** vardır ve
-sütun adları ile gri (N/A) hücreler `core/kontrol.py` tarafından
+sütun adları ile gri (N/A) hücreler `panel/checklist/columns.py` tarafından
 doğrudan şablon dosyasından okunur. Kodda ayrı bir kolon listesi
-tutulmaz: şablon değişince liste de değişir. `core/excel.py` aynı
+tutulmaz: şablon değişince liste de değişir. `panel/checklist/workbook.py` aynı
 eşlemeyi kullandığı için ekranda görünen değer ile dosyaya yazılan değer
 aynıdır — bir test bunu doğrudan karşılaştırır.
 
@@ -545,7 +665,7 @@ cihazlar gösterilir. 23 sütun sığmadığı için tablo kendi içinde yatay
 kayar; sayfa gövdesi kaymaz.
 
 Liste **kendiliğinden tazelenir**: cihaz durumları her değiştiğinde
-`/api/kontrol` yeniden okunur (bkz. `app.js acikEkraniTazele`; imza
+`/api/checklist` yeniden okunur (bkz. `app.js onViewEntered`; imza
 değişmediyse istek yapılmaz). Başlığın altında verinin yaşı yazar —
 saniyede bir kendini yeniler ve `BAYAT_SN`'i (120 sn) geçince turuncuya
 döner.
@@ -592,7 +712,7 @@ birleşir, sonraki öncekini ezer:
   tek numara gösterip kullanıcının bir harf değiştirmesi bütün gruba aynı
   numarayı yazdırırdı.
 - Alan listesi **cihaz tipine göre** daralır; hangi alanın hangi uca
-  gittiği `core/konfig.py` → `ROTA` tablosundadır (ayrıntı:
+  gittiği `panel/config_sync/fields.py` → `ROUTES` tablosundadır (ayrıntı:
   `docs/CIHAZ_ENDPOINTLERI.md`). Cihaz tek bir "ayarları
   yaz" ucu sunmuyor; ana uç POST'a 405 döner.
 - **Yalnız farklı olan alan yazılır.** SIP ucu cihazı yeniden başlattığı
@@ -621,9 +741,9 @@ birleşir, sonraki öncekini ezer:
   da tanımsız değer gitmemeli. "Kayıtlı Değerleri Sıfırla" dosyayı siler,
   ekran DeviceMap değerlerine döner. Dosya proje ağacına ya da DeviceMap'in
   yanına yazılmaz (bir test bunu doğrular).
-- Ekran **iki aşamalı** yüklenir: `/api/konfig/alanlar` cihaza hiç
+- Ekran **iki aşamalı** yüklenir: `/api/config/fields` cihaza hiç
   gitmez (alan listesi + hedefler + DeviceMap değerleri, yaklaşık 5 ms), cihazdaki
-  değerler arkadan `/api/konfig` ile gelir. Tek istek beklenirken grup
+  değerler arkadan `/api/config` ile gelir. Tek istek beklenirken grup
   değiştirmek saniyelerce eski grubun alanlarını gösteriyordu. Geciken
   yanıtın yeni seçimin üstüne yazmaması için her tazelemenin sıra numarası
   var. Konfigürasyon okuması ek uçlardan yalnız gerekeni ister (Handset'te
@@ -648,16 +768,16 @@ alınması veya geçerli bir hedef portun gereksiz yere dışlanması riskini
 doğuruyordu. Portlar bunun yerine switch'lerin MAC öğrenme tablolarından
 belirlenir:
 
-1. `core/yerel_ag.py` bu bilgisayarın arayüzlerini, MAC'lerini ve
+1. `panel/system/interfaces.py` bu bilgisayarın arayüzlerini, MAC'lerini ve
    IP'lerini verir. Bu bilgiler bütün switch'ler için bir kez okunur. Bir
    hedefe çıkan yerel adres, o hedefe UDP soketi
    *bağlayarak* (paket göndermeden) çekirdeğin yönlendirme tablosundan
    öğrenilir.
-2. `core/switch_okuma.mac_tablosu()` bir switch'in öğrenme tablosunu
+2. `panel/probe/switch.mac_table()` bir switch'in öğrenme tablosunu
    `{mac: port}` olarak okur. Uçlar ve ayrıştırma **IP atama betiğinden**
    gelir (`MAC_ENDPOINTS`, `_parse_mac_table`); koşu da aynı tabloyu
    kullandığı için ikisi ayrışamaz.
-3. `core/ip_atama.korunan_portlar()` bütün switch'leri **paralel** sorar
+3. `panel/ip_assign/ports.protected_ports()` bütün switch'leri **paralel** sorar
    ve iki kuralı uygular.
 
 **Kural 1 — bilgisayarın MAC'i.** Bir switch'in hangi portunda
@@ -687,7 +807,7 @@ başlatılmaz.
 Bulgu tek seferlik değildir. Ekran açıkken
 `KORUNAN_ARALIK` (30 sn) aralıkla yeniden doğrulanır — kablo koşu
 başlamadan önce başka porta taşınmış olabilir. Koşu başlarken sunucu da
-portları **yeniden keşfeder** (`/api/ip/kosu`); arayüzün gönderdiği
+portları **yeniden keşfeder** (`/api/ip/run`); arayüzün gönderdiği
 liste yalnız o an switch cevap vermezse kullanılan son bilgidir.
 
 Bulgu ekranda ayrı bir formda değil, iki yerde görünür: ön panelde
@@ -715,7 +835,7 @@ satırındaki "Yapılandırması" kelimesinin `ı` harfi cp857'de `0x8d` ve o
 bayt cp1254'te **tanımsız** → `UnicodeDecodeError`.
 
 Bu istisna ne `OSError` ne `SubprocessError`; `_komut`'un `except`i onu
-yakalamıyordu ve hata `/api/ip/korunan` ucuna kadar çıkıp 500
+yakalamıyordu ve hata `/api/ip/protected` ucuna kadar çıkıp 500
 veriyordu. macOS ve Linux'ta hem çıktı hem tercih edilen kod sayfası
 UTF-8 olduğu için arıza hiç görünmedi — testteki Windows örneği de
 ASCII'ye sadeleştirilmiş ("Yapilandirmasi") olduğu için yakalanmamıştı.
@@ -791,7 +911,7 @@ ve kalan iş miktarı anlaşılamıyordu.
 
 **Betik yeniden yazılmadı.** Saha tarafından doğrulanmış akış kardeş projeyle
 ortaktır (§3). İlerleme raporlaması için bu akışı değiştirmek yerine betik
-çıktısı `core/ip_atama.Ilerleme` içinde yapılandırılmış veriye dönüştürülür:
+çıktısı `panel/ip_assign/progress.py` içinde yapılandırılmış veriye dönüştürülür:
 
 - Koşunun gerçek iş birimi **port**. Her hedef port için baştan bir satır
   açılır (`ozel_satir(..., sayilir=True)`).
@@ -810,7 +930,7 @@ Tamamlanamayan portların ayrıntılı hata çıktısı bu günlükte korunur.
 #### Betik çıktısının ayrıştırılmasındaki üç özel durum
 
 Bu durumların üçü de saha çıktılarında gözlendi ve testlerle sabitlendi
-(`tests/test_ilerleme.py`, girdisi gerçek bir koşu günlüğüdür):
+(`tests/test_progress.py`, girdisi gerçek bir koşu günlüğüdür):
 
 1. **Koşunun başındaki plan dökümü port başlangıcı değildir.** Betik
    önce planı yazar (`   port 11  ->  10.1.1.10`), ardından portları tek
@@ -866,6 +986,233 @@ hata nedeni daha sonra incelenebilir. Satır başına en fazla
 `isler.ADIM_SINIRI` adım tutulur (açık işin her yoklamasında arayüze
 gidiyorlar).
 
+### Adres yazılmadan önce yazılım yükleme
+
+Sahadan gelen ikinci arıza: trenlere uzun süre önce gönderilmiş bazı
+intercomların yazılımı, **kendi sürümünü ve kimliğini yanlış bildirecek kadar**
+eski. Bu cihazlara başka bir şey yapılmadan önce yazılım atılması gerekiyor.
+
+Bunun mümkün olduğu **tek an koşunun içi**. Koşu PoE portlarını teker teker
+açar; o anda tek bir cihaz erişilebilir ve hâlâ fabrika adresindedir. Bir
+dakika sonra kendi adresine geçmiş ve birbirinden ayırt edilemeyen on iki
+cihazdan biri olmuştur — Yazılım ekranından hangisine ne atılacağı artık
+bilinemez.
+
+Bu yüzden adım saha betiğinin port döngüsünün **içine** girer.
+`intercom_ip_assign.py` içine tek bir uzatma noktası eklendi:
+
+```
+BEFORE_WRITE(port, ip, settings, cfg) -> (ok, note)
+```
+
+Betik tek başına çalıştırıldığında `None`'dır ve hiçbir şey değişmez; paneli
+koşudan önce kurar, sonra da **mutlaka geri alır** (süreç geneli durum;
+bırakılırsa sonraki koşu istemediği hâlde yazılım atar). Bütün mantık
+`panel/ip_assign/preflash.py` tarafında.
+
+**Ne zaman yükler.** Seçeneğin açık olduğu her portta. Karşılaştırılacak bir
+"beklenen sürüm" yok: bu adımın var olma sebebi zaten sürümünü yanlış ya da
+hiç bildirmeyen cihazlar, dolayısıyla karşılaştırmanın tek dürüst cevabı
+"bilemiyorum" olurdu ve bu hiçbir zaman "güncel" sayılamazdı. Sürüm yine de
+yükleme öncesi ve sonrası okunur; yalnız koşu günlüğünde görünmek için.
+
+**Yükleme başarısız olursa port başarısızdır ve IP yazılmaz.** Yazılımı
+atılamamış bir cihazı adresine taşımak, sorunu gizlemek olurdu.
+
+Dosya **koşu için tektir**, cihaz başına değil: adım gerçekleştiği anda cihaz
+fabrika adresindedir ve on iki intercomdan hangisi olduğunu söylememiştir —
+cihaz başına seçim, tam da bu adımın çözdüğü sorunun cevabını varsaymak olur.
+
+**Dosya yolu tarayıcıya hiç gitmez.** Kullanıcı dosyayı işletim sisteminin
+kendi penceresinden seçer, panel yolu kendinde tutar; ekran yalnız dosyanın
+adını ve boyutunu görür. İş günlüğü dosyalarındaki kuralın aynısı — istemcinin
+okuyabildiği yol, istemcinin gönderebildiği yoldur.
+
+Geri bildirim koşunun kendi biçiminde: port satırının altında `firmware`
+adımı (`PORT_STEPS`, yüzdenin %70'i), yüklenen/atlanan/başarısız her cihaz
+için bir cümle.
+
+### Compartment LCD ADB devreye alma koşusu
+
+Compartment LCD, Intercom'un ortak fabrika adresi ve HTTP yazıcısını
+kullanmaz. `DeviceMap` şablonunun **Set 1 çözümü** her cihazın kaynak
+adresidir (`10.1.1.40 … 10.1.1.50`); seçili set çözümü hedef adresidir
+(`10.<set>.1.40 … .50`). Plan satırı bu nedenle cihaz başına `sourceIp` ve
+`targetIp` yayımlar.
+
+İki uç da koşu seçeneğidir, sabit değil: `sourceSet` cihazların **şu an**
+bulunduğu seti, `targetSet` gidecekleri seti söyler. Varsayılanları set 1 ve
+açık settir; **fabrika sıfırlama ikisini yer değiştirir** (`targetSet=1`) ve
+tek kullanıcısı odur. Arayüzde "cihazları şu setten şu sete taşı" diye bir
+seçenek yoktur; sahada işe yaramadığı için kaldırıldı. Hedef önek ayrı bir
+seçenektir: varsayılanı `/24`, `targetPrefix` ile değiştirilebilir ve koşu
+sonundaki doğrulama da o öneki arar (`panel/ip_assign/addressing.py`,
+`parse_prefix`).
+
+`panel/ip_assign/runner.py` grup bazındaki koşucuyu
+`RUNNERS["Compartment LCD"]` üzerinden `lcd_runner.py`'ye yollar. Akış her
+port için şöyledir:
+
+1. Yönetilen portlar kapatılır; sıradaki port ve daha önce tamamlanan portlar
+   açık tutulur.
+2. Yalnız o cihaza ait kaynak ve hedef adres denenir. ADB transportu her
+   komutta açıkça `-s <ip>:5555` ile belirtilir; `adb devices` sırası ya da
+   örtük "geçerli cihaz" hiçbir kararda kullanılmaz.
+3. Android seri numarası okunur ve adresin MAC'i switch tablosunda beklenen
+   portla eşleştirilir. İkisinden biri doğrulanamazsa cihaza yazılmaz.
+4. Kullanıcı APK adımını açtıysa mevcut cihaz/set kapsamlı firmware seçimi
+   kullanılır. `adb install -r` ve sürüm denetimi kaynak adreste tamamlanmadan
+   IP komutu gönderilmez.
+5. Tek bir `su -c` işlemi içinde `eth0` global IPv4 adresleri temizlenir,
+   hedef `/24` eklenir ve bağlantı açılır. Adres silindiğinde ADB yanıtının
+   düşmesi beklenir; komutun dönüşü başarı kanıtı değildir.
+6. Eski ve yeni ADB transportları ayrı ayrı kapatılır. Yeni adrese sınırlı
+   sayıda yeniden bağlanılır; seri numarası, MAC→port eşleşmesi ve `eth0`
+   global IPv4 kümesinin tam olarak `{hedef/24}` olması doğrulanır. Eski bir
+   `/16` ya da ikinci bir global adres kalırsa port başarısızdır.
+
+`adb kill-server` kullanılmaz; başka ekranların ya da başka uygulamaların ADB
+oturumlarına dokunulmaz. Her portun `finally` adımı hem kaynak hem hedef
+transportu temizler. Koşu, hata ve iptal yollarının ortak son adımında bütün
+yönetilen PoE portlarını üç denemeye kadar yeniden açar.
+
+IP ekranındaki işlem switch'i, DeviceMap cihaz eşlemesinden ayrı bir fiziksel
+sınırdır. LCD-only planda kullanıcı örneğin `sw2` seçtiğinde PoE, MAC tablosu,
+erişim kimliği ve iş anahtarı `sw2` üzerinden yürür; `deviceSwitchId` ise
+DeviceMap'teki tek kanonik LCD düzenini gösterir. Cihaz kimliği, görünen adı,
+portu, kaynak IP'si ve hedef IP'si bu kanonik kayıttan sunucu tarafında yeniden
+çözülür ve istek gövdesinden alınmaz. Seçilen switch'in gerçekten Switch
+olması ve cihazın MAC'inin seçilen fiziksel portta görülmesi yazımdan önce
+zorunludur. Bu çapraz-switch eşleme yalnız Compartment LCD grubuna açıktır.
+
+LCD planında `rows` seçilen **fiziksel** PoE portlarını, `candidateRows` ise
+DeviceMap'teki değiştirilemez cihaz/port/kaynak/hedef kayıtlarını taşır. Bu
+yüzden DeviceMap'te boş olan port 8 de çalışma portu olabilir; port numarası
+hiçbir zaman ilk adaya ya da aynı numaralı DeviceMap satırına körlemesine
+bağlanmaz. Port tek başına açılınca aday kaynak ve hedef adresleri iki zaman
+sınırlı paralel turda denenir, exact ADB transportu ile Android seri numarası
+okunur ve MAC→port kanıtı alınır. Bulunan IP hangi `candidateRows` kaydına
+aitse yalnız o kaydın hedefi yazılır. Daha önce kullanılan cihaz aynı koşuda
+ikinci fiziksel porta atanmaz; yanlış-port ve kalan ADB transportları temizlenir.
+Fiziksel izin listesi PoE yüzüyle sınırlıdır (`1..SWITCH_POE_PORTS`); uplink ve
+korunan port denetimleri ayrıca sürer. Intercom planı DeviceMap portlarına
+bağlı kalır.
+
+Intercom'un HTTP/PBX kimlik denetimi LCD sonuçlarına uygulanmaz; LCD kimliği
+koşucu içinde seri + switch portuyla doğrulanır. Aynı nedenle HTTP tabanlı
+adres haritası ucu Compartment LCD grubunu reddeder.
+`POST /api/ip/factory-reset` ise grubu görüp yol ayırır: Intercom için HTTP
+üzerinden ortak fabrika adresinde toplama, Compartment LCD için `targetSet=1`
+ile sıradan ADB koşusu. APK dosya yolu IP isteğinin gövdesinden alınmaz; sunucu, firmware
+seçimini set ve DeviceMap cihaz kimliğiyle kendi belleğinden bulur.
+
+### Tek porta elle IP atama (LCD tezgâh akışı)
+
+`POST /api/ip/lcd-assign` → `lcd_runner.run_manual()`. `post_run`'dan ayrı bir
+uçtur, çünkü sözleşmesi terstir: `post_run`'da hangi adresin nereye gideceğine
+DeviceMap karar verir ve istemci yalnız port seçer; burada **adres isteğin
+kendisidir**. Bu yüzden ayrı uç, ayrı doğrulama ve ayrı iş gövdesi
+(`lcd_manual_task`).
+
+Ekranın şu anki adresi istenmez — tezgâhta bilinmeyen şey odur. Port izole
+edildikten sonra `manual_candidates()` listesi taranır: DeviceMap'teki bütün
+Compartment LCD satırlarının set 1, açık set ve (verilmişse) `sourceSet`
+karşılıkları, artı istenen adresin kendisi. Sonuncusu aynı yazımın ikinci kez
+zararsız olmasını sağlar.
+
+Kanıt kuralı sıradan koşuyla aynıdır ve gevşetilmez: yalnız seçilen port
+beslenir, cevap veren adresin MAC'i o portta görülmeden komut gönderilmez,
+sonrasında aynı Android seri numarası yeni adreste ve `eth0` üzerinde başka
+global adres kalmamış olarak bulunmalıdır. Fark yalnızca hedefin yazılmış
+olması ve sonrasında bir DeviceMap kimliği iddia edilmemesidir.
+
+### Cihaz ayarlarında Compartment LCD: tek yazılabilir alan
+
+`config_sync` bir cihazın ayarlarını, o cihazın kendi web arayüzünün POST
+ettiği uca yazar. Android ekranın böyle bir ucu yok. `ROUTES` tablosuna bu
+yüzden HTTP olmayan tek bir işaret eklendi — `ADB_NETWORK = "adb:network"` —
+ve altında tek alan var: `ipAddress`. İşaret bilinçli olarak `ENDPOINT_ORDER`
+dışındadır; HTTP yazma döngüsü ona asla POST etmez.
+
+Okuma ve yazma `panel/config_sync/adb_network.py` içinde, `lcd_runner`'ın
+küçük açık yüzeyi (`connect`, `addresses`, `serial_of`, `write_address`)
+üzerinden yapılır. İki uygulama olmaması özellikle önemli: "yazıldı" sözünün
+anlamı iki ekranda da aynı kalmalı.
+
+**Maske korunur.** `eth0` hangi öneki kullanıyorsa yazımdan sonra da odur.
+Maskeyi değiştirmek devreye alma kararıdır ve IP atama ekranındaki alana
+aittir; "adres" yazan bir ayar satırının sessizce ağ maskesini değiştirmesi
+beklenmez. `eth0` üzerinde birden çok global adres varsa hangisinin geçerli
+olduğu **tahmin edilmez**, hata verilir: bu, yarım kalmış bir koşunun bıraktığı
+durumdur ve gizlenmemelidir.
+
+DeviceMap'teki `IP` alanı **şablondur** (`10.n.1.40`). `_project_target`
+bu alanı özel olarak ele alır ve hedef olarak envanterin açık set için çözdüğü
+adresi verir; ham şablon hedef gösterilseydi ekran hiçbir cihazın taşıyamayacağı
+bir adres isterdi.
+
+### Kamera ve NVR: alan değil, prosedür
+
+Anons cihazında bir ayar bir alandır: uca gövde gider, geri okunur,
+karşılaştırılır. Kamerada değildir. Saat ve NTP yazılır, akış profilleri üç
+kanala birden gider, 3. akış **kapalıyken 103 numaralı kanal yoktur**, onu
+açmak cihazı yeniden başlatır ve profil ancak cihaz geri geldikten sonra
+yazılabilir. Sıra, işin kendisidir.
+
+Bu yüzden prosedür `panel/video_config/` paketindedir: `isapi.py` (digest
+taşıma katmanı ve "yazma kabul edildi mi" kuralı), `payloads.py` (sahada
+kanıtlanmış XML gövdeler), `channels.py` (NVR kanal listesi), `camera.py`,
+`nvr.py`, `defaults.py`.
+
+Ekran, hedef değerler, kimlik bilgileri ve iş kuyruğu yine `config_sync`'in:
+`fetch()` ve `apply_targets()` cihazın okuma yöntemine göre dallanıyor
+(`adb`, `http`) — video için üçüncü dal `isapi` eklendi. `read_state()` düz
+bir sözlük döndürdüğü için satırlar aynı `_rows()` ile üretilir; ikinci bir
+ekran, ikinci bir rota, ikinci bir iş tipi yoktur.
+
+`ROUTES` tablosuna `ISAPI_CAMERA` / `ISAPI_NVR` işaretleri eklendi — tıpkı
+`ADB_NETWORK` gibi bir uç değil, bir prosedürün adı. Eşleme anahtarı da
+değişti: tablo artık SubType değil **scope** eşliyor. Anons ailesinde scope
+zaten SubType'tır; kamerada SubType proje sözlüğüdür (`Corridor`, `Landing`,
+bazı projelerde hiç yok) ve ISAPI yüzeyi hakkında hiçbir şey söylemez, o
+yüzden video tarafında scope cihazın **Type**'ıdır (`config_scope`).
+
+Kurallar:
+
+- **Ağ ayarına dokunulmaz.** Sahadaki `nvr.py`'nin `set_network_mask` adımı
+  şunu yapıyor: `PUT` `[OK]` dönüyor, sonra cihaz kendi adresinde yok.
+  Geri getirmenin yolu kabinde elektrik kesip SADP ile IP vermek. Panelden
+  geri alınamayacak tek ayar bu olurdu, o yüzden port edilmedi: adres ve
+  maske SADP'nin işi, panel ikisini de **okuyup** raporluyor (doğrulama
+  sütununda "Maske", ayar penceresinde salt okunur satır).
+  `isapi.interface_mask` bu yüzden tam eşleşme arar — yanlış arayüzün
+  maskesini raporlamak, doğru kurulmuş bir cihazı hatalı göstermektir.
+- **Hareket algılama yoktur.** VMD tetikçisi ve takvimi yalnız Gaziray'da
+  kullanılıyor; panele bilerek alınmadı.
+- Sağlam disk biçimlendirilmez; yalnız `unformatted` / `uninitialized` /
+  `error` durumundaki disk. Bir ayar uygulanırken kayıt silinmez.
+- NVR kanal tablosu koda gömülmedi: kameranın `CameraID` ve `CameraName`
+  alanları DeviceMap'te zaten var, liste oradan türer. Projeye kamera
+  eklemek kod değişikliği gerektirmez.
+- NVR kanal gövdesi **kameranın** parolasını taşır (NVR kameraya kendisi
+  bağlanır). Panel parola saklamadığından değer o oturumun bellekteki
+  kimlik bilgisinden gelir; yoksa hangi kameranın kimliğinin gerektiği
+  söylenir.
+- Doğrulama kuralı gevşetilmedi: hedef, cihazdan geri okunmadan "yazıldı"
+  sayılmaz. NVR'da geri okuma yeniden başlatmadan **önce** yapılır — kapanan
+  cihaz hiçbir soruya cevap vermez.
+- Hiçbir şey değişmediyse NVR yeniden başlatılmaz. Değişiklik olmayan bir
+  koşu için seti yayından düşürmek kabul edilebilir bir maliyet değildir.
+- Prosedür her adımını `report(metin, durum)` ile anlatır; `config_task` bunu
+  `job.add_step` ile cihazın satırının altına yazar. Tek satırlık not bir
+  prosedürün ancak son adımını taşıyabiliyordu.
+- Doğrulama turu (`panel/probe/camera.py`) saat/NTP/maskenin yanına
+  `video_config/health.py` kontrollerini ekler: NVR'da disk ve buzzer,
+  kamerada SD kart, IR ve 3. akış. Okunamayan kontrol "uygun" demez.
+  `health.buzzer_on` hem taramanın hem yazma yolunun kullandığı tek okumadır;
+  tetikçi listesi bildirim yöntemi taşımıyorsa `diskerror`/`diskfull` adıyla
+  sorulur.
+
 ### Adres haritası = "hangi adreste kim var"
 
 Sahadaki en sık soru buydu ve cevabı yalnız dış araçlarla (`arp-scan`), o da
@@ -883,7 +1230,7 @@ olduğu ve durum — `yerinde` / `yabanci` / `cakisma` / `bos` / `taninmiyor`.
 Çakışma tek yoklamayla görünmez: adres her seferinde tek cihaz cevaplar. Bu
 yüzden birkaç tur yoklanır ve turlar arasında ARP kaydı temizlenir; bir
 adreste FARKLI dahililer görülmüşse orada birden çok cihaz var demektir.
-Uç `GET /api/ip/harita`, iş kuyruğuna girmez (hiçbir şey yazmaz).
+Uç `GET /api/ip/address-map`, iş kuyruğuna girmez (hiçbir şey yazmaz).
 
 ### Koşudan sonra kimlik denetimi
 
@@ -901,23 +1248,26 @@ yazılır (`dogru` sessizce adım olarak, `yanlis` ve `cakisma` satırı KIRMIZI
 yapar) ve iş özeti "cihazlar karışmış" der — bu, "port tamamlanamadı"dan
 farklı ve daha ağır bir sonuçtur.
 
-### Kalıcılık doğrulaması (isteğe bağlı)
+### Kalıcılık doğrulaması (devre dışı)
 
-"Yazıldı" ile "kalıcı yazıldı" aynı şey değil: cihaz ayarı yalnız belleğine
-almış olabilir ve ilk güç kesintisinde eski adresine döner. Betiğin bunun
-için bir kontrolü var (sonda portların gücünü bir kez kesip açar) ama koşuyu
-uzattığı ve işi biten cihazları yeniden karartığı için panel onu varsayılan
-olarak kapatıyor (`--no-persist-check`). Devreye alma bittiğinde bir kez
-görmek isteyen kullanıcı için arayüzde **"Kalıcılığı doğrula (sonda güç
-çevrimi)"** kutusu var; işaretlenirse bayrak gönderilmez ve betik kendi
-kontrolünü yapar.
+"Yazıldı" ile "kalıcı yazıldı" aynı şey değil; ancak betiğin sondaki güç
+çevrimi koşuyu uzatıyor ve işi biten bütün cihazları yeniden karartıyordu.
+Bu nedenle kalıcılık seçeneği arayüzden kaldırıldı ve panel çalıştırıcısı
+her koşuda `--no-persist-check` gönderiyor. Eski bir istemci artık bu denetimi
+yeniden açamaz. Her port için yazmadan hemen sonra yapılan sıradan adres
+okuma denetimi devam eder.
 
 ### Fabrika adresinde toplama (test akışı)
 
-`core/ip_atama.fabrikaya_dondur`, koşuyu baştan denemek için gereken
+`panel/ip_assign/factory_reset.py`, koşuyu baştan denemek için gereken
 başlangıç durumunu kurar: seçili intercomların hepsine "IP'ni fabrika
 adresine çevir" isteği gönderilir. PoE'ye, switch ayarlarına ve
 DeviceMap'e dokunulmaz.
+
+IP atama ekranında kaynak olarak **bulunduğu set** ya da **harici set**
+seçilir. Harici set numarası `1..254` aralığında zorunlu doğrulanır ve hedef
+adresler o set için DeviceMap'ten yeniden çözülür; geçersiz değer hiçbir zaman
+sessizce Set 1'e düşmez. Hedef yine seçili fabrika IP adresidir.
 
 İlk uygulama her cihaza **yalnız DeviceMap'teki adresinden** ulaşmayı
 deniyor ve tek tur yürüyordu. Sahada iki durumda tıkanıyordu; ikisi de
@@ -1001,9 +1351,11 @@ sayı kaydın kendiliğinden dönmesini beklemenin bedeli.
 
 #### ARP önbelleği temizlenemediğinde
 
-Uygulama normalde yükseltilmiş yetkiyle açılır (bkz. `yetki.py`) ve
+Uygulama normalde yükseltilmiş yetkiyle açılır (bkz.
+`panel/elevation/`) ve
 gerektiğinde ARP kayıtlarını temizler. Yetkinin olmadığı bir kurulumda (örneğin
-panel doğrudan `python app.py --tarayici` ile geliştirme kipinde
+panel doğrudan `python app.py --edition <paket> --browser` ile geliştirme
+kipinde
 çalıştırıldığında) aynı adresteki cihazlar **sırayla** görünür: kayıt taşınmış
 bir cihazın MAC'ini gösterirken o adres "cevap vermedi" görünür.
 
@@ -1025,6 +1377,170 @@ bilgi satırı olarak giriyordu; bilgi satırları sayaçlara girmediği için
 **yüzde baştan sona %0** kalıyordu. Davranış `tests/test_fabrika.py` ile
 sabitlenmiştir.
 
+### Bilgisayarın ağı = eksik alt ağ adresini panel kendisi ekler
+
+**Bir tren setinde iki ağ gerekir, bir değil.** Operatör 8. seti seçtiğinde
+cihazlar hâlâ fabrikadan geldikleri `10.1.1.x` adresindedir; switch'ler ve
+yazılacak adresler ise `10.8.1.x`. `required_networks` ikisini de ister.
+
+Ağı hazırlamak **cihazla konuşan her işin** ilk adımıdır: tarama, IP atama,
+LCD elle atama, fabrika sıfırlama, **cihaz ayarları ve yazılım yükleme**. Son
+ikisi uzun süre bu listede değildi; set değiştirip doğrudan o ekranlara giden
+biri sebebi görünmeden her satırda "cihaza ulaşılamıyor" alıyordu.
+`tests/test_network.py` bu listeyi kaynakta denetler.
+
+Panel hangi arayüzün cihazlara gittiğini **bilmiyorsa hiçbir şey eklemez** ve
+bunu `needsAdapter` ile söyler. IP ekranı bu durumda koşuyu başlatmaz —
+başlatsa her portta "cihaz bulunamadı" derdi — ve Ağ ekranına giden bir
+düğme gösterir. Arayüz seçimi kaydedilemezse bu da bir hata olarak bildirilir;
+sessizce yutulduğunda ekran "seçildi" diyor ama sonraki açılış yine soruyordu.
+
+
+
+Sahadan gelen arıza: bilgisayar `10.17.1.222/24`, switch'ler `10.17.1.100` ve
+`10.17.1.101`, intercom'lar ise fabrika adresi olan `10.1.1.12` üzerinde.
+Switch'ler sorunsuz okundu — aynı /24 içindeler. Cihazlar okunamadı: bu
+bilgisayarın `10.1.0.0/16` içinde hiçbir adresi yok, dolayısıyla fabrika
+adresine giden her yoklama **paket makineden çıkmadan** başarısız oldu. Koşu
+bütün portlarda "cihaz bulunamadı" bildirdi; adresi sistem ayarlarından elle
+eklemek gerekti.
+
+Fabrika adresi sete göre değişmez (bir cihaz fabrikadan hangi sete gireceğini
+bilmeden çıkar), bu yüzden projenin kendi ağıyla neredeyse hiçbir zaman aynı
+/24 içinde olmaz. Arıza, yapılandırılmamış her cihazda tekrar eder.
+
+`panel/network` bu adımı üstlenir. Bir koşu, fabrika sıfırlama, tarama veya
+adres haritası başlarken:
+
+1. **Gereken ağlar hesaplanır** (`planning.required_networks`): fabrika
+   adresinin /24'ü, setin kendi ağı, IP ekranında verilen arama aralığı.
+   Bilgisayarın **zaten içinde bulunduğu** ağlar listeden düşülür —
+   `10.1.0.0/16` üzerindeki bir makine `10.1.1.12`'ye zaten erişir.
+2. **Arayüz seçilir** (`adapters.choose`) — ya da seçilmez. Yalnız iki şey
+   sayılır, ikisi de bu makineye ait **olgu**: kullanıcının Ağ ekranındaki
+   seçimi, sonra hedef ağlardan birinde **halihazırda adresi olan** arayüz.
+   Sıra önemli: önce fabrika ağı (`10.1.1.x`) bakılır — bir cihazın geldiği
+   ağ orasıdır ve ilk koşudan sonra panelin kendi `10.1.1.225`'i de o
+   kartadır — sonra switch'lerin ağı.
+
+   **Üçüncü bir cevap yoktur.** Önceki sürüm hiçbiri tutmadığında sıralamaya
+   (taşıyıcı, kablolu, adresli) düşüyordu ve telefonuna bağlanmış bir
+   dizüstünde **telefonu** seçti: adres hiçbir yere gitmeyen bir karta
+   eklendi, koşu eskisi gibi başarısız oldu, ekran ise bir arayüz seçildiğini
+   yazıyordu. Yanlış tahmin, cevapsızlıktan kötüdür — artık hiçbir şey
+   eklenmez, Ağ ekranı arayüzü sorar ve tek tıkla iş biter. Yönlendirme
+   tablosuna da **bakılmaz**: eşleşen yol yokken çekirdeğin cevabı yine
+   varsayılan yolun arayüzü, yani telefondur.
+3. **Adres seçilir** (`planning.choose_host`): varsayılan son oktet `225`,
+   doluysa `226…240`. DeviceMap'in planladığı adresler, fabrika adresi ve
+   bilgisayarın kendi adresleri elenir.
+4. **Adres eklenir** (`aliases.add`). Kayıt **komuttan önce** yazılır: ikisi
+   arasında öldürülen bir süreç de arkasında temizlenecek bir iz bırakır.
+   Komut 0 döndürse bile adres arayüzde **görünmüyorsa** eklenmiş sayılmaz.
+   Kaldırmada da simetrik: komut başarısızsa ve adres hâlâ arayüzdeyse
+   **kayıt silinmez**. Silmek daha kötüydü — adres kartta kalıyor, onu
+   gösteren hiçbir kayıt kalmıyordu, dolayısıyla bir sonraki açılışın
+   temizleyeceği bir şey de yoktu. Yetkisiz bir sürecin, yetkili bir sürecin
+   eklediğini geri alamaması bunu sahada üretti.
+
+| sistem  | ekleme | kaldırma |
+|---------|--------|----------|
+| macOS   | `ifconfig <dev> alias <ip> netmask <maske>` | `ifconfig <dev> -alias <ip>` |
+| Linux   | `ip addr add <ip>/<önek> dev <dev>` | `ip addr del <ip>/<önek> dev <dev>` |
+| Windows | `netsh interface ipv4 add address name=<idx> … store=active` | `netsh … delete address … store=active` |
+
+Windows'ta `store=active` taşıyıcı bir ayrıntı değil: adresi kayıt defterine
+yazmaz, yani süreç öldürülse bile adres yeniden başlatmada gider. `netsh set`,
+`New-NetIPAddress` ve `networksetup` **hiçbir zaman** kullanılmaz; üçü de var
+olan yapılandırmayı değiştirir ya da kalıcı yazar. Yine Windows'ta `netsh`'in
+istediği bağlantı adı `ipconfig` çıktısından okunamaz — blok başlığı yerel
+dilde yazılır — bu yüzden arayüz **indeksi** kullanılır; indeks tek bir
+PowerShell çağrısıyla, sekmeyle ayrılmış ve yerelleştirilmemiş biçimde alınır.
+
+macOS'ta maske **yazma anında** seçilir (`aliases.alias_prefix`), sabit
+değildir. Sebebi: macOS bir alt ağın yolunu onu talep eden adrese bağlar ve
+adres gittiğinde bu bağı korur. Arayüzde zaten aynı /24'ten bir adres varken
+tam maskeyle eklenen alias yolu devralır; `ifconfig -alias` sonra adresi siler
+ama **yolu ona bağlı bırakır**. Arayüz canlı bir adres taşımaya devam eder,
+o ağdaki her yol ölü adresi gösterir ve içindeki her `connect()` anında
+EADDRNOTAVAIL ile düşer. Sahada bir oturum kapandıktan sonra bütün bir /24
+böyle öldü: kırk iki cihazlık tarama, tek bir paket çıkmadan milisaniyelerde
+"cihaza ulaşılamıyor" verdi. Yolu zaten taşıyan bir adres varsa alias `/32`
+alır — host alias yolu hiç sahiplenmez, dolayısıyla öksüz de bırakamaz — tam
+maske yalnızca yolu ilk kuran biz olduğumuzda kullanılır. Kardeş bir `/32`
+"yol var" saymaz, yoksa yol hiç kurulmaz ve her koşuda bir adres birikirdi.
+
+`panel/network/routes.py` bunun ikinci yarısıdır ve hiçbir şey hazırlamaz:
+yönlendirme tablosunu geri okur (`netstat -rnl`, RT_IFA sütunu yalnızca
+BSD'de vardır) ve kaynak adresi artık makinede olmayan ağları bildirir. Bu
+durum onu yaratan süreçten uzun yaşar, adres silen başka araçlarla da
+oluşabilir ve cihaz tarafından bakınca **ölü donanımdan ayırt edilemez** — bir
+öğleden sonraya mal olan da buydu. Her hazırlık adımı bunu kontrol eder ve
+kuyrukta tek bir uyarı satırı olur; onarım ayrıcalıklı route cerrahisi
+gerektirir, yapılmaz, satır ne yapılacağını söyler. Aynı arıza cihaz tarafında
+`panel.errors` içinde EADDRNOTAVAIL olarak yakalanır ve "cihaza ulaşılamıyor"
+yerine bilgisayarı işaret eden kendi mesajını alır.
+
+Adresler oturum boyunca durur — koşudan sonraki tarama, konfigürasyon ve
+firmware ekranları da aynı erişime muhtaçtır — ve uygulama kapanırken
+`panel.api.lifecycle.reset()` içinde geri alınır. Çökme hâlinde kayıt dosyası
+sahipsiz kalır; bir sonraki açılış `sweep_stale()` ile bunları temizler. Kaydın
+sahibi hâlâ yaşıyorsa bu başka bir panel kopyasının işidir ve dokunulmaz.
+
+İşlem **sormadan** yapılır ama sessiz değildir: eklenen her adres kuyrukta bir
+satır olur ve Ağ ekranında listelenir. Başarısızlık işin hatası değil, uyarı
+satırıdır — bilgisayar cihazlara buradan görülemeyen bir yolla erişiyor
+olabilir; erişemiyorsa da işlemin kendi mesajı buradaki tahminden daha çok şey
+söyler.
+
+**Bilinen sınır:** çakışma denetimi DeviceMap ve bilgisayarın kendi adresleri
+üzerinden yapılır. Adresi kullanan üçüncü bir cihaz, adres atanmadan görülemez
+— bir adresi yoklamak için ona giden bir yol gerekir, kurulan şey de tam
+olarak o yoldur. Böyle bir çakışma, koşunun cihazlara erişememesi olarak
+ortaya çıkar. Ağ ekranı bunu yazar.
+
+**"Ağı hazırla" diye bir düğme yoktur ve olmamalıdır.** Bu treni devreye alan
+kişiler ağ mühendisi değil; eksik olanı listeleyip düzeltilmesi için emir
+bekleyen bir ekran, bozuk sanılan bir ekrandır. Hazırlık beş yerde
+kendiliğinden olur:
+
+- uygulama **açılırken** (`lifecycle.start`, kayıtlı ya da güvenle belirlenen
+  arayüz varsa Set 1 fabrika ağı ilk tarama beklenmeden hazırlanır),
+- Ağ ekranını **açmak** (`refresh` doğrudan `POST /api/network/prepare`
+  çağırır — tekrarı zararsızdır, hâlihazırda duran adres `required`
+  içinde değildir),
+- arayüz **seçmek** (`POST /api/network/settings` aynı istekte hazırlar;
+  panel zaten yalnız o cevabı bekliyordu, ardından ikinci bir düğmeye
+  bastırmak kullanıcıya az önce söylediğini onaylatmak olurdu),
+- bir **koşu, fabrika sıfırlama ya da tarama** başlatmak,
+- **tren setini değiştirmek** (yeni setin keşif turu taramayı, tarama da
+  hazırlığı tetikler).
+
+`ensure()` ile arayüz değiştiren `select_adapter()` aynı yeniden girişli
+kilidin altında tercih okuma, gereken ağ hesabı, panelin eski alias'ını
+kaldırma ve yenisini ekleme işlemlerini tek transaction olarak yürütür. Bu,
+arka plandaki bir taramanın en3 için aldığı eski kararı kullanıcı en6'yı
+seçtikten sonra uygulamasını engeller. Kullanıcının/işletim sisteminin eklediği
+adresler `aliases.active()` içinde olmadığı için taşıma adayı değildir.
+
+Ekranda kalan tek düğme "Geri al"dır: eklenen adresi geri almanın başka yolu
+yoktur, eklemenin ise dört yolu vardır.
+
+Ağ ekranı ayrıca şunları gösterir: kullanılan arayüz ve seçici, arayüze
+verilen adres (`10.1.1.225/24`), gereken ağlar ve panelin eklediği adresler
+(tek tek ya da topluca geri alma). Son oktet, önek ve "koşudan önce otomatik
+hazırla" ayarları kaldırılmıştır; panel her zaman `.225/24` ekler ve hazırlığı
+gerektiğinde kendiliğinden yapar. Panelin eklemediği hiçbir adres buradan
+değiştirilemez ya da kaldırılamaz.
+
+**Testler bu makineyi yapılandırmaz.** Tarama ve IP koşusu sahte cihazlarla
+uçtan uca çalıştırıldığı ve bu işler başlarken ağı hazırladığı için
+`ifconfig alias` gerçekten çalıştı: `unittest discover` bir geliştiricinin
+canlı arayüzüne dört adres bıraktı. `panel.network.aliases.WRITES_ALLOWED`
+(çevre değişkeni `PANEL_NETWORK_WRITES`) bunun için var; test paketi
+`tests/support/base.py` içinde kapatır, yazma yolunu sınayan testler sahte
+komutun etrafında yeniden açar.
+
 ### Tren seti değiştirme
 
 Üst bardaki `SET n`, `1` ile `254` arasında tam sayı kabul eden bir sayı
@@ -1040,7 +1556,7 @@ için iptal istenir, ardından yeni set yüklenir ve ilk keşif turu planlanır.
 
 ### Yazılım yükleme = cihaz başına dosya
 
-Dosya **her cihaz için ayrı** seçilir (`core/firmware.py`, cihaz kimliğine
+Dosya **her cihaz için ayrı** seçilir (`panel/firmware/selection.py`, cihaz kimliğine
 göre bir sözlük). Sahada bir intercom farklı bir donanım revizyonundan
 olabiliyor ve grubun geri kalanıyla aynı .bin'i almıyor; tek bir "seçili
 dosya" tutulduğunda bu görünmüyor, yanlış imaj sessizce gidiyordu.
@@ -1057,6 +1573,13 @@ süzgeci ve ekrandaki yardım metni oradan beslenir. APK bekleyen cihaza
 .bin seçtirmenin anlamı yok, karışık seçim de tek dosyayla karşılanamaz
 (uç 400 döner).
 
+macOS AppleScript'teki `of type {"apk"}` ifadesi bir uzantı değil UTI
+süzgecidir. Android Studio bulunmayan makinelerde APK dinamik `public.data`
+olarak sınıflanabildiği için dosya görünse bile seçilemiyordu. macOS seçicisi
+bu nedenle dosyaları UTI ile elemez; seçilen yolun beklenen `.apk`/`.bin`
+uzantısı API sınırında yeniden ve kesin olarak doğrulanır. Boyut sınırları da
+formata göredir: `.bin` için 32 MiB, tek dosyalı `.apk` için 512 MiB.
+
 APK tarafının ayrıntıları:
 
 - Kurulum cihazı yeniden başlatmaz, yalnız uygulama yeniden kurulur;
@@ -1067,8 +1590,17 @@ APK tarafının ayrıntıları:
   bazı cihazlarda düşürme kapalı ve komutun tamamı reddediliyor).
 - `adb install` çıktısındaki bilinen hata kodları tek satırlık Türkçe
   mesaja çevrilir (`firmware._kurulum_hatasi`).
-- Kurulum başarılı görünüp `com.piton.train_lcd_panel` sürümü
-  okunamıyorsa iş başarısız sayılır: APK başka bir pakete ait olabilir.
+- Seçilen APK'nın `AndroidManifest.xml` kaydından paket kimliği ve sürümü
+  bağımlılıksız okunur. Kurulumdan önce ve sonra `dumpsys package` tam bu
+  kimlikle çağrılır; böylece geçici bir test uygulaması sabit panel paket adı
+  sanılmaz. `adb install` yalnız sıfır çıkış kodu, tek başına `Success` satırı
+  ve kurulum sonrasında seçilen paketin okunması birlikte gerçekleşirse
+  başarılıdır. Karşılaştırılan sürüm **APK'nın kendi manifestindeki**
+  sürümdür; elle girilen bir "beklenen sürüm" yoktur. Böyle bir alan vardı ve
+  kaldırıldı: dosyanın zaten söylediğini tekrar ediyor, yanlış yazıldığında da
+  başarılı bir kurulumu hata gösteriyordu.
+- Yalnız tek `.apk` paketi desteklenir. `.xapk`, `.apks`, `.apkm` veya ayrı
+  OBB dosyası gerektiren oyun/uygulama dağıtımları bu yükleyiciye verilmez.
 
 **Koşu paraleldir.** Cihazlar birbirinden bağımsız (her biri kendi
 dosyasını alıyor, kendi doğrulamasını bekliyor); sırayla yapmak bütün
@@ -1081,7 +1613,7 @@ kesilmez (yarıda kesilen firmware cihazı kullanılamaz bırakır).
 Dosya **işletim sisteminin kendi penceresinden** seçilir: tarayıcı sanal
 alanı `<input type=file>` seçiminin gerçek yolunu vermiyor, panel de
 imajı kopyalamıyor — yalnız yolunu tutuyor. Satırdaki "Seç" düğmesi
-`POST /api/firmware/sec` çağırır; sunucu `core/dosya.sec` ile seçiciyi
+`POST /api/firmware/pick` çağırır; sunucu `panel/system/files.pick_file` ile seçiciyi
 açar (macOS `osascript`, Windows `OpenFileDialog`, Linux
 `zenity`/`kdialog`), dönen yolu doğrular ve hedef cihazlara atar. İstek
 kullanıcı seçim yapana kadar, en fazla 300 saniye bekler. Kullanıcı vazgeçerse
@@ -1090,10 +1622,10 @@ yoksa işlem açık bir hata mesajıyla sonlanır. Yol arayüzde elle yazılmaz.
 
 Olağan durum (bütün gruba aynı imaj) için ekranın üstünde tek bir düğme
 var: aynı uç grup adıyla çağrılır ve dosya gruptaki her cihaza atanır.
-Satırdaki "Değiştir" yalnız o cihazı etkiler, "×" seçimi kaldırır. Hedef
-sürüm `POST /api/firmware/surum` ile dosyaya dokunmadan değişir.
+Satırdaki "Değiştir" yalnız o cihazı etkiler, "×" seçimi kaldırır. Bir seçim
+yalnız dosyayı taşır; yanında saklanan başka bir değer yoktur.
 
-`POST /api/firmware/dosya` (yolun doğrudan sunucuya verildiği uç) arayüzde
+`POST /api/firmware/file` (yolun doğrudan sunucuya verildiği uç) arayüzde
 kullanılmaz; penceresiz çalıştırma ve testler için korunur.
 
 İstek cihazın kendi arayüzünün gönderdiğiyle birebir aynıdır:
@@ -1107,13 +1639,15 @@ Kurallar:
   Compartment LCD). Başka bir gruba dosya atanmaz — uç 400 döner.
 - **Dosyası olmayan cihaz kuyruğa girmez.** Yükleme ucu yalnız seçimi
   olanları işe koyar; hiç yoksa iş hiç oluşmaz (400).
-- Dosya yolu girildiği anda doğrulanır (var mı, boş mu, 32 MB sınırı) ve
-  yükleme anında bir kez daha bakılır: seçimden sonra silinmiş olabilir.
+- Dosya yolu girildiği anda doğrulanır (var mı, boş mu, beklenen uzantı ve
+  formata özgü boyut sınırı) ve yükleme anında bir kez daha bakılır: seçimden
+  sonra silinmiş olabilir.
 - Seçim **yalnız bellektedir**; panel imajı kendi dizinine kopyalamaz,
   kapanışta seçim gider (bkz. `panel_api.temizle`).
-- HTTP 200 başarı sayılmaz: cihaz yeniden başlar, sürümü tekrar okunur ve
-  hedef sürüm girilmişse onunla karşılaştırılır. Kuyruk satırında hangi
-  dosyanın gittiği yazar.
+- HTTP 200 başarı sayılmaz: cihaz yeniden başlar ve sürümünü **bildirmek
+  zorundadır**. `.bin` tarafında karşılaştırılacak elle girilmiş bir değer
+  yoktur; APK tarafında manifest sürümü karşılaştırılır. Kuyruk satırında
+  hangi dosyanın gittiği yazar.
 
 ### Tarama sırasında canlı durum
 
@@ -1152,9 +1686,69 @@ kullanılmaz (bkz. bölüm 4).
   değer doğrudan API çağrısına verilir, yanıt döner dönmez alan temizlenir.
 - Temel tasarım 1440×900. Kenar çubuğu 1080 px altında üste biner ve
   açılır kapanır olur; geniş tablolar kendi içinde yatay kayar; sayfa
-  gövdesi hiç yatay kaymaz.
+  gövdesi hiç yatay kaymaz. Dört kırılma noktası vardır — 1080 / 900 / 720 /
+  620 — ve beşincisi eklenmez: birbirine iki-üç piksel uzaklıktaki eşikler
+  hiçbir davranış farkı taşımıyordu.
 - İkon düğmelerinin `aria-label`'ı vardır, diyaloglarda odak tuzağı ve
   Escape çalışır, kilit/kuyruk panelleri `aria-expanded` bildirir.
+
+### Renk ve yazı: tek kaynak, ölçülen eşik
+
+- Bütün renk ve boyut jetonları `static/css/base.css` içindeki tek `:root`
+  bloğundadır. **Metin taşıyan her jeton `--bg` ve `--panel` üzerinde en az
+  4.5:1 kontrasta sahiptir**, göz kararıyla değil ölçülerek;
+  `tests/test_frontend.py` altına düşeni reddeder. `--text-dim` aylarca
+  3.38:1'deydi ve panelin en yaygın ikincil rengiydi.
+- **Dolgu rengi ile metin rengi ayrı jetonlardır.** `--ok/-auth/-failed/
+  -unknown` nokta, kenar ve port grafiği boyar; bir KELİME `--ok-text`,
+  `--auth-text`, `--failed-text`, `--unknown-text` ile yazılır. Kırmızı dolgu
+  (3.7:1) ve gri, okunacak kadar açık değil.
+- **Yazı boyutu yalnız `--fs-*` ölçeğinden seçilir** ve `rem`'dir; sekiz
+  basamak var, en küçüğü 11 px. Bir ekran kendi boyutunu yazmaz — ne CSS'te
+  `px` ne JS'te satır içi. Eskiden 22 ayrı değer ve 49 satır içi boyut vardı;
+  on bir basamak beş pikselin içine sıkışmıştı, yani hiçbir şey anlatmıyordu.
+  Kapı yine `tests/test_frontend.py`'de.
+
+### Ekran değişimi görülmeyene de söylenir
+
+- Görünüm değiştiğinde odak `#content`'e taşınır, tek `h1` ve
+  `#route-status` canlı bölgesi ekranın adını taşır (`app.js:announceView`).
+  Öncesinde odak menü düğmesinde kalıyor, ekran okuyucuya hiçbir şey
+  duyurulmuyordu. `#toast` bu işi yapamaz: tek slotludur ve iş kuyruğunun
+  kendi mesajları üzerine yazar.
+- İçerik `<main>`'dir, sayfanın ilk sekmesi "İçeriğe atla" bağlantısıdır.
+
+### Izgaralar tablodur
+
+- Dokuz veri ızgarasının hepsi `components/table.js` içindeki `dataTable`
+  üzerinden kurulur. Görsel yerleşim CSS ızgarasıdır, ama `role="table"`,
+  `role="row"`, `role="columnheader"` ve `role="cell"` nitelikleri kurucu
+  tarafından eklenir — çağıran satırı eskisi gibi kurar, rolleri hatırlamak
+  zorunda değildir.
+- `dom.js:preserveScroll` `.table-wrap` düğümlerini **belge sırasına göre**
+  eşleştirir; sarmalayıcı sayısı değişirse yatay kaydırma sessizce bozulur.
+
+### Yazma işleminden önce sorulur
+
+- **Cihazı yeniden başlatan, adresini değiştiren ya da beslemesini kesen her
+  işlem** `components/confirm.js` içindeki `confirmWrite` ile onay ister ve
+  kaç cihazı, hangi portları etkilediğini yazar. Odak "Vazgeç"tedir, yani
+  Enter ve Escape ikisi de "hayır" demektir.
+- Kural eskiden hafızayla uygulanıyordu ve ters işliyordu: yazılım yükleme ve
+  fabrika sıfırlama soruyordu, "IP atamayı başlat" ile "12 cihaza uygula"
+  sormuyordu — panelin en ağır iki işlemi, soru sormayan iki işlemdi.
+
+### Hata ekranda kalır
+
+- `showError` **kendiliğinden kaybolmaz**; kapatma düğmesi taşır ve üst üste
+  gelen mesajlar yığılır (en fazla üç). Bildirimlerin yarısından çoğu
+  reddedilmiş bir yazmayı anlatıyor; altı saniye sonra silinen ve bir sonraki
+  "iş kuyruğa alındı" mesajının üzerine yazdığı bir hata, hiç gösterilmemiş
+  sayılır. Başarı ve bilgi mesajları eskisi gibi solar.
+- Bir satırın NEDEN başarısız olduğu görünür metindir, `title` değil: fare
+  ipucu klavyeyle okunamaz, ekran okuyucuya gitmez ve ekran görüntüsüne
+  girmez. Kuyrukta bu not yalnız başarısız/uyarı/atlanmış satırlarda çıkar —
+  hepsinde çıkarsa liste okunmaz hâle geliyordu.
 
 ---
 
@@ -1174,31 +1768,31 @@ test altyapısıdır; uygulama hiçbir koşulda sahte cihaz üretmez.**
 | 1 | Çalışan hesap iki panelde de doğrulanır | `test_switch.py` |
 | 2 | Yanlış switch parolası başarı sayılmaz | `test_switch.py` |
 | 3 | HTTP 200 dönen oturum açma HTML'i kabul edilmez | `test_switch.py` |
-| 4 | 401/403 cihazı kilit listesine düşer | `test_kimlik.py` |
-| 5 | Doğru bilgi → yeşil + kilitten çıkar | `test_kimlik.py` |
-| 6 | Yanlış bilgi RAM kimliğini ezmez | `test_kimlik.py` |
-| 7 | Kapanışta RAM deposu temizlenir | `test_kimlik.py` |
-| 8 | Yeni süreçte önceki parolalar yok | `test_kimlik.py` |
-| 9 | Oturumda girilen cihaz erişim parolası dosyaya yazılmaz | `test_guvenlik.py` |
-| 10 | API ve kuyruk satırları parolasız | `test_guvenlik.py` |
+| 4 | 401/403 cihazı kilit listesine düşer | `test_credentials.py` |
+| 5 | Doğru bilgi → yeşil + kilitten çıkar | `test_credentials.py` |
+| 6 | Yanlış bilgi RAM kimliğini ezmez | `test_credentials.py` |
+| 7 | Kapanışta RAM deposu temizlenir | `test_credentials.py` |
+| 8 | Yeni süreçte önceki parolalar yok | `test_credentials.py` |
+| 9 | Oturumda girilen cihaz erişim parolası dosyaya yazılmaz | `test_security.py` |
+| 10 | API ve kuyruk satırları parolasız | `test_security.py` |
 | 11 | Aynı adlı farklı IP'li switch karışmaz | `test_switch.py` |
-| 12 | Eski cevap yeni doğrulamayı ezmez | `test_kimlik.py` |
-| 13 | Çift tıklama iki iş oluşturmaz | `test_kuyruk.py` |
-| 14 | Aktif tarama varken ikincisi başlamaz | `test_kuyruk.py` |
-| 15 | Kamera 401 kilit akışına girer | `test_kimlik.py` |
-| 16 | Zaman aşımı ≠ yanlış parola | `test_kimlik.py` |
-| 17 | Kimlik isteğinde hedef, istemci IP'sinden değil DeviceMap'ten alınır | `test_guvenlik.py` |
-| 18 | İptal işi kontrollü sonlandırır | `test_kuyruk.py` |
-| 19 | Ön yüz statik ve söz dizimi denetimi | `test_arayuz.py` |
+| 12 | Eski cevap yeni doğrulamayı ezmez | `test_credentials.py` |
+| 13 | Çift tıklama iki iş oluşturmaz | `test_jobs.py` |
+| 14 | Aktif tarama varken ikincisi başlamaz | `test_jobs.py` |
+| 15 | Kamera 401 kilit akışına girer | `test_credentials.py` |
+| 16 | Zaman aşımı ≠ yanlış parola | `test_credentials.py` |
+| 17 | Kimlik isteğinde hedef, istemci IP'sinden değil DeviceMap'ten alınır | `test_security.py` |
+| 18 | İptal işi kontrollü sonlandırır | `test_jobs.py` |
+| 19 | Ön yüz statik ve söz dizimi denetimi | `test_frontend.py` |
 | 20 | Hepsi tek komutla çalışır | yukarıdaki komut |
 
-Ek olarak `tests/test_ilerleme.py`: IP atama koşusunun çıktısını gerçek
+Ek olarak `tests/test_progress.py`: IP atama koşusunun çıktısını gerçek
 bir saha günlüğünden oynatıp aynı anda tek portun çalıştığını, portların
 koşu içinde kapandığını, yüzdenin aşama payına göre ilerleyip geri
 gitmediğini ve satır altı adımların doğru porta yazıldığını doğrular
 (bkz. §9 "IP atama koşusunun ilerlemesi").
 
-Ek olarak `tests/test_yetki.py`: yükseltilmiş yetki akışı — hangi platformda
+Ek olarak `tests/test_elevation.py`: yükseltilmiş yetki akışı — hangi platformda
 hangi komutla yükseltildiği (paketlenmiş uygulamada `argv[0]`'ın tekrar
 verilmemesi dahil), kullanıcının istemi reddetmesinin nasıl bildirildiği ve
 "çıkış" seçildiğinde hiçbir servisin kurulmadığı. Testler pencere AÇMAZ.

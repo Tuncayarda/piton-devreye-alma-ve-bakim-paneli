@@ -46,3 +46,64 @@ export function show({ title, content, actions = [], width, onClose }) {
 }
 
 export function isOpen() { return open !== null; }
+
+// ── the two question shapes the panel asks ───────────────────────────────
+// `show()` hands control to the buttons; these hand it back to the caller.
+// A flow that has to CONTINUE after the answer — enter admin mode, then
+// redraw; pick a project, then reload it — reads as a straight line that
+// way instead of as a pair of callbacks, and the "closed without choosing"
+// case cannot be forgotten: it is the same `false`/`null` as declining.
+
+/** Yes or no. Cancel takes focus, so Enter and Escape both mean no. */
+export function ask({ title, body, confirm, cancel }) {
+  return new Promise((resolve) => {
+    let answer = false;
+    show({
+      title,
+      content: el('p', { class: 'description', text: body }),
+      actions: [
+        el('button', {
+          type: 'button', class: 'btn', text: cancel,
+          onclick: () => close(),
+        }),
+        el('button', {
+          type: 'button', class: 'btn btn-primary', text: confirm,
+          onclick: () => { answer = true; close(); },
+        }),
+      ],
+      onClose: () => resolve(answer),
+    });
+  });
+}
+
+/**
+ * One of several. `options` is [{ value, label, note, disabled }] — a
+ * disabled entry is still LISTED, with its note saying why, because leaving
+ * it out turns "you cannot have this yet" into "this does not exist".
+ * Resolves to null when nothing was chosen.
+ */
+export function pick({ title, options, cancel }) {
+  return new Promise((resolve) => {
+    let answer = null;
+    show({
+      title,
+      content: el('div', { class: 'pick-list' }, options.map(option => el(
+        'button', {
+          type: 'button', class: 'pick-item', disabled: !!option.disabled,
+          onclick: () => { answer = option.value; close(); },
+        }, [
+          el('span', { class: 'pick-label', text: option.label }),
+          option.note
+            ? el('span', { class: 'pick-note', text: option.note })
+            : null,
+        ]))),
+      actions: [
+        el('button', {
+          type: 'button', class: 'btn', text: cancel,
+          onclick: () => close(),
+        }),
+      ],
+      onClose: () => resolve(answer),
+    });
+  });
+}

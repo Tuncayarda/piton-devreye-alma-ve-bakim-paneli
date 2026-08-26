@@ -27,6 +27,24 @@ export function switchStateLabel(state) {
   return key ? t(key) : String(state || '');
 }
 
+// A panel DTO may exist even when the switch did not answer: the server then
+// draws the physical layout from DeviceMap and marks its source accordingly.
+// That fallback is useful for orientation, but it is not proof that an IP run
+// can reach the switch. Keep this check pure so readiness cannot accidentally
+// treat a DeviceMap panel as live switch data.
+export function activePanelError(panel, plannedSwitch, loading = false) {
+  if (!panel) {
+    return !loading && plannedSwitch ? t('ip.switchUnreachable') : '';
+  }
+  if (panel.hasCredentials === false) {
+    return t('ip.noSwitchCredentials', { switch: panel.switchName });
+  }
+  if (panel.source !== 'switch') {
+    return panel.note || t('ip.switchUnreachable');
+  }
+  return '';
+}
+
 export function formatPorts(ports) {
   const sorted = [...new Set(ports.map(Number))]
     .filter(Number.isInteger).sort((a, b) => a - b);
@@ -94,7 +112,7 @@ export function isIpv4(text) {
 }
 
 // A mask can be written as 255.255.255.0 or as "24".
-function maskPrefix(text) {
+export function maskPrefix(text) {
   const raw = String(text || '').trim();
   if (/^\d{1,2}$/.test(raw)) {
     const n = Number(raw);
@@ -107,6 +125,24 @@ function maskPrefix(text) {
 }
 
 export const SEARCH_LIMIT = 512;   // same as ip_assign.SEARCH_LIMIT
+
+// The mask written together with the newly assigned address. It is normally
+// the project's /24, but a display commissioned on a bench is sometimes given
+// a /8 so it stays reachable from the whole 10.0.0.0 range. Empty means "use
+// the plan's default" and is not an error.
+//
+// The bounds mirror panel/ip_assign/addressing.py; the server checks them
+// again, this only saves the round trip.
+export function validateTargetMask(text, low = 8, high = 30) {
+  const raw = String(text || '').trim().replace(/^\//, '');
+  if (!raw) return '';
+  const prefix = maskPrefix(raw);
+  if (prefix === null) return t('ip.maskInvalid');
+  if (prefix < low || prefix > high) {
+    return t('error.targetMaskOutOfRange', { low, high });
+  }
+  return '';
+}
 
 function ipNumber(text) {
   return String(text).trim().split('.')

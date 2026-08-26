@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .. import i18n, settings
 from ..errors import AuthError, DeviceError, user_message
+from .guard import refusal
 from .lifecycle import start
 from .response import ApiResponse, respond
 from .routes import GET_ROUTES, POST_ROUTES
@@ -57,17 +58,28 @@ class PanelService:
                 handler = GET_ROUTES.get(url.path)
                 if handler is None:
                     return respond(404, {"error": i18n.t("error.unknownPath")})
-                return handler(resolved_query)
+                # Checked here rather than inside the handlers: one choke
+                # point cannot be forgotten by the next route added.
+                return refusal(url.path) or handler(resolved_query)
             if verb == "POST":
                 handler = POST_ROUTES.get(url.path)
                 if handler is None:
                     return respond(404, {"error": i18n.t("error.unknownPath")})
-                return handler(self._validate_body(body))
+                checked = self._validate_body(body)
+                return refusal(url.path, checked) or handler(checked)
             return respond(405, {"error": "unsupported method"})
         except LookupError as exc:
             return respond(404, {"error": str(exc)})
         except ValueError as exc:
             return respond(400, {"error": str(exc)})
+        except FileNotFoundError as exc:
+            # A DeviceMap that is not there. Not an unexpected fault: a
+            # package whose own device list has not been delivered yet is a
+            # real state now (see panel.editions), and every screen already
+            # knows how to show "DeviceMap not found". Reported as a missing
+            # thing rather than as a crash, so the screen says what is wrong
+            # instead of "an unexpected problem".
+            return respond(404, {"error": str(exc)})
         except AuthError as exc:
             return respond(401, {"error": user_message(exc), "auth": True})
         except DeviceError as exc:

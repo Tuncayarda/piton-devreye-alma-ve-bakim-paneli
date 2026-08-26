@@ -2,8 +2,11 @@
 """The IP assignment run and the factory-reset helper."""
 from __future__ import annotations
 
+from ... import credentials as credential_store
 from ... import ip_assign, jobs
+from ...errors import AuthError
 from ...system import files
+from .network_prepare import prepare_network
 from ... import i18n
 
 
@@ -83,7 +86,17 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
         # field. That is not a warning to lose among queue rows; it becomes
         # the job's error so the user sees they must open them by hand.
         left_closed = {"value": False}
-        plan = ip_assign.build_plan(inventory, groups, ports, switch_id)
+        # Before anything else: the run cannot find a device it has no route
+        # to, and the factory address is on another network by design.
+        prepare_network(job, inventory, options)
+        # The rows say where each port is going, so they have to be built
+        # with the same two sets and mask the run will actually use.
+        plan = ip_assign.build_plan(
+            inventory, groups, ports, switch_id,
+            target_prefix=int(options.get("targetPrefix")
+                              or ip_assign.DEFAULT_TARGET_PREFIX),
+            source_set=int(options.get("sourceSet") or 0),
+            target_set=int(options.get("targetSet") or 0))
         log_file = files.log_path(f"ip-assign-set{inventory.set_no}")
         log = log_file.open("w", encoding="utf-8")
 
@@ -121,10 +134,22 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
         # so writing to the wrong one is possible and has happened in the
         # field (see ip_assign.audit_identities).
         audit = None
-        if not job.cancel.is_set():
+        # The identity audit reads an Intercom's HTTP settings and compares
+        # its SIP extension. A Compartment LCD is identified inside its ADB
+        # runner by serial + switch port; sending it through this HTTP audit
+        # would turn a successful Android run into a false warning.
+        intercom_groups = [name for name in groups if name == "Intercom"]
+        intercom_ports = []
+        if intercom_groups:
+            intercom_plan = ip_assign.build_plan(
+                inventory, intercom_groups, ports, switch_id)
+            intercom_ports = [row["port"] for row in intercom_plan["rows"]
+                              if row.get("actionable")]
+        if not job.cancel.is_set() and intercom_ports:
             try:
-                audit = ip_assign.audit_identities(inventory, switch_id, ports,
-                                                   groups, options)
+                audit = ip_assign.audit_identities(
+                    inventory, switch_id, intercom_ports,
+                    intercom_groups, options)
             except Exception as exc:               # noqa: BLE001
                 job.add_row("identity", i18n.lazy("job.identityUnverified"),
                             state="warning", note=_short_error(exc))
@@ -147,6 +172,58 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
     return body
 
 
+def lcd_manual_task(inventory, switch_id, port, protected, options):
+    """Write one typed address to the display on one switch port.
+
+    The bench flow (see ip_assign.lcd_runner.run_manual). It reports through
+    the same per-port queue rows as the ordinary run — one row — so the steps
+    the operator reads while a port is worked on are identical.
+    """
+    def body(job: jobs.Job):
+        prepare_network(job, inventory, options)
+        switch = inventory.find(switch_id)
+        if switch is None or switch.type != "Switch":
+            raise ValueError(i18n.t("error.switchNotFound"))
+        ip_assign.assert_not_protected([port], protected)
+        account = credential_store.lookup(switch.id, switch.ip,
+                                          group="switch")
+        if not account:
+            raise AuthError(i18n.t("error.noSwitchCredentials",
+                                   switch=switch.name))
+
+        target_ip = str(options.get("targetIp") or "")
+        rows = [{"port": port, "name": i18n.t("ip.lcdManualRowName"),
+                 "targetIp": target_ip, "actionable": True}]
+        log_file = files.log_path(f"lcd-assign-set{inventory.set_no}")
+        log = log_file.open("w", encoding="utf-8")
+        progress = ip_assign.RunProgress(
+            job, rows, log=lambda line: (log.write(line + "\n"), log.flush()))
+        left_closed = {"value": False}
+
+        def emit(text: str):
+            event = ip_assign.parse_event(text.strip())
+            if event and event.get("event") == "ports_left_closed":
+                left_closed["value"] = True
+            progress.line(text)
+
+        try:
+            code = ip_assign.run_lcd_manual(
+                inventory, switch, port, account, emit, options,
+                cancelled=job.cancel.is_set)
+        finally:
+            progress.finish()
+            log.close()
+            job.add_row("log", log_file.name, state="done",
+                        note=i18n.lazy("job.rawOutput"), path=str(log_file))
+
+        if left_closed["value"]:
+            job.error = i18n.lazy("ip.portsLeftClosed", switch=switch.ip)
+        elif code and code != 130:
+            job.error = _run_summary_error(job.counts(), code)
+
+    return body
+
+
 def factory_reset_task(inventory, switch_id, ports, groups, options):
     """Test flow: put the selected devices back on the factory address.
 
@@ -155,6 +232,10 @@ def factory_reset_task(inventory, switch_id, ports, groups, options):
     here.
     """
     def body(job: jobs.Job):
+        # Same reason as the assignment run: this operation moves devices ONTO
+        # the factory address and then confirms them there, so the computer
+        # needs to be able to reach it.
+        prepare_network(job, inventory, options)
         summary = ip_assign.reset_to_factory(
             inventory, switch_id, ports, groups, job,
             options=options, cancelled=job.cancel.is_set)

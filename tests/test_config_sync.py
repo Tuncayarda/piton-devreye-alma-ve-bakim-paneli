@@ -13,6 +13,7 @@ import json
 
 from panel import config_sync, settings
 from panel.config_sync import apply as apply_module
+from panel.inventory import device_map
 from panel.config_sync import fields as field_table
 from panel.errors import VerificationError
 
@@ -798,3 +799,204 @@ class SipPassword(ServiceTest):
 if __name__ == "__main__":
     import unittest
     unittest.main()
+
+
+class CompartmentLcdSettings(PanelTest):
+    """The display's one writable setting: its own address.
+
+    Everything else on this screen goes to an HTTP endpoint the device's web
+    UI also posts to. An Android display has no such API, so its row is
+    written over ADB — and the rule that decides success is the same one the
+    commissioning run uses: the SAME serial has to answer at the NEW address
+    with nothing else left on eth0.
+    """
+
+    def build(self, ip="10.n.1.40"):
+        topology = fakes.device_map([{
+            "Name": "Compartment_Lcd_1", "IP": ip, "IsActive": True,
+            "Type": "LCD", "SubType": "Compartment", "Port": "13",
+            "PBXExtension": "6001", "Status": {},
+        }])
+        inventory = self.build_map(topology)
+        return inventory, inventory.by_type("LCD")[0]
+
+    def fake_display(self, address="10.1.1.40", prefix=24, serial="LCD-40"):
+        """A display that really moves when its address is written."""
+        state = {"address": address, "prefix": prefix, "serial": serial,
+                 "writes": []}
+
+        def connect(ip, attempts=1):
+            return ip == state["address"]
+
+        def addresses(ip):
+            return {f"{state['address']}/{state['prefix']}"}
+
+        def write_address(ip, target_ip, prefix):
+            state["writes"].append((ip, target_ip, prefix))
+            state["address"] = target_ip
+
+        self.patch_module(connect=connect, addresses=addresses,
+                          serial_of=lambda ip: state["serial"],
+                          write_address=write_address,
+                          disconnect=lambda ip: None)
+        return state
+
+    def patch_module(self, **members):
+        from panel.config_sync import adb_network
+        previous = {}
+        for name, value in members.items():
+            previous[name] = getattr(adb_network.lcd_runner, name)
+            setattr(adb_network.lcd_runner, name, value)
+        self.addCleanup(lambda: [setattr(adb_network.lcd_runner, name, value)
+                                 for name, value in previous.items()])
+
+    def read_reports(self, version="0.0.5", serial="LCD-40"):
+        from panel.probe import android
+        previous = android.read
+        android.read = lambda ip, timeout=None: {
+            "serial": serial, "version": version,
+            "sipRegistration": "registered", "sipExtension": "6001",
+        }
+        self.addCleanup(lambda: setattr(android, "read", previous))
+
+    def test_a_display_offers_its_address_and_nothing_else_to_write(self):
+        self.assertEqual(
+            field_table.writable_for_scope("Compartment"), ("ipAddress",))
+        self.assertEqual(
+            field_table.endpoint_for("ipAddress", "Compartment"),
+            field_table.ADB_NETWORK)
+        # And the ADB marker is never in the HTTP write loop's order.
+        self.assertNotIn(field_table.ADB_NETWORK, field_table.ENDPOINT_ORDER)
+
+    def test_the_screen_shows_the_address_eth0_really_holds(self):
+        inventory, device = self.build()
+        self.fake_display(address="10.1.1.40")
+        self.read_reports()
+
+        rows = {row["field"]: row
+                for row in config_sync.fetch(device, inventory)["rows"]}
+
+        self.assertEqual(rows["ipAddress"]["current"], "10.1.1.40")
+        # DeviceMap says where it SHOULD be; the display is still on set 1.
+        self.assertEqual(rows["ipAddress"]["target"], "10.1.1.40")
+        self.assertEqual(rows["version"]["current"], "0.0.5")
+        self.assertEqual(rows["serial"]["current"], "LCD-40")
+        self.assertEqual(rows["sipRegistration"]["current"], "registered")
+
+    def test_the_devicemap_target_is_resolved_for_the_open_set(self):
+        """`extra["IP"]` holds the TEMPLATE "10.n.1.40".
+
+        Offering that as the target would ask the screen for an address that
+        cannot exist; what the display should hold is the template resolved
+        for the set that is open.
+        """
+        self.build()
+        seven = device_map.load(7, self.map_path, cache=False)
+        device = seven.by_type("LCD")[0]
+        self.assertEqual(device.ip, "10.7.1.40")
+        self.fake_display(address="10.7.1.40")
+        self.read_reports()
+
+        rows = {row["field"]: row
+                for row in config_sync.fetch(device, seven)["rows"]}
+
+        self.assertEqual(rows["ipAddress"]["target"], "10.7.1.40")
+        # With the template offered instead, this row would read "differs"
+        # against an address no device can hold.
+        self.assertEqual(rows["ipAddress"]["comparison"], "match")
+
+    def test_an_entered_address_is_written_and_read_back_at_the_new_one(self):
+        inventory, device = self.build()
+        state = self.fake_display(address="10.1.1.40")
+        self.read_reports()
+        config_sync.set_target(device.id, "ipAddress", "10.1.1.44",
+                              "Compartment", set_no=inventory.set_no)
+
+        result = config_sync.apply_targets(device, inventory)
+
+        self.assertEqual(state["writes"], [("10.1.1.40", "10.1.1.44", 24)])
+        rows = {row["field"]: row for row in result["rows"]}
+        self.assertEqual(rows["ipAddress"]["current"], "10.1.1.44")
+        self.assertEqual(result["writtenFields"], ["IP address"])
+
+    def test_the_mask_the_display_is_using_is_preserved(self):
+        """Changing the mask is a commissioning decision, not a settings row."""
+        inventory, device = self.build()
+        state = self.fake_display(address="10.1.1.40", prefix=8)
+        self.read_reports()
+        config_sync.set_target(device.id, "ipAddress", "10.1.1.44",
+                              "Compartment", set_no=inventory.set_no)
+
+        config_sync.apply_targets(device, inventory)
+
+        self.assertEqual(state["writes"], [("10.1.1.40", "10.1.1.44", 8)])
+
+    def test_an_address_that_already_matches_sends_no_command(self):
+        inventory, device = self.build()
+        state = self.fake_display(address="10.1.1.40")
+        self.read_reports()
+
+        result = config_sync.apply_targets(device, inventory)
+
+        self.assertEqual(state["writes"], [])
+        self.assertEqual(result["writtenFields"], [])
+
+    def test_a_different_serial_at_the_new_address_fails_the_write(self):
+        """Two displays swapped on the bench must not read as success."""
+        inventory, device = self.build()
+        state = self.fake_display(address="10.1.1.40")
+        self.read_reports()
+
+        original = state["serial"]
+
+        def moved_serial(ip):
+            return original if ip == "10.1.1.40" else "SOMEONE-ELSE"
+
+        self.patch_module(serial_of=moved_serial)
+        config_sync.set_target(device.id, "ipAddress", "10.1.1.44",
+                              "Compartment", set_no=inventory.set_no)
+
+        with self.assertRaises(VerificationError) as caught:
+            config_sync.apply_targets(device, inventory)
+        self.assertIn("SOMEONE-ELSE", str(caught.exception))
+
+    def test_a_display_with_no_app_still_shows_and_writes_its_address(self):
+        """The display most likely to need repairing is the broken one.
+
+        An unreadable application version fails the ordinary device read, and
+        should. It must not take the one row this screen can write with it.
+        """
+        inventory, device = self.build()
+        state = self.fake_display(address="10.1.1.40")
+        from panel.probe import android
+        previous = android.read
+
+        def explode(ip, timeout=None):
+            raise VerificationError("the app version could not be read")
+
+        android.read = explode
+        self.addCleanup(lambda: setattr(android, "read", previous))
+        config_sync.set_target(device.id, "ipAddress", "10.1.1.44",
+                              "Compartment", set_no=inventory.set_no)
+
+        rows = {row["field"]: row
+                for row in config_sync.fetch(device, inventory)["rows"]}
+        self.assertEqual(rows["ipAddress"]["current"], "10.1.1.40")
+        self.assertEqual(rows["version"]["current"], "")
+        # The serial comes from the display itself, not from the app read.
+        self.assertEqual(rows["serial"]["current"], "LCD-40")
+
+        config_sync.apply_targets(device, inventory)
+        self.assertEqual(state["writes"], [("10.1.1.40", "10.1.1.44", 24)])
+
+    def test_a_leftover_old_address_on_eth0_fails_the_write(self):
+        inventory, device = self.build()
+        self.fake_display(address="10.1.1.40")
+        self.read_reports()
+        self.patch_module(
+            addresses=lambda ip: {"10.1.1.44/24", "10.1.1.40/24"})
+        config_sync.set_target(device.id, "ipAddress", "10.1.1.44",
+                              "Compartment", set_no=inventory.set_no)
+
+        with self.assertRaises(VerificationError):
+            config_sync.apply_targets(device, inventory)

@@ -39,6 +39,17 @@ const MAIN_AREAS = [
     active: v => OPERATION_VIEWS.has(v),
     icon: ['M5 5h10v10H5z', 'M8 8h4M10 6v4'],
   },
+  // The computer's own network. Its own area rather than a corner of the IP
+  // screen: a scan, a configuration write and a firmware upload all fail the
+  // same way when the computer has no address on the devices' network, so it
+  // is not a detail of one operation.
+  {
+    labelKey: 'nav.network', view: 'network',
+    active: v => v === 'network',
+    icon: ['M10 3.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 0 0 0-13',
+           'M3.5 10h13', 'M10 3.5c1.8 1.8 2.7 4.1 2.7 6.5S11.8 14.7 10 16.5',
+           'M10 3.5C8.2 5.3 7.3 7.6 7.3 10s.9 4.7 2.7 6.5'],
+  },
   {
     labelKey: 'nav.verification', view: 'checklist',
     active: v => v === 'checklist',
@@ -51,6 +62,10 @@ const MAIN_AREAS = [
   },
 ];
 
+// The engineer's screens. `admin: true` is only about where the divider goes
+// and how the rail groups them; whether they appear at all is decided by
+// `state.views`, which the server produces and also enforces
+// (panel/editions/catalogue.py, panel/api/guard.py).
 const ADMIN_AREAS = [
   {
     labelKey: 'nav.piscu', view: 'piscu', admin: true,
@@ -66,9 +81,14 @@ const ADMIN_AREAS = [
   },
 ];
 
+// One list, filtered by what this package may show. Not "admin or not": an
+// edition may leave out a field screen too, and the rail should not have to
+// learn a second rule to handle that.
 function areas() {
-  return state.role === 'admin'
-    ? [...MAIN_AREAS, ...ADMIN_AREAS] : MAIN_AREAS;
+  const allowed = state.views || [];
+  if (!allowed.length) return MAIN_AREAS;      // before /api/edition answers
+  return [...MAIN_AREAS, ...ADMIN_AREAS].filter(
+    area => allowed.includes(area.view));
 }
 
 function isSelected(area) {
@@ -105,7 +125,10 @@ function build(root) {
   // on the narrow rail too.
   const content = [];
   list.forEach((area, i) => {
-    if (area.admin && !list[i - 1].admin) {
+    // `list[i - 1]` is undefined at the first entry. It never used to be
+    // reached — MAIN_AREAS was always first — but a filtered list can now
+    // begin with an admin entry, and reading `.admin` off nothing throws.
+    if (area.admin && !(list[i - 1] && list[i - 1].admin)) {
       content.push(el('span', {
         class: 'sidebar-divider', 'aria-hidden': 'true',
       }));
@@ -127,7 +150,13 @@ function build(root) {
     }, content),
     expand,
   ]);
-  built = { role: state.role, list, buttons, expand };
+  built = { signature: signatureOf(list), list, buttons, expand };
+}
+
+// What the rail is currently made of. Compared instead of the old role,
+// because the same mode can produce different rails in different editions.
+function signatureOf(list) {
+  return list.map(area => area.view).join(',');
 }
 
 // Drop the cached structure so the next render rebuilds it — the labels are
@@ -140,7 +169,9 @@ export function render() {
   const root = $('#sidebar');
   if (!root || !state.meta) return;
 
-  if (!built || built.role !== state.role || !root.firstChild) build(root);
+  if (!built || built.signature !== signatureOf(areas()) || !root.firstChild) {
+    build(root);
+  }
 
   const wide = !!state.sidebarOpen;
   root.dataset.wide = wide ? '1' : '0';

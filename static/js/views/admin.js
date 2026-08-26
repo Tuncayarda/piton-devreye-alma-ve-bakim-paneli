@@ -6,10 +6,12 @@
 // memory.
 
 import { el, fill } from '../core/dom.js';
+import { dataTable } from '../components/table.js';
 import { api } from '../core/api.js';
-import { state } from '../core/store.js';
+import { state, publish } from '../core/store.js';
 import { showSuccess, showError } from '../components/toast.js';
-import { value } from '../core/format.js';
+import { confirmWrite } from '../components/confirm.js';
+import { value, fileSize } from '../core/format.js';
 import { t } from '../core/i18n.js';
 
 const COLUMNS = 'minmax(140px,1.3fr) minmax(120px,1fr) 76px 110px 96px';
@@ -49,11 +51,155 @@ function setBox(meta, changeSet) {
       }),
     ]),
     el('p', {
-      class: 'mono text-dim',
-      style: 'margin-top:9px;font-size:10.5px;line-height:1.6',
+      class: 'mono text-dim t-xs',
+      style: 'margin-top:9px;line-height:1.6',
       text: t('admin.validRange', { min, max }),
     }),
   ]);
+}
+
+// ── the service key ─────────────────────────────────────────────────────
+// Two ways onto a stick, and they are not the same act.
+//
+//   Erase and write   wipes the whole drive, lays down FAT32, then writes
+//                     the key. This is the one operation in the panel that
+//                     destroys data outside its own files, so it names the
+//                     drive and its size and asks in red.
+//   Write onto        drops the key file onto a drive that is already
+//   a prepared drive  mounted. Three hundred bytes, nothing else touched.
+//
+// Both are wrapped in `confirmWrite` — writing a key is not undoable in any
+// useful sense either, because the drive leaves the building. What the
+// confirmation says is different in each case, and that is the point.
+//
+// Neither list is polled: this screen is opened deliberately, and a list
+// that reshuffles under the cursor while somebody is reading it is worse
+// than one that needs a click.
+let volumes = null;
+let drives = null;
+
+async function loadVolumes() {
+  try {
+    volumes = (await api.adminKeyVolumes()).volumes || [];
+  } catch (e) {
+    volumes = [];
+    showError(e.message);
+  }
+  publish(['edition']);          // redraw this screen with the new list
+}
+
+async function loadDrives() {
+  try {
+    drives = (await api.adminKeyDrives()).drives || [];
+  } catch (e) {
+    drives = [];
+    showError(e.message);
+  }
+  publish(['edition']);
+}
+
+function pickList(rows, empty) {
+  return rows.length
+    ? el('div', { class: 'pick-list', style: 'margin-top:6px' }, rows)
+    : el('p', { class: 'mono text-dim t-xs', style: 'margin-top:6px',
+                text: empty });
+}
+
+function serviceKeyCard() {
+  if (volumes === null) { volumes = []; loadVolumes(); }
+  if (drives === null) { drives = []; loadDrives(); }
+  const label = el('input', {
+    class: 'field', type: 'text', maxlength: '120', autocomplete: 'off',
+    'aria-label': t('admin.keyLabel'),
+  });
+
+  return el('div', { class: 'card corner' }, [
+    el('h4', { text: t('admin.serviceKey') }),
+    el('p', {
+      class: 'mono text-mid t-xs',
+      style: 'margin-top:9px;line-height:1.7',
+      text: t('admin.serviceKeyNote'),
+    }),
+    // One label for both actions: it is a note about the KEY, not about the
+    // way it got onto the drive.
+    el('label', {
+      class: 'label', style: 'display:block;margin-top:12px',
+      text: t('admin.keyLabel'),
+    }, [label]),
+
+    el('div', { class: 'label', style: 'margin-top:16px',
+                text: t('admin.prepareDrive') }),
+    el('p', {
+      class: 'mono text-dim t-xs', style: 'margin-top:6px;line-height:1.6',
+      text: t('admin.prepareDriveNote'),
+    }),
+    pickList(drives.map(drive => el('button', {
+      type: 'button', class: 'pick-item',
+      onclick: () => prepareDrive(drive, label.value),
+    }, [
+      el('span', { class: 'pick-label', text: drive.name }),
+      el('span', { class: 'pick-note', text: fileSize(drive.size) }),
+    ])), t('admin.noDriveFound')),
+    el('button', {
+      type: 'button', class: 'btn', style: 'margin-top:10px',
+      text: t('admin.refreshDrives'), onclick: loadDrives,
+    }),
+
+    el('div', { class: 'label', style: 'margin-top:18px',
+                text: t('admin.writeKeySection') }),
+    pickList(volumes.map(volume => el('button', {
+      type: 'button', class: 'pick-item',
+      onclick: () => writeKey(volume, label.value),
+    }, [
+      el('span', { class: 'pick-label', text: volume.name }),
+      el('span', {
+        class: 'pick-note',
+        text: volume.hasKey ? t('admin.keyAlreadyThere') : '',
+      }),
+    ])), t('admin.noRemovableVolume')),
+    el('button', {
+      type: 'button', class: 'btn', style: 'margin-top:10px',
+      text: t('admin.refreshVolumes'), onclick: loadVolumes,
+    }),
+  ]);
+}
+
+function prepareDrive(drive, label) {
+  confirmWrite({
+    title: t('admin.prepareDrive'),
+    lead: t('admin.prepareConfirm',
+            { drive: drive.name, size: fileSize(drive.size) }),
+    notes: [
+      // What the operator can still check, said at the moment they can
+      // still stop: the panel cannot know which drive is the right one.
+      { text: t('admin.prepareConfirmNote'), tone: 'warning' },
+      { text: t('admin.writeKeyConfirm', { volume: drive.name }),
+        tone: 'info' },
+    ],
+    danger: true,
+    confirmLabel: t('admin.eraseAndWrite'),
+    run: async () => {
+      await api.adminKeyPrepare(drive.id, label);
+      showSuccess(t('admin.drivePrepared', { drive: drive.name }));
+      await loadDrives();
+      await loadVolumes();
+    },
+  });
+}
+
+function writeKey(volume, label) {
+  confirmWrite({
+    title: volume.hasKey ? t('admin.replaceKey') : t('admin.writeKey'),
+    lead: t('admin.writeKeyConfirm', { volume: volume.name }),
+    notes: [volume.hasKey
+      ? { text: t('admin.keyAlreadyThere'), tone: 'warning' } : null],
+    confirmLabel: volume.hasKey ? t('admin.replaceKey') : t('admin.writeKey'),
+    run: async () => {
+      await api.adminKeyWrite(volume.path, label);
+      showSuccess(t('admin.keyWritten', { volume: volume.name }));
+      await loadVolumes();
+    },
+  });
 }
 
 export function render(root, changeSet) {
@@ -71,18 +217,14 @@ export function render(root, changeSet) {
         el('span', {
           class: 'dot', style: 'background:var(--ok)', 'aria-hidden': 'true',
         }),
-        el('span', {
-          style: 'font-family:var(--font-heading);font-weight:600;'
-            + 'font-size:18px;letter-spacing:.06em;text-transform:uppercase',
-          text: meta.project,
-        }),
+        el('span', { class: 'title-label', text: meta.project }),
         el('span', {
           style: 'margin-left:auto', class: 'label', text: t('admin.loaded'),
         }),
       ]),
       el('div', {
-        class: 'mono text-mid',
-        style: 'margin-top:9px;font-size:10.5px;line-height:1.7',
+        class: 'mono text-mid t-xs',
+        style: 'margin-top:9px;line-height:1.7',
       }, [
         el('div', { text: meta.file }),
         el('div', {
@@ -93,25 +235,38 @@ export function render(root, changeSet) {
     el('div', { class: 'card corner' }, [
       el('h4', { text: t('admin.credentials') }),
       el('p', {
-        class: 'mono text-mid',
-        style: 'margin-top:9px;font-size:10.5px;line-height:1.7',
+        class: 'mono text-mid t-xs',
+        style: 'margin-top:9px;line-height:1.7',
         text: t('admin.deviceUsernamesAndPasswordsAre'),
       }),
       el('button', {
         type: 'button', class: 'btn btn-danger', style: 'margin-top:12px',
         text: t('admin.forgetCredentials'),
-        onclick: async () => {
-          try {
+        // Irreversible for the session: every device drops back to
+        // "needs credentials" and each one has to be typed again.
+        onclick: () => confirmWrite({
+          title: t('admin.forgetCredentials'),
+          lead: t('confirm.forgetAllLead'),
+          notes: [{ text: t('confirm.forgetAllNote'), tone: 'warning' }],
+          danger: true,
+          confirmLabel: t('admin.forgetCredentials'),
+          run: async () => {
             await api.forgetAllCredentials();
             showSuccess(t('admin.everyCredentialInMemoryWas'));
-          } catch (e) { showError(e.message); }
-        },
+          },
+        }),
       }),
     ]),
     el('div', { class: 'card corner' }, [
       el('h4', { text: t('admin.trainSetN') }),
       setBox(meta, changeSet),
     ]),
+    // Minting a key needs the build secret itself rather than the one-way
+    // digest of it that every package carries — so this card exists only in
+    // a run that holds the secret, which no shipped package does. Answered
+    // by the server (`canWriteKey`): it is a property of the BUILD, and
+    // nothing on this screen could work it out.
+    (state.edition && state.edition.canWriteKey) ? serviceKeyCard() : null,
   ]));
 
   parts.push(el('div', { class: 'admin-grid' }, [
@@ -120,48 +275,46 @@ export function render(root, changeSet) {
         el('h4', { text: t('admin.devicePortMapping') }),
         el('span', { class: 'label', text: t('admin.switchPortIpTemplate') }),
       ]),
-      el('div', { class: 'table-wrap', style: 'margin-top:0' }, [
-        el('div', { class: 'table', style: '--table-min:600px' }, [
-          el('div', {
-            class: 'table-head', style: `--table-columns:${COLUMNS}`,
-          }, ['col.name', 'col.typeSubtype', 'col.port', 'col.ipTemplate',
-              'col.pbxExtension']
-            .map(key => el('span', { text: key ? t(key) : '' }))),
-          ...state.devices.map(device => el('div', {
+      dataTable({
+        template: COLUMNS, minWidth: 600, wrapStyle: 'margin-top:0',
+        label: t('admin.devicePortMapping'),
+        columns: ['col.name', 'col.typeSubtype', 'col.port', 'col.ipTemplate',
+                  'col.pbxExtension'].map(key => (key ? t(key) : '')),
+        rows: state.devices.map(device => el('div', {
             class: 'table-row', style: `--table-columns:${COLUMNS}`,
           }, [
             el('span', {
-              class: 'mono truncate', style: 'font-size:11px',
+              class: 'mono truncate t-sm',
               text: device.name,
             }),
             el('span', {
-              class: 'mono text-bright truncate', style: 'font-size:11px',
+              class: 'mono text-bright truncate t-sm',
               text: device.typeLabel,
             }),
             el('span', {
-              class: 'mono', style: 'font-size:11px;color:var(--auth)',
+              class: 'mono t-sm', style: 'color:var(--auth)',
               text: device.port || '—',
             }),
             el('span', {
-              class: 'mono text-mid', style: 'font-size:11px',
+              class: 'mono text-mid t-sm',
               text: device.ipTemplate,
             }),
             el('span', {
-              class: 'mono', style: 'font-size:11px;color:var(--accent)',
+              class: 'mono t-sm', style: 'color:var(--accent)',
               text: device.pbxExtension || '—',
             }),
           ])),
-        ]),
-      ]),
+      }),
     ]),
 
     el('div', { class: 'card' }, [
       el('h4', { text: t('admin.categoryDefinition') }),
       el('div', { style: 'margin-top:11px' },
         meta.categories.map(category => el('div', {
+          class: 't-sm',
           style: 'display:flex;gap:10px;padding:6px 0;'
             + 'border-bottom:1px solid var(--line-soft);'
-            + 'font-family:var(--font-mono);font-size:11px',
+            + 'font-family:var(--font-mono)',
         }, [
           el('span', { style: 'width:82px;flex:none', text: category.code }),
           el('span', {

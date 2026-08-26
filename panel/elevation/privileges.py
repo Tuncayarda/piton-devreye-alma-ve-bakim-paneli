@@ -28,6 +28,19 @@ def explanation() -> str:
     return i18n.t("elevate.explanation", app=i18n.t("app.name"))
 
 
+# What the privilege is actually for. It used to be one sentence listing four
+# things at once, which is the shape of a sentence nobody finishes reading —
+# and this is the first thing the panel ever says to anyone. Four short lines
+# can be scanned, and each one names something the operator recognises from
+# the screens they are about to use.
+REASON_KEYS = ("elevate.reasonAlias", "elevate.reasonArp",
+               "elevate.reasonWrite", "elevate.reasonPoe")
+
+
+def reasons() -> list[str]:
+    return [i18n.t(key) for key in REASON_KEYS]
+
+
 # Folders macOS protects with TCC. Elevating an app that lives in one of them
 # THROUGH THE SYSTEM DIALOG does not work: the elevated process is born under
 # security_authtrampoline and is denied access to those folders. Seen twice in
@@ -108,6 +121,20 @@ def protected_folder(directory: str = "",
     return ""
 
 
+# The few environment variables that must reach the elevated process. None
+# of the three mechanisms below inherits an environment, so what is needed is
+# carried by name — and NOTHING HERE MAY BE A SECRET, because a command line
+# is public. `DAP_ADMIN_KEY_SECRET_FILE` is a path to a file the new process
+# reads and deletes (see `panel.adminkey.handoff`); the display variables are
+# what polkit strips and a window needs.
+CARRIED = ("DAP_ADMIN_KEY_SECRET_FILE",)
+
+
+def _carried() -> list[str]:
+    return [f"{name}={os.environ[name]}"
+            for name in CARRIED if os.environ.get(name)]
+
+
 def elevation_plan(system: str | None = None, executable: str = "",
                    argv: list[str] | None = None,
                    frozen: bool | None = None,
@@ -146,7 +173,8 @@ def elevation_plan(system: str | None = None, executable: str = "",
     if system == "Darwin":
         import shlex
 
-        command = " ".join(shlex.quote(part) for part in [executable, *args])
+        command = " ".join(shlex.quote(part)
+                           for part in [*_carried(), executable, *args])
         # Detached: without it osascript waits for the command to finish and
         # the dialog would hang for as long as the app stayed open.
         #
@@ -167,10 +195,10 @@ def elevation_plan(system: str | None = None, executable: str = "",
 
     if shutil.which("pkexec"):
         # polkit clears the environment; the display variables are carried
-        # over explicitly so a window can open.
+        # over explicitly so a window can open, and `CARRIED` with them.
         environment = [f"{name}={os.environ[name]}"
                        for name in ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY")
-                       if os.environ.get(name)]
+                       if os.environ.get(name)] + _carried()
         return {"kind": "pkexec", "executable": executable, "argv": args,
                 "directory": directory,
                 "command": ["pkexec",
@@ -229,8 +257,13 @@ def _windows_process_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def _process_alive(pid: int) -> bool:
-    """Does the PID still exist? Another user's process counts as alive."""
+def process_alive(pid: int) -> bool:
+    """Does the PID still exist? Another user's process counts as alive.
+
+    Public because `panel.network.aliases` asks the same question of the pid
+    written next to an address it added: an owner that is gone means the
+    address was left behind by a crash and has to be taken back.
+    """
     # 0 and negatives address a whole process group on POSIX, not a process.
     if pid <= 0:
         return False
@@ -296,7 +329,7 @@ def new_process_status(wait: float = 2.0, pid: int = 0) -> tuple[bool, str]:
     pid = pid or _read_pid()
     if not pid:
         return True, ""                # blaming it with no PID would be wrong
-    if _process_alive(pid):
+    if process_alive(pid):
         return True, ""
     return False, i18n.t("elevate.crashedAtStartup", detail=log_summary())
 
@@ -352,23 +385,37 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
                                    stderr=subprocess.PIPE, text=True,
                                    # Its own session: unaffected when we exit.
                                    start_new_session=True)
-        deadline = time.monotonic() + APPROVAL_TIMEOUT
-        while True:
-            pid = _read_pid()
-            if pid:
-                # We saw the birth; now check whether it stayed up.
-                return new_process_status(pid=pid)
-            code = process.poll()
-            if code is not None:
-                _output, error_text = process.communicate()
-                lines = (error_text or "").strip().splitlines()
-                last = lines[-1] if lines else f"code {code}"
-                if "-128" in last or "User canceled" in last:
-                    return False, i18n.t("elevate.permissionDenied")
-                return False, i18n.t("elevate.couldNotRestart", reason=last)
-            if time.monotonic() >= deadline:
-                process.kill()
-                return False, i18n.t("elevate.permissionNoAnswer")
-            time.sleep(0.2)
+        # The password dialog belongs to THIS process's attempt. If we leave
+        # this function without the new process having been born — a timeout,
+        # or anything raising on the way out — the dialog must go with us. It
+        # was seen left on screen with no application behind it, which is
+        # about the worst thing a password prompt can be.
+        born = False
+        try:
+            deadline = time.monotonic() + APPROVAL_TIMEOUT
+            while True:
+                pid = _read_pid()
+                if pid:
+                    # We saw the birth; now check whether it stayed up.
+                    born = True
+                    return new_process_status(pid=pid)
+                code = process.poll()
+                if code is not None:
+                    born = True          # it ended on its own; nothing to kill
+                    _output, error_text = process.communicate()
+                    lines = (error_text or "").strip().splitlines()
+                    last = lines[-1] if lines else f"code {code}"
+                    if "-128" in last or "User canceled" in last:
+                        return False, i18n.t("elevate.permissionDenied")
+                    return False, i18n.t("elevate.couldNotRestart", reason=last)
+                if time.monotonic() >= deadline:
+                    return False, i18n.t("elevate.permissionNoAnswer")
+                time.sleep(0.2)
+        finally:
+            if not born and process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
     except Exception as exc:                       # noqa: BLE001
         return False, f"Could not restart: {type(exc).__name__}"

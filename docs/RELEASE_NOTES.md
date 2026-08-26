@@ -9,18 +9,34 @@ Arayüz Türkçe ve İngilizce çalışır. İlk açılışta işletim sistemini
 kullanılır; dil, üst bardaki **TR / EN** düğmesiyle değiştirilir ve seçim
 kaydedilir.
 
+## Bu sayfadaki paket
+
+Uygulama her müşteri için ayrı paketlenir ve bir paket yalnız kendi
+projesini taşır. Bu sayfa **tek bir paketin** sürümüdür; hangisi olduğu
+sayfanın başlığında yazar.
+
+| Paket | Uygulama adı | İçindeki projeler |
+|---|---|---|
+| `vip-yatakli` | Devreye Alma ve Bakım Paneli - VIP ve Yataklı | Yataklı, VIP |
+| `gdm` | Devreye Alma ve Bakım Paneli - GDM | GDM |
+| `gaziray` | Devreye Alma ve Bakım Paneli - Gaziray | Gaziray |
+
+Farklı paketler aynı bilgisayara yan yana kurulabilir; birbirinin üzerine
+yazmaz ve ayarlarını paylaşmazlar.
+
 ## İndirme ve çalıştırma
 
-Dosya adlarındaki `<sürüm>` bölümü, sayfanın başlığında görünen sürüm
-numarasıdır; örneğin `0.9.7`.
+Dosya adlarındaki `<paket>` bölümü yukarıdaki tablodaki kimliktir,
+`<sürüm>` bölümü ise sayfanın başlığında görünen sürüm numarasıdır; örneğin
+`dabp-gdm-1.0.0-windows-x64-Setup.exe`.
 
 | Sistem | Dosya | Yapılacak işlem |
 |---|---|---|
-| **Windows x64** | `dabp-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
-| Windows x64 | `dabp-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
-| macOS (Apple Silicon) | `dabp-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| macOS (Intel) | `dabp-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
-| Linux x86_64 | `dabp-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
+| **Windows x64** | `dabp-<paket>-<sürüm>-windows-x64-Setup.exe` | **Önerilen:** Dosyayı çalıştırın ve kurulum adımlarını izleyin. |
+| Windows x64 | `dabp-<paket>-<sürüm>-windows-x64.zip` | ZIP arşivini çıkarın; aşağıdaki taşınabilir paket notunu uygulayın. |
+| macOS (Apple Silicon) | `dabp-<paket>-<sürüm>-macos-arm64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| macOS (Intel) | `dabp-<paket>-<sürüm>-macos-x64.zip` | ZIP arşivini çıkarın ve içindeki `.app` paketini açın. |
+| Linux x86_64 | `dabp-<paket>-<sürüm>-linux-x86_64.zip` | ZIP arşivini çıkarın ve içindeki `.AppImage` dosyasını çalıştırın. |
 
 ## İşletim sistemi notları
 
@@ -41,7 +57,7 @@ gerekiyorsa arşivi çıkardıktan sonra, üst klasörde açtığınız PowerShe
 komutu çalıştırın:
 
 ```powershell
-Get-ChildItem -LiteralPath '.\dabp' -Recurse -File | Unblock-File
+Get-ChildItem -LiteralPath '.\dabp-<paket>' -Recurse -File | Unblock-File
 ```
 
 Paketler kod imzası taşımaz. SmartScreen uyarısı görünürse *Daha fazla bilgi*
@@ -77,6 +93,13 @@ Compartment LCD okuması ve bu cihazlara yazılım yüklenmesi için Android
 Platform Tools içindeki `adb` komutu gerekir. `adb` bulunamazsa ilgili
 cihazlar bu denetimler için "uygulanmıyor" olarak görünür.
 
+### Servis anahtarı
+
+Panelin mühendis ekranları (proje ve cihaz listesi tanımları, PISCU, MQTT)
+saha kullanımında görünmez. Bunlar yalnız Piton'un servis USB belleği
+takılıyken açılır; bellek çıkarıldığında panel kendiliğinden saha görünümüne
+döner. Günlük kullanım için gereken hiçbir işlem bu ekranlara bağlı değildir.
+
 ## Dosya bütünlüğünü doğrulama
 
 `SHA256SUMS.txt`, bu sayfadaki bütün paketlerin SHA-256 özetlerini içerir.
@@ -86,15 +109,15 @@ Yalnızca bir paket indirdiyseniz önce o dosyanın özetini hesaplayın ve sonu
 
 ```powershell
 # Windows PowerShell
-Get-FileHash -Algorithm SHA256 '.\dabp-<sürüm>-windows-x64-Setup.exe'
+Get-FileHash -Algorithm SHA256 '.\dabp-<paket>-<sürüm>-windows-x64-Setup.exe'
 ```
 
 ```bash
 # macOS
-shasum -a 256 'dabp-<sürüm>-macos-arm64.zip'
+shasum -a 256 'dabp-<paket>-<sürüm>-macos-arm64.zip'
 
 # Linux
-sha256sum 'dabp-<sürüm>-linux-x86_64.zip'
+sha256sum 'dabp-<paket>-<sürüm>-linux-x86_64.zip'
 ```
 
 Bütün paketleri ve `SHA256SUMS.txt` dosyasını aynı klasöre indirdiyseniz tüm

@@ -21,7 +21,8 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from panel import credentials, jobs
+from panel import api, credentials, jobs
+from panel.api.routes import ip_routes
 from panel.ip_assign import audit, factory_reset, runner
 from panel.probe import switch as switch_probe
 
@@ -41,6 +42,16 @@ def _topology(count: int = 3) -> dict:
         "PBXExtension": f"200{i}" if i < 10 else f"20{i}",
         "Status": {"NoError": True},
     } for i in range(1, count + 1)], switch_ip="10.1.1.101")
+
+
+def _template_topology(count: int = 3) -> dict:
+    """The same layout with addresses resolved from the requested set."""
+    return fakes.device_map([{
+        "Name": f"Intercom_{i}", "IP": f"10.n.1.{9 + i}",
+        "IsActive": True, "Type": "Announcement", "SubType": "Intercom",
+        "Port": str(10 + i), "PBXExtension": f"200{i}",
+        "Status": {"NoError": True},
+    } for i in range(1, count + 1)], switch_ip="10.n.1.101")
 
 
 class FakeNetwork:
@@ -375,14 +386,71 @@ class FactoryReset(PanelTest):
         self.assertEqual(self.rows(job)["p11"]["state"], "skipped")
 
 
-class PersistenceOption(unittest.TestCase):
-    """"Written" and "written persistently" are not the same thing.
+class FactoryResetApi(PanelTest):
+    """The route chooses the source inventory; the engine must not guess it."""
 
-    The device may have taken the setting into memory only and returns to its
-    old address on the first power cut. The script has a check for it, but
-    because it lengthens the run the default is off; it can be enabled in the
-    UI.
-    """
+    def setUp(self):
+        super().setUp()
+        self.build_map(_template_topology())
+
+    @staticmethod
+    def request(set_no):
+        return {
+            "set": set_no,
+            "switch": "sw1",
+            "groups": ["Intercom"],
+            "ports": "11-12",
+            "factoryIp": "10.1.1.12",
+        }
+
+    def test_an_external_set_resolves_the_inventory_and_owns_the_job(self):
+        """Set 14 means the devices currently live on the 10.14.1.x plan."""
+        queued = {}
+
+        def submit(job, body):
+            queued.update(job=job, body=body)
+            return job, True
+
+        task_body = object()
+        with (mock.patch.object(ip_routes, "factory_reset_task",
+                                return_value=task_body) as make_task,
+              mock.patch.object(ip_routes.jobs.QUEUE, "submit",
+                                side_effect=submit)):
+            response = api.call("POST", "/api/ip/factory-reset",
+                                body=self.request("14"))
+
+        self.assertEqual(response.status, 200)
+        inventory, switch_id, ports, groups, options = make_task.call_args.args
+        self.assertEqual(inventory.set_no, 14)
+        self.assertEqual(inventory.find("sw1").ip, "10.14.1.101")
+        self.assertEqual(
+            [device.ip for device in inventory.devices
+             if device.id in ("sw1.d1", "sw1.d2")],
+            ["10.14.1.10", "10.14.1.11"])
+        self.assertEqual((switch_id, ports, groups),
+                         ("sw1", [11, 12], ["Intercom"]))
+        self.assertEqual(options["factoryIp"], "10.1.1.12")
+        self.assertIs(queued["body"], task_body)
+        self.assertEqual(queued["job"].set_no, 14)
+        self.assertEqual(queued["job"].key, "ipfactory:14:sw1")
+        self.assertEqual(response.body["setNo"], 14)
+
+    def test_ip_write_routes_reject_an_invalid_set_instead_of_using_set_one(self):
+        bad_values = (None, "", 0, 255, "abc", 14.5, True, False)
+        for path in ("/api/ip/run", "/api/ip/factory-reset"):
+            for bad in bad_values:
+                with self.subTest(path=path, value=bad):
+                    with mock.patch.object(ip_routes.jobs.QUEUE,
+                                           "submit") as submit:
+                        response = api.call("POST", path,
+                                            body=self.request(bad))
+                    self.assertEqual(response.status, 400)
+                    self.assertIn("Invalid set number", response.body["error"])
+                    submit.assert_not_called()
+
+
+class PersistenceOption(unittest.TestCase):
+    """The removed persistence option cannot be revived by an old client."""
 
     def _argv(self, persistence: bool) -> list[str]:
         captured = {}
@@ -401,11 +469,11 @@ class PersistenceOption(unittest.TestCase):
                                  {"persistenceCheck": persistence})
         return captured["argv"]
 
-    def test_off_by_default(self):
+    def test_always_disabled_by_default(self):
         self.assertIn("--no-persist-check", self._argv(False))
 
-    def test_left_to_the_script_when_on(self):
-        self.assertNotIn("--no-persist-check", self._argv(True))
+    def test_legacy_true_value_is_ignored(self):
+        self.assertIn("--no-persist-check", self._argv(True))
 
 
 class IdentityAudit(FactoryReset):

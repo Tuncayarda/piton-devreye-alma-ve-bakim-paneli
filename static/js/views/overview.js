@@ -42,14 +42,23 @@ function kpi(name, amount, unit, colour, ratio, go, hint) {
 
 // Goes to the device list with a given filter.
 function goToList(filter) {
-  patch({ view: 'devices', category: 'all', subtype: null, filter });
+  patch({ view: 'devices', category: 'all', subtype: null, filter,
+         deviceSearch: '' });
 }
 
 export function render(root, refreshNow) {
   const devices = state.devices;
   const total = devices.length;
   const counts = state.counts;
-  const scanned = !!state.lastScan;
+  // How many devices have answered so far. A scan that is still running has
+  // already settled some of them, and those answers are real.
+  const read = counts.ok + counts.auth + counts.failed;
+  // "Read" is therefore not "the sweep finished": it used to be, and for the
+  // whole first scan of a session — the minute the operator watches hardest
+  // — every tile on this page read "—" while devices were turning green one
+  // by one in the queue. A device that has answered is shown from that
+  // moment on.
+  const scanned = !!state.lastScan || read > 0;
   const withVersion = devices.filter(
     d => d.result.fields && d.result.fields.version).length;
 
@@ -62,11 +71,13 @@ export function render(root, refreshNow) {
       el('h2', { text: t('overview.systemState') }),
       el('div', {
         class: 'page-sub',
-        text: scanned
+        text: state.lastScan
           ? t('overview.lastScanAgo', {
             time: clockTime(state.lastScan), age: age(state.lastScan),
           })
-          : t('overview.notReadYet'),
+          : (state.scanRunning
+            ? t('overview.scanRunning', { read, total })
+            : t('overview.notReadYet')),
       }),
     ]),
     el('div', { class: 'actions' }, [
@@ -130,7 +141,7 @@ export function render(root, refreshNow) {
           }),
         ]),
         el('span', {
-          class: 'mono text-bright', style: 'font-size:11px;text-align:right',
+          class: 'mono text-bright t-sm', style: 'text-align:right',
           text: `${reachable}/${members.length}`,   // numbers only
         }),
       ]);
@@ -157,11 +168,56 @@ export function render(root, refreshNow) {
     }),
   ]);
 
+  // While the sweep runs the card carries its progress — as a BAR, not as a
+  // sentence. It used to repeat the page subtitle word for word two hundred
+  // pixels below it, and on the first scan of a session that is the whole
+  // screen: the same sentence twice, three dashes and an empty category
+  // list. That state used to sit behind the role screen; with the role
+  // screen gone it is what every launch opens on, so it has to look like a
+  // panel waiting rather than a panel broken.
+  //
+  // The bar is also the only thing on the page that MOVES while the first
+  // devices are being waited for — a full sweep costs one timeout per
+  // unreachable address, so this can be the view for a minute.
+  const progressRow = () => el('div', { class: 'step-row' }, [
+    el('span', {
+      class: 'dot', style: 'background:var(--accent)', 'aria-hidden': 'true',
+    }),
+    el('span', { class: 'text' }, [
+      // What to expect leads the row. It is the one sentence here that the
+      // page subtitle does not already carry, and a row whose first line is
+      // a bar has nothing to hang on.
+      el('span', { class: 'name', text: t('overview.scanRunningNote') }),
+      el('span', { class: 'scan-progress' }, [
+        el('span', {
+          class: 'bar', role: 'progressbar',
+          'aria-valuemin': '0', 'aria-valuemax': String(total),
+          'aria-valuenow': String(read),
+          // The sentence the bar replaces, kept where it costs no space: a
+          // bar on its own tells a screen reader nothing.
+          'aria-label': t('overview.scanRunning', { read, total }),
+        }, [el('i', { style: `width:${percent(read, total)}` })]),
+        el('span', {
+          class: 'mono text-bright t-sm', text: `${read}/${total}`,
+        }),
+      ]),
+    ]),
+    el('button', {
+      type: 'button', class: 'btn btn-small', text: t('overview.openTheQueue'),
+      onclick: () => patch({ queueOpen: true, lockedOpen: false }),
+    }),
+  ]);
+
   const steps = [];
+  // Without this row the summary claimed "the scan finished" the moment the
+  // first few devices came back green.
+  if (state.scanRunning) steps.push(progressRow());
   if (!scanned) {
-    steps.push(stepRow('accent', t('overview.noScanYet'),
-      t('overview.noScanYetNote'),
-      t('overview.scanNow'), () => refreshNow && refreshNow()));
+    if (!state.scanRunning) {
+      steps.push(stepRow('accent', t('overview.noScanYet'),
+        t('overview.noScanYetNote'),
+        t('overview.scanNow'), () => refreshNow && refreshNow()));
+    }
   } else {
     if (counts.auth) {
       steps.push(stepRow('auth',
@@ -203,8 +259,9 @@ export function render(root, refreshNow) {
     }),
     ...(state.jobs.length
       ? state.jobs.slice(-6).reverse().map(job => el('div', {
+          class: 't-xs',
           style: 'display:flex;gap:10px;padding:6px 0;'
-            + 'font-family:var(--font-mono);font-size:10.5px;line-height:1.5',
+            + 'font-family:var(--font-mono);line-height:1.5',
         }, [
           el('span', {
             class: 'text-dim', style: 'flex:none',
@@ -233,10 +290,17 @@ export function render(root, refreshNow) {
       })]),
   ]);
 
+  // ONE LAYOUT, WHATEVER THE SCAN IS DOING. The check summary used to lead
+  // full width until the first device answered and then move into the right
+  // column — the reasoning being that before a scan it is the only card with
+  // anything to say. But the move happens at the exact moment the numbers
+  // start arriving: the card an operator is reading, the one carrying the
+  // buttons, jumps across the page while their attention is already going
+  // to the tiles. A card that stays where it was put is worth more than a
+  // card that is briefly bigger.
   parts.push(el('div', { class: 'overview-grid' }, [
     categoryCard,
-    el('div', { style: 'display:flex;flex-direction:column;gap:18px' },
-      [stepCard, historyCard]),
+    el('div', { class: 'overview-column' }, [stepCard, historyCard]),
   ]));
 
   fill(root, parts);

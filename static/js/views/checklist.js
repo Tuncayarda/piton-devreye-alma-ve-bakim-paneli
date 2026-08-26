@@ -8,6 +8,7 @@
 // yet". The two are shown differently.
 
 import { el, fill, $ } from '../core/dom.js';
+import { dataTable } from '../components/table.js';
 import { api } from '../core/api.js';
 import { state, patch } from '../core/store.js';
 import { showError, showSuccess } from '../components/toast.js';
@@ -138,52 +139,60 @@ function summaryCard(name, amount, colour, note) {
   ]);
 }
 
-function deviationTable(rows, columns) {
-  const deviations = rows
-    .map(row => ({ row, result: evaluate(row, columns) }))
-    .filter(entry => !entry.result.passed);
+// Every device in scope, deviations first.
+//
+// It listed only the deviations before, which answered "what is wrong" but
+// not "was everything checked": a device missing from DeviceMap and a device
+// that passed looked exactly alike — both absent. So the passing ones are
+// here too, saying so, and the ordering keeps the work at the top.
+function checkTable(rows, columns) {
+  const entries = rows.map(row => ({ row, result: evaluate(row, columns) }));
+  // Stable: within each half the rows keep the order the sections gave them
+  // (switch, then port), which is the order of the equipment on the train.
+  const ordered = [
+    ...entries.filter(entry => !entry.result.passed),
+    ...entries.filter(entry => entry.result.passed),
+  ];
 
-  if (!deviations.length) {
-    return el('div', { class: 'empty-state empty-state-success' }, [
-      el('strong', { text: t('checklist.theBasicChecksFoundNothing') }),
-      el('span', {
-        text: t('checklist.withinTheSelectedScopeAccess'),
-      }),
-    ]);
-  }
-
-  return el('div', { class: 'table-wrap' }, [
-    el('div', { class: 'table', style: '--table-min:820px' }, [
-      el('div', {
-        class: 'table-head', style: `--table-columns:${DEVIATION_COLUMNS}`,
-        role: 'row',
-      }, ['col.device', 'col.expectedIp', 'col.finding', 'col.accessState']
-        .map(key => el('span', { text: key ? t(key) : '' }))),
-      ...deviations.map(({ row, result }) => el('button', {
+  return dataTable({
+    template: DEVIATION_COLUMNS, minWidth: 820,
+    label: t('checklist.tabChecks'),
+    columns: ['col.device', 'col.expectedIp', 'col.finding',
+              'col.accessState'].map(key => (key ? t(key) : '')),
+    empty: t('checklist.noDeviceInThisCategory'),
+    rows: ordered.map(({ row, result }) => el('button', {
         type: 'button', class: 'table-row check-deviation-row',
         style: `--table-columns:${DEVIATION_COLUMNS}`,
         title: t('checklist.openDetails', { device: row.name }),
         onclick: () => { if (row.deviceId) detail.open(row.deviceId); },
       }, [
+        // The sizes are the same ones every other table in the panel uses
+        // (see the size utilities in components.css). Without them these
+        // cells inherited the 15px body size and this one table read two
+        // steps larger than the device list next to it.
         el('span', { class: 'device-summary' }, [
           el('span', {
             class: 'dot', dataset: { state: row.state },
             'aria-hidden': 'true',
           }),
-          el('span', { class: 'mono truncate', text: row.name || NONE }),
+          el('span', {
+            class: 'mono truncate t-base', text: row.name || NONE,
+          }),
         ]),
-        el('span', { class: 'mono', text: row.ip || NONE }),
+        el('span', { class: 'mono t-base', text: row.ip || NONE }),
         el('span', {
           class: 'deviation-text',
-          text: result.problems.map(p => p.text).join(' · '),
+          dataset: { passed: result.passed ? '1' : '0' },
+          text: result.passed
+            ? t('checklist.noDeviation')
+            : result.problems.map(p => p.text).join(' · '),
         }),
         el('span', {
-          class: 'state-text', dataset: { state: row.state },
+          class: 'state-text state-label', dataset: { state: row.state },
           text: stateLabel(row.state, NONE),
         }),
       ])),
-    ]),
-  ]);
+  });
 }
 
 function excelPreview(rows, data) {
@@ -199,21 +208,14 @@ function excelPreview(rows, data) {
     el('div', {
       class: 'info check-excel-note', text: t('checklist.excelNote'),
     }),
-    el('div', { class: 'table-wrap' }, [
-      el('div', { class: 'table', style: `--table-min:${minimum}px` }, [
-        el('div', {
-          class: 'table-head', style: `--table-columns:${template}`,
-          role: 'row',
-        }, data.columns.map(column => el('span', {
-          class: 'truncate', title: column.name, text: column.name,
-        }))),
-        ...(rows.length
-          ? rows.map(row => renderRow(row, data.columns, template))
-          : [el('div', {
-              class: 'table-empty', text: t('checklist.noDeviceInThisCategory'),
-            })]),
-      ]),
-    ]),
+    dataTable({
+      template, minWidth: minimum, label: t('checklist.tabExcel'),
+      columns: data.columns.map(column => el('span', {
+        class: 'truncate', title: column.name, text: column.name,
+      })),
+      rows: rows.map(row => renderRow(row, data.columns, template)),
+      empty: t('checklist.noDeviceInThisCategory'),
+    }),
     el('div', { class: 'legend legend-plain' }, [
       el('span', {}, [el('i', { style: 'background:var(--auth)' }),
         t('checklist.legendAmber')]),
@@ -248,7 +250,7 @@ export async function refresh() {
 let tickTimer = null;
 
 function onScreen() {
-  return state.view === 'checklist' && !!state.role;
+  return state.view === 'checklist' && !!state.meta;
 }
 
 function writeFreshness() {
@@ -331,7 +333,7 @@ export function render(root, refreshNow) {
     class: 'local-tabs report-tabs', role: 'tablist',
     'aria-label': t('checklist.reportView'),
   }, [
-    ['deviations', 'checklist.tabDeviations'],
+    ['deviations', 'checklist.tabChecks'],
     ['excel', 'checklist.tabExcel'],
   ].map(([id, labelKey]) => el('button', {
     type: 'button', class: 'local-tab', role: 'tab',
@@ -401,14 +403,24 @@ export function render(root, refreshNow) {
   } else {
     parts.push(el('div', { class: 'section-head' }, [
       el('div', {}, [
-        el('h3', { text: t('checklist.devicesToReview') }),
+        el('h3', { text: t('checklist.deviceChecks') }),
       ]),
       el('span', {
         class: 'badge',
-        text: t('checklist.deviceCount', { count: rows.length - passed }),
+        text: t('checklist.toReviewOfTotal', {
+          review: rows.length - passed, total: rows.length,
+        }),
       }),
     ]));
-    parts.push(deviationTable(rows, data.columns));
+    // With nothing to review the table is a wall of green; the line above it
+    // is what the person actually came to read.
+    if (rows.length && rows.length === passed) {
+      parts.push(el('div', { class: 'empty-state empty-state-success' }, [
+        el('strong', { text: t('checklist.theBasicChecksFoundNothing') }),
+        el('span', { text: t('checklist.withinTheSelectedScopeAccess') }),
+      ]));
+    }
+    parts.push(checkTable(rows, data.columns));
   }
 
   fill(root, parts);
@@ -447,11 +459,11 @@ function confirmExport() {
     el('div', { class: 'summary-box' }, [
       line(t('checklist.dataAge'),
         ts ? t('checklist.agoValue', { age: age(ts) }) : NONE,
-        stale ? 'var(--auth)' : 'var(--ok)'),
-      line(t('devices.reachable'), `${counts.ok ?? 0}`, 'var(--ok)'),
-      line(t('state.auth'), `${counts.auth ?? 0}`, 'var(--auth)'),
+        stale ? 'var(--auth-text)' : 'var(--ok-text)'),
+      line(t('devices.reachable'), `${counts.ok ?? 0}`, 'var(--ok-text)'),
+      line(t('state.auth'), `${counts.auth ?? 0}`, 'var(--auth-text)'),
       line(t('devices.needsReview'), `${counts.failed ?? 0}`,
-        'var(--failed)'),
+        'var(--failed-text)'),
     ]),
     stale ? el('p', {
       class: 'warning', style: 'margin-top:12px',
@@ -519,7 +531,7 @@ function cellHighlight(column, cell, values) {
   if (column === 'statusDescription') {
     const active = normalise(text) === STATUS_ACTIVE;
     return {
-      colour: active ? 'var(--ok)' : 'var(--failed)',
+      colour: active ? 'var(--ok-text)' : 'var(--failed-text)',
       hint: t(active ? 'checklist.deviceWasReached'
         : 'checklist.deviceNotReached'),
     };
@@ -529,11 +541,11 @@ function cellHighlight(column, cell, values) {
   if (expected) {
     return normalise(text) === normalise(expected)
       ? {
-          colour: 'var(--ok)',
+          colour: 'var(--ok-text)',
           hint: t('checklist.matchesExpected', { value: text }),
         }
       : {
-          colour: 'var(--failed)',
+          colour: 'var(--failed-text)',
           hint: t('checklist.expectedRead',
                   { expected, read: text }),
         };
@@ -577,7 +589,7 @@ function renderRow(row, columns, template) {
           class: 'dot', dataset: { state: row.state }, 'aria-hidden': 'true',
         }),
         el('span', {
-          class: 'mono truncate', style: 'font-size:11px',
+          class: 'mono truncate t-sm',
           text: empty ? NONE : String(cell.value),
         }),
       ]);
@@ -586,8 +598,8 @@ function renderRow(row, columns, template) {
     const name = column.name || '';
     const { colour, hint } = cellHighlight(column.id || '', cell, values);
     return el('span', {
-      class: 'mono truncate',
-      style: `font-size:11px;color:${colour}`,
+      class: 'mono truncate t-sm',
+      style: `color:${colour}`,
       title: `${name}${name ? ' — ' : ''}${hint}`,
       text: empty ? NONE : String(cell.value),
     });

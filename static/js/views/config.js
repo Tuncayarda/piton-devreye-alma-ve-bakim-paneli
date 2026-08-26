@@ -18,11 +18,13 @@
 // row shows only whether it matches and where it came from.
 
 import { el, fill } from '../core/dom.js';
+import { dataTable } from '../components/table.js';
 import { api } from '../core/api.js';
 import { state, patch } from '../core/store.js';
 import * as groupBar from '../components/group_bar.js';
 import * as actionTabs from '../components/action_tabs.js';
 import * as dialog from '../components/dialog.js';
+import { confirmWrite } from '../components/confirm.js';
 import { showError, showSuccess, notify } from '../components/toast.js';
 import { value } from '../core/format.js';
 import { t } from '../core/i18n.js';
@@ -31,9 +33,9 @@ const COLUMNS = 'minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) '
   + '86px 104px';
 
 const COMPARISON_LABEL = {
-  match: ['compare.match', 'ok'],
-  differs: ['compare.differs', 'auth'],
-  unread: ['compare.unread', 'failed'],
+  match: ['compare.match', 'ok-text'],
+  differs: ['compare.differs', 'auth-text'],
+  unread: ['compare.unread', 'failed-text'],
   no_target: ['compare.noTarget', 'text-dim'],
 };
 
@@ -275,21 +277,16 @@ function renderWindow() {
         + (local.needsCredentials
           ? ` ${t('config.enterCredentialsHint')}` : ''),
     }) : null,
-    el('div', { class: 'table-wrap' }, [
-      el('div', { class: 'table', style: '--table-min:660px' }, [
-        el('div', { class: 'table-head', style: `--table-columns:${COLUMNS}` },
-          ['col.setting', 'col.current', 'col.deviceValue', 'col.source',
-           'col.state'].map(key => el('span', { text: t(key) }))),
-        ...(rows.length ? rows.map(renderRow)
-          : [el('div', {
-              class: 'table-empty',
-              // Writing "could not be read" while the read is in progress is
-              // wrong: the device has not even been tried yet.
-              text: t((!ours || (data && data.reading)) && !local.errorText
-                ? 'config.readingDevice' : 'config.couldNotRead'),
-            })]),
-      ]),
-    ]),
+    dataTable({
+      template: COLUMNS, minWidth: 660, label: t('tabs.deviceSettings'),
+      columns: ['col.setting', 'col.current', 'col.deviceValue', 'col.source',
+                'col.state'].map(key => t(key)),
+      rows: rows.map(renderRow),
+      // Writing "could not be read" while the read is in progress is wrong:
+      // the device has not even been tried yet.
+      empty: t((!ours || (data && data.reading)) && !local.errorText
+        ? 'config.readingDevice' : 'config.couldNotRead'),
+    }),
   ]);
   if (focusLabel) {
     const restored = win.body.querySelector(
@@ -298,19 +295,48 @@ function renderWindow() {
   }
 }
 
-async function applyToDevice(device) {
+// What a write costs, per kind of equipment. Announcement devices restart on
+// the SIP block; a camera restarts when the third stream or the IR lamp
+// changes, and the NVR restarts at the end so it reads its channels. The SD
+// card / disk is formatted only when it is unusable as it stands — that is
+// worth saying out loud before the button is pressed.
+function writeNotes(group) {
+  const type = group && group.type;
+  if (type === 'Camera' || type === 'NVR') {
+    return [
+      {
+        text: t(type === 'NVR' ? 'confirm.nvrRestart'
+          : 'confirm.cameraRestart'),
+        tone: 'warning',
+      },
+      { text: t('confirm.videoStorage'), tone: 'warning' },
+    ];
+  }
+  return [{ text: t('confirm.configRestart'), tone: 'warning' }];
+}
+
+// Writing settings sends the SIP block, and the device RESTARTS on it — the
+// same class of consequence as a firmware install, which has always asked.
+function applyToDevice(device) {
   const group = groupBar.currentGroup('cfg');
   if (!group) return;
-  try {
-    const job = await api.configApply(state.setNo, group.name, [device.id]);
-    patch({ queueOpen: true, openJob: job.id });
-    if (job.new === false) {
-      notify(t('config.applyQueuedFor', { device: device.name }));
-    } else {
-      showSuccess(t('config.settingsQueuedFor', { device: device.name }));
-    }
-    dialog.close();
-  } catch (e) { showError(e.message); }
+  confirmWrite({
+    title: t('config.applyToThisDevice'),
+    lead: t('confirm.configOneLead', { device: device.name }),
+    notes: writeNotes(group),
+    items: [{ name: device.name, detail: device.ip || '' }],
+    confirmLabel: t('config.applyToThisDevice'),
+    run: async () => {
+      const job = await api.configApply(state.setNo, group.name, [device.id]);
+      patch({ queueOpen: true, openJob: job.id });
+      if (job.new === false) {
+        notify(t('config.applyQueuedFor', { device: device.name }));
+      } else {
+        showSuccess(t('config.settingsQueuedFor', { device: device.name }));
+      }
+      dialog.close();
+    },
+  });
 }
 
 // An input element matching the field's kind. The kind comes from the
@@ -411,24 +437,26 @@ function groupCard(fields, rows, sources) {
         }),
       ])
       : [el('p', {
-          class: 'mono text-dim', style: 'font-size:10.5px',
+          class: 'mono text-dim t-xs',
           text: t('config.thisDeviceTypeHasNo'),
         })]),
-    savedDefaultsFooter(savedDefaults),
+    savedDefaultsFooter(savedDefaults, writable.some(f => f.secret)),
   ]);
 }
 
 // Entered values are written to a file and restored when the application
 // opens. Without knowing that, the user re-enters them every time wondering
 // whether they stick. The password is NEVER written to the file, which is
-// said here too.
-function savedDefaultsFooter(defaults) {
+// said here too — but only for a device type that HAS one. A Compartment LCD
+// has a single writable field and no password anywhere near it, so the
+// exception would name a setting the screen never showed.
+function savedDefaultsFooter(defaults, hasSecret = true) {
   const count = (defaults.groupValues || 0) + (defaults.deviceValues || 0);
   return el('div', { class: 'cfg-defaults' }, [
     el('span', {
       class: 'cfg-saved-note',
       text: (count ? t('config.savedCount', { count })
-        : t('config.savedForSet')) + t('config.savedSuffix'),
+        : t('config.savedForSet')) + (hasSecret ? t('config.savedSuffix') : ''),
       title: defaults.file || '',
     }),
     count ? el('button', {
@@ -481,9 +509,9 @@ function renderRow(row) {
   return el('div', {
     class: 'table-row', style: `--table-columns:${COLUMNS}`,
   }, [
-    el('span', { class: 'mono', style: 'font-size:12px', text: row.label }),
+    el('span', { class: 'mono t-base', text: row.label }),
     el('span', {
-      class: 'mono text-mid truncate', style: 'font-size:12px',
+      class: 'mono text-mid truncate t-base',
       text: currentText,
     }),
     row.editable
@@ -494,8 +522,8 @@ function renderRow(row) {
       // to the inherited one.
       ? input(row, row.secret ? '' : (row.override || row.target || ''),
         (v) => writeTarget(row.field, v, 'device'), {
-          style: 'padding:5px 8px;font-size:12px',
-          class: !row.override && row.target ? 'cfg-inherited' : '',
+          class: `t-base${!row.override && row.target ? ' cfg-inherited' : ''}`,
+          style: 'padding:5px 8px',
           aria: t('config.valueSpecificToThisDevice'),
           placeholder: row.secret
             ? (row.hasOverride ? 'entered (hidden)'
@@ -514,38 +542,49 @@ function renderRow(row) {
               : 'config.empty')),
         })
       : el('span', {
-          class: 'mono text-dim', style: 'font-size:12px', text: '—',
+          class: 'mono text-dim t-base', text: '—',
         }),
     // If the DeviceMap value is invalid it did not count as a target; the
     // reason shows here, or the field would look silently empty.
     el('span', {
-      class: 'mono',
-      style: 'font-size:10.5px;color:var(--'
-        + (row.warning ? 'failed' : sourceColour) + ')',
+      class: 'mono t-xs',
+      style: 'color:var(--'
+        + (row.warning ? 'failed-text' : sourceColour) + ')',
       title: row.warning || null,
       text: row.warning
         ? t('config.projectDefaultInvalid')
         : (row.editable ? sourceName : '—'),
     }),
     el('span', {
-      style: 'font-family:var(--font-heading);font-weight:600;'
-        + 'font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;'
-        + `color:var(--${colour})`,
+      class: 'state-label',
+      style: `color:var(--${colour})`,
       text: label,
     }),
   ]);
 }
 
-async function applyToGroup() {
+function applyToGroup() {
   const group = groupBar.currentGroup('cfg');
   if (!group) return;
-  try {
-    const job = await api.configApply(state.setNo, group.name, null);
-    patch({ queueOpen: true, openJob: job.id });
-    if (job.new === false) {
-      notify(t('config.applyingTheDeviceSettingsIs'));
-    } else {
-      showSuccess(t('config.applyingTheDeviceSettingsWas'));
-    }
-  } catch (e) { showError(e.message); }
+  const devices = groupBar.devicesIn(group);
+  confirmWrite({
+    title: t('config.applyToDevices'),
+    lead: t('confirm.configGroupLead', {
+      count: devices.length, group: group.label || group.name,
+    }),
+    notes: writeNotes(group),
+    items: devices.map(device => ({
+      name: device.name, detail: device.ip || '',
+    })),
+    confirmLabel: t('config.applyToCount', { count: devices.length }),
+    run: async () => {
+      const job = await api.configApply(state.setNo, group.name, null);
+      patch({ queueOpen: true, openJob: job.id });
+      if (job.new === false) {
+        notify(t('config.applyingTheDeviceSettingsIs'));
+      } else {
+        showSuccess(t('config.applyingTheDeviceSettingsWas'));
+      }
+    },
+  });
 }

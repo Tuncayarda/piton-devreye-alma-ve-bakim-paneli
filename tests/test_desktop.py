@@ -143,7 +143,6 @@ class Bridge(unittest.TestCase):
 class DesktopStartup(unittest.TestCase):
     def test_port_zero_is_rejected_without_browser_mode(self):
         with (mock.patch.object(sys, "argv", ["app.py", "--port", "0"]),
-              mock.patch("panel.api.set_admin_password"),
               mock.patch("app.write") as write):
             self.assertEqual(app.main(), 2)
         write.assert_called_with(
@@ -153,41 +152,44 @@ class DesktopStartup(unittest.TestCase):
         """The panel writes to the network and to devices; there is no
         unprivileged mode.
 
-        If the user picks "Quit" in the window, no service is set up at all.
+        Refusing the system's password box sets up no service at all — the
+        window that follows only says why.
         """
-        with (mock.patch.object(sys, "argv", ["app.py"]),
+        with (mock.patch.object(sys, "argv",
+                                ["app.py", "--edition", "gdm"]),
               mock.patch("app.is_elevated", return_value=False),
               mock.patch("app.set_macos_identity") as identity,
-              mock.patch("panel.elevation.flow.ask",
-                         return_value="quit") as ask,
-              mock.patch("panel.api.set_admin_password") as password,
+              mock.patch("panel.elevation.flow.elevate",
+                         return_value=(False, "denied")),
+              mock.patch("panel.elevation.flow.show_failure") as shown,
               mock.patch("panel.api.start") as start,
               mock.patch("app.write") as write):
             self.assertEqual(app.main(), 1)
-        ask.assert_called_once()
+        shown.assert_called_once()
         # The elevation window is the application's window too: it must not
         # look like a SECOND app under the interpreter's name in the Dock.
         identity.assert_called_once()
-        password.assert_not_called()
         start.assert_not_called()
         self.assertIn("must run elevated", " ".join(
             str(c.args[0]) for c in write.call_args_list))
 
-    def test_the_elevation_window_restarts_the_application(self):
-        """The window does not only inform; it starts the elevated process.
+    def test_an_unprivileged_start_goes_straight_to_the_system_box(self):
+        """No dialog of ours comes first; the system prompt is the question.
 
         The starting process EXITS with 0: two copies of the same panel must
         not write to the same switch and the same DeviceMap.
         """
         with (mock.patch.object(sys, "argv", ["app.py"]),
               mock.patch("app.is_elevated", return_value=False),
-              mock.patch("panel.elevation.flow.ask", return_value="elevate"),
+              mock.patch("panel.elevation.flow.hide_dock_icon"),
+              mock.patch("panel.elevation.flow.show_failure") as shown,
               mock.patch("panel.elevation.flow.elevate",
                          return_value=(True, "")) as elevate,
               mock.patch("panel.api.start") as start,
               mock.patch("app.write")):
             self.assertEqual(app.main(), 0)
         elevate.assert_called_once()
+        shown.assert_not_called()
         start.assert_not_called()
 
     def test_the_window_title_follows_the_language(self):

@@ -16,6 +16,69 @@ from .. import i18n
 # `range_candidates`).
 SEARCH_LIMIT = 512
 
+# The prefix length written together with a newly assigned address. Every
+# address in the project plan is a /24 and that stays the default, but it is
+# NOT a constant of the system: a Compartment LCD is sometimes commissioned on
+# a /8 so it can be reached from the whole 10.0.0.0 range while the rest of
+# the train is still being addressed. So the run takes it as an option.
+#
+# The bounds are the range in which "assign this address to a device on a
+# switch port" still means something: below /8 the mask stops describing a
+# network anybody routes here, and above /30 there is no host address left
+# beside the device's own.
+DEFAULT_TARGET_PREFIX = 24
+MIN_TARGET_PREFIX = 8
+MAX_TARGET_PREFIX = 30
+
+
+def netmask_for(prefix: int) -> str:
+    """24 -> '255.255.255.0'. The dotted form the HTTP devices want."""
+    return str(ipaddress.IPv4Network(("0.0.0.0", int(prefix))).netmask)
+
+
+def parse_prefix(value, default: int = DEFAULT_TARGET_PREFIX) -> int:
+    """'24', '/24' and '255.255.255.0' all mean 24; empty means `default`.
+
+    Both spellings appear in the field: the switch pages and the device web
+    UIs write a dotted mask, while everyone says "slash eight" out loud. A
+    mask with holes in it (255.0.255.0) is rejected rather than rounded to
+    something plausible.
+    """
+    text = str(value or "").strip().lstrip("/")
+    if not text:
+        return int(default)
+    if text.isdigit():
+        prefix = int(text)
+    else:
+        try:
+            prefix = ipaddress.IPv4Network(f"0.0.0.0/{text}").prefixlen
+        except ValueError as exc:
+            raise ValueError(i18n.t("error.targetMaskInvalid")) from exc
+    if not MIN_TARGET_PREFIX <= prefix <= MAX_TARGET_PREFIX:
+        raise ValueError(i18n.t("error.targetMaskOutOfRange",
+                                low=MIN_TARGET_PREFIX,
+                                high=MAX_TARGET_PREFIX))
+    return prefix
+
+
+def parse_set(value, default: int = 0) -> int:
+    """The set a device is CURRENTLY on, for a transfer. 0 = not given.
+
+    Deliberately strict: silently reading a mistyped set number as 1 would
+    send the run looking on the factory network while the devices sit in set
+    3, and report every port as "device not found".
+    """
+    text = str(value if value is not None else "").strip()
+    if not text:
+        return int(default)
+    try:
+        number = int(text)
+    except ValueError as exc:
+        raise ValueError(i18n.t("error.sourceSetInvalid")) from exc
+    if not 1 <= number <= 254:
+        raise ValueError(i18n.t("error.sourceSetInvalid"))
+    return number
+
 
 # Permission to flush the ARP cache is what lets a run finish in one pass
 # (see intercom_ip_assign.arp_forget). The app is launched elevated, so the

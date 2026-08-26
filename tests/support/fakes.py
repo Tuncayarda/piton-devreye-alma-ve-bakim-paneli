@@ -8,6 +8,8 @@ They imitate the real hardware:
   · KYLAND switch — Basic Auth, /stat/basicInfo, JSON
   · a switch that answers with a login page — HTTP 200 + HTML (not a success)
   · Hikvision camera — Digest Auth, /ISAPI/System/deviceInfo, XML
+  · Hikvision camera / NVR with the WRITE side of ISAPI (video_camera,
+    video_nvr): time, streams, storage, input channels, triggers
   · announcement device — credential-less JSON /api/v1/system/settings
 """
 from __future__ import annotations
@@ -15,8 +17,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import struct
 import threading
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASIC_INFO = {
@@ -74,6 +78,8 @@ class _Server:
         self.request_count = 0
         # (method, path) — to see which endpoint was really hit.
         self.history: list[tuple[str, str]] = []
+        # Content-Type only; never retain Authorization or request bodies here.
+        self.request_content_types: list[tuple[str, str, str]] = []
         handler_class.fake = self
         self._t = threading.Thread(target=self.srv.serve_forever, daemon=True)
         self._t.start()
@@ -95,6 +101,10 @@ def _base_handler(name: str, send):
         "fake": None,
         "do_GET": lambda self: send(self),
         "do_POST": lambda self: send(self),
+        # ISAPI writes are PUTs; without this they would 501 and every
+        # video test would pass for the wrong reason.
+        "do_PUT": lambda self: send(self),
+        "do_DELETE": lambda self: send(self),
         "log_message": lambda self, *a: None,
         "write": _write,
     })
@@ -108,6 +118,44 @@ def _write(self, code: int, body: bytes, ctype: str, extra: dict | None = None):
         self.send_header(k, v)
     self.end_headers()
     self.wfile.write(body)
+
+
+# The realm and nonce a Hikvision device challenges with. Fixed values: the
+# tests are about the panel's behaviour, not about digest itself.
+DIGEST_REALM, DIGEST_NONCE = "IP Camera", "abc123nonce"
+DIGEST_CHALLENGE = (f'Digest realm="{DIGEST_REALM}", nonce="{DIGEST_NONCE}", '
+                    'qop="auth"')
+
+
+def _digest_check(username: str, password: str):
+    """A callable that says whether an Authorization header is correct."""
+
+    def correct(auth: str, method: str) -> bool:
+        if not auth or not auth.lower().startswith("digest "):
+            return False
+        fields = {}
+        for part in auth[7:].split(","):
+            if "=" not in part:
+                continue
+            k, _, v = part.partition("=")
+            fields[k.strip()] = v.strip().strip('"')
+        if fields.get("username") != username:
+            return False
+        ha1 = hashlib.md5(
+            f"{username}:{DIGEST_REALM}:{password}".encode()).hexdigest()
+        ha2 = hashlib.md5(
+            f"{method}:{fields.get('uri', '')}".encode()).hexdigest()
+        if fields.get("qop"):
+            expected = hashlib.md5(
+                f"{ha1}:{fields.get('nonce')}:{fields.get('nc')}:"
+                f"{fields.get('cnonce')}:{fields.get('qop')}:{ha2}"
+                .encode()).hexdigest()
+        else:
+            expected = hashlib.md5(
+                f"{ha1}:{fields.get('nonce')}:{ha2}".encode()).hexdigest()
+        return fields.get("response") == expected
+
+    return correct
 
 
 # ─────────────────────────────────────────────────────── KYLAND switch ────
@@ -176,40 +224,13 @@ def camera(username="admin", password="fake-camera-password"):
     never be a real field password. Tests pass their own value
     (see test_credentials.PASSWORD).
     """
-    realm, nonce = "IP Camera", "abc123nonce"
-
-    def correct(auth: str, method: str) -> bool:
-        if not auth or not auth.lower().startswith("digest "):
-            return False
-        fields = {}
-        for part in auth[7:].split(","):
-            if "=" not in part:
-                continue
-            k, _, v = part.partition("=")
-            fields[k.strip()] = v.strip().strip('"')
-        if fields.get("username") != username:
-            return False
-        ha1 = hashlib.md5(
-            f"{username}:{realm}:{password}".encode()).hexdigest()
-        ha2 = hashlib.md5(
-            f"{method}:{fields.get('uri', '')}".encode()).hexdigest()
-        if fields.get("qop"):
-            expected = hashlib.md5(
-                f"{ha1}:{fields.get('nonce')}:{fields.get('nc')}:"
-                f"{fields.get('cnonce')}:{fields.get('qop')}:{ha2}"
-                .encode()).hexdigest()
-        else:
-            expected = hashlib.md5(
-                f"{ha1}:{fields.get('nonce')}:{ha2}".encode()).hexdigest()
-        return fields.get("response") == expected
+    correct = _digest_check(username, password)
 
     def send(self):
         self.fake.request_count += 1
         if not correct(self.headers.get("Authorization", ""), self.command):
-            return self.write(
-                401, b"<html>401</html>", "text/html",
-                {"WWW-Authenticate":
-                 f'Digest realm="{realm}", nonce="{nonce}", qop="auth"'})
+            return self.write(401, b"<html>401</html>", "text/html",
+                              {"WWW-Authenticate": DIGEST_CHALLENGE})
         path = self.path.split("?")[0]
         if path == "/ISAPI/System/deviceInfo":
             return self.write(200, DEVICE_INFO_XML, "application/xml")
@@ -342,6 +363,341 @@ def announcement(settings=None, modes=None, ignore=(), new_version="1.2.6"):
 def announcement_writes(server) -> list[str]:
     """The endpoints written to on the device — in order."""
     return [path for method, path in server.history if method == "POST"]
+
+
+# ─────────────────────────────────────────── Hikvision camera and NVR ────
+# The WRITE side of ISAPI, which `camera()` above does not cover. Details
+# that the panel's behaviour depends on, and which are therefore imitated:
+#   · a write is a PUT — a new NVR input channel is the one POST;
+#   · the answer to a write is a ResponseStatus body, not a bare 200;
+#   · channel 103 does not exist while the third stream is disabled. That is
+#     the entire reason the panel enables it and waits out a reboot;
+#   · System/Network/interfaces is readable and NOT writable here on purpose:
+#     a test asserts the panel never tries to write an address or a mask.
+OK_XML = (b'<?xml version="1.0" encoding="UTF-8"?><ResponseStatus>'
+          b'<statusCode>1</statusCode><statusString>OK</statusString>'
+          b'</ResponseStatus>')
+BAD_XML_CONTENT = (
+    b'<?xml version="1.0" encoding="UTF-8"?><ResponseStatus>'
+    b'<statusCode>6</statusCode>'
+    b'<statusString>Invalid XML Content</statusString>'
+    b'<subStatusCode>badXmlContent</subStatusCode>'
+    b'<password>must-not-leak</password></ResponseStatus>')
+
+IFACE_ADDRESS_PATH = "/ISAPI/System/Network/interfaces/1/ipAddress"
+FORMAT_PATH = re.compile(r"^/ISAPI/ContentMgmt/Storage/hdd/([^/]+)/format$")
+PROXY_PATH = re.compile(r"^/ISAPI/ContentMgmt/InputProxy/channels/(\d+)$")
+TRIGGER_PATH = re.compile(r"^/ISAPI/Event/triggers/([\w-]+)$")
+STREAM_PATH = re.compile(r"^/ISAPI/Streaming/channels/(\d+)$")
+
+
+def _value(body: str, name: str, default: str = "") -> str:
+    found = re.search(rf"<{name}>(.*?)</{name}>", body, re.DOTALL)
+    return found.group(1).strip() if found else default
+
+
+def _inner(body: str, name: str) -> str:
+    found = re.search(rf"<{name}>(.*?)</{name}>", body, re.DOTALL)
+    return found.group(1) if found else ""
+
+
+def _beep_trigger(name: str) -> str:
+    """A trigger that sounds the buzzer, as the NVR ships it."""
+    return (f"<EventTrigger><id>{name}</id><eventType>{name}</eventType>"
+            "<EventTriggerNotificationList>"
+            "<EventTriggerNotification><id>beep</id>"
+            "<notificationMethod>beep</notificationMethod>"
+            "</EventTriggerNotification>"
+            "<EventTriggerNotification><id>record</id>"
+            "<notificationMethod>record</notificationMethod>"
+            "</EventTriggerNotification>"
+            "</EventTriggerNotificationList></EventTrigger>")
+
+
+def _video_common(state, path, command, body):
+    """The endpoints a camera and an NVR answer identically.
+
+    (status, xml) when handled, None when the path belongs to one of them
+    alone — or to nothing at all.
+    """
+    if command == "GET":
+        if path == "/ISAPI/System/deviceInfo":
+            return 200, DEVICE_INFO_XML
+        if path == "/ISAPI/System/time":
+            return 200, (f"<Time><timeMode>NTP</timeMode>"
+                         f"<timeZone>{state['timezone']}</timeZone>"
+                         f"</Time>").encode()
+        if path == "/ISAPI/System/time/ntpServers/1":
+            return 200, (f"<NTPServer><id>1</id>"
+                         f"<addressingFormatType>ipaddress"
+                         f"</addressingFormatType>"
+                         f"<ipAddress>{state['ntp']}</ipAddress>"
+                         f"</NTPServer>").encode()
+        if path == "/ISAPI/System/Network/interfaces":
+            return 200, (f"<NetworkInterfaceList><NetworkInterface><id>1</id>"
+                         f"<IPAddress><ipVersion>v4</ipVersion>"
+                         f"<ipAddress>{state['address']}</ipAddress>"
+                         f"<subnetMask>{state['mask']}</subnetMask>"
+                         f"<DefaultGateway><ipAddress>{state['gateway']}"
+                         f"</ipAddress></DefaultGateway>"
+                         f"</IPAddress></NetworkInterface>"
+                         f"</NetworkInterfaceList>").encode()
+        if path == IFACE_ADDRESS_PATH:
+            return 200, (f"<IPAddress><ipVersion>v4</ipVersion>"
+                         f"<ipAddress>{state['address']}</ipAddress>"
+                         f"<subnetMask>{state['mask']}</subnetMask>"
+                         f"<DefaultGateway><ipAddress>{state['gateway']}"
+                         f"</ipAddress></DefaultGateway></IPAddress>").encode()
+        if path == "/ISAPI/ContentMgmt/Storage/hdd":
+            if not state["hdd"]:
+                return 404, b"<html>404</html>"
+            disks = "".join(
+                f"<hdd><id>{number}</id><status>{status}</status></hdd>"
+                for number, status in state["hdd"].items())
+            return 200, f"<hddList>{disks}</hddList>".encode()
+        return None
+
+    if path == "/ISAPI/System/time":
+        state["timezone"] = _value(body, "timeZone")
+        return 200, OK_XML
+    if path == "/ISAPI/System/time/ntpServers/1":
+        state["ntp"] = _value(body, "ipAddress")
+        return 200, OK_XML
+    if path == IFACE_ADDRESS_PATH:
+        state["mask"] = _value(body, "subnetMask")
+        # The gateway and the address must survive the write: the panel sends
+        # the block back as it came, with one value replaced.
+        state["gateway"] = _value(_inner(body, "DefaultGateway"), "ipAddress")
+        state["address"] = _value(body, "ipAddress")
+        return 200, OK_XML
+    if path == "/ISAPI/System/reboot":
+        state["reboots"] += 1
+        return 200, OK_XML
+    formatting = FORMAT_PATH.match(path)
+    if formatting:
+        state["hdd"][formatting.group(1)] = "ok"
+        return 200, OK_XML
+    return None
+
+
+def _video_handler(name: str, state, extra):
+    """Wire a state dict and an endpoint table into a running server."""
+    correct = _digest_check(state["username"], state["password"])
+
+    def send(self):
+        self.fake.request_count += 1
+        path = self.path.split("?")[0]
+        length = int(self.headers.get("Content-Length") or 0)
+        # The body is read even on a 401: it is already on the wire, and
+        # leaving it there desynchronises the next request on the socket.
+        body = (self.rfile.read(length) or b"").decode("utf-8", "replace")
+        if not correct(self.headers.get("Authorization", ""), self.command):
+            return self.write(401, b"<html>401</html>", "text/html",
+                              {"WWW-Authenticate": DIGEST_CHALLENGE})
+        self.fake.history.append((self.command, path))
+        content_type = self.headers.get("Content-Type", "")
+        self.fake.request_content_types.append(
+            (self.command, path, content_type))
+        if (self.command in ("PUT", "POST", "DELETE")
+                and path.startswith(
+                    "/ISAPI/ContentMgmt/InputProxy/channels")
+                and not content_type.lower().startswith(
+                    "application/x-www-form-urlencoded")):
+            return self.write(400, BAD_XML_CONTENT, "application/xml")
+        answer = (_video_common(state, path, self.command, body)
+                  or extra(state, path, self.command, body))
+        if answer is None:
+            return self.write(404, b"<html>404</html>", "text/html")
+        code, payload = answer
+        return self.write(code, payload, "application/xml")
+
+    server = _Server(_base_handler(name, send))
+    server.state = state
+    return server
+
+
+def video_camera(username="admin", password="fake-camera-password",
+                 third_stream=False, ir="auto", hdd=None,
+                 channel_name="Camera 01", audio="true"):
+    """A Hikvision camera that can be configured, not just read."""
+    state = {
+        "username": username, "password": password,
+        # The tests reach the device on 127.0.0.1, so that is the address
+        # its interface reports: the mask is written to the interface that
+        # holds the device's OWN address and to no other.
+        "timezone": "CST+2:00:00", "ntp": "", "address": "127.0.0.1",
+        "gateway": "10.1.1.1",
+        "mask": "255.0.0.0", "ir": ir, "third": bool(third_stream),
+        "hdd": dict(hdd if hdd is not None else {"1": "unformatted"}),
+        "reboots": 0,
+        "channels": {"101": {"name": channel_name, "audio": audio,
+                             "w": "1280", "h": "720"}},
+    }
+
+    def channel_xml(number: str) -> bytes:
+        channel = state["channels"].get(number) or {
+            "name": "", "audio": "false", "w": "", "h": ""}
+        return (f"<StreamingChannel><id>{number}</id>"
+                f"<channelName>{channel['name']}</channelName>"
+                f"<enabled>true</enabled>"
+                f"<Audio><enabled>{channel['audio']}</enabled></Audio>"
+                f"<Video><videoResolutionWidth>{channel['w']}"
+                f"</videoResolutionWidth><videoResolutionHeight>"
+                f"{channel['h']}</videoResolutionHeight></Video>"
+                f"</StreamingChannel>").encode()
+
+    def extra(state, path, command, body):
+        stream = STREAM_PATH.match(path)
+        if command == "GET":
+            if path == "/ISAPI/System/Hardware":
+                return 200, (f"<HardwareService><IrLightSwitch>"
+                             f"<mode>{state['ir']}</mode></IrLightSwitch>"
+                             f"</HardwareService>").encode()
+            if path == "/ISAPI/System/Software/channels/1":
+                return 200, (f"<SoftwareService><ThirdStream><enabled>"
+                             f"{'true' if state['third'] else 'false'}"
+                             f"</enabled></ThirdStream>"
+                             f"</SoftwareService>").encode()
+            if stream:
+                if stream.group(1) == "103" and not state["third"]:
+                    return 404, b"<html>404</html>"
+                return 200, channel_xml(stream.group(1))
+            return None
+
+        if path == "/ISAPI/System/Hardware":
+            state["ir"] = _value(body, "mode")
+            return 200, OK_XML
+        if path == "/ISAPI/System/Software/channels/1":
+            state["third"] = _value(body, "enabled") == "true"
+            return 200, OK_XML
+        if stream:
+            number = stream.group(1)
+            # Refusing 103 while the third stream is off is what the real
+            # camera does, and what the panel's reboot dance exists for.
+            if number == "103" and not state["third"]:
+                return 404, b"<html>404</html>"
+            state["channels"][number] = {
+                "name": _value(body, "channelName"),
+                "audio": _value(_inner(body, "Audio"), "enabled"),
+                "w": _value(body, "videoResolutionWidth"),
+                "h": _value(body, "videoResolutionHeight"),
+            }
+            return 200, OK_XML
+        return None
+
+    return _video_handler("VideoCameraHandler", state, extra)
+
+
+def video_nvr(username="admin", password="fake-camera-password",
+              channels=None, hdd=None, triggers=2, list_methods=True,
+              reject_channel=None, ignore_channel=None,
+              channel_list_error=False):
+    """A Hikvision NVR: input channels, triggers, disk.
+
+    `list_methods=False` imitates the firmware whose trigger LIST answers
+    with ids alone. The buzzer is still armed on it; the only way to see
+    that is to ask the beeping triggers by name.
+    """
+    state = {
+        "username": username, "password": password,
+        "timezone": "CST+2:00:00", "ntp": "", "address": "127.0.0.1",
+        "gateway": "10.1.1.1",
+        "mask": "255.0.0.0", "reboots": 0,
+        "hdd": dict(hdd if hdd is not None else {"1": "ok"}),
+        "channels": dict(channels or {}),
+        # `diskerror` and `diskfull` are the two an NVR beeps on; the field
+        # script asks for them by name when the list says nothing.
+        "triggers": {name: _beep_trigger(name)
+                     for name in list(("diskerror", "diskfull"))[:triggers]},
+    }
+
+    def channel_list() -> bytes:
+        root = ET.Element("InputProxyChannelList")
+        for number, (name, ip) in sorted(state["channels"].items()):
+            channel = ET.SubElement(root, "InputProxyChannel")
+            ET.SubElement(channel, "id").text = str(number)
+            ET.SubElement(channel, "name").text = str(name)
+            source = ET.SubElement(channel, "sourceInputPortDescriptor")
+            ET.SubElement(source, "ipAddress").text = str(ip)
+            ET.SubElement(source, "managePortNo").text = "8000"
+        return ET.tostring(root, encoding="utf-8")
+
+    def channel_body(body: str) -> tuple[int, str, str]:
+        root = ET.fromstring(body)
+
+        def text(name: str) -> str:
+            for element in root.iter():
+                if element.tag.rsplit("}", 1)[-1] == name:
+                    return (element.text or "").strip()
+            return ""
+
+        return int(text("id")), text("name"), text("ipAddress")
+
+    def store(body: str) -> int:
+        number, name, ip = channel_body(body)
+        if not name and number in state["channels"]:
+            # The old NVR's update body has no <name>; PUT preserves it.
+            name = state["channels"][number][0]
+        state["channels"][number] = (name, ip)
+        return number
+
+    def extra(state, path, command, body):
+        trigger = TRIGGER_PATH.match(path)
+        if command == "GET":
+            if path == "/ISAPI/ContentMgmt/InputProxy/channels":
+                if channel_list_error:
+                    return 500, b"<html>channel list unavailable</html>"
+                return 200, channel_list()
+            if path == "/ISAPI/Event/triggers":
+                bodies = state["triggers"].values()
+                if not list_methods:
+                    bodies = [re.sub(r"<EventTriggerNotificationList>.*?"
+                                     r"</EventTriggerNotificationList>", "",
+                                     body, flags=re.DOTALL)
+                              for body in bodies]
+                return 200, ("<EventTriggerList>" + "".join(bodies)
+                             + "</EventTriggerList>").encode()
+            if trigger and trigger.group(1) in state["triggers"]:
+                return 200, state["triggers"][trigger.group(1)].encode()
+            return None
+
+        proxy = PROXY_PATH.match(path)
+        if (command == "POST"
+                and path == "/ISAPI/ContentMgmt/InputProxy/channels"):
+            number, _name, _ip = channel_body(body)
+            if number == reject_channel:
+                return 400, BAD_XML_CONTENT
+            if number != ignore_channel:
+                store(body)
+            return 200, OK_XML
+        if proxy and command == "PUT":
+            number, name, _ip = channel_body(body)
+            if name:
+                # Captures the live old-firmware web UI contract: adding a
+                # channel carries its name; updating one must omit it.
+                return 400, BAD_XML_CONTENT
+            if number != int(proxy.group(1)):
+                return 400, BAD_XML_CONTENT
+            if number == reject_channel:
+                return 400, BAD_XML_CONTENT
+            if number != ignore_channel:
+                store(body)
+            return 200, OK_XML
+        if proxy and command == "DELETE":
+            state["channels"].pop(int(proxy.group(1)), None)
+            return 200, OK_XML
+        if trigger and trigger.group(1) in state["triggers"]:
+            state["triggers"][trigger.group(1)] = body
+            return 200, OK_XML
+        return None
+
+    return _video_handler("VideoNvrHandler", state, extra)
+
+
+def video_writes(server) -> list[str]:
+    """The paths written to on a video device — in order."""
+    return [path for method, path in server.history
+            if method in ("PUT", "POST", "DELETE")]
 
 
 def silent():

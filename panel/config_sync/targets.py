@@ -6,15 +6,16 @@ Precedence: device-specific > group > the project value in DeviceMap.
 from __future__ import annotations
 
 from ..inventory.device_map import Device, Inventory
-from .fields import FIELDS, writable_for_subtype
+from ..video_config import defaults as video_defaults
+from .fields import FIELDS, config_scope, writable_for_scope
 from .store import DEVICE_TARGETS, GROUP_TARGETS, LOCK, UNSCOPED_DEVICE, \
     UNSCOPED_GROUP
 from .validation import scope_key, validate
 
 
 def set_target(device_id: str, name: str, value: str,
-               subtype: str | None = None, *, set_no: int = 1) -> None:
-    cleaned = validate(name, value, subtype)
+               scope: str | None = None, *, set_no: int = 1) -> None:
+    cleaned = validate(name, value, scope)
     key = scope_key(set_no, device_id)
     with LOCK:
         if cleaned:
@@ -32,8 +33,8 @@ def device_targets(device_id: str, *, set_no: int = 1) -> dict:
 
 
 def set_group_target(group: str, name: str, value: str,
-                     subtype: str | None = None, *, set_no: int = 1) -> None:
-    cleaned = validate(name, value, subtype)
+                     scope: str | None = None, *, set_no: int = 1) -> None:
+    cleaned = validate(name, value, scope)
     key = scope_key(set_no, group)
     with LOCK:
         if cleaned:
@@ -97,6 +98,12 @@ def _project_target(device: Device, inventory: Inventory, name: str,
     field = FIELDS[name]
     if not field.write_name:
         return "", ""
+    if name == "ipAddress":
+        # DeviceMap stores the TEMPLATE ("10.n.1.40"); the address the device
+        # should hold is that template resolved for the open set, which is
+        # what the inventory already did. Reading `extra["IP"]` here would
+        # offer the template itself as a target.
+        return (str(device.ip or ""), "")
     if field.secret:
         # Secret fields are absent from `extra` (DeviceMap passwords are
         # stripped); the value comes only from the device's own record.
@@ -117,10 +124,16 @@ def _project_target(device: Device, inventory: Inventory, name: str,
         # With no PBX address in DeviceMap it is the set's PISCU; there is no
         # other registrar in the set.
         raw = inventory.piscu_ip() or ""
+    if raw in (None, "") and device.read_method == "isapi":
+        # Video equipment is configured to project settings that DeviceMap
+        # does not carry today (IR mode, third stream, the camera's audio).
+        # They are defaults, so they answer last: anything in DeviceMap, and
+        # anything entered on screen, still wins.
+        raw = video_defaults.for_field(device, inventory, name)
     if raw in (None, ""):
         return "", ""
     try:
-        return validate(name, raw, device.subtype or ""), ""
+        return validate(name, raw, config_scope(device)), ""
     except ValueError as exc:
         return "", f"DeviceMap: {exc}"
 
@@ -160,9 +173,9 @@ def group_project_summary(inventory: Inventory,
     """
     seen: dict[str, set] = {}
     for device in devices:
-        if device.read_method != "http":
+        if device.read_method not in ("http", "adb", "isapi"):
             continue
-        for name in writable_for_subtype(device.subtype or ""):
+        for name in writable_for_scope(config_scope(device)):
             if FIELDS[name].secret:
                 continue
             value, _warning = _project_target(device, inventory, name)

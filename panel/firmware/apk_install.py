@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Compartment LCD — APK install over adb.
 
-The device is Android, so `adb install -r` does the work. The version check
-comes from the same place as the probe layer (dumpsys package →
-probe.android.package_info), so "installed" and the version on screen come
-from one source.
+The device is Android, so `adb install -r` does the work.  The selected APK's
+own manifest supplies its package name; the version check then comes from the
+same parser as the probe layer (dumpsys package → probe.android.package_info).
+That also permits a temporary test application without weakening the
+post-install proof to adb's word "Success" alone.
 
 Installing does not reboot the device; the app itself is reinstalled. So
 there is no "wait for the device to come back" step as on the HTTP path —
@@ -19,6 +20,7 @@ from ..errors import NotApplicableError, UnreachableError, VerificationError
 from ..inventory.device_map import Device
 from ..probe.android import package_info
 from .. import i18n
+from .apk_metadata import ApkMetadataError, read_apk_metadata
 
 # adb marker -> the catalogue key explaining it. Keys, not sentences: this
 # table is built at import time, long before a language is chosen.
@@ -46,9 +48,9 @@ def _adb(*args: str, timeout: int) -> subprocess.CompletedProcess:
                                       command=args[0]))
 
 
-def _installed_version(target: str, timeout: int) -> str:
+def _installed_version(target: str, package: str, timeout: int) -> str:
     result = _adb("-s", target, "shell", "dumpsys", "package",
-                  settings.ADB_PACKAGE, timeout=timeout)
+                  package, timeout=timeout)
     return package_info(result.stdout or "")["version"]
 
 
@@ -65,8 +67,21 @@ def _failure_message(output: str) -> str:
     return i18n.t("error.apkInstallFailed")
 
 
-def install_apk(device: Device, path, expected: str,
-                verify_window: float) -> dict:
+def install_apk(device: Device, path, verify_window: float) -> dict:
+    # Do not assume every selected APK is the panel application's package.
+    # Test/commissioning installs intentionally include ordinary Android apps.
+    # Reading the identity from the selected payload before touching the device
+    # lets the post-install check address the exact package that was chosen.
+    try:
+        metadata = read_apk_metadata(path)
+    except ApkMetadataError as exc:
+        raise VerificationError(i18n.t("error.apkInvalid")) from exc
+    package = metadata["package"]
+    # The version to confirm afterwards comes from the chosen APK's own
+    # manifest. Nobody types one: a hand-entered "expected version" only ever
+    # repeated what the file already states, and got it wrong.
+    verify_version = str(metadata["version"] or "").strip()
+
     target = f"{device.ip}:{settings.ADB_PORT}"
     timeout = settings.ADB_TIMEOUT
     install_timeout = max(int(verify_window), settings.ADB_INSTALL_TIMEOUT)
@@ -76,7 +91,7 @@ def install_apk(device: Device, path, expected: str,
         # The app may not be installed at all; that is a first install, not an
         # error. Whether the device is reachable shows up in the install
         # output.
-        previous = _installed_version(target, timeout) or ""
+        previous = _installed_version(target, package, timeout) or ""
 
         result = _adb("-s", target, "install", "-r", str(path),
                       timeout=install_timeout)
@@ -90,19 +105,23 @@ def install_apk(device: Device, path, expected: str,
                           timeout=install_timeout)
             output = f"{result.stdout or ''}\n{result.stderr or ''}".strip()
 
-        if "Success" not in output:
+        succeeded = (result.returncode == 0
+                     and any(line.strip() == "Success"
+                             for line in output.splitlines()))
+        if not succeeded:
             raise VerificationError(_failure_message(output))
 
-        current = _installed_version(target, timeout)
+        current = _installed_version(target, package, timeout)
         if not current:
             raise VerificationError(
                 i18n.t("error.apkVerifyFailed",
-                       package=settings.ADB_PACKAGE))
-        if expected and current.strip() != str(expected).strip():
+                       package=package))
+        if verify_version and current.strip() != verify_version:
             raise VerificationError(
                 i18n.t("error.versionMismatch", current=current,
-                   expected=expected))
+                   expected=verify_version))
         return {"previous": previous, "current": current,
-                "changed": bool(previous) and previous != current}
+                "changed": bool(previous) and previous != current,
+                "package": package}
     finally:
         _adb("disconnect", target, timeout=timeout)

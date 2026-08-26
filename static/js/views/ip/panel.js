@@ -14,6 +14,7 @@ import { state } from '../../core/store.js';
 import { credentialDialog } from '../../components/locked.js';
 import { notify } from '../../components/toast.js';
 import { local, live } from './state.js';
+import { usesPhysicalPortDiscovery } from './software.js';
 import { t } from '../../core/i18n.js';
 
 function pinRing(count, radius) {
@@ -68,16 +69,28 @@ function liveClass(port) {
   return className.trim();
 }
 
+// Intercom assignment stays tied to ports defined in DeviceMap.  Compartment
+// LCD commissioning is different: on a test bench the operator may plug a
+// display into any physical PoE port.  Uplinks remain unavailable in both
+// cases, and protected ports are handled separately by portButton.
+export function portIsSelectable(port, physicalPortMode = false) {
+  if (physicalPortMode) return port.poe === true;
+  return port.defined === true;
+}
+
 // A single connector. The colour shows the port's current state, the border
 // its role in the run: target ports are marked with a blue border. Folding
 // both into one colour confused "is this port up" with "is it selected".
 function portButton(port, context) {
   const roles = [liveClass(port)];
   const protectedReason = context.protectedPorts.get(port.number);
+  const selectable = portIsSelectable(port, context.physicalPortMode);
   if (port.number === context.computerPort) roles.push('pc');
   else if (protectedReason) roles.push('link-port');
   else if (context.targets.has(port.number)) roles.push('selected');
-  if (!port.defined) roles.push('empty');
+  if (!port.defined) {
+    roles.push(selectable ? 'physical-target' : 'empty');
+  }
 
   const stateText = port.enabled === null ? ''
     : !port.enabled ? t('ippanel.statePortDisabled')
@@ -93,19 +106,22 @@ function portButton(port, context) {
       port: port.number,
       reason: protectedReason || t('ippanel.computerOnPort'),
     })
-    : t(port.defined ? 'ippanel.portDevice' : 'ippanel.portUndefined', {
-      port: port.number, device: port.device, state: stateText,
-    })
+    : t(context.physicalPortMode && port.poe && !port.defined
+      ? 'ippanel.physicalTargetPort'
+      : port.defined ? 'ippanel.portDevice' : 'ippanel.portUndefined', {
+        port: port.number, device: port.device, state: stateText,
+      })
       + (context.active ? ''
         : t('ippanel.switchesTo', { switch: context.switchName }));
   return el('button', {
     type: 'button', class: `pm-port ${roles.join(' ')}`.trim(),
     'aria-pressed': String(context.targets.has(port.number)),
     'aria-label': description,
-    'aria-disabled': String(!port.defined || locked),
-    disabled: !port.defined,
+    'aria-disabled': String(!selectable || locked),
+    disabled: !selectable,
     title: description,
-    onclick: locked ? null : () => context.onPortClick(port.number, context),
+    onclick: locked || !selectable
+      ? null : () => context.onPortClick(port.number, context),
   }, [
     connectorSvg(port.poe),
     el('span', { text: String(port.number) }),
@@ -153,6 +169,7 @@ export function panelCard(panel, plan, handlers) {
     computerPort:
       (computer && computer.switchId === panel.switchId && computer.port)
         ? Number(computer.port) : null,
+    physicalPortMode: usesPhysicalPortDiscovery(plan),
     onPortClick: handlers.onPortClick,
   };
 
@@ -180,8 +197,10 @@ export function panelCard(panel, plan, handlers) {
     grid.append(uplink ? portButton(uplink, context) : emptyCell());
   }
 
-  const guidance = t(groupDevices === 0 ? 'ippanel.noTargetOnSwitch'
-    : 'ippanel.clickDefinedPort');
+  const guidance = t(context.physicalPortMode
+    ? 'ippanel.clickPhysicalPoePort'
+    : groupDevices === 0 ? 'ippanel.noTargetOnSwitch'
+      : 'ippanel.clickDefinedPort');
 
   return el('article', {
     class: 'card corner front-panel', dataset: { active: active ? '1' : '0' },

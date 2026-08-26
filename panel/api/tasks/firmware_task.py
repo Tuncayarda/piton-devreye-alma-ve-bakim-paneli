@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ... import firmware, jobs, settings
 from ...errors import AuthError, user_message
 from ..presenters import credentials_for
+from .network_prepare import prepare_network
 from ... import i18n
 
 
@@ -18,6 +19,13 @@ def firmware_task(inventory, devices):
     many run at once is `settings.FIRMWARE_WORKERS` (default 4).
     """
     def body(job: jobs.Job):
+        # The same reason as the scan and the assignment run: a write cannot
+        # reach a device the computer has no route to. On a fresh start the
+        # panel has only prepared set 1's networks, and an operator who
+        # changes set and comes straight here — or who has paused the
+        # automatic rounds — would otherwise meet "device unreachable" on
+        # every row.
+        prepare_network(job, inventory)
         for device in devices:
             job.add_device_row(device)
 

@@ -7,6 +7,7 @@ import {
   TRANSPORT_FLAG,
 } from "../../static/js/core/transport.js";
 import { applyCatalogue, t } from "../../static/js/core/i18n.js";
+import { activePanelError } from "../../static/js/views/ip/ports.js";
 
 // The real catalogue, exactly as the app loads it over /api/language.
 // Without it every message here would render as its own key, and this
@@ -24,13 +25,18 @@ applyCatalogue({
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("the api surface keeps its 39 methods", () => {
+Deno.test("the api surface keeps its 51 methods", () => {
   const api = createApi({ request: () => ok() });
   const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
     methods,
     [
-      "adminLogin",
+      "adminKey",
+      "adminKeyDrives",
+      "adminKeyPrepare",
+      "adminKeyVolumes",
+      "adminKeyWrite",
+      "adminMode",
       "checklist",
       "checklistExport",
       "config",
@@ -39,17 +45,19 @@ Deno.test("the api surface keeps its 39 methods", () => {
       "configReset",
       "configTarget",
       "device",
+      "edition",
       "firmware",
       "firmwareInstall",
       "firmwarePick",
       "firmwareRemove",
-      "firmwareVersion",
       "forgetAllCredentials",
       "forgetCredentials",
       "ipAddressMap",
       "ipFactoryReset",
+      "ipLcdAssign",
       "ipPanel",
       "ipPlan",
+      "ipPreflashFile",
       "ipProtected",
       "ipRun",
       "job",
@@ -61,16 +69,45 @@ Deno.test("the api surface keeps its 39 methods", () => {
       "mqtt",
       "mqttStart",
       "mqttStop",
+      "network",
+      "networkPrepare",
+      "networkRelease",
+      "networkSettings",
       "piscu",
       "project",
       "refresh",
       "scan",
+      "selectProject",
       "setLanguage",
       "state",
       "tryCredentials",
       "version",
     ],
   );
+});
+
+Deno.test("a DeviceMap fallback cannot make IP assignment ready", () => {
+  const panel = {
+    switchName: "SW-1",
+    hasCredentials: true,
+    source: "devicemap",
+    note: "The switch is unreachable",
+  };
+
+  assert.equal(
+    activePanelError(panel, { id: "sw1" }, false),
+    "The switch is unreachable",
+  );
+});
+
+Deno.test("a live switch panel passes the readiness gate", () => {
+  const panel = {
+    switchName: "SW-1",
+    hasCredentials: true,
+    source: "switch",
+  };
+
+  assert.equal(activePanelError(panel, { id: "sw1" }, false), "");
 });
 
 Deno.test("empty query values are dropped from the URL", async () => {

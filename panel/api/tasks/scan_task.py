@@ -6,11 +6,17 @@ from ... import jobs
 from ...probe import reader
 from ...telemetry import TelemetrySnapshot
 from ..presenters import collect_telemetry, credentials_for, store_telemetry
+from .network_prepare import prepare_network
 from ... import i18n
 
 
 def scan_task(inventory):
     def body(job: jobs.Job):
+        # A scan of a set whose network the computer is not on finds nothing
+        # at all, and the empty result looks like dead hardware. Telemetry is
+        # the first thing read and it goes to the PISCU's own address, so this
+        # comes before it.
+        prepare_network(job, inventory, None)
         # Collecting telemetry takes seconds during which no device row moves.
         # The queue shows what is being waited on; otherwise the scan looks
         # frozen.

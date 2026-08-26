@@ -142,7 +142,12 @@ export function fileSize(bytes) {
   if (!bytes) return NONE;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  // Firmware images are megabytes; a USB drive is not, and "30720.00 MB" is
+  // not a number anybody checks against the thing in their hand.
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  }
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 // The "version" shown on a device row: left empty when unread, never

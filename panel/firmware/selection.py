@@ -8,13 +8,29 @@ from pathlib import Path
 from ..config_sync.validation import scope_key
 from .. import i18n
 
-MAX_SIZE = 32 * 1024 * 1024      # 32 MB — these devices' images are tiny
+# Announcement-controller images are small, but ordinary Android applications
+# are not: a current APK can easily be 100-200 MiB.  Keep the tighter guard for
+# .bin while allowing one reasonably-sized, single APK.  The panel retains
+# only a path (it does not copy the payload into RAM or over its bridge).
+MAX_BIN_SIZE = 32 * 1024 * 1024
+MAX_APK_SIZE = 512 * 1024 * 1024
+MAX_SIZE = MAX_APK_SIZE           # backward-compatible global upper bound
+MAX_SIZES = {"bin": MAX_BIN_SIZE, "apk": MAX_APK_SIZE}
 
-# (set number, device id) -> {"path": Path, "size": int, "version": str}
+# (set number, device id) -> {"path": Path, "size": int}
 # DeviceMap ids repeat across sets; without the set scope an image picked for
 # Set 1 would leak to the same-named device when Set 2 was opened.
 _SELECTED: dict[tuple[int, str], dict] = {}
 _LOCK = threading.Lock()
+
+
+def max_size_for(path_or_extension: str | Path) -> int:
+    """Per-format ceiling; unknown files get the conservative image limit."""
+    value = str(path_or_extension or "").strip().lower()
+    extension = (value if value in MAX_SIZES
+                 else value[1:] if value.startswith(".") and "/" not in value
+                 else Path(value).suffix.lower().lstrip("."))
+    return MAX_SIZES.get(extension, MAX_BIN_SIZE)
 
 
 def validate_file(path: str) -> tuple[Path, int]:
@@ -31,43 +47,24 @@ def validate_file(path: str) -> tuple[Path, int]:
     size = target.stat().st_size
     if size == 0:
         raise ValueError(i18n.t("error.fileEmpty"))
-    if size > MAX_SIZE:
+    maximum = max_size_for(target)
+    if size > maximum:
         raise ValueError(i18n.t("error.fileTooLarge",
                                 size=size // 1024 // 1024))
     return target, size
 
 
-def select_file(device_ids, path: str, version: str = "", *,
-                set_no: int = 1) -> dict:
+def select_file(device_ids, path: str, *, set_no: int = 1) -> dict:
     """Assign the image to the given devices (kept in memory only)."""
     keys = [scope_key(set_no, device_id) for device_id in (device_ids or [])
             if str(device_id).strip()]
     if not keys:
         raise ValueError(i18n.t("error.noDeviceSelected"))
     target, size = validate_file(path)
-    record = {"path": target, "size": size,
-              "version": str(version or "").strip()[:32]}
+    record = {"path": target, "size": size}
     with _LOCK:
         for key in keys:
             _SELECTED[key] = dict(record)
-    return selections([device_id for _number, device_id in keys],
-                      set_no=set_no)
-
-
-def set_target_version(device_ids, version: str, *,
-                       set_no: int = 1) -> dict:
-    """Change the selected image's target version without touching the file.
-
-    The target version cannot be read from the file, the user types it — no
-    reason to make them pick the file again.
-    """
-    cleaned = str(version or "").strip()[:32]
-    keys = [scope_key(set_no, device_id) for device_id in (device_ids or [])
-            if str(device_id).strip()]
-    with _LOCK:
-        for key in keys:
-            if key in _SELECTED:
-                _SELECTED[key]["version"] = cleaned
     return selections([device_id for _number, device_id in keys],
                       set_no=set_no)
 
@@ -83,8 +80,7 @@ def clear_selection(device_ids, *, set_no: int = 1) -> int:
 
 def _dto(record: dict | None) -> dict:
     if not record:
-        return {"selected": False, "name": "", "path": "", "size": 0,
-                "version": ""}
+        return {"selected": False, "name": "", "path": "", "size": 0}
     return {
         "selected": True,
         "name": record["path"].name,
@@ -94,7 +90,6 @@ def _dto(record: dict | None) -> dict:
         # only from 127.0.0.1; the path is the user's own choice.
         "path": str(record["path"]),
         "size": record["size"],
-        "version": record["version"],
     }
 
 

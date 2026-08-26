@@ -1,10 +1,13 @@
 """HTTP-shaped route tables, gathered from the per-topic modules."""
 
-from . import (checklist_routes, config_routes, firmware_routes,
-               general_routes, ip_routes, session_routes, telemetry_routes)
+from . import (admin_routes, checklist_routes, config_routes,
+               edition_routes, firmware_routes, general_routes,
+               ip_routes, network_routes, session_routes,
+               telemetry_routes)
 
-_MODULES = (general_routes, session_routes, ip_routes, config_routes,
-            firmware_routes, checklist_routes, telemetry_routes)
+_MODULES = (general_routes, edition_routes, admin_routes, session_routes,
+            ip_routes, network_routes, config_routes, firmware_routes,
+            checklist_routes, telemetry_routes)
 
 GET_ROUTES: dict = {}
 POST_ROUTES: dict = {}

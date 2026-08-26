@@ -16,10 +16,9 @@ Security assumptions:
   · Static file serving cannot escape its directory.
 """
 
-from .lifecycle import (check_admin_password, reset, set_admin_password, start)
+from .lifecycle import reset, start
 from .response import ApiResponse
 from .service import PanelService, SERVICE, call, call_enveloped
 
 __all__ = ["ApiResponse", "PanelService", "SERVICE", "call",
-           "call_enveloped", "check_admin_password", "reset",
-           "set_admin_password", "start"]
+           "call_enveloped", "reset", "start"]

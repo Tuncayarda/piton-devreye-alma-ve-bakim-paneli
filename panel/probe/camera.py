@@ -6,6 +6,13 @@ Endpoints and parsing match `fetch_isapi` in field_scripts/device_verify.py.
 The difference: credentials come from the user, not a .env, and live only in
 memory. Without one the request goes out unauthenticated, the device answers
 401, and it lands in the credentials list as "waiting for access".
+
+The network/time answer carries more than the name suggests, and
+deliberately so — it is ONE column in the verification sheet. Time zone, NTP
+and mask are checked here; the disk, the buzzer, the IR lamp and the third
+stream are checked by panel.video_config.health, which is where the writing
+side of those settings lives too. A device that records nothing is not
+"verified" because its clock is right.
 """
 from __future__ import annotations
 
@@ -57,12 +64,13 @@ def _xml(response):
 
 def read(ip: str, credentials: tuple[str, str] | None = None,
          timeout: float | None = None,
-         expected_ntp: str | None = None) -> dict:
-    """Device identity plus network/time checks.
+         expected_ntp: str | None = None,
+         is_nvr: bool = False) -> dict:
+    """Device identity plus the verification checks.
 
-    A missing identity raises. The time/mask checks are optional extras: if
-    they cannot be read the device still counts as read and the field is
-    left empty.
+    A missing identity raises. The checks are extras: if one cannot be read
+    the device still counts as read, and the check says it could not be read
+    rather than passing.
     """
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
     try:
@@ -80,53 +88,57 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
 
     problems: list[str] = []
     for path, tag, expected, label in (
-            ("System/time", "timeZone", settings.EXPECTED_TIMEZONE, "Saat"),
-            ("System/time/ntpServers/1", "ipAddress", expected_ntp, "NTP")):
+            ("System/time", "timeZone", settings.EXPECTED_TIMEZONE,
+             "video.checkTime"),
+            ("System/time/ntpServers/1", "ipAddress", expected_ntp,
+             "video.checkNtp")):
         if expected is None:
             continue
         try:
             value = _tag(_xml(_request(ip, path, credentials, limit)), tag)
             if value != expected:
-                problems.append(label)
+                problems.append(i18n.t(label))
         except AuthError:
             raise
         except Exception:
-            problems.append(label)
+            problems.append(i18n.t(label))
 
     mask = _subnet_mask(ip, credentials, limit)
-    if mask is not None and mask != settings.EXPECTED_SUBNET_MASK:
-        problems.append("Maske")
+    if mask and mask != settings.EXPECTED_SUBNET_MASK:
+        problems.append(i18n.t("video.checkMask"))
+
+    # The recording-side checks. Imported here rather than at module level:
+    # video_config reaches back into the inventory and the credential store,
+    # and this module is imported by the probe dispatcher.
+    from ..video_config import health
+    problems.extend(health.problems(ip, credentials, is_nvr=is_nvr,
+                                    timeout=limit))
 
     return {
         "version": version or "",
         "serial": serial or "",
         "model": model or "",
-        "subnetMask": mask or "",
-        "networkTime": "Uygun" if not problems else ", ".join(problems),
+        "subnetMask": mask,
+        "networkTime": (i18n.t("video.checkOk") if not problems
+                        else ", ".join(problems)),
         "raw": {"firmwareVersion": version, "serialNumber": serial,
                 "model": model},
     }
 
 
-def _subnet_mask(ip: str, credentials, timeout: float) -> str | None:
-    """Subnet mask of the interface on the 10.x network; None if unreadable."""
+def _subnet_mask(ip: str, credentials, timeout: float) -> str:
+    """The mask of the interface holding this address; "" when unreadable.
+
+    The same lookup the WRITE path uses (video_config.isapi.interface_mask),
+    and deliberately so: a scan that reports one interface's mask while a run
+    writes another's would flag a device the panel had just configured.
+    """
+    from ..video_config import isapi as video_isapi
     try:
         root = _xml(_request(ip, "System/Network/interfaces", credentials,
                              timeout))
     except AuthError:
         raise
     except Exception:
-        return None
-    for element in root.iter():
-        if element.tag.rsplit("}", 1)[-1] != "IPAddress":
-            continue
-        address = mask = None
-        for child in element:
-            tag = child.tag.rsplit("}", 1)[-1]
-            if tag == "ipAddress":
-                address = (child.text or "").strip()
-            elif tag == "subnetMask":
-                mask = (child.text or "").strip()
-        if address and address.startswith("10."):
-            return mask
-    return None
+        return ""
+    return video_isapi.interface_mask(root, ip)

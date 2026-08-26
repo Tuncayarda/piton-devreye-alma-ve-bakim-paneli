@@ -12,6 +12,7 @@ import {
 } from '../core/format.js';
 import { credentialDialog } from './locked.js';
 import { showError } from './toast.js';
+import { confirmWrite } from './confirm.js';
 import { t } from '../core/i18n.js';
 
 let release = null;
@@ -80,12 +81,16 @@ function render(device) {
   if (device.hasCredentials) {
     actions.push(el('button', {
       type: 'button', class: 'btn', text: t('detail.deleteCredentials'),
-      onclick: async () => {
-        try {
+      onclick: () => confirmWrite({
+        title: t('detail.deleteCredentials'),
+        lead: t('confirm.forgetOneLead', { device: device.name }),
+        danger: true,
+        confirmLabel: t('detail.deleteCredentials'),
+        run: async () => {
           await api.forgetCredentials(state.setNo, device.id);
           await open(device.id);
-        } catch (e) { showError(e.message); }
-      },
+        },
+      }),
     }));
   }
 
@@ -181,7 +186,7 @@ function render(device) {
         }),
         el('h2', { style: 'margin:5px 0 0', text: device.name }),
         el('div', {
-          class: 'mono text-mid', style: 'margin-top:5px;font-size:11.5px',
+          class: 'mono text-mid t-sm', style: 'margin-top:5px',
           text: `${device.ip} · ${device.portLabel}`,
         }),
       ]),

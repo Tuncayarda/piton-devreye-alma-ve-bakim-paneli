@@ -15,10 +15,14 @@ The app runs elevated; reading the network interface, the ARP cache and switch
 ports requires it. Without the privilege the panel does not open — instead the
 user gets a window offering to restart elevated or quit (see panel.elevation).
 
+One program is packaged once per customer, and each package carries only
+that customer's project (see panel.editions). A packaged build knows which
+edition it is; running from source has to be told, because "whichever
+DeviceMap the tree happens to hold" is not an answer anyone meant to give.
+
 Run:
-    python3 app.py
-    python3 app.py --browser               # open in a browser, not a window
-    python3 app.py --admin-password ****   # protect the admin screen
+    python3 app.py --edition gdm           # which package this run is
+    python3 app.py --edition admin --browser   # in a browser, not a window
     python3 app.py --self-test             # verify without opening a window
 """
 from __future__ import annotations
@@ -93,7 +97,7 @@ def set_macos_identity(name: str) -> None:
 
 def self_test() -> int:
     """Verify the production desktop path without a window or a socket."""
-    from panel import api, i18n, settings
+    from panel import api, editions, i18n, settings
     from panel.desktop import PanelBridge, load_html
     from panel.inventory import device_map
 
@@ -105,7 +109,52 @@ def self_test() -> int:
         outcomes.append(condition)
         return condition
 
+    edition = editions.active()
     write(f"{i18n.t('app.name')} {settings.APP_VERSION} — self-test")
+    write(f"  edition: {edition.id} ({editions.app_name(edition.id)})")
+
+    # A packaged build must know what it is without being told. From source
+    # nothing is stamped in, which is normal and not a finding.
+    if settings.FROZEN:
+        check("Edition stamped into the package",
+              editions.stamped_edition() == edition.id,
+              editions.stamped_edition() or "no stamp")
+
+    # Every project this package claims to carry. A package whose OWN
+    # project is missing is a broken package, not a pending delivery: it
+    # would open on a device list that is not there.
+    for project in edition.projects:
+        present = editions.available(project)
+        if project.key == edition.default_project or present:
+            check(f"Device list · {project.label}", present,
+                  str(editions.map_path(project)))
+        else:
+            # A project that is declared but not yet delivered (VIP today).
+            # Reported, never failed — the package is still sound.
+            write(f"  [ --  ] Device list · {project.label} — "
+                  "not delivered yet")
+
+    # THE KEY MATERIAL, stated so CI can read it back off a packaged build.
+    # A customer package must hold the digest and NOT the secret: from the
+    # digest there is no route to the value a USB stick carries, which is
+    # what stops a customer minting their own key. Printed as a fact about
+    # the build; the values themselves never appear.
+    from panel import adminkey                             # noqa: PLC0415
+    holds_secret = adminkey.can_write()
+    material = ("secret embedded" if holds_secret
+                else "digest only" if adminkey.usable() else "none")
+    if settings.FROZEN:
+        # THE FAILURE THIS CATCHES IS A LEAK, and only that. Every package
+        # is a customer's package now, and one carrying the secret rather
+        # than a digest of it would let that customer mint service keys for
+        # every other customer's package — the one outcome the whole
+        # arrangement exists to prevent. No package may hold it; the secret
+        # stays with whoever cuts the builds (see docs/BUILD_RELEASE.md).
+        check("Admin key material", not holds_secret, material)
+    else:
+        # From source the secret comes from the environment, which is a
+        # development convenience and says nothing about any package.
+        write(f"  [ --  ] Admin key material — {material} (from source)")
 
     check("DeviceMap found", settings.DEVICE_MAP.exists(),
           str(settings.DEVICE_MAP))
@@ -224,26 +273,65 @@ def main() -> int:
                              "browser")
     parser.add_argument("--port", type=int, default=None,
                         help="port for --browser mode only (0 = automatic)")
-    parser.add_argument("--admin-password", default=None,
-                        help="the admin screen asks for this password; it is "
-                             "never written anywhere")
+    parser.add_argument("--edition", default=None,
+                        help="which package this run is; required from "
+                             "source, refused in a packaged build (it is "
+                             "already stamped in)")
     parser.add_argument("--self-test", action="store_true",
                         help="verify the package without opening a window")
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args()
 
-    from panel import i18n, settings
+    from panel import editions, i18n, settings
+    # Before anything asks what this build can do: the secret may have been
+    # handed to us by the process that put up the password box, because the
+    # environment does not survive it (see panel.adminkey.handoff).
+    from panel.adminkey import handoff                     # noqa: PLC0415
+    handoff.claim()
     if args.version:
         write(settings.APP_VERSION)
         return 0
-    if args.self_test:
-        return self_test()
 
-    # Argument validation before the privilege check: a misuse must not hide
-    # behind the elevation warning.
+    # Flag validation first: a misuse must be reported as a misuse, not as a
+    # missing edition and not from behind the elevation prompt.
     if args.port is not None and not args.browser:
         write("[ERROR] --port can only be used together with --browser.")
         return 2
+
+    # WHICH EDITION IS THIS? Everything below depends on the answer: which
+    # DeviceMap opens, which screens exist, and whether admin mode can be
+    # reached at all. It is settled here, before the elevation gate, so that
+    # a misuse is reported as a misuse rather than behind a password box —
+    # and so CI can check the refusal without being able to elevate.
+    try:
+        edition_id = editions.resolve(args.edition)
+    except editions.EditionError as exc:
+        if not args.self_test:
+            write(f"[ERROR] {exc}")
+            return 2
+        # A self-test still has something worth doing: it verifies the
+        # package, not the customer. So it falls back to the first edition in
+        # the table — said out loud, because a self-test that quietly tests
+        # something else than was asked for is worse than one that refuses.
+        edition_id = editions.IDS[0]
+        write(f"[NOTE] no edition given; verifying as \"{edition_id}\".")
+    editions.activate(edition_id)
+    # NO KEY MATERIAL AT ALL, so a service key plugged into this build is
+    # not ignored on purpose — it cannot be recognised, because nothing
+    # tells it which key to accept. A packaged build carries that in its
+    # stamp; a source run has to be told. Said here because the symptom
+    # otherwise is "I plugged the stick in and nothing happened".
+    from panel import adminkey                             # noqa: PLC0415
+    if not adminkey.usable():
+        write("[NOTE] this build carries no key material, so a service "
+              "key will not be recognised.\n"
+              "       Register one you already have:\n"
+              "         python3 tools/key_digest.py /Volumes/DABP-KEY "
+              "--remember\n"
+              "       A key written from source registers itself.")
+
+    if args.self_test:
+        return self_test()
 
     # The Dock identity is set BEFORE the privilege check: the elevation
     # window is this app's window too. Without it a separate icon appeared in
@@ -258,11 +346,29 @@ def main() -> int:
     # Without the privilege the panel still does not open; but the user sees
     # why in a window and can restart elevated from there.
     if not is_elevated():
+        # THE ENVIRONMENT DOES NOT SURVIVE THE PROMPT. The panel restarts
+        # itself through the system's own password box — osascript on macOS,
+        # runas on Windows, pkexec on Linux — and every one of those builds
+        # a fresh command line under a fresh environment. A secret exported
+        # in this shell would simply be gone in the process that actually
+        # opens, and the panel would come up in field mode as though the
+        # variable had been ignored.
+        #
+        # So it is handed over rather than lost: written to a file only this
+        # user can read, named (never valued) in the command line, and
+        # deleted by the process that picks it up. Windows is the exception
+        # — `runas` takes no environment of ours — and is told so.
+        handed = handoff.stash()
+        if handed:
+            os.environ[handoff.FILE_VAR] = handed
+            if platform.system() == "Windows":
+                write("[NOTE] DAP_ADMIN_KEY_SECRET does not survive the "
+                      "privilege prompt on Windows.\n"
+                      "       Set it in an administrator PowerShell and "
+                      "start the panel from there.")
         return elevation.require_elevation(write)
 
     from panel import api
-    api.set_admin_password(
-        args.admin_password or os.environ.get("PANEL_ADMIN_PASSWORD"))
 
     if args.browser:
         return browser_mode(0 if args.port is None else args.port)

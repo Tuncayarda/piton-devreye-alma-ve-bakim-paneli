@@ -37,9 +37,9 @@ export function applyStaticText(root = document) {
 
 // One button per language, the current one pressed. A dropdown was not worth
 // it for two options and hid which language was active.
-// Every picker on the page — the role screen has its own, because the
-// language has to be changeable before a session is opened.
-const HOSTS = ['#language-picker', '#role-language-picker'];
+// Every picker on the page. There is one now: the panel opens straight onto
+// the application, so there is no screen before it that needs its own.
+const HOSTS = ['#language-picker'];
 
 export function renderAll(onChange) {
   for (const selector of HOSTS) render(document.querySelector(selector),

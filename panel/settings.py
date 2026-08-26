@@ -17,7 +17,7 @@ from pathlib import Path
 # Short and ASCII so it survives every shell, ZIP and installer it passes
 # through, and unchanged by the language.
 APP_SLUG = "dabp"
-APP_VERSION = "0.9.7"
+APP_VERSION = "1.0.0"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a
 # temp dir and reports it via sys._MEIPASS.
@@ -71,13 +71,40 @@ def documents_dir() -> Path:
 OUTPUT_DIR = documents_dir()
 
 
+# The edition owns a sub-folder of its own under the settings directory. Two
+# editions may be installed side by side, and their saved state cannot be
+# shared: configuration defaults are keyed by (train set, device id), device
+# ids are POSITIONAL ("sw1.d3" is the third device on the first switch), and
+# the same id names a different device in another project. A GDM target value
+# read back on a Gaziray machine would be written to whatever hardware
+# happens to sit in that slot.
+#
+# Set by `panel.editions.activate()` rather than read from here: settings
+# must not import the edition table, which needs `data_file()` from this
+# module.
+_DATA_SUFFIX = ""
+
+
+def set_data_suffix(name: str) -> None:
+    global _DATA_SUFFIX
+    _DATA_SUFFIX = str(name or "").strip()
+
+
 def data_dir() -> Path:
     """Where the panel keeps its own persistent state.
 
     Only values the user set in the UI land here. NO PASSWORDS — neither device
     credentials nor SIP passwords; those stay in memory (see
     `panel.credentials`).
+
+    The edition sub-folder is appended to PANEL_DATA_DIR as well as to the
+    per-OS default: the override says WHERE the panel keeps its state, not
+    that two editions pointed at it should share one file.
     """
+    return _per_edition(_base_data_dir())
+
+
+def _base_data_dir() -> Path:
     override = os.environ.get("PANEL_DATA_DIR")
     if override:
         return Path(override).expanduser()
@@ -91,9 +118,25 @@ def data_dir() -> Path:
         os.environ.get("XDG_CONFIG_HOME") or (home / ".config")) / APP_SLUG
 
 
+def _per_edition(base: Path) -> Path:
+    return base / _DATA_SUFFIX if _DATA_SUFFIX else base
+
+
 def config_defaults_file() -> Path:
     """Target values entered on the configuration screen; never passwords."""
     return data_dir() / "config_defaults.json"
+
+
+def network_settings_file() -> Path:
+    """Choices about preparing the computer's own network.
+
+    Only the adapter selected for the panel's addresses is kept here; the host
+    octet and /24 prefix are fixed by `panel.network` policy. Addresses
+    actually in place are recorded separately
+    (`panel.network.aliases.record_file`), because those have to survive a
+    crash to be cleaned up and this preference does not.
+    """
+    return data_dir() / "network.json"
 
 
 def ui_settings_file() -> Path:

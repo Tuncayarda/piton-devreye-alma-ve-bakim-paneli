@@ -6,6 +6,10 @@ into: cutting that port's PoE cuts the run's own path. This module produces
 half of what is needed to find that port from the switch's MAC table; the
 other half is `panel.probe.switch.mac_table`.
 
+It is also the read side of `panel.network`, which ADDS addresses to an
+interface: what is already there decides what has to be added and to which
+adapter. This module never writes.
+
 Only the local interface name, its addresses and its MAC are read. No
 credentials, no user data.
 
@@ -87,23 +91,38 @@ def local_address_for(target_ip: str) -> str:
         return ""
 
 
-def _run(argv: list[str]) -> str:
+def run_command(argv: list[str],
+                timeout: float = COMMAND_TIMEOUT) -> tuple[int | None, str]:
+    """Run a command; returns (exit code, decoded stdout + stderr).
+
+    A code of `None` means the command never started (missing binary, timeout)
+    — a different outcome from "it ran and failed", which `panel.network` has
+    to tell apart before it reports an address as added.
+
+    Output is decoded here rather than by `text=True`; see the code page note
+    above.
+    """
     try:
-        result = subprocess.run(argv, capture_output=True,
-                                timeout=COMMAND_TIMEOUT, **_NO_WINDOW)
+        result = subprocess.run(argv, capture_output=True, timeout=timeout,
+                                **_NO_WINDOW)
     except (OSError, subprocess.SubprocessError):
-        return ""
-    return decode(result.stdout)
+        return None, ""
+    return int(result.returncode), decode(result.stdout) + decode(result.stderr)
 
 
-def _dump() -> str:
+def _run(argv: list[str]) -> str:
+    return run_command(argv)[1]
+
+
+def dump() -> str:
     """The platform's interface dump. First non-empty answer wins."""
     if sys.platform == "win32":
         candidates = [["ipconfig", "/all"]]
     else:
-        # ifconfig is gone from many Linux distributions; use `ip` when
-        # present. macOS only has ifconfig.
-        candidates = [["ifconfig", "-a"], ["ip", "-o", "addr"], ["ifconfig"]]
+        # macOS only has ifconfig; on a Linux box without it the `ip` path
+        # below takes over (`ip -o addr` alone carries no MAC, so it cannot be
+        # used as a drop-in dump here).
+        candidates = [["ifconfig", "-a"], ["ifconfig"]]
     for argv in candidates:
         text = _run(argv)
         if text.strip():
@@ -111,7 +130,7 @@ def _dump() -> str:
     return ""
 
 
-def _blocks(text: str) -> list[str]:
+def blocks(text: str) -> list[str]:
     """Split the dump into per-interface blocks.
 
     In all three formats a new interface starts on an unindented line:
@@ -119,16 +138,16 @@ def _blocks(text: str) -> list[str]:
       ip -o    : "2: eth0    inet 10.1.1.50/16 ..."  (one block per line)
       ipconfig : "Ethernet adapter Ethernet:"
     """
-    blocks: list[list[str]] = []
+    found: list[list[str]] = []
     for line in text.splitlines():
         if line.strip() and not line[0].isspace():
-            blocks.append([line])
-        elif blocks:
-            blocks[-1].append(line)
-    return ["\n".join(b) for b in blocks]
+            found.append([line])
+        elif found:
+            found[-1].append(line)
+    return ["\n".join(block) for block in found]
 
 
-def _block_mac(block: str) -> str:
+def block_mac(block: str) -> str:
     for match in _MAC_PATTERN.findall(block):
         mac = normalize_mac(match)
         if mac and mac not in _EMPTY_MACS:
@@ -136,15 +155,81 @@ def _block_mac(block: str) -> str:
     return ""
 
 
+# Interface flags, not labels: `flags=8863<UP,BROADCAST,RUNNING,...>` on
+# ifconfig, `<BROADCAST,MULTICAST,UP,LOWER_UP>` on `ip`. ASCII tokens in every
+# locale — unlike "Media disconnected", which a localised Windows translates,
+# and which is exactly the trap the module docstring above describes.
+_FLAGS_PATTERN = re.compile(r"<([^>]*)>")
+
+
+def block_up(block: str) -> bool | None:
+    """Does this interface have a carrier? None when the dump does not say.
+
+    RUNNING (ifconfig) and LOWER_UP (ip) both mean "a cable is in and the
+    other end answers", which is the question that matters when picking the
+    adapter to add an address to. Plain UP only means "administratively
+    enabled" and is true of every unplugged port.
+    """
+    match = _FLAGS_PATTERN.search(block)
+    if not match:
+        return None
+    flags = {flag.strip().upper() for flag in match.group(1).split(",")}
+    return "RUNNING" in flags or "LOWER_UP" in flags
+
+
+# `ip -o link` lines start "2: eth0: <FLAGS> mtu ...". A veth carries its peer
+# after an @ ("eth0@if5"), which is not part of the device name.
+_IP_LINK_PATTERN = re.compile(r"^\d+:\s*([^:@\s]+)")
+_IP_ADDR_PATTERN = re.compile(r"^\d+:\s*(\S+)\s+inet\s+(\d{1,3}(?:\.\d{1,3}){3})")
+
+
+def ip_interfaces() -> list[dict]:
+    """The `ip` command's answer — two calls merged by device name.
+
+    `ip -o addr` carries no MAC and `ip -o link` carries no address, so
+    neither is usable alone; a Linux box without ifconfig (most current
+    distributions) was left with no readable interface at all.
+    """
+    _code, links = run_command(["ip", "-o", "link"])
+    if not links.strip():
+        return []
+    _code, addresses = run_command(["ip", "-o", "addr"])
+
+    by_name: dict[str, list[str]] = {}
+    for line in addresses.splitlines():
+        match = _IP_ADDR_PATTERN.match(line.strip())
+        if match:
+            by_name.setdefault(match.group(1), []).append(match.group(2))
+
+    found, seen = [], set()
+    for line in links.splitlines():
+        match = _IP_LINK_PATTERN.match(line.strip())
+        if not match:
+            continue
+        name = match.group(1)
+        mac = block_mac(line)
+        if not mac or mac in seen:
+            continue
+        seen.add(mac)
+        found.append({"name": name, "mac": mac,
+                      "addresses": by_name.get(name, []),
+                      "up": block_up(line)})
+    return found
+
+
 def list_interfaces() -> list[dict]:
-    """[{"name", "mac", "addresses"}] for every interface with a readable MAC.
+    """[{"name", "mac", "addresses", "up"}] for every interface with a MAC.
+
+    `up` is True/False when the dump reports a carrier and None when it does
+    not (`ipconfig` says it only in the local language, so on Windows the
+    answer is filled in later — see `panel.network.adapters`).
 
     Expected to be called once and held: each call runs an OS command, and
     doing that per switch while querying several is pointless.
     """
     found, seen = [], set()
-    for block in _blocks(_dump()):
-        mac = _block_mac(block)
+    for block in blocks(dump()):
+        mac = block_mac(block)
         if not mac or mac in seen:
             continue
         seen.add(mac)
@@ -152,7 +237,10 @@ def list_interfaces() -> list[dict]:
             "name": block.splitlines()[0].split(":")[0].strip(),
             "mac": mac,
             "addresses": _IPV4_PATTERN.findall(block),
+            "up": block_up(block),
         })
+    if not found and sys.platform != "win32":
+        return ip_interfaces()
     return found
 
 

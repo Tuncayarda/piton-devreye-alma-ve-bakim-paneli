@@ -1,9 +1,13 @@
 ; Commissioning and Maintenance Panel — Windows installer (Inno Setup 6.3+)
 ;
-; Build (version and paths come from outside, so there stays one version
-; source):
-;   ISCC.exe /DMyAppVersion=0.9.0-dev ^
-;            /DSourceDir=..\..\dist\dabp ^
+; Build. Every name comes from outside so there stays ONE source for the
+; version (panel/settings.py) and ONE for the edition
+; (panel/editions/catalogue.py, read by tools/edition_info.py):
+;   ISCC.exe /DMyAppVersion=1.0.0 ^
+;            /DMyAppSlug=dabp-gdm ^
+;            /DMyAppName="Devreye Alma ve Bakım Paneli - GDM" ^
+;            /DMyAppId="{BEA834CD-...}" ^
+;            /DSourceDir=..\..\dist\dabp-gdm ^
 ;            /DOutputDir=..\..\release ^
 ;            dabp.iss
 ;
@@ -12,29 +16,50 @@
 ; _internal\pythonnet\runtime\Python.Runtime.dll with 0x80131515. Files placed
 ; by an installer never get that stamp.
 
-; Read by the person installing it — the setup wizard, the Start menu
-; entry, the uninstall list. Fixed at build time, so unlike the name
-; inside the app it cannot follow the chosen language.
-#define MyAppName "Devreye Alma ve Bakım Paneli"
+; EVERY NAME HERE COMES FROM THE EDITION TABLE, passed in with /D by the
+; build. One program is packaged once per customer (see panel/editions), and
+; two editions may sit on the same machine: they need different folders,
+; different Start menu entries and — above all — different AppIds, or an
+; update to one lands on the other.
+;
+; The defaults below are what a build run BY HAND with no /D gets. They are
+; the single-edition names this installer had before, so the file still does
+; something sensible on its own rather than producing "-.exe".
+;
+; Read by the person installing it — the setup wizard, the Start menu entry,
+; the uninstall list. Fixed at build time, so unlike the name inside the app
+; it cannot follow the chosen language.
+#ifndef MyAppName
+  #define MyAppName "Devreye Alma ve Bakım Paneli"
+#endif
+#ifndef MyAppSlug
+  #define MyAppSlug "dabp"
+#endif
+#ifndef MyAppId
+  ; Inherited by the edition that succeeds today's installations, so it
+  ; updates over them instead of landing beside them. Every other edition is
+  ; passed its own GUID from the table.
+  #define MyAppId "{1D33CE96-66C7-41A7-9A7F-4EEC36A3D8A0}"
+#endif
 #define MyAppPublisher "Piton Technology"
-#define MyAppExeName "dabp.exe"
+#define MyAppExeName MyAppSlug + ".exe"
 #define MyAppUrl "https://github.com"
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0"
 #endif
 #ifndef SourceDir
-  #define SourceDir "..\..\dist\dabp"
+  #define SourceDir "..\..\dist\" + MyAppSlug
 #endif
 #ifndef OutputDir
   #define OutputDir "..\..\release"
 #endif
 
 [Setup]
-; This GUID is fixed: it makes updates install over the same installation.
-; It is SEPARATE from the Switch Management Panel's GUID — the two
-; applications install side by side.
-AppId={{1D33CE96-66C7-41A7-9A7F-4EEC36A3D8A0}
+; Fixed PER EDITION: it makes an update install over the same installation,
+; and it is what keeps two editions — and the Switch Management Panel —
+; installed side by side instead of on top of each other.
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -49,14 +74,14 @@ VersionInfoProductName={#MyAppName}
 ; The folder name is deliberately ASCII: some tools and scripts trip over
 ; paths with non-ASCII characters. It matches the executable so the
 ; installed folder and the downloaded file carry the same name.
-DefaultDirName={autopf}\dabp
+DefaultDirName={autopf}\{#MyAppSlug}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 OutputDir={#OutputDir}
-OutputBaseFilename=dabp-{#MyAppVersion}-windows-x64-Setup
+OutputBaseFilename={#MyAppSlug}-{#MyAppVersion}-windows-x64-Setup
 ; There is no icon yet; once added it is picked up automatically.
 #if FileExists(AddBackslash(SourcePath) + "..\..\icons\app.ico")
 SetupIconFile=..\..\icons\app.ico
@@ -117,7 +142,7 @@ Filename: "{app}\{#MyAppExeName}"; \
 [UninstallDelete]
 ; Leftovers produced while PyInstaller runs. The user's saved configuration
 ; defaults are NOT touched — they live under
-; %APPDATA%\dabp (see panel/settings.py:data_dir()).
+; %APPDATA%\dabp\<edition> (see panel/settings.py:data_dir()).
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 [Code]

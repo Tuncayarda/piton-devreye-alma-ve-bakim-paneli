@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Asking the user, in a window, whether to restart elevated."""
+"""The one window this path still has: why the panel could not open.
+
+There used to be another one first, asking whether to restart elevated. It
+was a question we had no power to answer — only the operating system can
+grant the privilege — so the user answered the same thing twice: once in our
+window and once in the system's password box. The system prompt IS the
+question now, and this window only appears when it could not be asked or the
+answer was no.
+"""
 from __future__ import annotations
 
 import os
@@ -7,18 +15,15 @@ import platform
 import subprocess
 
 from .. import i18n
-from .privileges import (applescript_string, elevation_plan,
-                         explanation, manual_instructions, title)
+from .privileges import (applescript_string, explanation,
+                         manual_instructions, reasons, title)
 
 
-def _html_page(message: str, can_elevate: bool, manual: str,
-               hint: str = "") -> str:
+def _html_page(message: str, manual: str, hint: str = "") -> str:
     import html as html_module
 
-    restart = html_module.escape(i18n.t("elevate.restart"))
-    buttons = (
-        '<button class="primary" onclick="decide(\'elevate\')">'
-        f'{restart}</button>' if can_elevate else "")
+    reason_items = "".join(f"<li>{html_module.escape(reason)}</li>"
+                           for reason in reasons())
     return f"""<!doctype html><html lang="{i18n.current()}"><head><meta charset="utf-8">
 <style>
   :root {{ color-scheme: dark; }}
@@ -26,6 +31,9 @@ def _html_page(message: str, can_elevate: bool, manual: str,
          font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; }}
   h1 {{ font-size:17px; margin:0 0 14px; color:#ffd479; }}
   p {{ margin:0 0 12px; white-space:pre-wrap; }}
+  ul {{ margin:0 0 14px; padding-left:20px; color:#c5d2de; }}
+  li {{ margin:0 0 5px; }}
+  .next {{ color:#c5d2de; }}
   .hint {{ color:#8fd3a6; font-size:13px; }}
   .manual {{ color:#9fb0c0; font-size:13px; }}
   .row {{ display:flex; gap:10px; margin-top:22px; }}
@@ -36,93 +44,80 @@ def _html_page(message: str, can_elevate: bool, manual: str,
 </style></head><body>
   <h1>{html_module.escape(title())}</h1>
   <p>{html_module.escape(message)}</p>
+  <p class="next">{html_module.escape(i18n.t('elevate.neededFor'))}</p>
+  <ul>{reason_items}</ul>
   {f'<p class="hint">{html_module.escape(hint)}</p>' if hint else ''}
   <p class="manual">{html_module.escape(manual)}</p>
   <div class="row">
-    {buttons}
     <button onclick="decide('quit')">{html_module.escape(i18n.t('elevate.quit'))}</button>
   </div>
 <script>
-  function decide(choice) {{
+  function decide() {{
     document.querySelectorAll('button').forEach(b => b.disabled = true);
-    window.pywebview.api.decide(choice);
+    window.pywebview.api.decide('quit');
   }}
 </script></body></html>"""
 
 
-def _native_dialog(message: str, can_elevate: bool, hint: str = "") -> str:
+def _native_dialog(message: str, hint: str = "") -> None:
     """The operating system's own dialog when pywebview is unavailable."""
     system = platform.system()
-    text = (f"{message}\n\n" + (f"{hint}\n\n" if hint else "")
+    listed = "\n".join(f"  - {reason}" for reason in reasons())
+    text = (f"{message}\n\n{i18n.t('elevate.neededFor')}\n{listed}\n\n"
+            + (f"{hint}\n\n" if hint else "")
             + manual_instructions(system))
     try:
         if system == "Windows":
             import ctypes
 
-            if not can_elevate:
-                ctypes.windll.user32.MessageBoxW(None, text, title(), 0x10)
-                return "quit"
-            # MB_YESNO | MB_ICONWARNING; 6 = Yes
-            answer = ctypes.windll.user32.MessageBoxW(
-                None, text + "\n\n" + i18n.t("elevate.restartAsk"),
-                title(), 0x04 | 0x30)
-            return "elevate" if int(answer) == 6 else "quit"
+            ctypes.windll.user32.MessageBoxW(None, text, title(), 0x10)
+            return
 
-        if system == "Darwin" and can_elevate:
-            quit_label = i18n.t("elevate.quit")
-            restart_label = i18n.t("elevate.restart")
+        if system == "Darwin":
             script = (f"display dialog {applescript_string(text)} "
                       f"with title {applescript_string(title())} "
                       "buttons {"
-                      f"{applescript_string(quit_label)}, "
-                      f"{applescript_string(restart_label)}"
-                      "} default button 2 with icon caution")
-            result = subprocess.run(["osascript", "-e", script],
-                                    capture_output=True, text=True,
-                                    timeout=300)
-            return ("elevate" if restart_label in (result.stdout or "")
-                    else "quit")
+                      f"{applescript_string(i18n.t('elevate.quit'))}"
+                      "} default button 1 with icon stop")
+            subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True, timeout=300)
     except Exception:                              # noqa: BLE001
         pass
-    return "quit"
 
 
-def ask(message: str = "", can_elevate: bool | None = None,
-        hint: str = "") -> str:
-    """Ask the user in a window. Returns "elevate" | "quit".
+def show_failure(message: str = "", hint: str = "") -> None:
+    """Say why the panel could not open, and close.
 
-    Closing the window is also "quit": no path leads to an unprivileged start.
+    There is no choice to make here: the privilege was refused or could not be
+    asked for, and without it the panel does not run. The window exists so
+    that somebody who started the app by double-clicking it is not left with
+    an icon that bounced once and did nothing.
 
     `PANEL_ELEVATION_PROMPT=0` opens no window at all: in an unattended run
     (CI, automated verification) a waiting dialog would hang the job forever.
     """
     if os.environ.get("PANEL_ELEVATION_PROMPT") == "0":
-        return "quit"
+        return
     message = message or explanation()
-    if can_elevate is None:
-        can_elevate = bool(elevation_plan()["kind"])
     try:
         import webview
     except Exception:                              # noqa: BLE001
-        return _native_dialog(message, can_elevate, hint)
+        _native_dialog(message, hint)
+        return
 
-    choice = {"value": "quit"}
     try:
         window = webview.create_window(
-            title(), html=_html_page(message, can_elevate,
-                                   manual_instructions(), hint),
-            width=620, height=340, resizable=False,
+            title(), html=_html_page(message, manual_instructions(), hint),
+            width=620, height=360, resizable=False,
             background_color="#101820")
 
-        def decide(value):
-            choice["value"] = "elevate" if value == "elevate" else "quit"
+        def decide(_value=None):
             window.destroy()
 
         window.expose(decide)
         webview.start()
     except Exception:                              # noqa: BLE001
-        return _native_dialog(message, can_elevate, hint)
-    return choice["value"]
+        _native_dialog(message, hint)
 
 
 def hide_dock_icon() -> None:

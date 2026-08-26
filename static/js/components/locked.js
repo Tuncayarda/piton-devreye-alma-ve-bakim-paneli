@@ -42,6 +42,21 @@ export function render() {
   if (signature === lastSignature) return;
   lastSignature = signature;
 
+  // An empty list used to render as an empty grey box, which is worse than
+  // it sounds: the IP screen tells the operator to enter credentials for a
+  // switch, they open this panel, and it is blank. The two answer different
+  // questions — this list only holds devices that ANSWERED a scan with
+  // "authentication required", while a switch that does not answer at all
+  // never appears here. So say which question this panel answers, and where
+  // the other one is asked.
+  if (!devices.length) {
+    fill(list, [el('div', { class: 'empty-state', tabindex: '-1' }, [
+      el('p', { text: t('locked.noneNeedCredentials') }),
+      el('p', { class: 'text-mid', text: t('locked.whereToEnter') }),
+    ])]);
+    return;
+  }
+
   fill(list, devices.map(device => el('button', {
     type: 'button', class: 'locked-row',
     onclick: () => credentialDialog(device),
@@ -194,7 +209,10 @@ export function applyState(data) {
 export function toggle() {
   patch({ lockedOpen: !state.lockedOpen, queueOpen: false });
   if (state.lockedOpen) {
-    const first = $('#locked-list .locked-row');
+    // The empty state is a focus target too, so opening an empty panel still
+    // moves the reader somewhere that says something.
+    const first = $('#locked-list .locked-row')
+      || $('#locked-list .empty-state');
     if (first) first.focus();
   }
 }

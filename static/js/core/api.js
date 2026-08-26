@@ -58,6 +58,25 @@ export function createApi(carrier = transport) {
     ApiError,
 
     version: () => get("/api/version"),
+    // What this package is and what it may show. Re-read after entering or
+    // leaving admin mode and after a project change, because all three move
+    // the list of screens.
+    edition: () => get("/api/edition"),
+    selectProject: (key) => post("/api/project/select", { key }),
+
+    // The service key. `adminKey` carries no secret — "is one in the
+    // machine", "was it recognised", and a counter that moves when the
+    // answer changes.
+    adminKey: () => get("/api/admin/key"),
+    adminMode: (enter) => post("/api/admin/mode", { enter }),
+    adminKeyVolumes: () => get("/api/admin/key/volumes"),
+    adminKeyWrite: (volume, label) =>
+      post("/api/admin/key/write", { volume, label }),
+    // Whole drives rather than mounted volumes: what this lists is about to
+    // be erased. `adminKeyPrepare` is the one destructive call in the API.
+    adminKeyDrives: () => get("/api/admin/key/drives"),
+    adminKeyPrepare: (drive, label) =>
+      post("/api/admin/key/prepare", { drive, label }),
     // The message catalogue. Fetched before the first paint; the POST comes
     // back with the whole new catalogue so nothing renders half-translated.
     language: () => get("/api/language"),
@@ -95,8 +114,6 @@ export function createApi(carrier = transport) {
       post("/api/credentials/forget", { set, deviceId }),
     forgetAllCredentials: () => post("/api/credentials/forget", { all: true }),
 
-    adminLogin: (password) => post("/api/admin/login", { password }),
-
     // `groups`: comma-separated group names — a run can target several
     // device groups.
     ipPlan: (set, groups, ports, sw) =>
@@ -110,9 +127,32 @@ export function createApi(carrier = transport) {
     // exactly. Read-only.
     ipAddressMap: (set, sw, group, factoryIp) =>
       get("/api/ip/address-map", { set, switch: sw, group, factoryIp }),
+    // The image installed before an address is written. The path never
+    // travels: the OS dialog opens on the server side and only the file's
+    // name comes back. `clear` forgets the choice.
+    ipPreflashFile: (clear = false) =>
+      post("/api/ip/preflash-file", { clear }),
     ipRun: (body) => post("/api/ip/run", body),
     // Test flow: ask the selected devices to move to the factory address.
+    // For a Compartment LCD "factory" means each display's own set-1 address,
+    // and the server runs the Android flow rather than the HTTP one.
     ipFactoryReset: (body) => post("/api/ip/factory-reset", body),
+    // The bench flow: one switch port, one address typed by hand. Only the
+    // Compartment LCD has it — see panel/api/routes/ip_routes.py.
+    ipLcdAssign: (body) => post("/api/ip/lcd-assign", body),
+
+    // The computer's own network. A device on the factory address sits on
+    // another network than the train set, so the panel gives itself an
+    // address there; these are the manual controls for what a run does on its
+    // own. Every answer carries the whole state back, so the screen never has
+    // to guess what changed.
+    network: (set) => get("/api/network", { set }),
+    networkPrepare: (set) => post("/api/network/prepare", { set }),
+    // With no `ip`, every address the panel added is taken back. An address
+    // the panel did not add can never be released — the server matches
+    // against its own record.
+    networkRelease: (set, ip) => post("/api/network/release", { set, ip }),
+    networkSettings: (values) => post("/api/network/settings", values),
 
     config: (set, id, group) => get("/api/config", { set, id, group }),
     // A fast endpoint that never reaches the device: field list + targets.
@@ -133,10 +173,8 @@ export function createApi(carrier = transport) {
     firmware: (set, group) => get("/api/firmware", { set, group }),
     // The file picker opens in the OS: the browser does not reveal the real
     // path. The request lasts until the user closes the window — no timeout.
-    firmwarePick: (set, group, devices, version) =>
-      post("/api/firmware/pick", { set, group, devices, version }),
-    firmwareVersion: (set, group, devices, version) =>
-      post("/api/firmware/version", { set, group, devices, version }),
+    firmwarePick: (set, group, devices) =>
+      post("/api/firmware/pick", { set, group, devices }),
     firmwareRemove: (set, group, devices) =>
       post("/api/firmware/remove", { set, group, devices }),
     firmwareInstall: (set, group, devices) =>

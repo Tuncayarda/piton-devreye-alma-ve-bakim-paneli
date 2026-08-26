@@ -536,14 +536,15 @@ class CompartmentLcd(PanelTest):
 
 class IpPlan(PanelTest):
 
-    def test_ip_assignment_accepts_the_intercom_group_only(self):
+    def test_ip_assignment_accepts_only_groups_with_a_commissioning_runner(self):
         supported = [g["name"] for g in catalog.GROUPS
                      if catalog.group_supports(g, "ip")]
-        self.assertEqual(supported, ["Intercom"])
+        self.assertEqual(supported, ["Intercom", "Compartment LCD"])
         self.assertEqual(
             [g["name"] for g in ip_assign.resolve_groups(
-                ["Intercom", "Handset", "Camera", "All"])],
-            ["Intercom"])
+                ["Intercom", "Compartment LCD", "Handset", "Camera",
+                 "All"])],
+            ["Intercom", "Compartment LCD"])
 
     def test_port_parsing(self):
         allowed = set(range(1, 25))
@@ -644,6 +645,62 @@ class IpPlan(PanelTest):
         self.assertNotIn("--force-netmask", argv)
         self.assertNotIn("--netmask", argv)
 
+    def test_an_asked_for_mask_is_forced_past_the_devices_own(self):
+        """The device normally keeps its netmask; an explicit choice wins.
+
+        `write_ip` sends back whatever mask the device reports, so without
+        --force-netmask the operator's answer would be quietly discarded.
+        """
+        from panel.ip_assign import runner
+
+        inventory, switch, captured = self._intercom_run_capture()
+        runner._run_intercom(inventory, switch, [11], ("admin", "x"),
+                             lambda _line: None, {"targetPrefix": 8})
+        argv = captured["argv"]
+        self.assertEqual(argv[argv.index("--netmask") + 1], "255.0.0.0")
+        self.assertIn("--force-netmask", argv)
+
+    def _intercom_run_capture(self):
+        """One intercom, and `_execute` replaced by a recorder."""
+        from panel.ip_assign import runner
+
+        topology = fakes.device_map([
+            {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
+             "Type": "Announcement", "SubType": "Intercom", "Port": "11",
+             "Status": {}}], switch_ip="10.n.1.101")
+        self.build_map(topology)
+        inventory = device_map.load(8, self.map_path)
+        captured = {}
+
+        def fake_execute(module, argv, emit, cancelled=None):
+            captured["argv"] = argv
+            return 0
+
+        previous = runner._execute
+        runner._execute = fake_execute
+        self.addCleanup(lambda: setattr(runner, "_execute", previous))
+        return inventory, inventory.switches()[0], captured
+
+    def test_the_mask_is_read_in_both_spellings_and_bounded(self):
+        self.assertEqual(ip_assign.parse_prefix(""), 24)
+        self.assertEqual(ip_assign.parse_prefix("/8"), 8)
+        self.assertEqual(ip_assign.parse_prefix("255.255.0.0"), 16)
+        self.assertEqual(ip_assign.netmask_for(8), "255.0.0.0")
+        for bad in ("0", "31", "255.0.255.0", "nonsense"):
+            with self.assertRaises(ValueError, msg=bad):
+                ip_assign.parse_prefix(bad)
+
+    def test_a_mistyped_set_number_is_refused_rather_than_read_as_one(self):
+        """The factory-reset scope: which set the devices are on NOW.
+
+        Falling back to 1 would send the run looking on the wrong network and
+        report every port as "device not found"."""
+        self.assertEqual(ip_assign.parse_set(""), 0)
+        self.assertEqual(ip_assign.parse_set("3"), 3)
+        for bad in ("0", "255", "three", "-1"):
+            with self.assertRaises(ValueError, msg=bad):
+                ip_assign.parse_set(bad)
+
     def test_the_plan_comes_from_devicemap(self):
         topology = fakes.device_map([
             {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
@@ -663,6 +720,24 @@ class IpPlan(PanelTest):
         p13 = next(r for r in plan["rows"] if r["port"] == 13)
         self.assertFalse(p13["actionable"])
         self.assertEqual(p13["name"], "—")
+
+    def test_a_transfer_plan_shows_the_other_sets_addresses_as_the_source(self):
+        topology = fakes.device_map([
+            {"Name": "Intercom_1", "IP": "10.n.1.10", "IsActive": True,
+             "Type": "Announcement", "SubType": "Intercom", "Port": "11",
+             "Status": {}}], switch_ip="10.n.1.101")
+        inventory = self.build_map(topology)
+
+        plain = ip_assign.build_plan(inventory, "Intercom", [11])
+        self.assertEqual(plain["rows"][0]["sourceIp"], "10.1.1.12")
+
+        # The two sets are what the LCD factory reset turns around; the mask
+        # is a plain run option.
+        wide = ip_assign.build_plan(inventory, "Intercom", [11],
+                                    source_set=3, target_prefix=8)
+        self.assertEqual(wide["rows"][0]["sourceIp"], "10.3.1.10")
+        self.assertEqual(wide["targetPrefix"], 8)
+        self.assertEqual(wide["targetNetmask"], "255.0.0.0")
 
     def test_the_run_is_rejected_when_a_protected_port_is_targeted(self):
         """The computer's port or a switch link cannot enter the run.

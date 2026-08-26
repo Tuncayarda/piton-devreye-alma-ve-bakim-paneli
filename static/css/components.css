@@ -10,7 +10,7 @@
   border-radius: 0;
   color: var(--text);
   cursor: pointer;
-  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--fs-base);
   letter-spacing: 0; text-transform: none;
   white-space: nowrap;
   transition: background .12s ease, border-color .12s ease;
@@ -23,18 +23,26 @@
 }
 .btn-primary:hover:not(:disabled) { background: #59a3e8; }
 
-.btn-danger { border-color: var(--failed-soft); color: #e05c59; }
+.btn-danger { border-color: var(--failed-soft); color: var(--failed-text); }
 .btn-danger:hover:not(:disabled) { background: rgba(218, 54, 51, .12); }
 
-.btn-small { padding: 5px 11px; font-size: 12px; }
+.btn-small { padding: 5px 11px; font-size: var(--fs-base); }
 
 /* Fixed-width button: the two labels sit on top of each other in the same
    grid cell and the longer one sets the cell width. No pixel value is
    written — if the font is not installed the fallback kicks in and a fixed
    width no longer holds. */
-#refresh-btn { display: inline-grid; place-items: center; }
-#refresh-btn > span { grid-area: 1 / 1; }
-#refresh-btn .label-measure { visibility: hidden; }
+#refresh-btn, #auto-btn { display: inline-grid; place-items: center; }
+#refresh-btn > span, #auto-btn > span { grid-area: 1 / 1; }
+#refresh-btn .label-measure, #auto-btn .label-measure { visibility: hidden; }
+
+/* Pressed = paused, in the amber the panel already uses for "needs your
+   attention" rather than the accent it uses for "on". Being paused is not a
+   setting that is switched on, it is a state in which what is on screen is
+   quietly ageing. */
+#auto-btn[aria-pressed="true"] {
+  border-color: var(--auth); color: var(--auth);
+}
 
 .btn-icon {
   width: 30px; height: 30px; padding: 0; flex: none;
@@ -46,7 +54,7 @@
 .btn-close {
   width: 24px; height: 24px; padding: 0; flex: none;
   border-color: var(--line); color: var(--text-mid);
-  font-family: var(--font-body); font-size: 13px; letter-spacing: 0;
+  font-family: var(--font-body); font-size: var(--fs-base); letter-spacing: 0;
 }
 
 /* ────────────────────────────────────────────────────────── alanlar ──── */
@@ -57,13 +65,13 @@
   border: 1px solid var(--line-strong);
   border-radius: 0;
   padding: 8px 10px;
-  font-family: var(--font-mono); font-size: 12.5px;
+  font-family: var(--font-mono); font-size: var(--fs-base);
 }
 .field:focus-visible { border-color: var(--accent); }
-.field[aria-invalid="true"] { border-color: var(--failed); color: #e05c59; }
+.field[aria-invalid="true"] { border-color: var(--failed); color: var(--failed-text); }
 
 .label {
-  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
   letter-spacing: .01em; color: var(--text-mid); text-transform: none;
 }
 
@@ -100,7 +108,7 @@
 /* The single line under the heading: how fresh the numbers on the page are. */
 .page-sub {
   margin-top: 5px;
-  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
+  font-family: var(--font-body); font-size: var(--fs-base); color: var(--text-mid);
 }
 /* The checklist refreshes itself. When the data goes stale this line draws
    attention: producing an Excel from that view means a wrong document. */
@@ -113,11 +121,11 @@
   border: 1px solid var(--line-soft);
   background: var(--deep);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 .dialog .summary-box .summary-row:last-child { border-bottom: 0; }
 .eyebrow {
-  font-family: var(--font-body); font-size: 11px; font-weight: 600;
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
   letter-spacing: .01em; color: var(--text-mid); text-transform: none;
 }
 
@@ -126,21 +134,26 @@
   width: 7px; height: 7px; flex: none; display: block;
   background: var(--unknown);
 }
-[data-state="ok"] { --state-colour: var(--ok); }
-[data-state="auth"] { --state-colour: var(--auth); }
-[data-state="failed"] { --state-colour: var(--failed); }
-[data-state="unknown"] { --state-colour: var(--unknown); }
+/* Two values per state, and they are not interchangeable. --state-colour
+   paints dots, edges and port graphics; --state-text is what a WORD is
+   written in. Red (#da3633) reaches only 3.7:1 on the panel and grey is
+   darker still, so a row that says "Failed" in --state-colour could not be
+   read — which is exactly the row somebody needs to read. */
+[data-state="ok"] { --state-colour: var(--ok); --state-text: var(--ok-text); }
+[data-state="auth"] { --state-colour: var(--auth); --state-text: var(--auth-text); }
+[data-state="failed"] { --state-colour: var(--failed); --state-text: var(--failed-text); }
+[data-state="unknown"] { --state-colour: var(--unknown); --state-text: var(--unknown-text); }
 /* A running job: green means "finished" and queued grey reads as dormant.
    Running is blue — the accent colour already means "happening now". */
-[data-state="busy"] { --state-colour: var(--accent); }
+[data-state="busy"] { --state-colour: var(--accent); --state-text: var(--accent); }
 .dot[data-state] { background: var(--state-colour); }
-.state-text[data-state] { color: var(--state-colour); }
+.state-text[data-state] { color: var(--state-text); }
 
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 1px 5px;
   border: 1px solid var(--line-strong);
-  font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .02em;
+  font-family: var(--font-mono); font-size: var(--fs-xs); letter-spacing: .02em;
   color: var(--text-mid);
 }
 
@@ -148,6 +161,30 @@
 .text-dim { color: var(--text-dim); }
 .text-mid { color: var(--text-mid); }
 .text-bright { color: var(--text-bright); }
+
+/* Size utilities. They exist so a view never writes a size of its own: every
+   screen used to set font-size inline, forty-nine times over ten files, which
+   is how the scale reached twenty-two values (see the note in base.css). */
+.t-xs { font-size: var(--fs-xs); }
+.t-sm { font-size: var(--fs-sm); }
+.t-base { font-size: var(--fs-base); }
+/* A version the device really reported, as opposed to the dash that stands
+   in for "not read yet" (see views/devices.js). */
+.version-read { color: var(--ok-text); }
+
+/* A single word used as a STATE — "Reachable", "Failed", the project name.
+   The heading face, letter-spaced and upper case, so the cell reads as a
+   label rather than as content. */
+.state-label {
+  font-family: var(--font-heading); font-weight: 600;
+  font-size: var(--fs-base);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.title-label {
+  font-family: var(--font-heading); font-weight: 600;
+  font-size: var(--fs-lg);
+  letter-spacing: .06em; text-transform: uppercase;
+}
 
 /* ───────────────────────────────────────────────────────── tablolar ──── */
 /* A grid-based table: column widths are tuned per screen, and it scrolls
@@ -173,7 +210,7 @@
 .table-head {
   background: var(--panel);
   border-bottom: 0;
-  font-family: var(--font-body); font-size: 11.5px; font-weight: 600;
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
   letter-spacing: .01em; color: var(--text-mid); text-transform: none;
   position: sticky; top: 0; z-index: 2;
 }
@@ -200,7 +237,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border: 1px solid var(--line); border-top: 0;
   background: var(--panel-2);
   padding: 22px 12px; text-align: center;
-  font-family: var(--font-body); font-size: 12.5px; color: var(--text-mid);
+  font-family: var(--font-body); font-size: var(--fs-base); color: var(--text-mid);
 }
 
 /* ───────────────────────────────────────────────────── target strip ── */
@@ -246,15 +283,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border: 1px solid var(--line-strong);
   color: var(--text-bright);
   cursor: pointer;
-  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--fs-base);
   letter-spacing: 0; text-transform: none;
   white-space: nowrap;
 }
-.chip .count { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.chip .count { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); }
 .chip[aria-pressed="true"] {
   background: var(--accent); border-color: var(--accent); color: var(--deep);
 }
-.chip[aria-pressed="true"] .count { color: rgba(11, 17, 22, .65); }
+/* The count sits ON the accent fill, so it is dark text on light.
+   At 65% it measured 3.4:1 — de-emphasised past the point of being
+   readable, which is not de-emphasis. 80% is the first step that
+   clears 4.5:1 and still reads as quieter than the label. */
+.chip[aria-pressed="true"] .count { color: rgba(11, 17, 22, .8); }
 
 /* ──────────────────────────────────────────────────── progress bars ── */
 .bar { height: 3px; background: rgba(214, 235, 255, .1); }
@@ -266,7 +307,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   min-width: 17px; height: 17px; padding: 0 4px;
   display: flex; align-items: center; justify-content: center;
   background: var(--auth); color: var(--deep);
-  font-family: var(--font-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
 }
 .count-badge[data-kind="queue"] { background: var(--accent); }
 
@@ -287,20 +328,46 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   #queue-btn[data-flash] { animation: none; background: var(--accent-soft); }
 }
 
-/* The panel ends at the left edge of the top bar's refresh button: with the
-   buttons that open a panel and the panel itself in line, the panel reads as
-   one piece with the top bar. app.js measures the width (--side-panel) so the
-   alignment does not drift when button text changes (the role badge,
-   "Scanning…"). */
+/* The job queue and the credentials list.
+   ───────────────────────────────────────
+   On a wide window the panel TAKES ITS OWN COLUMN and the content beside it
+   narrows: it is already a flex sibling of `.content` inside `.body`, so this
+   is what happens naturally once it stops being positioned.
+
+   It used to overlay instead, and because the queue opens itself every time a
+   job starts, that was the ordinary state rather than an edge case: at
+   1100px the "Start IP assignment" button sat underneath it, unreachable
+   without closing the panel first, with nothing dimmed to say so.
+
+   Below 1080px there is no room for two columns, so it goes back to
+   overlaying — and then `.panel-scrim` dims what it covers, which is the part
+   that was missing. */
 .side-panel {
-  position: absolute; top: 0; right: 0; bottom: 0;
-  width: min(92vw, max(300px, var(--side-panel, 340px)));
+  flex: none;
+  width: min(92vw, var(--queue-width, 340px));
   z-index: 30;
   background: var(--panel);
   border-left: 1px solid var(--line-strong);
-  box-shadow: -14px 0 34px rgba(6, 10, 13, .55);
   display: flex; flex-direction: column;
   overflow: hidden;
+}
+
+/* Only drawn while the panel overlays, and it is not a control: closing is
+   the × in the panel header or Escape, both already there. */
+.panel-scrim {
+  position: absolute; inset: 0;
+  z-index: 29;
+  background: rgba(6, 10, 13, .55);
+}
+
+@media (min-width: 1081px) { .panel-scrim { display: none; } }
+
+@media (max-width: 1080px) {
+  .side-panel {
+    position: absolute; top: 0; right: 0; bottom: 0;
+    width: min(92vw, max(300px, var(--side-panel, 340px)));
+    box-shadow: -14px 0 34px rgba(6, 10, 13, .55);
+  }
 }
 .side-panel > header {
   display: flex; align-items: center; gap: 10px;
@@ -308,7 +375,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border-bottom: 1px solid var(--line);
 }
 .side-panel > header .title {
-  font-family: var(--font-heading); font-weight: 600; font-size: 16px;
+  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-lg);
   letter-spacing: 0; text-transform: none;
 }
 .side-panel > .list {
@@ -362,25 +429,29 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 .job-head .name {
   display: block;
-  font-family: var(--font-heading); font-weight: 600; font-size: 14.5px;
+  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-md);
   letter-spacing: 0; text-transform: none;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .job-head .sub {
   display: block; margin-top: 3px;
-  font-family: var(--font-mono); font-size: 10px;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
 }
 /* The phase text ("Port 14 · writing the IP (3/6)"). One line: a long phase
    must not grow the card and push the other queued jobs down. */
 .job-phase {
   display: block; margin-top: 2px;
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .job-counts {
-  display: flex; gap: 7px; flex: none;
-  font-family: var(--font-mono); font-size: 10px;
+  display: flex; gap: 9px; flex: none;
+  font-family: var(--font-mono); font-size: var(--fs-xs);
 }
+/* Glyph and number read as one figure, so the pair must not be split by the
+   gap between counts. */
+.job-count { display: inline-flex; align-items: center; gap: 3px; }
+.job-count svg { flex: none; }
 /* A thin progress bar — flush with the bottom of the card, running job only. */
 .job-bar { height: 2px; background: var(--line-soft); overflow: hidden; }
 .job-bar i {
@@ -401,17 +472,32 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
    state text on the right: the browser does not treat an underscore or a dot
    as a break opportunity, so breaking is asked for explicitly. */
 .job-row .name {
-  display: block; font-family: var(--font-mono); font-size: 11px;
+  display: block; font-family: var(--font-mono); font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
 .job-row .sub {
   display: block; margin-top: 2px;
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   word-break: break-word;
 }
+/* The reason a row failed. Two lines at most: past that the queue stops
+   being a list and becomes a log, which is what the log file is for. */
+.job-row-reason {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--danger-text);
+  overflow-wrap: anywhere;
+}
+.job-row[data-row-state="skipped"] .job-row-reason { color: var(--text-mid); }
+
 .job-row .state {
   flex: none; align-self: flex-start;
-  font-family: var(--font-heading); font-weight: 600; font-size: 11px;
+  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-sm);
   letter-spacing: .08em; text-transform: uppercase;
 }
 
@@ -453,21 +539,21 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .job-step .dot { width: 5px; height: 5px; margin-top: 0; }
 .job-step-text {
   flex: 1; min-width: 0;
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-mid);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-mid);
   overflow-wrap: anywhere;
 }
 .job-step[data-row-state="warning"] .job-step-text { color: var(--auth); }
 .job-step[data-row-state="failed"] .job-step-text { color: var(--failed); }
 .job-step-time {
   flex: none; align-self: flex-start;
-  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
 }
 
 /* The two buttons under a generated file: open / show in folder. */
 .file-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .file-btn {
   gap: 5px; padding: 3px 8px;
-  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
   border-color: var(--line); color: var(--text-mid);
 }
@@ -487,12 +573,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 .locked-row:hover { background: #1a232b; }
 .locked-row .name {
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: var(--fs-base);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .locked-row .sub {
   grid-column: 1 / -1;
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   line-height: 1.5;
 }
 
@@ -513,22 +599,47 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   display: flex; flex-direction: column; gap: 14px;
   max-height: 92vh; overflow-y: auto;
 }
-.dialog h3 { font-size: 19px; }
-.dialog .description { font-size: 12.5px; color: var(--text-bright); }
+.dialog h3 { font-size: var(--fs-lg); }
+.dialog .description { font-size: var(--fs-base); color: var(--text-bright); }
 .dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* dialog.pick — one row per choice. A row that cannot be chosen is dimmed
+   and keeps its note, which is the only thing on the row that says why. */
+.pick-list { display: flex; flex-direction: column; gap: 6px; }
+.pick-item {
+  display: flex; align-items: baseline; justify-content: space-between;
+  /* Wraps rather than breaking a word: these rows carry drive names, and in
+     a narrow column "DABP-KEY" was being split across two lines. The note
+     drops underneath instead and the name keeps its full width. */
+  flex-wrap: wrap;
+  gap: 4px 12px; width: 100%; text-align: left;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: inherit; font-size: var(--fs-base);
+  cursor: pointer;
+}
+.pick-item:hover:not(:disabled) { border-color: var(--accent-line); }
+.pick-item:disabled { cursor: default; color: var(--text-dim); }
+.pick-label { font-weight: 600; }
+.pick-note {
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
 
 .warning {
   padding: 8px 10px;
   border: 1px solid var(--failed-soft);
   background: rgba(218, 54, 51, .08);
-  color: #e8817f;
-  font-size: 12px;
+  color: var(--danger-text);
+  font-size: var(--fs-base);
 }
 .info {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
-  font-size: 12px; color: var(--text-bright);
+  font-size: var(--fs-base); color: var(--text-bright);
 }
 
 .checkbox {
@@ -545,7 +656,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .checkbox[aria-pressed="true"] { border-color: var(--accent); }
 .checkbox[aria-pressed="true"] .box { background: var(--accent); border-color: var(--accent); }
 .checkbox span:last-child {
-  font-family: var(--font-body); font-weight: 600; font-size: 13px;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--fs-base);
   letter-spacing: 0; text-transform: none;
 }
 
@@ -567,32 +678,56 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   display: grid; grid-template-columns: 1fr 1.1fr; gap: 12px;
   padding: 7px 0; border-bottom: 1px solid rgba(214, 235, 255, .06);
 }
-.detail-row .name { font-size: 12.5px; color: var(--text-mid); }
+.detail-row .name { font-size: var(--fs-base); color: var(--text-mid); }
 .detail-row .value {
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: var(--fs-base);
   word-break: break-word;
 }
 
 /* ───────────────────────────────────────────────────── toast strip ─── */
+/* The strip stacks: several messages can be on screen at once and an error
+   stays until it is dismissed (see components/toast.js). */
 #toast {
   position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
   z-index: 70;
+  display: flex; flex-direction: column; gap: 8px;
   max-width: min(560px, 92vw);
+  font-size: var(--fs-base);
+}
+.toast-item {
+  display: flex; align-items: flex-start; gap: 10px;
   padding: 9px 14px;
   border: 1px solid var(--line-strong);
   background: var(--panel);
   box-shadow: 0 8px 26px rgba(6, 10, 13, .6);
-  font-size: 12.5px;
 }
-#toast[data-kind="error"] { border-color: var(--failed-soft); color: #e8817f; }
-#toast[data-kind="success"] { border-color: var(--ok-soft); color: var(--ok); }
+.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-item[data-kind="error"] {
+  border-color: var(--failed-soft); color: var(--danger-text);
+}
+.toast-item[data-kind="success"] {
+  border-color: var(--ok-soft); color: var(--ok-text);
+}
+/* Only an error carries one — the others take themselves away. */
+.toast-close { flex: none; margin: -2px -6px 0 0; }
+
+/* The shortcut list, opened with `?`. */
+.shortcut-list { display: flex; flex-direction: column; gap: 8px; }
+.shortcut-list .row { display: flex; align-items: center; gap: 12px; }
+.shortcut-list kbd {
+  flex: none; min-width: 34px; padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--deep);
+  font-family: var(--font-mono); font-size: var(--fs-sm);
+  text-align: center;
+}
 
 /* ─────────────────────────────────────────── top bar project strip ─── */
 .project-bar {
   display: flex; align-items: center; gap: 7px; flex: none;
   padding: 3px 9px;
   border: 1px solid var(--line-strong);
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em;
+  font-family: var(--font-mono); font-size: var(--fs-sm); letter-spacing: .04em;
   white-space: nowrap;
 }
 .project-bar > button {
@@ -614,11 +749,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 1px 4px;
-  font-family: var(--font-mono); font-size: 11px;
+  font-family: var(--font-mono); font-size: var(--fs-sm);
   text-align: center;
 }
 .set-field input:hover { border-color: var(--line-strong); }
-.set-field input:focus-visible { border-color: var(--accent); outline: none; }
+.set-field input:focus-visible { border-color: var(--accent); }
 .set-field input:disabled { color: var(--text-dim); cursor: not-allowed; }
 /* The spinner arrows squeeze the number; the set number is typed anyway. */
 .set-field input::-webkit-outer-spin-button,
@@ -644,7 +779,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   background: transparent;
   color: var(--text-dim);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   letter-spacing: .06em;
 }
 .language-btn + .language-btn { border-left: 1px solid var(--line); }

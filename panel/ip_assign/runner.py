@@ -6,16 +6,18 @@ import contextlib
 import io
 import sys
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 from .. import credentials as credential_store
-from .. import script_loader, settings
+from .. import i18n, script_loader, settings
 from ..errors import AuthError
 from ..inventory.device_map import Inventory, resolve_template
-from .addressing import factory_ip, search_candidates
-from .plan import devices_by_port, resolve_groups
+from . import lcd_runner, preflash
+from .addressing import (DEFAULT_TARGET_PREFIX, factory_ip,
+                         netmask_for, search_candidates)
+from .plan import device_switch_for, devices_by_port, resolve_groups
 from .ports import assert_not_protected, format_ports
-from .. import i18n
 
 # main() touches the process-wide sys.stdout/sys.argv, so only one run at a
 # time. The job queue already runs one job; this is the second guard.
@@ -73,11 +75,16 @@ class _LineStream(io.TextIOBase):
             self._buffer = ""
 
 
-def script_config(factory: str, switch_ip: str):
+def script_config(factory: str, switch_ip: str, netmask: str = "",
+                  force_netmask: bool = False):
     """The settings object the script's read_settings/write_ip/wait_gone want.
 
     Field names and defaults match the script's own argparse, so the write
     body and endpoints stay exactly as they are there — no second client.
+
+    `netmask` overrides the project default, and `force_netmask` says the
+    operator picked it deliberately, so it wins over what the device reports
+    (see intercom_ip_assign.write_ip).
     """
     return SimpleNamespace(
         arduino_port=settings.ANNOUNCEMENT_PORT,
@@ -86,7 +93,8 @@ def script_config(factory: str, switch_ip: str):
         # entry is dropped, resolution may not fit (see factory_reset.probe).
         probe_timeout=3.0,
         timeout=8.0,
-        netmask=settings.EXPECTED_SUBNET_MASK,
+        netmask=str(netmask or "").strip() or settings.EXPECTED_SUBNET_MASK,
+        force_netmask=bool(force_netmask),
         gateway=switch_ip,
         ntp_ip=None,
         factory_ip=factory,
@@ -108,8 +116,8 @@ def _run_intercom(inventory: Inventory, switch, ports: list[int], account,
     DeviceMap assigns to that port.
 
     It only works with SubType=Intercom records; on any other port it says
-    "works with Intercom ports only" and exits. Hence the single entry
-    in RUNNERS.
+    "works with Intercom ports only" and exits. Other device families have
+    their own entries in RUNNERS.
     """
     module = script_loader.intercom_ip_assign()
     argv = [
@@ -123,26 +131,25 @@ def _run_intercom(inventory: Inventory, switch, ports: list[int], account,
         "--kyland-pass", account[1],
         "--arduino-port", str(settings.ANNOUNCEMENT_PORT),
     ]
-    # The persistence check is OFF BY DEFAULT: at the end the script cuts and
-    # restores power on every port to prove the setting reached flash. In the
-    # field that blacks out devices that were already finished and lengthens
-    # the run; the ordinary check already happens by reading back the target
-    # IP after the write.
-    #
-    # But "written" and "written persistently" are not the same: a device may
-    # have kept the setting in RAM only and returns to its old address on the
-    # first power cut. Users who want to see that once at the end can enable
-    # it (the "Verify persistence" box).
-    if not options.get("persistenceCheck"):
-        argv.append("--no-persist-check")
-    else:
-        emit("[Intercom] Persistence check on: at the end of the run the "
-             "ports are power cycled once")
+    # Persistence verification is deliberately disabled. It power-cycles all
+    # completed ports at the end of a run, blacking out already commissioned
+    # devices and lengthening the operation. The ordinary read-back check
+    # still verifies each address immediately after it is written. Keep this
+    # unconditional so an older client cannot re-enable the removed option.
+    argv.append("--no-persist-check")
     # The factory address is always passed explicitly: the script's own
     # default is a template (10.n.1.12) resolved with the set number, while
     # devices always arrive on the same address regardless of set.
     factory = str(options.get("factoryIp") or "").strip() or factory_ip()
     argv += ["--factory-ip", factory]
+
+    # The mask written with the new address. Normally the device keeps its
+    # own; the operator can override it, and then that choice wins.
+    prefix = int(options.get("targetPrefix") or DEFAULT_TARGET_PREFIX)
+    if prefix != DEFAULT_TARGET_PREFIX:
+        argv += ["--netmask", netmask_for(prefix), "--force-netmask"]
+        emit(f"[Intercom] Netmask to write: {netmask_for(prefix)} "
+             f"(/{prefix})")
 
     # The set-resolved address is tried as well. Before the factory address
     # was fixed, the run looked for devices at 10.n.1.12 and some field
@@ -168,7 +175,19 @@ def _run_intercom(inventory: Inventory, switch, ports: list[int], account,
     extra = list(dict.fromkeys(extra + search))
     if extra:
         argv += ["--default-ip", *extra]
-    return _execute(module, argv, emit, cancelled)
+
+    # Flashing before the address is written. The hook is installed on the
+    # module and MUST be taken off again: it is process-wide state, and left
+    # behind it would flash devices in a later run that never asked for it.
+    hook = preflash.callback(options, emit, cancelled=cancelled)
+    if hook is not None:
+        emit(i18n.t("preflash.enabled",
+                    name=Path(str(options.get("preflashPath", ""))).name))
+    module.BEFORE_WRITE = hook
+    try:
+        return _execute(module, argv, emit, cancelled)
+    finally:
+        module.BEFORE_WRITE = None
 
 
 # Which group's assignment each script runs. Every device type's flow differs
@@ -178,6 +197,7 @@ def _run_intercom(inventory: Inventory, switch, ports: list[int], account,
 # as "completed" would be the worst outcome.
 RUNNERS = {
     "Intercom": _run_intercom,
+    "Compartment LCD": lcd_runner.run,
 }
 
 
@@ -207,6 +227,8 @@ def run(inventory: Inventory, switch_id: str, ports: list[int], emit,
     switch = inventory.find(switch_id)
     if switch is None:
         raise ValueError(i18n.t("error.switchNotFound"))
+    if switch.type != "Switch":
+        raise ValueError(i18n.t("error.notASwitch"))
     if not ports:
         raise ValueError(i18n.t("error.noPortSelected"))
     assert_not_protected(ports, protected)
@@ -231,12 +253,37 @@ def run(inventory: Inventory, switch_id: str, ports: list[int], emit,
     # Each group gets only its own ports: handing one group's script another
     # group's port makes that script say "no device of mine here" and drop the
     # whole run.
-    by_port = devices_by_port(inventory, selected, switch.id)
+    # The selected switch is the physical execution boundary (credentials,
+    # PoE and MAC proof).  For an LCD-only bench run DeviceMap's device rows
+    # may intentionally come from the one switch that defines the LCD layout.
+    # This value is derived again here, never accepted from the request.
+    device_switch_id = device_switch_for(inventory, selected, switch.id)
+    by_port = devices_by_port(inventory, selected, device_switch_id)
+    lcd_physical_mode = [group["name"] for group in selected] == [
+        "Compartment LCD"]
+    if lcd_physical_mode:
+        # These are physical PoE ports, not DeviceMap identity slots.  Keep
+        # the same boundary here as the API so a directly-created task cannot
+        # bypass it.  The LCD runner resolves the immutable identity/IP only
+        # after it has isolated and positively verified each physical port.
+        unmapped = sorted(
+            port for port in set(ports)
+            if port < 1 or port > settings.SWITCH_POE_PORTS)
+    else:
+        unmapped = sorted(set(ports) - set(by_port))
+    if unmapped:
+        raise ValueError(i18n.t(
+            "error.portNotOnSwitch",
+            ports=", ".join(str(port) for port in unmapped)))
+    runner_options = dict(options or {})
+    runner_options["_deviceSwitchId"] = device_switch_id
     code = 0
     for group in selected:
-        group_ports = [port for port in ports
-                       if by_port.get(port)
-                       and by_port[port][1] == group["name"]]
+        group_ports = (list(ports) if lcd_physical_mode
+                       and group["name"] == "Compartment LCD" else [
+                           port for port in ports
+                           if by_port.get(port)
+                           and by_port[port][1] == group["name"]])
         if not group_ports:
             emit(f"[{group['name']}] No device of this group on the "
                  "selected ports, skipped")
@@ -244,7 +291,7 @@ def run(inventory: Inventory, switch_id: str, ports: list[int], emit,
         emit(f"[{group['name']}] {format_ports(group_ports)} — assignment "
              "starting")
         code = max(code, RUNNERS[group["name"]](
-            inventory, switch, group_ports, account, emit, options or {},
+            inventory, switch, group_ports, account, emit, runner_options,
             cancelled))
         # Once cancelled, remaining groups are skipped.
         if cancelled and cancelled():

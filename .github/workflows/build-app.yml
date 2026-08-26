@@ -19,15 +19,15 @@ on:
         description: Application root (relative to the repository root)
         required: true
         type: string
-      app_name:
-        description: Output name — exe/dist folder and file names (ASCII)
-        required: true
-        type: string
-      display_name:
+      edition:
         description: >-
-          The product name people read: the Release title and the job
-          summaries. NOT a path — every file is named after app_name,
-          so this one may hold spaces and non-ASCII letters.
+          Which package is being built — an id from the edition table
+          (panel/editions/catalogue.py). Everything else that used to be
+          passed in here is READ FROM THAT TABLE by the "Resolve the
+          edition" step below: the output name, the product name people
+          read, and the Windows AppId. Passing them in as well would mean
+          two places to change when an edition is added, with the copy in
+          the half nobody runs locally.
         required: true
         type: string
       spec:
@@ -52,13 +52,26 @@ on:
         required: false
         type: string
         default: "3.12"
+    secrets:
+      DAP_ADMIN_KEY_SECRET:
+        description: >-
+          The service key's build secret. Every package is built with a
+          one-way DIGEST of it and can therefore RECOGNISE a key without
+          being able to make one; no package is ever built with the secret
+          itself, which stays with whoever cuts the builds and is what
+          writes a stick from source (see panel/adminkey/secret.py).
+
+          Not required, so a fork with no secrets configured can still build.
+          Such a build carries no key material and says so: admin mode simply
+          cannot be opened on it, and `--self-test` reports "none".
+        required: false
 
 permissions:
   contents: read          # read access is enough for the build jobs
 
 env:
   APP_DIR: ${{ inputs.app_dir }}
-  APP_NAME: ${{ inputs.app_name }}
+  EDITION: ${{ inputs.edition }}
   PYTHON_VERSION: ${{ inputs.python_version }}
   # Expected sha256 of appimagetool. While empty nothing is verified and the
   # digest of the downloaded file is written to the log; paste it here after
@@ -67,7 +80,7 @@ env:
 
 jobs:
   build:
-    name: ${{ inputs.app_name }} · ${{ matrix.name }}
+    name: ${{ inputs.edition }} · ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -94,6 +107,23 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v6
+
+      # ── who this package is ────────────────────────────────────────────
+      # Read from the edition table so the workflow holds no second copy of
+      # it. `tools/edition_info.py` loads the table directly and needs
+      # nothing installed, so this can run before pip.
+      - name: Resolve the edition
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          for FIELD in app_name display_name app_id; do
+            VALUE="$(python3 tools/edition_info.py \
+                       --edition "$EDITION" --field "$FIELD")"
+            echo "$(echo "$FIELD" | tr '[:lower:]' '[:upper:]')=$VALUE" \
+              >> "$GITHUB_ENV"
+            echo "  $FIELD = $VALUE"
+          done
 
       - name: Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v6
@@ -132,8 +162,13 @@ jobs:
           SOURCE_VERSION="$(python app.py --version)"
           echo "Version in source: $SOURCE_VERSION"
           if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
-            # Tag prefixes: "dap-v0.9.0" or the older form "v1.0.2".
-            TAG_VERSION="${GITHUB_REF_NAME#*-v}"
+            # Tag shapes: "dap-gdm-v0.9.8", the single-edition "dap-v0.9.0"
+            # and the older bare "v1.0.2".
+            #
+            # "##" (longest match), never "#": an edition id may itself
+            # contain "-v". With "#" the tag "dap-vip-yatakli-v0.9.8" strips
+            # only "dap-v" and the build is named after "ip-yatakli-v0.9.8".
+            TAG_VERSION="${GITHUB_REF_NAME##*-v}"
             TAG_VERSION="${TAG_VERSION#v}"
             if [[ "$TAG_VERSION" != "$SOURCE_VERSION" ]]; then
               echo "::error::Tag ($GITHUB_REF_NAME → $TAG_VERSION) does not match APP_VERSION ($SOURCE_VERSION)."
@@ -159,11 +194,46 @@ jobs:
 
       - name: Self-test (from source)
         working-directory: ${{ env.APP_DIR }}
-        run: python app.py --self-test
+        # As the edition being built, so the check covers THIS customer's
+        # device list and not whichever one the source tree happens to hold.
+        run: python app.py --edition "$EDITION" --self-test
+
+      # A bare run must refuse to start. From source there is no stamp, and
+      # "whichever DeviceMap the tree happens to hold" is not an answer
+      # anybody meant to give — so the panel names the editions and stops.
+      # Checked here because edition resolution deliberately sits BEFORE the
+      # elevation gate, which CI cannot pass.
+      - name: A run with no edition is refused
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          DAP_EDITION: ""
+        run: |
+          set +e
+          OUTPUT="$(python app.py 2>&1)"
+          CODE=$?
+          set -e
+          echo "$OUTPUT"
+          if [ "$CODE" -eq 0 ]; then
+            echo "::error::a run with no edition must not start"
+            exit 1
+          fi
+          echo "refused with exit code $CODE, as it must be."
 
       - name: Clean PyInstaller build
         shell: bash
         working-directory: ${{ env.APP_DIR }}
+        env:
+          # The spec stamps both into the package: the edition, and the key
+          # material for admin mode. What is stamped is a ONE-WAY DIGEST of
+          # the secret and never the secret itself — no package needs it,
+          # and none may carry it (see panel/adminkey/secret.py). The value
+          # is passed in the environment and never on a command line, so it
+          # cannot end up in a process listing or a log.
+          DAP_ADMIN_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET }}
+          # A fork has no secrets. It still builds; the package simply cannot
+          # open admin mode, and says so.
+          DAP_ALLOW_NO_ADMIN_KEY: "1"
         run: |
           set -euo pipefail
           rm -rf build dist
@@ -181,7 +251,7 @@ jobs:
         shell: pwsh
         working-directory: ${{ env.APP_DIR }}
         run: |
-          $exe = "dist/${{ inputs.app_name }}/${{ inputs.app_name }}.exe"
+          $exe = "dist/${{ env.APP_NAME }}/${{ env.APP_NAME }}.exe"
           if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
           $fullPath = (Resolve-Path $exe).Path
           $outFile = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
@@ -206,16 +276,43 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          BIN="dist/${{ inputs.app_name }}.app/Contents/MacOS/${{ inputs.app_name }}"
+          BIN="dist/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }}"
           test -x "$BIN" || { echo "executable not found: $BIN"; exit 1; }
           "$BIN" --self-test
 
       - name: Self-test (packaged) — Linux
         if: runner.os == 'Linux'
         working-directory: ${{ env.APP_DIR }}
+        env:
+          # WHETHER there is a secret, never the secret. Interpolating the
+          # value into a shell test would put it on a command line, which is
+          # readable in a process listing on the runner and would appear in
+          # any `set -x` trace — masking in the log does not undo either.
+          HAS_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET != '' }}
         run: |
           set -euo pipefail
-          "./dist/${{ inputs.app_name }}/${{ inputs.app_name }}" --self-test
+          OUTPUT="$("./dist/${{ env.APP_NAME }}/${{ env.APP_NAME }}" --self-test)"
+          echo "$OUTPUT"
+
+          # THE PACKAGE MUST BE WHAT IT SAYS IT IS.
+          echo "$OUTPUT" | grep -q "edition: $EDITION " || {
+            echo "::error::the package does not report itself as '$EDITION'"
+            exit 1; }
+
+          # AND IT MUST NOT CARRY THE SECRET. Every package is a
+          # customer's; each is stamped with a one-way digest, and if the
+          # secret itself ever leaked into one, that customer could mint
+          # service keys for every other customer's package. Read back off
+          # the built artifact rather than trusted from the build script —
+          # and the secret is never put on a shell command line to do it.
+          if [ "$HAS_KEY_SECRET" != "true" ]; then
+            echo "No build secret configured; key material check skipped."
+          else
+            echo "$OUTPUT" | grep -q "Admin key material — digest only" || {
+              echo "::error::a package must carry the digest ONLY"
+              exit 1; }
+          fi
+          echo "Edition and key material verified on the built package."
 
       # ── packaging per platform ──────────────────────────────────────────
       - name: Package — Windows (onedir ZIP)
@@ -223,9 +320,9 @@ jobs:
         shell: pwsh
         working-directory: ${{ env.APP_DIR }}
         run: |
-          $zipName = "${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
+          $zipName = "${{ env.APP_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Path "dist/${{ inputs.app_name }}" -DestinationPath "release/$zipName" -Force
+          Compress-Archive -Path "dist/${{ env.APP_NAME }}" -DestinationPath "release/$zipName" -Force
           Get-Item "release/$zipName" | Select-Object Name, Length
 
       # ── Windows installer (Inno Setup) ──────────────────────────────────
@@ -267,14 +364,21 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           $version = "${{ steps.version.outputs.version }}"
+          # Every name comes from the edition table, so two editions
+          # installed on one machine keep separate folders, separate Start
+          # menu entries and — above all — separate AppIds: without that an
+          # update to one would land on the other.
           & "$env:ISCC" `
             "/DMyAppVersion=$version" `
-            "/DSourceDir=..\..\dist\${{ inputs.app_name }}" `
+            "/DMyAppSlug=${{ env.APP_NAME }}" `
+            "/DMyAppName=${{ env.DISPLAY_NAME }}" `
+            "/DMyAppId=${{ env.APP_ID }}" `
+            "/DSourceDir=..\..\dist\${{ env.APP_NAME }}" `
             "/DOutputDir=..\..\release" `
             "${{ inputs.iss }}".Replace('/', '\')
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed ($LASTEXITCODE)" }
 
-          $setup = "release/${{ inputs.app_name }}-$version-windows-x64-Setup.exe"
+          $setup = "release/${{ env.APP_NAME }}-$version-windows-x64-Setup.exe"
           if (-not (Test-Path $setup)) { throw "installer was not produced: $setup" }
           $bytes = (Get-Item $setup).Length
           if ($bytes -lt 5mb) { throw "installer suspiciously small: $bytes bytes" }
@@ -285,11 +389,11 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          ZIP_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
+          ZIP_NAME="${{ env.APP_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
           mkdir -p release
           # ditto: macOS file attributes and symlinks are preserved
           ditto -c -k --sequesterRsrc --keepParent \
-            "dist/${{ inputs.app_name }}.app" "release/$ZIP_NAME"
+            "dist/${{ env.APP_NAME }}.app" "release/$ZIP_NAME"
           ls -lh "release/$ZIP_NAME"
 
       - name: Package — Linux (AppImage)
@@ -297,9 +401,9 @@ jobs:
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          BASE_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          BASE_NAME="${{ env.APP_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           chmod +x packaging/appimage.sh
-          ./packaging/appimage.sh "dist/${{ inputs.app_name }}" "release/$BASE_NAME.AppImage" \
+          ./packaging/appimage.sh "dist/${{ env.APP_NAME }}" "release/$BASE_NAME.AppImage" \
             "${{ steps.version.outputs.version }}"
 
       - name: Verify the AppImage
@@ -314,14 +418,14 @@ jobs:
           cd "$(mktemp -d)"
           "$OLDPWD/$IMG" --appimage-extract > /dev/null
           test -x squashfs-root/AppRun || { echo "AppRun missing"; exit 1; }
-          "./squashfs-root/usr/bin/${{ inputs.app_name }}" --self-test
+          "./squashfs-root/usr/bin/${{ env.APP_NAME }}" --self-test
 
       - name: Put the AppImage in a ZIP
         if: runner.os == 'Linux'
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
-          BASE_NAME="${{ inputs.app_name }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
+          BASE_NAME="${{ env.APP_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           cd release
           # A ZIP keeps the execute bit, so no chmod +x is needed after
           # extraction. It also shrinks the artifact/release size.
@@ -337,7 +441,7 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           TARGET="${{ matrix.target }}"
-          APP="${{ inputs.app_name }}"
+          APP="${{ env.APP_NAME }}"
 
           # EXACTLY which files are expected per platform. Looked up one by
           # one so a missing file cannot slip through.
@@ -381,13 +485,13 @@ jobs:
       - name: Upload the artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ inputs.app_name }}-portable-${{ matrix.target }}
+          name: ${{ env.APP_NAME }}-portable-${{ matrix.target }}
           path: ${{ env.APP_DIR }}/release/*
           if-no-files-found: error
           retention-days: 14
 
   release:
-    name: ${{ inputs.app_name }} · GitHub Release
+    name: ${{ inputs.edition }} · GitHub Release
     # Only on a tag push and only if every build passed
     if: github.ref_type == 'tag'
     needs: build
@@ -399,19 +503,37 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v6
 
+      # ── who this package is ────────────────────────────────────────────
+      # Read from the edition table so the workflow holds no second copy of
+      # it. `tools/edition_info.py` loads the table directly and needs
+      # nothing installed, so this can run before pip.
+      - name: Resolve the edition
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          for FIELD in app_name display_name app_id; do
+            VALUE="$(python3 tools/edition_info.py \
+                       --edition "$EDITION" --field "$FIELD")"
+            echo "$(echo "$FIELD" | tr '[:lower:]' '[:upper:]')=$VALUE" \
+              >> "$GITHUB_ENV"
+            echo "  $FIELD = $VALUE"
+          done
+
       - name: Download the artifacts
         uses: actions/download-artifact@v8
         with:
           path: downloaded
-          pattern: ${{ inputs.app_name }}-portable-*
+          pattern: ${{ env.APP_NAME }}-portable-*
           merge-multiple: true
 
       - name: Verify the files
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#*-v}"; VERSION="${VERSION#v}"
-          APP="${{ inputs.app_name }}"
+          # "##" (longest match) — see "Determine the version".
+          VERSION="${GITHUB_REF_NAME##*-v}"; VERSION="${VERSION#v}"
+          APP="${{ env.APP_NAME }}"
           cd downloaded
           echo "Downloaded files:"
           ls -lh
@@ -451,11 +573,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          PRODUCT_NAME: ${{ inputs.display_name }}
+          PRODUCT_NAME: ${{ env.DISPLAY_NAME }}
         run: |
           set -euo pipefail
           NOTES="$GITHUB_WORKSPACE/${{ inputs.app_dir }}/docs/RELEASE_NOTES.md"
-          VERSION="${TAG#*-v}"; VERSION="${VERSION#v}"
+          # "##" (longest match) — see "Determine the version".
+          VERSION="${TAG##*-v}"; VERSION="${VERSION#v}"
           # The title carries the product name + version rather than the
           # raw tag, so the Releases list stays readable.
           TITLE="$PRODUCT_NAME v$VERSION"
@@ -506,7 +629,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-          PRODUCT_NAME: ${{ inputs.display_name }}
+          PRODUCT_NAME: ${{ env.DISPLAY_NAME }}
         run: |
           set -euo pipefail
           # If gh release create quietly did half the job, it is caught here.

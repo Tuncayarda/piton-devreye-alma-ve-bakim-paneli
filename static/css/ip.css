@@ -16,18 +16,35 @@
   padding-top: 2px;
 }
 
-.ip-header-action {
+/* The run's action, at the foot of the form it belongs to. The readiness line
+   sits with it: "why is this button disabled" and the button are one thing.
+
+   It used to be `position: sticky; bottom: 0`, which pinned it to the bottom
+   of the viewport while the card scrolled — and a bottom-pinned bar covers
+   whatever is behind it. On this card that was the addressing rows and the
+   job summary: the bar floated in the MIDDLE of the form, looking like a
+   divider and hiding the very lines ("target", "mask to assign") the operator
+   is about to act on. The form now ends where the button is. */
+.ip-action-bar {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 4px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
 }
+.ip-action-bar .ip-start-btn { flex: none; }
+
+/* The way out of the one error this screen cannot fix. */
+.ip-network-link { align-self: flex-start; margin-top: -4px; }
 .ip-readiness {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
   color: var(--text-mid);
 }
 .ip-readiness i {
@@ -39,7 +56,7 @@
   background: var(--ok);
   box-shadow: 0 0 0 3px rgba(63, 185, 80, .09);
 }
-.ip-readiness[data-state="error"] { color: #e8817f; }
+.ip-readiness[data-state="error"] { color: var(--danger-text); }
 .ip-readiness[data-state="error"] i {
   background: var(--failed);
   box-shadow: 0 0 0 3px rgba(218, 54, 51, .1);
@@ -57,7 +74,7 @@
   justify-content: center;
   gap: 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-sm);
 }
 .ip-loading > i {
   width: 13px; height: 13px;
@@ -98,7 +115,7 @@
 .ip-card-head p {
   margin: 5px 0 0;
   color: var(--text-mid);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 .ip-section-count {
@@ -107,7 +124,7 @@
   border: 1px solid var(--line);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
 }
 
@@ -136,6 +153,12 @@
   margin: 0;
   border: 0;
 }
+.ip-switch-picker-area {
+  padding: 18px 19px;
+  border-bottom: 1px solid var(--line);
+}
+.ip-switch-picker-area > .label { display: block; margin-bottom: 7px; }
+.ip-switch-picker-area > .field { width: 100%; }
 .ip-port-area { padding: 18px 19px; }
 .ip-field-head {
   display: flex;
@@ -147,7 +170,7 @@
 .ip-field-count {
   color: var(--accent);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
 }
 .ip-settings-card .field {
   min-height: 39px;
@@ -158,7 +181,7 @@
   margin: 7px 0 0;
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
 }
 
@@ -173,7 +196,7 @@
 .ip-sub-head p {
   margin: 5px 0 0;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 .setting-row {
@@ -197,9 +220,9 @@
 .ip-field-error {
   margin: -2px 0 2px;
   padding: 0 9px;
-  color: #e8817f;
+  color: var(--danger-text);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
@@ -214,7 +237,7 @@
   background: rgba(11, 17, 22, .28);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   line-height: 1.55;
 }
 .ip-summary-head {
@@ -229,15 +252,15 @@
   color: var(--ok);
 }
 .ip-waiting-badge { border-color: var(--auth-soft); color: var(--auth); }
-.ip-error-badge { border-color: var(--failed-soft); color: #e8817f; }
+.ip-error-badge { border-color: var(--failed-soft); color: var(--danger-text); }
 .ip-run-error {
   margin: 0 0 8px;
   padding: 7px 8px;
   border-left: 2px solid var(--failed);
   background: rgba(218, 54, 51, .06);
-  color: #e8817f;
+  color: var(--danger-text);
   font-family: var(--font-body);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
 }
 .setting-summary .row {
@@ -251,17 +274,6 @@
 .setting-summary .row:last-child { border-bottom: 0; }
 .setting-summary .row.protected { color: var(--auth); }
 
-/* The test tool: on its own strip below the summary, away from the run button. */
-.ip-test-area {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; margin-top: 12px; padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-.ip-test-area .btn {
-  padding: 4px 10px;
-  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
-  letter-spacing: .04em; text-transform: none;
-}
 .setting-summary b {
   max-width: 65%;
   font-weight: 400;
@@ -270,7 +282,6 @@
   overflow-wrap: anywhere;
 }
 .setting-summary b.accent-text { color: var(--accent); }
-.setting-summary b.text-dim { color: var(--text-mid); }
 
 /* Panels sit side by side where there is room and stack when there is not. */
 /* The panels always stack: putting two switches side by side narrowed both
@@ -290,7 +301,7 @@
   justify-content: center;
   text-align: center;
 }
-.ip-panel-empty p { margin: 6px 0 0; color: var(--text-mid); font-size: 12px; }
+.ip-panel-empty p { margin: 6px 0 0; color: var(--text-mid); font-size: var(--fs-base); }
 
 .front-panel {
   min-width: 0;
@@ -339,7 +350,7 @@
   display: block;
   margin: 5px 0 0 15px;
   color: var(--text-mid);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 .ip-switch-badges {
   display: flex;
@@ -352,7 +363,7 @@
 
 /* How many seconds ago the data was read; past 15 s it counts as stale. */
 .ip-freshness {
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   align-self: center;
 }
 .ip-freshness[data-stale="1"] { color: var(--auth); }
@@ -361,7 +372,7 @@
 .ip-section-action { display: flex; align-items: center; gap: 8px; flex: none; }
 .ip-refresh-btn {
   padding: 3px 9px;
-  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
   border-color: var(--line); color: var(--text-mid);
 }
@@ -371,7 +382,7 @@
 .ip-switch-guidance {
   margin: 11px 16px 0;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 /* Why the panel could not be read, plus the credentials warning: a one-line
@@ -382,14 +393,14 @@
   padding-left: 9px;
   border-left: 2px solid var(--line-strong);
   color: var(--text-mid);
-  font-family: var(--font-mono); font-size: 10px; line-height: 1.5;
+  font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.5;
 }
 .ip-panel-note.warning-tone {
   border-left-color: var(--auth); color: var(--auth);
 }
 .ip-credential-btn {
   padding: 3px 9px;
-  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
   border-color: var(--auth-soft); color: var(--auth);
 }
@@ -434,7 +445,7 @@
   color: var(--text-mid);
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   transition: border-color .12s ease, background .12s ease, color .12s ease;
 }
 .pm-port svg { display: block; width: 36px; height: 36px; }
@@ -448,11 +459,17 @@
   background: rgba(214, 235, 255, .04);
   color: var(--text);
 }
-.pm-port:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.pm-port:focus-visible { outline-offset: -2px; }
 .pm-port[aria-disabled="true"] { cursor: not-allowed; }
 
-/* No device defined: not selectable, kept so its place is not a hole. */
+/* No device defined: normally not selectable, kept so its place is not a
+   hole.  The LCD bench flow marks empty physical PoE ports separately because
+   a test display may deliberately be patched into any of them. */
 .pm-port.empty { opacity: .38; cursor: not-allowed; }
+.pm-port.physical-target { opacity: .72; cursor: pointer; }
+.pm-port.physical-target:hover:not([aria-disabled="true"]),
+.pm-port.physical-target.selected { opacity: 1; }
+.pm-port.physical-target[aria-disabled="true"] { cursor: not-allowed; }
 
 /* ── the connector's COLOUR: the port's present state ──
    The distinction and the colours match the Switch Management Panel, so
@@ -505,7 +522,7 @@
   border-top: 1px solid var(--line-soft);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--fs-xs);
 }
 
 .pm-sample {
@@ -544,7 +561,7 @@
   border-top: 1px solid var(--line);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
 }
 .panel-legend span { display: flex; align-items: center; gap: 6px; }
 
@@ -560,7 +577,7 @@
   gap: 7px;
   flex-wrap: wrap;
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   color: var(--text-mid);
 }
 .ip-plan-metrics span {
@@ -583,11 +600,11 @@
   border: 1px solid var(--line);
   color: var(--text-bright);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
-.ip-device-name { font-size: 11.5px; }
-.ip-group-name { font-size: 11px; color: var(--text-mid); }
-.ip-address { font-size: 11px; }
+.ip-device-name { font-size: var(--fs-sm); }
+.ip-group-name { font-size: var(--fs-sm); color: var(--text-mid); }
+.ip-address { font-size: var(--fs-sm); }
 .ip-target-ip { color: var(--accent); }
 .ip-state-badge {
   width: fit-content;
@@ -598,14 +615,14 @@
   border: 1px solid var(--line);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 9.5px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 .ip-state-badge i { width: 5px; height: 5px; background: var(--text-faint); }
 .ip-state-badge.included { border-color: var(--accent-line); color: var(--accent); }
 .ip-state-badge.included i { background: var(--accent); }
 
-@media (max-width: 920px) {
+@media (max-width: 900px) {
   .ip-grid { grid-template-columns: minmax(0, 1fr); }
   .ip-settings-card { position: static; }
   /* When it falls to one column the panel must not stretch the page; the map
@@ -615,7 +632,8 @@
 
 @media (max-width: 720px) {
   .ip-page-head { align-items: stretch; }
-  .ip-header-action { width: 100%; align-items: stretch; }
+  .ip-action-bar { flex-direction: column; align-items: stretch; }
+  .ip-action-bar .ip-start-btn { width: 100%; }
   .ip-readiness { align-self: flex-end; }
   .ip-start-btn { width: 100%; }
   .ip-grid { gap: 20px; margin-top: 20px; }
@@ -625,7 +643,7 @@
   .ip-plan-section { margin-top: 23px; padding-top: 20px; }
 }
 
-@media (max-width: 540px) {
+@media (max-width: 620px) {
   .ip-card-head,
   .ip-port-area,
   .setting-section,
@@ -646,20 +664,19 @@
 
 .legend {
   display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px;
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
 }
 .legend i {
   display: inline-block; width: 8px; height: 8px; margin-right: 6px;
 }
 
-/* ──────────────────────────────── IP maintenance view / disclosure ─ */
+/* ─────────────────────────────────────────────── disclosures ─ */
 .ip-collapsible > summary {
   list-style: none;
   cursor: pointer;
 }
 .ip-collapsible > summary::-webkit-details-marker { display: none; }
-.ip-collapsible-summary::after,
-.ip-technical-summary::after {
+.ip-collapsible-summary::after {
   content: "+";
   display: inline-flex;
   align-items: center;
@@ -671,58 +688,209 @@
   border: 1px solid var(--line);
   color: var(--text-mid);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 400;
 }
-.ip-collapsible[open] > .ip-collapsible-summary::after,
-.ip-collapsible[open] > .ip-technical-summary::after { content: "−"; }
-.ip-collapsible-summary:hover::after,
-.ip-technical-summary:hover::after { border-color: var(--accent); color: var(--accent); }
+.ip-collapsible[open] > .ip-collapsible-summary::after { content: "−"; }
+.ip-collapsible-summary:hover::after {
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .ip-panel-tools {
   justify-content: flex-end;
   padding: 0 0 10px;
 }
-.ip-technical {
+/* Factory-IP reset is intentionally separate from the primary assignment
+   settings. It is rendered only for a plan whose backend declares support;
+   the destructive button sits at the far end of a labelled maintenance card. */
+.ip-factory-reset-card {
   margin-top: 18px;
-  padding: 0;
+  padding: 18px 19px;
+  border-color: rgba(218, 54, 51, .28);
+  background:
+    linear-gradient(145deg, rgba(218, 54, 51, .035), transparent 45%),
+    var(--panel);
 }
-.ip-technical-summary {
+.ip-factory-reset-head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.ip-factory-reset-head p,
+.ip-factory-reset-actions p {
+  margin: 5px 0 0;
+  color: var(--text-mid);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.ip-factory-reset-address {
+  flex: none;
+  padding: 5px 8px;
+  border: 1px solid rgba(218, 54, 51, .25);
+  color: var(--danger-text);
+  font-size: var(--fs-sm);
+}
+.ip-reset-scope {
+  min-width: 0;
+  margin: 16px 0 0;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+}
+.ip-reset-scope > legend { padding: 0 6px; }
+.ip-reset-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.ip-reset-scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  color: var(--text-mid);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.ip-reset-scope-option[data-active="1"] {
+  border-color: var(--accent-line);
+  color: var(--text-bright);
+  background: rgba(66, 148, 224, .055);
+}
+.ip-reset-scope-option input { accent-color: var(--accent); }
+.ip-reset-external-set {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
   align-items: center;
   gap: 12px;
-  padding: 13px 17px;
-  color: var(--text-bright);
-  font-size: 12.5px;
-  font-weight: 600;
+  margin-top: 11px;
 }
-.ip-technical-summary .text-dim {
-  font-weight: 400;
-  font-size: 11.5px;
-}
-.ip-technical-body {
-  padding: 5px 17px 16px;
-  border-top: 1px solid var(--line-soft);
-}
-.ip-technical-body > .row {
+.ip-reset-set-field { width: 150px; }
+.ip-reset-scope > .ip-field-error { margin-top: 7px; padding-left: 0; }
+.ip-factory-reset-actions {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--text-mid);
-  font-size: 12px;
+  gap: 18px;
+  margin-top: 14px;
 }
-.ip-technical-body > .row b {
-  max-width: 65%;
-  color: var(--text-bright);
-  font-family: var(--font-mono);
-  font-size: 11px;
+.ip-factory-reset-actions p { max-width: 700px; }
+.ip-factory-reset-actions .btn { flex: none; }
+
+/* The bench flow shares the maintenance card's shape but not its tone: it
+   writes one address to one display, so it is ordinary work rather than a
+   destructive step. */
+.ip-manual-card {
+  margin-top: 18px;
+  padding: 18px 19px;
+}
+.ip-manual-card .setting-row { padding-left: 0; padding-right: 0; }
+.ip-manual-card > .ip-field-help { margin: 4px 0 0; }
+
+@media (max-width: 620px) {
+  .ip-factory-reset-head,
+  .ip-factory-reset-actions { align-items: stretch; flex-direction: column; }
+  .ip-factory-reset-address { align-self: flex-start; }
+  .ip-reset-external-set { grid-template-columns: minmax(0, 1fr); }
+  .ip-reset-set-field { width: 100%; }
+  .ip-factory-reset-actions .btn { width: 100%; }
+}
+
+/* The file behind "install software before assigning". The name can be long
+   and the two buttons must stay reachable, so it wraps rather than pushing
+   them off the row. */
+.ip-preflash-file {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+.ip-preflash-file .mono { overflow-wrap: anywhere; }
+
+/* Compartment LCD: every selected port has its own 10.1.1.x source and its own
+   server-side APK selection. The compact list makes a missing file visible
+   without turning the primary IP card into a second firmware table. */
+.ip-lcd-source {
+  padding: 10px 11px;
+  border: 1px solid var(--line-soft);
+  background: rgba(66, 148, 224, .035);
+}
+.ip-lcd-source .row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--text-mid);
+  font-size: var(--fs-sm);
+}
+.ip-lcd-source .row b {
+  color: var(--accent);
+  font-size: var(--fs-xs);
   font-weight: 400;
   text-align: right;
-  overflow-wrap: anywhere;
 }
-.ip-technical-body > .row.protected { color: var(--auth); }
+.ip-apk-block {
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: rgba(11, 17, 22, .42);
+}
+.ip-apk-head,
+.ip-apk-controls,
+.ip-apk-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.ip-apk-head { justify-content: space-between; }
+.ip-apk-controls {
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-top: 11px;
+}
+.ip-apk-version {
+  display: grid;
+  gap: 5px;
+}
+.ip-apk-version .label { margin: 0; }
+.ip-apk-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 11px;
+}
+.ip-apk-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(115px, 1fr) minmax(145px, 1.3fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 35px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line);
+  background: rgba(214, 235, 255, .018);
+  font-size: var(--fs-xs);
+}
+.ip-apk-row[data-selected="1"] { border-left-color: var(--ok); }
+.ip-apk-row > :last-child {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.ip-apk-error { margin: 9px 0 0; padding: 0; }
 
-@media (max-width: 560px) {
-  .ip-technical-summary .text-dim { display: none; }
+@media (max-width: 620px) {
+  .ip-apk-controls { align-items: stretch; flex-direction: column; }
+  .ip-apk-version,
+  .ip-apk-version .field { width: 100%; }
+  .ip-apk-actions { width: 100%; }
+  .ip-apk-actions .btn { flex: 1; }
+  .ip-apk-row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .ip-apk-row > :last-child { white-space: normal; }
+  .ip-lcd-source .row { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .ip-lcd-source .row b { text-align: left; }
 }

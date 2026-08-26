@@ -32,6 +32,14 @@ Field_Device_Verification_set*.xlsx
 !.env.example
 *.pem
 *.key
+# Digests of service keys written from this checkout, so a source run
+# recognises them (panel/adminkey/secret.py). Local, never released.
+.adminkey-dev.json
+.adminkey-dev.tmp
+# THE BUILD SECRET ITSELF, when it is kept here to raise a source run to
+# admin mode without restarting. Never committed, never packaged: a frozen
+# build does not read it (panel/adminkey/secret.py).
+.adminkey-secret
 *.p12
 *.pfx
 id_rsa*
@@ -47,3 +55,6 @@ desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Written by dabp.spec at build time; never committed (see the spec).
+panel/editions/_stamp.py

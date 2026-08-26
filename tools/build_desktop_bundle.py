@@ -160,9 +160,11 @@ def build_html(javascript: str) -> str:
         f'<link rel="stylesheet" href="/css/{path.name}">'
         for path in CSS_FILES)
     html = _replace_once(html, css_links, "<style>\n" + css + "</style>")
+    # One logo: the top bar's. There used to be a second on the role
+    # selection screen, which no longer exists — the package decides what the
+    # user is, so there is nothing to choose before the application opens.
     html = _replace_once(html, 'src="/piton-logo.svg"',
-                         'src="' + data_uri(LOGO, "image/svg+xml") + '"',
-                         count=2)
+                         'src="' + data_uri(LOGO, "image/svg+xml") + '"')
     html = _replace_once(
         html, '<script type="module" src="/js/app.js"></script>',
         "<script>" + script_content + "</script>")

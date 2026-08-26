@@ -16,8 +16,8 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-from .. import i18n, settings
-from .lifecycle import reset, set_admin_password, start
+from .. import editions, i18n, settings
+from .lifecycle import reset, start
 from .service import SERVICE
 
 
@@ -135,11 +135,30 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=f"{i18n.t('app.name')} — local API (opens no window)")
     parser.add_argument("--port", type=int, default=8790)
-    parser.add_argument("--admin-password", default=None,
-                        help="when given, the admin screen asks for this "
-                             "password; it is never written anywhere")
+    parser.add_argument("--edition", default=None,
+                        help="which package this run is; required from "
+                             "source, refused in a packaged build")
     args = parser.parse_args()
-    set_admin_password(args.admin_password)
+
+    # Same rule as app.py: nothing here can pick a DeviceMap or a screen
+    # list until the edition is settled (see panel.editions).
+    try:
+        editions.activate(editions.resolve(args.edition))
+    except editions.EditionError as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+    # NO KEY MATERIAL AT ALL, so a service key plugged into this build is
+    # not ignored on purpose — it cannot be recognised, because nothing
+    # tells it which key to accept. A packaged build carries that in its
+    # stamp; a source run has to be told. Said here because the symptom
+    # otherwise is "I plugged the stick in and nothing happened".
+    from . import lifecycle                                # noqa: F401,PLC0415
+    from .. import adminkey                                # noqa: PLC0415
+    if not adminkey.usable():
+        print("[NOTE] this build carries no key material, so a service "
+              "key will not be recognised.")
+        print("       Register one you already have: python3 "
+              "tools/key_digest.py <drive> --remember")
 
     try:
         server = serve("127.0.0.1", args.port)

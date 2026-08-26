@@ -267,6 +267,28 @@ def valid_set(value, default: int = 1) -> int:
     return number
 
 
+def required_set(value) -> int:
+    """Validate a required set number without silently choosing another set.
+
+    Read-only screens use :func:`valid_set` so an absent query parameter can
+    still open the default project.  A write operation cannot use that
+    fallback: turning an invalid external-set entry into set 1 would direct the
+    operation at a different train.  Accept JSON integers and digit-only form
+    values, but reject booleans, fractions and missing values explicitly.
+    """
+    if isinstance(value, bool):
+        raise ValueError(i18n.t("error.invalidSetNumber"))
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value.strip()):
+        number = int(value.strip())
+    else:
+        raise ValueError(i18n.t("error.invalidSetNumber"))
+    if not (settings.SET_MIN <= number <= settings.SET_MAX):
+        raise ValueError(i18n.t("error.invalidSetNumber"))
+    return number
+
+
 def clear_cache() -> None:
     with _CACHE_LOCK:
         _CACHE.clear()
