@@ -243,6 +243,12 @@ jobs:
           # A fork has no secrets. It still builds; the package simply cannot
           # open admin mode, and says so.
           DAP_ALLOW_NO_ADMIN_KEY: "1"
+          # WHICH PACKAGE IS BEING BUILT. The spec refuses to guess — it
+          # stops and names the editions rather than stamping whichever one
+          # the source tree happens to hold — so the answer has to be handed
+          # over here. Missing, every platform failed at this step with a
+          # message about a variable nobody had set.
+          DAP_EDITION: ${{ inputs.edition }}
         run: |
           set -euo pipefail
           rm -rf build dist

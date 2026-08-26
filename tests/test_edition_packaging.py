@@ -57,6 +57,23 @@ def bash_runs() -> bool:
 BASH = bash_runs()
 
 
+class BuildStep(unittest.TestCase):
+    """What the packaging step has to hand the spec."""
+
+    def test_the_build_step_tells_the_spec_which_edition(self):
+        """`dabp.spec` refuses to guess: with no DAP_EDITION it stops and
+        names the editions, because "whichever DeviceMap the tree happens to
+        hold" is not an answer anybody meant to give. The step that runs
+        PyInstaller therefore has to say which package is being built — it
+        did not, and every platform of a release build died there on a
+        variable nobody had set."""
+        text = read(BUILD)
+        start = text.index("- name: Clean PyInstaller build")
+        step = text[start:].split("\n      - name:")[0]
+        self.assertIn("python -m PyInstaller", step)
+        self.assertIn("DAP_EDITION:", step)
+
+
 class ToolOutput(unittest.TestCase):
     """The one Turkish string, on a console that is not."""
 
