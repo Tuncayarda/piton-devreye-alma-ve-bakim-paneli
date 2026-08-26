@@ -60,6 +60,27 @@ def write(message: str) -> None:
         pass
 
 
+def utf8_stdout() -> None:
+    """Console output in the encoding the messages are written in.
+
+    The product name and the Turkish catalogue both hold characters cp1252
+    cannot encode, and that is what Windows hands a Python process. Without
+    this, `--self-test` lines vanish one by one into the `write` above —
+    which is worse than a crash, because the step then passes while the
+    build's own grep for its output finds nothing.
+
+    Guarded twice: a frozen GUI build may have no stdout at all, and a
+    stream that refuses to be reconfigured is not worth an exception here.
+    """
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def http_ready(url: str, seconds: float = 5.0) -> bool:
     """Confirm the browser-mode HTTP adapter really answers."""
     import json
@@ -282,6 +303,7 @@ def main() -> int:
     parser.add_argument("--version", action="store_true")
     args = parser.parse_args()
 
+    utf8_stdout()
     from panel import editions, i18n, settings
     # Before anything asks what this build can do: the secret may have been
     # handed to us by the process that put up the password box, because the

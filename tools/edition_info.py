@@ -45,7 +45,28 @@ FIELDS = {
 }
 
 
+def utf8_stdout() -> None:
+    """Say the product name in the encoding it is actually spelled in.
+
+    THE ONE TURKISH STRING IN THE CODE BASE is exactly what this tool hands
+    to the build (see panel/editions/catalogue.py), and Windows gives a
+    Python process a cp1252 stdout, which has no room for U+0131 (the
+    dotless i). The build died here with a UnicodeEncodeError traceback
+    nobody would connect to a letter in a product name. Reconfigured rather
+    than escaped: what the caller wants is the name, spelled correctly.
+
+    Guarded: a frozen GUI build has no stdout to reconfigure at all.
+    """
+    stream = getattr(sys, "stdout", None)
+    if hasattr(stream, "reconfigure"):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+
 def main() -> int:
+    utf8_stdout()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--edition")
     parser.add_argument("--field", choices=sorted(FIELDS))

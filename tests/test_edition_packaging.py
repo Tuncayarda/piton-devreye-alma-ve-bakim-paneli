@@ -13,6 +13,7 @@ must line up actually do.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -54,6 +55,30 @@ def bash_runs() -> bool:
 
 
 BASH = bash_runs()
+
+
+class ToolOutput(unittest.TestCase):
+    """The one Turkish string, on a console that is not."""
+
+    def test_the_product_name_survives_a_cp1252_stdout(self):
+        """WHAT BROKE A RELEASE BUILD. Windows hands a Python process a
+        cp1252 stdout, which has no room for U+0131 (the dotless i) — and
+        the product name is spelled with one. The tool died with a
+        UnicodeEncodeError that the build log connected to nothing. The
+        encoding is forced now, and this pins it: the value the build reads
+        is the name, spelled the way the table spells it.
+        """
+        tool = settings.ROOT / "tools" / "edition_info.py"
+        for edition in catalogue.EDITIONS:
+            with self.subTest(edition.id):
+                done = subprocess.run(
+                    [sys.executable, str(tool), "--edition", edition.id,
+                     "--field", "display_name"],
+                    capture_output=True, text=True, encoding="utf-8",
+                    env={**os.environ, "PYTHONIOENCODING": "cp1252",
+                         "PYTHONUTF8": "0"})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(done.stdout.strip(), edition.product_name)
 
 
 class TagParsing(unittest.TestCase):

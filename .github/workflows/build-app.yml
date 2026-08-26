@@ -73,6 +73,15 @@ env:
   APP_DIR: ${{ inputs.app_dir }}
   EDITION: ${{ inputs.edition }}
   PYTHON_VERSION: ${{ inputs.python_version }}
+  # THE PRODUCT NAME IS TURKISH and the message catalogue is half Turkish,
+  # while Windows hands a Python process a cp1252 stdout, which has no room
+  # for U+0131 (the dotless i). A build died on that one letter
+  # (`tools/edition_info.py`), and the failure mode elsewhere is worse:
+  # output silently disappears and a step that greps for it fails for no
+  # visible reason. Set for every Python in the job, the packaged .exe
+  # included — it reads these at start-up.
+  PYTHONIOENCODING: "utf-8"
+  PYTHONUTF8: "1"
   # Expected sha256 of appimagetool. While empty nothing is verified and the
   # digest of the downloaded file is written to the log; paste it here after
   # the first run to pin it.
