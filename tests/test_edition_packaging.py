@@ -60,6 +60,18 @@ BASH = bash_runs()
 class BuildStep(unittest.TestCase):
     """What the packaging step has to hand the spec."""
 
+    def test_the_appimage_takes_the_binary_name_from_the_build(self):
+        """Every executable is named after its edition now
+        (`catalogue.app_name`), and PyInstaller's onedir output is
+        dist/<name>/<name>. A packaging script that writes "dabp" down
+        instead of reading it builds an AppDir around a file that is not
+        there — which is how the Linux half of a release build died on
+        `chmod: cannot access .../usr/bin/dabp`."""
+        text = (settings.ROOT / "packaging" / "appimage.sh").read_text(
+            encoding="utf-8")
+        self.assertIn('APP_BINARY_NAME="$(basename "$DIST_DIR")"', text)
+        self.assertNotIn('APP_BINARY_NAME="dabp"', text)
+
     def test_the_build_step_tells_the_spec_which_edition(self):
         """`dabp.spec` refuses to guess: with no DAP_EDITION it stops and
         names the editions, because "whichever DeviceMap the tree happens to

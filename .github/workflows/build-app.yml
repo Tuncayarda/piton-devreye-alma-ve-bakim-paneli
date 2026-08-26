@@ -419,7 +419,7 @@ jobs:
           BASE_NAME="${{ env.APP_NAME }}-${{ steps.version.outputs.version }}-${{ matrix.target }}"
           chmod +x packaging/appimage.sh
           ./packaging/appimage.sh "dist/${{ env.APP_NAME }}" "release/$BASE_NAME.AppImage" \
-            "${{ steps.version.outputs.version }}"
+            "${{ steps.version.outputs.version }}" "${{ env.DISPLAY_NAME }}"
 
       - name: Verify the AppImage
         if: runner.os == 'Linux'

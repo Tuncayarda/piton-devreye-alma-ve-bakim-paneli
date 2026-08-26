@@ -2,11 +2,12 @@
 # Builds an AppImage from the PyInstaller onedir output — Commissioning and
 # Maintenance Panel.
 #
-#   ./packaging/appimage.sh <dist_dir> <output.AppImage> <version>
+#   ./packaging/appimage.sh <dist_dir> <output.AppImage> <version> [name]
 #
 # Example:
-#   ./packaging/appimage.sh dist/dabp \
-#       release/dabp-0.9.0-dev-linux-x86_64.AppImage 0.9.0-dev
+#   ./packaging/appimage.sh dist/dabp-gdm \
+#       release/dabp-gdm-1.0.0-linux-x86_64.AppImage 1.0.0 \
+#       "Devreye Alma ve Bakim Paneli - GDM"
 #
 # The appimagetool version is pinned (APPIMAGETOOL_VERSION below). Give a
 # sha256 and the download is verified; leave it empty and the sha256 of what
@@ -20,8 +21,18 @@ VERSION="${3:-0.0.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-APP_BINARY_NAME="dabp"
-DESKTOP_ID="dabp"
+# PyInstaller's onedir output is dist/<name>/<name>: the directory and the
+# executable inside it carry the same name, and that name is per edition now
+# (dabp-vip-yatakli, dabp-gdm …). Derived rather than written down — the
+# hard-coded "dabp" survived the split into packages and the Linux build
+# died on `chmod: cannot access AppDir/usr/bin/dabp`.
+APP_BINARY_NAME="$(basename "$DIST_DIR")"
+# Per edition as well, so two packages installed side by side get a menu
+# entry and an icon each instead of overwriting one another.
+DESKTOP_ID="$APP_BINARY_NAME"
+# What the menu entry says. Passed in by the build from the edition table;
+# the fallback is the product without a customer, for a build by hand.
+DISPLAY_NAME="${4:-Commissioning and Maintenance Panel}"
 
 APPIMAGETOOL_VERSION="1.9.1"
 APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
@@ -46,7 +57,7 @@ test -x "$APPDIR/usr/bin/$APP_BINARY_NAME" \
 cat > "$APPDIR/usr/share/applications/$DESKTOP_ID.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=Commissioning and Maintenance Panel
+Name=$DISPLAY_NAME
 GenericName=Commissioning Panel
 Comment=Train set commissioning and verification panel
 Exec=$APP_BINARY_NAME
