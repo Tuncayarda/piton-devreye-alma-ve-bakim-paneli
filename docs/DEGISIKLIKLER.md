@@ -37,6 +37,14 @@ paketinde üst çubuktaki proje adı bir menü: Yataklı ile VIP arasında geçi
 oradan yapılıyor. VIP'in cihaz listesi henüz teslim edilmediği için menüde
 sebebiyle birlikte gri duruyor; dosya geldiğinde kendiliğinden açılıyor.
 
+### Uygulamanın kendi ikonu var
+
+Windows'ta görev çubuğu ve kurulum dosyası, macOS'ta Dock, Linux'ta menü —
+üçü de artık jenerik bir simge yerine Piton işaretini gösteriyor. İkon
+logodaki "P" işaretinden, panelin kendi arka plan rengiyle üretiliyor
+(`tools/make_icons.py`); macOS ve Linux için köşeleri yuvarlak, Windows için
+tam kare.
+
 ### Admin moda USB anahtarıyla geçiliyor
 
 Müşteri paketleri admin moda geçebilir, ama tek bir yoldan: **belirli bir USB

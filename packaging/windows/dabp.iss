@@ -88,7 +88,8 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 
 OutputDir={#OutputDir}
 OutputBaseFilename={#MyAppSlug}-{#MyAppVersion}-windows-x64-Setup
-; There is no icon yet; once added it is picked up automatically.
+; The application's own icon, built from the logo by tools/make_icons.py.
+; Kept conditional so a tree without it still compiles.
 #if FileExists(AddBackslash(SourcePath) + "..\..\icons\app.ico")
 SetupIconFile=..\..\icons\app.ico
 #endif

@@ -265,6 +265,30 @@ Bu dosya hiçbir şey yetkilendirmez — bir özet anahtar üretemez — ve
 **paketlenmiş build tarafından hiç okunmaz**: bir paketin neyi kabul ettiği
 derleme anında belirlenir, diskteki hiçbir dosya buna ekleme yapamaz.
 
+### Uygulama ikonu
+
+Üç dosya `icons/` altında **depoda duruyor**; derleme makinesi bunları
+üretmiyor, sadece kullanıyor:
+
+| Dosya | Nerede | Kim alıyor |
+|---|---|---|
+| `app.ico` | `dabp.spec` → `EXE(icon=)`, `dabp.iss` → `SetupIconFile` | Windows |
+| `app.icns` | `dabp.spec` → `BUNDLE(icon=)` | macOS |
+| `app.png` | `packaging/appimage.sh` | Linux (AppImage) |
+
+Logo değişirse yeniden üretmek için (macOS + `brew install librsvg`):
+
+```bash
+python3 tools/make_icons.py
+```
+
+Betik, logodaki **işareti** (favicon'daki "P" ve üstündeki iki çizgi) kesip
+panelin kendi arka plan rengiyle kare bir ikon kuruyor. macOS ve Linux için
+köşeleri yuvarlak, Windows için tam kare — Windows ikonu olduğu gibi çizdiği
+için yuvarlak köşe orada boşluklu küçük bir kutu gibi duruyor. `.ico` elle
+yazılıyor: macOS'ta **çok boyutlu** ico üreten bir araç yok ve tek bir 256
+piksellik görüntünün 16'ya küçültülmüşü okunmuyor.
+
 ### macOS: çıkarılabilir disk izni
 
 macOS çıkarılabilir diskleri ayrı bir gizlilik iznine bağlıyor ve bu izin

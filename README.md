@@ -161,6 +161,7 @@ testleri ayrıca `deno test --allow-read tests/js/` ile koşar.
 | `panel/messages/` | Türkçe ve İngilizce arayüz metinleri |
 | `field_scripts/` | Çalışma anında yüklenen, sahada doğrulanmış yardımcı motorlar |
 | `static/` | Modüler tarayıcı kaynakları ve üretilmiş `desktop.html` |
+| `icons/` | Uygulama ikonu: `app.png`, `app.icns`, `app.ico` (logodan üretilir) |
 | `tools/` | Masaüstü paketleyicisi, paket bilgisi ve servis anahtarı araçları |
 | `tests/` | Birim ve arayüz testleri ile sahte cihaz sunucuları |
 | `docs/` | Mimari, cihaz, paketleme ve sürüm belgeleri |

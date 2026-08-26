@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import struct
 import subprocess
 import sys
 import unittest
@@ -84,6 +85,45 @@ class BuildStep(unittest.TestCase):
         step = text[start:].split("\n      - name:")[0]
         self.assertIn("python -m PyInstaller", step)
         self.assertIn("DAP_EDITION:", step)
+
+
+class Icons(unittest.TestCase):
+    """The application's own icon, in the three shapes the platforms want."""
+
+    ICONS = settings.ROOT / "icons"
+    APPIMAGE = settings.ROOT / "packaging" / "appimage.sh"
+
+    def test_all_three_icons_are_committed(self):
+        """No build machine makes them: `tools/make_icons.py` is run by hand
+        where the SVG tools are, and its output is what ships. Missing, the
+        packages fall back to no icon at all and nothing fails."""
+        for name, magic in (("app.png", b"\x89PNG"),
+                            ("app.icns", b"icns"),
+                            ("app.ico", b"\x00\x00\x01\x00")):
+            with self.subTest(name):
+                path = self.ICONS / name
+                self.assertTrue(path.is_file(), path)
+                self.assertTrue(path.read_bytes().startswith(magic))
+
+    def test_the_ico_carries_every_size_windows_asks_for(self):
+        """Windows picks a different entry for the taskbar, for Explorer and
+        for the window corner. One 256 pixel image scaled down to 16 is mud,
+        which is why the file is written with a list of sizes."""
+        data = (self.ICONS / "app.ico").read_bytes()
+        count = struct.unpack_from("<H", data, 4)[0]
+        # A width byte of 0 means 256 — the format has one byte for it.
+        sizes = {data[6 + 16 * index] or 256 for index in range(count)}
+        self.assertLessEqual({16, 32, 48, 256}, sizes)
+
+    def test_every_platform_is_pointed_at_its_own(self):
+        """Three formats because three platforms disagree, and each is named
+        where that platform's package is built."""
+        spec = read(SPEC)
+        self.assertIn('ICO = ROOT / "icons" / "app.ico"', spec)
+        self.assertIn('ICNS = ROOT / "icons" / "app.icns"', spec)
+        self.assertIn("SetupIconFile=..\\..\\icons\\app.ico", read(ISS))
+        self.assertIn('ICON="$APP_ROOT/icons/app.png"',
+                      self.APPIMAGE.read_text(encoding="utf-8"))
 
 
 class ToolOutput(unittest.TestCase):

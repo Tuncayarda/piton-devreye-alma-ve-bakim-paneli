@@ -67,10 +67,11 @@ Terminal=false
 DESKTOP
 cp "$APPDIR/usr/share/applications/$DESKTOP_ID.desktop" "$APPDIR/"
 
-# Icon. The application has no icon of its own (icons/app.png) yet; until it
-# does, the UI favicon is used. appimagetool expects a file matching the Icon
-# key in the .desktop file; shipping no icon at all stops the build on some
-# of its versions.
+# Icon. `icons/app.png` is the application's own, built from the logo by
+# `tools/make_icons.py` and committed. The UI favicon stays as the fallback
+# for a tree without it: appimagetool expects a file matching the Icon key
+# in the .desktop file, and shipping none stops the build on some of its
+# versions.
 ICON="$APP_ROOT/icons/app.png"
 if [ ! -f "$ICON" ]; then
   ICON="$APP_ROOT/static/piton-favicon.png"
