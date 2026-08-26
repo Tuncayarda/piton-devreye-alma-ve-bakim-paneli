@@ -361,11 +361,13 @@ def main() -> int:
         handed = handoff.stash()
         if handed:
             os.environ[handoff.FILE_VAR] = handed
-            if platform.system() == "Windows":
-                write("[NOTE] DAP_ADMIN_KEY_SECRET does not survive the "
-                      "privilege prompt on Windows.\n"
-                      "       Set it in an administrator PowerShell and "
-                      "start the panel from there.")
+        elif os.environ.get(handoff.SECRET_VAR):
+            # Set, and it will not get through. Said here, while the shell
+            # that has it is still the one being talked to.
+            write("[NOTE] DAP_ADMIN_KEY_SECRET does not survive the "
+                  "privilege prompt on this platform.\n"
+                  "       Set it in an administrator shell and start the "
+                  "panel from there.")
         return elevation.require_elevation(write)
 
     from panel import api

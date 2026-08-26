@@ -35,6 +35,27 @@ def read(path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def bash_runs() -> bool:
+    """Is there a POSIX shell here that actually works?
+
+    NOT `shutil.which("bash")`. A Windows runner carries `bash.exe` in
+    System32 that is only a launcher for WSL: it is found on PATH, it exits
+    1 when no distribution is installed, and the two tests below then fail
+    for a reason that has nothing to do with what they check. The workflow's
+    own `shell: bash` steps use Git's bash and are unaffected — which is why
+    the property being proven here still holds where it matters.
+    """
+    try:
+        done = subprocess.run(["bash", "-c", "echo ok"], capture_output=True,
+                              text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and done.stdout.strip() == "ok"
+
+
+BASH = bash_runs()
+
+
 class TagParsing(unittest.TestCase):
     """The one that silently ships the wrong version number."""
 
@@ -49,6 +70,7 @@ class TagParsing(unittest.TestCase):
                 self.assertNotIn("#*-v}", text.replace("##*-v}", ""))
                 self.assertIn("##*-v}", text)
 
+    @unittest.skipUnless(BASH, "no working POSIX shell on this machine")
     def test_the_shell_really_behaves_that_way(self):
         """Proof rather than assertion: run the two forms and compare."""
         script = """
@@ -67,6 +89,7 @@ class TagParsing(unittest.TestCase):
         for _tag, (_short, long) in by_tag.items():
             self.assertRegex(long, r"^\d+\.\d+\.\d+$")
 
+    @unittest.skipUnless(BASH, "no working POSIX shell on this machine")
     def test_the_edition_can_be_recovered_from_every_tag(self):
         """The caller derives it with ${TAG#dap-} then %-v*."""
         for edition in catalogue.EDITIONS:

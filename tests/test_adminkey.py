@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import platform
 import time
 import unittest
 from pathlib import Path
@@ -673,13 +674,16 @@ class Handoff(unittest.TestCase):
     though it had been ignored.
     """
 
+    @unittest.skipIf(platform.system() == "Windows",
+                     "no handover on Windows: runas takes no environment")
     def test_the_secret_is_handed_over_and_picked_up_once(self):
         with mock.patch.dict(os.environ, {handoff.SECRET_VAR: "s3cr3t"}):
             path = handoff.stash()
             self.assertTrue(path)
             # Readable by this user and by nobody else: it is on disk for
             # the second or two between the password box and the new
-            # process reading it.
+            # process reading it. The mode is a POSIX statement; the file
+            # is not written at all where it could not be honoured.
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
             os.environ.pop(handoff.SECRET_VAR)
             os.environ[handoff.FILE_VAR] = path
@@ -688,6 +692,15 @@ class Handoff(unittest.TestCase):
         # ...and it does not stay behind afterwards.
         self.assertFalse(Path(path).exists())
         self.assertNotIn(handoff.FILE_VAR, os.environ)
+
+    def test_nothing_is_written_where_it_could_never_be_picked_up(self):
+        """Windows `runas` takes no environment of ours, so the path would
+        never reach the new process — and the file would sit in the
+        temporary directory holding a secret nobody ever came for."""
+        with mock.patch.dict(os.environ, {handoff.SECRET_VAR: "s3cr3t"}), \
+                mock.patch.object(handoff.platform, "system",
+                                  return_value="Windows"):
+            self.assertEqual(handoff.stash(), "")
 
     def test_there_is_nothing_to_hand_over_without_a_secret(self):
         with mock.patch.dict(os.environ, {}, clear=False):

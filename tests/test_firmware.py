@@ -208,13 +208,19 @@ class FilePicker(PanelTest):
     def test_an_elevated_panel_opens_the_dialog_as_the_logged_in_user(self):
         """Root's dialog is empty: no home, no places, no protected folders.
 
+        `create=True` on the geteuid patch: there is no such function on
+        Windows, and the branch under test is reached by pretending to be
+        macOS. In the product the platform check comes first and short
+        circuits, so the missing function is never touched there.
+
         The panel runs elevated to configure interfaces, so the picker has to
         be handed back to the user at the window server or the operator sees a
         window with nothing to browse and no file to pick.
         """
         with mock.patch.object(files.platform, "system",
                                return_value="Darwin"), \
-                mock.patch.object(files.os, "geteuid", return_value=0), \
+                mock.patch.object(files.os, "geteuid", return_value=0,
+                                  create=True), \
                 mock.patch.object(files, "_console_user",
                                   return_value=("tester", 501)):
             command = files.as_console_user(["osascript", "-e", "script"])
@@ -227,7 +233,8 @@ class FilePicker(PanelTest):
     def test_an_unelevated_panel_opens_the_dialog_itself(self):
         with mock.patch.object(files.platform, "system",
                                return_value="Darwin"), \
-                mock.patch.object(files.os, "geteuid", return_value=501):
+                mock.patch.object(files.os, "geteuid", return_value=501,
+                                  create=True):
             self.assertEqual(files.as_console_user(["osascript"]),
                              ["osascript"])
 

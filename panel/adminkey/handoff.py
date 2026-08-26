@@ -30,6 +30,7 @@ package changes nothing about what it will open.
 from __future__ import annotations
 
 import os
+import platform
 import tempfile
 from pathlib import Path
 
@@ -43,11 +44,19 @@ def stash() -> str:
     """Write the secret where the elevated process can pick it up.
 
     Returns the path, or "" when there is nothing to hand over — which is
-    the normal case: no secret in the environment, or a packaged build.
+    the normal case: no secret in the environment, a packaged build, or a
+    platform where the handover cannot happen at all.
+
+    WINDOWS IS THAT PLATFORM. `runas` takes no environment of ours, so the
+    path would never reach the new process (see
+    `panel.elevation.privileges.CARRIED`) and the file would sit in the
+    temporary directory holding a secret nobody ever came for. Writing it
+    would be all of the cost and none of the point; `app.py` tells the user
+    to set the variable in an administrator shell instead.
     """
     from .. import settings                               # noqa: PLC0415
     value = os.environ.get(SECRET_VAR, "").strip()
-    if settings.FROZEN or not value:
+    if settings.FROZEN or not value or platform.system() == "Windows":
         return ""
     try:
         handle, path = tempfile.mkstemp(prefix="dabp-key-", suffix=".txt")

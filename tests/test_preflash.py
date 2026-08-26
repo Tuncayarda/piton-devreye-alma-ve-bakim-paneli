@@ -23,6 +23,7 @@ test that really posted an image would need a device on the other end.
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from .support import fakes
@@ -189,10 +190,12 @@ class RunRequest(PanelTest):
             shown = preflash.choose_file("ignored")
         self.assertEqual(shown, {"name": "intercom-1.4.2.bin", "size": 2048})
         self.assertNotIn("/private/images", str(shown))
-        # The run still gets the real path.
+        # The run still gets the real path. Compared through `Path` rather
+        # than as a literal: what is stored is what the OS dialog handed
+        # back, and Windows spells the same path with backslashes.
         self.assertEqual(ip_assign.preflash_options({"preflash": True})
                          ["preflashPath"],
-                         "/private/images/intercom-1.4.2.bin")
+                         str(Path("/private/images/intercom-1.4.2.bin")))
 
     def test_no_version_is_taken_from_the_request(self):
         """There is no expected-version input any more, on any screen."""
