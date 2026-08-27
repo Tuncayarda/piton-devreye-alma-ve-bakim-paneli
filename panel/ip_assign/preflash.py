@@ -51,7 +51,7 @@ def read_version(ip: str, credentials=None) -> str:
         return str(announcement.read(
             ip, credentials, timeout=VERSION_TIMEOUT,
             extra_endpoints=()).get("version", "") or "").strip()
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return ""
 
 
@@ -76,7 +76,7 @@ def wait_back(ip: str, credentials=None, window: float = REBOOT_WINDOW,
             announcement.read(ip, credentials, timeout=VERSION_TIMEOUT,
                               extra_endpoints=())
             return ""
-        except Exception:                              # noqa: BLE001
+        except Exception:
             continue
     return ""
 
@@ -173,7 +173,7 @@ def callback(options: dict, emit, credentials=None, cancelled=None):
                 # step will find out. What we cannot do is claim a version.
                 return True, i18n.t("preflash.doneNoVersion")
             return True, i18n.t("preflash.done", version=back)
-        except Exception as exc:                       # noqa: BLE001
+        except Exception as exc:
             return False, i18n.t("preflash.failed",
                                  detail=user_message(exc))
 

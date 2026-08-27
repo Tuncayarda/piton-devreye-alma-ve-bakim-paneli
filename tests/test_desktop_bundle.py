@@ -206,6 +206,7 @@ class DesktopBundle(unittest.TestCase):
             encoding="utf-8",
             errors="replace",
             timeout=180,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertIn("is up to date and verified", result.stdout)

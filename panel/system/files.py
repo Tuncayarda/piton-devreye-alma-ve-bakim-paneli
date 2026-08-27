@@ -160,7 +160,7 @@ def _console_user() -> tuple[str, int] | None:
     try:
         name = subprocess.run(["stat", "-f", "%Su", "/dev/console"],
                               capture_output=True, text=True,
-                              timeout=5).stdout.strip()
+                              timeout=5, check=False).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         name = ""
     if not name or name == "root":
@@ -205,7 +205,7 @@ def pick_file(title: str = "",
     command = as_console_user(_picker_command(title, extensions))
     try:
         result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=PICKER_TIMEOUT)
+                                timeout=PICKER_TIMEOUT, check=False)
     except FileNotFoundError as exc:
         raise RuntimeError(i18n.t("error.pickerNotOpened")) from exc
     except subprocess.TimeoutExpired:

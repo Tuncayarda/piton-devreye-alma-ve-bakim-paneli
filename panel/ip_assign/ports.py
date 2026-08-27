@@ -68,7 +68,7 @@ def parse_ports(text: str, allowed: set[int] | None = None) -> list[int]:
 
 def format_ports(ports) -> str:
     """[11,12,13,21] -> '11-13, 21'"""
-    values = sorted(set(int(port) for port in ports))
+    values = sorted({int(port) for port in ports})
     if not values:
         return ""
     chunks, start, previous = [], values[0], values[0]

@@ -109,7 +109,7 @@ def _is_netmask(value: str) -> bool:
 
 
 def _prefix_of(mask: str) -> int:
-    return bin(int(ipaddress.IPv4Address(mask))).count("1")
+    return int(ipaddress.IPv4Address(mask)).bit_count()
 
 
 def is_virtual(name: str) -> bool:
@@ -142,7 +142,7 @@ def parse_posix_addresses(text: str) -> list[tuple[str, int]]:
             if not _is_ipv4(address):
                 continue
             if len(mask) == 8 and not mask.isdigit():        # hex netmask
-                prefix = bin(int(mask, 16)).count("1")
+                prefix = int(mask, 16).bit_count()
             elif "." in mask:
                 if not _is_netmask(mask):
                     continue

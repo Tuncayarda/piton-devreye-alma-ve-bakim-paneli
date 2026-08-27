@@ -262,7 +262,7 @@ def release_all() -> int:
         try:
             if remove(entry):
                 removed += 1
-        except Exception:                              # noqa: BLE001
+        except Exception:
             continue
     return removed
 
@@ -284,7 +284,7 @@ def sweep_stale() -> int:
         try:
             if remove(entry):
                 removed += 1
-        except Exception:                              # noqa: BLE001
+        except Exception:
             continue
     # What was really taken back, not what was attempted: a record that could
     # not be removed stays for the next start-up to try again.

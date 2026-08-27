@@ -20,5 +20,12 @@ from .lifecycle import reset, start
 from .response import ApiResponse
 from .service import PanelService, SERVICE, call, call_enveloped
 
-__all__ = ["ApiResponse", "PanelService", "SERVICE", "call",
-           "call_enveloped", "reset", "start"]
+__all__ = [
+           "SERVICE",
+           "ApiResponse",
+           "PanelService",
+           "call",
+           "call_enveloped",
+           "reset",
+           "start",
+]

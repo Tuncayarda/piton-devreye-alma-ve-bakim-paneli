@@ -158,7 +158,13 @@ def system_language() -> str:
         code = None
     if not code:
         try:
-            code = locale.getdefaultlocale()[0]     # noqa: DEP-locale
+            # Deprecated since 3.11, and kept on purpose: it is the only
+            # call that still reports the Windows UI language when the
+            # environment variables above say nothing, which is the normal
+            # case on a Turkish desktop. A suppression comment naming a
+            # made-up code used to stand here; it suppressed nothing and
+            # made the linter warn on every run. Prose does the job.
+            code = locale.getdefaultlocale()[0]
         except Exception:
             code = None
     return normalise(code)

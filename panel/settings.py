@@ -165,17 +165,17 @@ IP_ASSIGN_SCRIPT = Path(
                  "field_scripts", "intercom_ip_assign.py"))
 
 # ────────────────────────────────────────────────────── network / ports ──
-KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", 80))
+KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", "80"))
 
 # Physical layout of the front panel. The SICOM3028GPT in the field has
 # 24 PoE + 4 uplink ports. The panel draws the device's real face, empty
 # ports included — otherwise the map does not match the hardware.
-SWITCH_POE_PORTS = int(os.environ.get("SWITCH_POE_PORTS", 24))
-SWITCH_UPLINK_PORTS = int(os.environ.get("SWITCH_UPLINK_PORTS", 4))
-VIDEO_PORT = int(os.environ.get("VIDEO_HTTP_PORT", 80))
-ANNOUNCEMENT_PORT = int(os.environ.get("ARDUINO_HTTP_PORT", 80))
-MQTT_PORT = int(os.environ.get("PISCU_MQTT_PORT", 1883))
-ADB_PORT = int(os.environ.get("COMPARTMENT_LCD_ADB_PORT", 5555))
+SWITCH_POE_PORTS = int(os.environ.get("SWITCH_POE_PORTS", "24"))
+SWITCH_UPLINK_PORTS = int(os.environ.get("SWITCH_UPLINK_PORTS", "4"))
+VIDEO_PORT = int(os.environ.get("VIDEO_HTTP_PORT", "80"))
+ANNOUNCEMENT_PORT = int(os.environ.get("ARDUINO_HTTP_PORT", "80"))
+MQTT_PORT = int(os.environ.get("PISCU_MQTT_PORT", "1883"))
+ADB_PORT = int(os.environ.get("COMPARTMENT_LCD_ADB_PORT", "5555"))
 
 # Panel app running on the Compartment LCD. This is the authoritative
 # version source: `ro.build.display.id` is the Android build id, not the
@@ -193,20 +193,20 @@ MQTT_SIP_PORT_PREFIX = os.environ.get("PISCU_SIP_PORT_PREFIX", "ALFA/SipPort")
 # ──────────────────────────────────────────────────────────── timeouts ────
 # Per-device ceiling during a full scan. Kept short: one silent device must
 # not hold up a 30-device sweep.
-PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", 5.0))
+PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "5.0"))
 # A credential attempt keeps the user waiting; slightly more generous.
-AUTH_TIMEOUT = float(os.environ.get("AUTH_TIMEOUT", 6.0))
-MQTT_TIMEOUT = float(os.environ.get("MQTT_TIMEOUT", 4.0))
-ADB_TIMEOUT = int(os.environ.get("ADB_TIMEOUT", 12))
+AUTH_TIMEOUT = float(os.environ.get("AUTH_TIMEOUT", "6.0"))
+MQTT_TIMEOUT = float(os.environ.get("MQTT_TIMEOUT", "4.0"))
+ADB_TIMEOUT = int(os.environ.get("ADB_TIMEOUT", "12"))
 # Installing an APK takes far longer than reading: push, then package manager.
-ADB_INSTALL_TIMEOUT = int(os.environ.get("ADB_INSTALL_TIMEOUT", 180))
-SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", 12))
+ADB_INSTALL_TIMEOUT = int(os.environ.get("ADB_INSTALL_TIMEOUT", "180"))
+SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", "12"))
 
 # How many devices are flashed at once. Lower than scanning: every install
 # reboots a device and then waits for version verification, and blacking out
 # 12 devices behind one switch strains both the PoE budget and the person
 # standing next to them. Four cuts a 12-intercom set to a quarter of serial.
-FIRMWARE_WORKERS = int(os.environ.get("FIRMWARE_WORKERS", 4))
+FIRMWARE_WORKERS = int(os.environ.get("FIRMWARE_WORKERS", "4"))
 
 # How many devices are configured at once. Serial writes stacked every
 # device's read + write + verify wait end to end. Same width as firmware:

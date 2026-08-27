@@ -39,7 +39,7 @@ KNOWN_FAILURES = {
 def _adb(*args: str, timeout: int) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(["adb", *args], capture_output=True, text=True,
-                              timeout=timeout)
+                              timeout=timeout, check=False)
     except FileNotFoundError:
         raise NotApplicableError(
             i18n.t("error.adbInstallMissing"))

@@ -617,7 +617,7 @@ def video_nvr(username="admin", password="fake-camera-password",
         # `diskerror` and `diskfull` are the two an NVR beeps on; the field
         # script asks for them by name when the list says nothing.
         "triggers": {name: _beep_trigger(name)
-                     for name in list(("diskerror", "diskfull"))[:triggers]},
+                     for name in ["diskerror", "diskfull"][:triggers]},
     }
 
     def channel_list() -> bytes:

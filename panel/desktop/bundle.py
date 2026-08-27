@@ -68,7 +68,7 @@ def data_uri(path, mime: str) -> str:
 def has_raw_text_terminator(text: str, tag: str) -> bool:
     """Catch a boundary that could really close an HTML raw-text element."""
     pattern = rf"</{re.escape(tag)}(?=[\t\n\f\r />])"
-    return re.search(pattern, text, flags=re.I) is not None
+    return re.search(pattern, text, flags=re.IGNORECASE) is not None
 
 
 def script_digest(content: str) -> str:
@@ -127,7 +127,7 @@ def parse_csp(csp: str) -> dict[str, tuple[str, ...]]:
 
 def extract_scripts(html: str) -> list[str]:
     return re.findall(r"<script(?:\s[^>]*)?>(.*?)</script\s*>", html,
-                      flags=re.I | re.S)
+                      flags=re.IGNORECASE | re.DOTALL)
 
 
 def _decode_data_uri(uri: str, mime: str) -> bytes:
@@ -238,7 +238,7 @@ def validate_bundle_html(html: str) -> None:
 
     invalid_urls = []
     for tag, name, value, _attributes in inspector.url_attributes:
-        if not value or value.startswith("#") or value.startswith("data:"):
+        if not value or value.startswith(("#", "data:")):
             continue
         invalid_urls.append(f"<{tag}> {name}={value!r}")
     if invalid_urls:
@@ -293,10 +293,10 @@ def validate_bundle_html(html: str) -> None:
     # adapter. The bootstrap picks the bridge branch before the bundle runs,
     # and the CSP's connect-src ban makes any regression fail closed.
 
-    if re.search(r"@import\b", html, flags=re.I):
+    if re.search(r"@import\b", html, flags=re.IGNORECASE):
         raise BundleError("An @import is left inside the inline CSS.")
     for match in re.finditer(r"url\s*\(\s*(['\"]?)(.*?)\1\s*\)", html,
-                             flags=re.I | re.S):
+                             flags=re.IGNORECASE | re.DOTALL):
         target = match.group(2).strip()
         if target:
             raise BundleError(f"The inline CSS uses a resource URI: {target!r}")

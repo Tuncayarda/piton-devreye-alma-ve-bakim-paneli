@@ -86,7 +86,8 @@ def _adb(*args: str, timeout: float | None = None):
     try:
         return subprocess.run(
             ["adb", *args], capture_output=True, text=True,
-            timeout=(settings.ADB_TIMEOUT if timeout is None else timeout))
+            timeout=(settings.ADB_TIMEOUT if timeout is None else timeout),
+            check=False)
     except FileNotFoundError as exc:
         raise AdbUnavailable("adb command was not found") from exc
     except subprocess.TimeoutExpired as exc:

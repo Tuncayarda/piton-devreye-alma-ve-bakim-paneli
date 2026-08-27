@@ -657,7 +657,7 @@ class FirmwareEndpoints(ServiceTest):
         self.assertFalse(firmware.has_selection(device.id))
 
     def test_the_picker_accepts_a_typical_large_android_apk(self):
-        inventory, device = self.build_lcd()
+        _inventory, device = self.build_lcd()
         path = Path(tempfile.mkdtemp(prefix="fw-size-")) / "temple-run.apk"
         with path.open("wb") as handle:
             handle.seek(131_259_749)
@@ -790,7 +790,7 @@ class FirmwareEndpoints(ServiceTest):
         """
         import threading
 
-        inventory = self.build(count=6)
+        self.build(count=6)
         base = self.start_service()
         self.call(base, "/api/firmware/file", {
             "set": 1, "group": "Intercom", "path": image("ortak.bin")})

@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 from panel import checklist, ip_assign, jobs, script_loader, settings, status
 from panel.checklist import columns as cols
@@ -235,11 +236,11 @@ class RetainedMessageIsNotDevicePresence(PanelTest):
     The payloads here are copied verbatim from the field broker.
     """
 
-    HMI = {
+    HMI: ClassVar[dict] = {
         "Name": "Hmi", "IP": "10.n.1.4", "IsActive": True,
         "Type": "HMI", "SubType": "", "Port": "6", "Status": {},
     }
-    ICU = {
+    ICU: ClassVar[dict] = {
         "Name": "Icu", "IP": "10.n.1.2", "IsActive": True,
         "Type": "ICU", "SubType": "", "Port": "5", "Status": {},
     }
@@ -803,7 +804,7 @@ class ExcelExport(ServiceTest):
         inventory = device_map.load(1, settings.ROOT / "DeviceMap.json")
         view = jobs.view_for(1)
 
-        device = [d for d in inventory.devices if d.read_method == "http"][0]
+        device = next(d for d in inventory.devices if d.read_method == "http")
         result = probe_result.success(
             {"version": "1.2.5", "serial": "SN-1", "uptime": "01:00:00"},
             "http")
@@ -872,7 +873,7 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
 
     # The panel names a method; the field script names the function that
     # implements it. This is the join between the two tables.
-    METHOD_FOR_COLLECTOR = {
+    METHOD_FOR_COLLECTOR: ClassVar[dict] = {
         "fetch_switch": "kyland",
         "fetch_isapi": "isapi",
         "fetch_announcement": "http",
@@ -885,7 +886,7 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
     # Same rule as the allowlists in tests/test_language.py: narrow, and
     # every entry says why. NOT somewhere to park a collector nobody has
     # written yet.
-    NO_COLLECTOR_ON_PURPOSE = {
+    NO_COLLECTOR_ON_PURPOSE: ClassVar[dict] = {
         ("Announcement", "UIC"): (
             "the panel writes its SIP and threshold settings over HTTP "
             "(panel/config_sync/targets.py), but every field the checklist "

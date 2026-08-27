@@ -58,9 +58,9 @@ def refusal(path: str, body=None):
     # "Forget every credential in memory" is an admin action wearing a field
     # path: the single-device form of it is how a technician clears a
     # password they mistyped, and that must keep working.
-    if path == "/api/credentials/forget" and isinstance(body, dict):
-        if body.get("all") is True and not editions.admin():
-            return _denied()
+    if (path == "/api/credentials/forget" and isinstance(body, dict)
+            and body.get("all") is True and not editions.admin()):
+        return _denied()
     return None
 
 

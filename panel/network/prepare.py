@@ -42,9 +42,8 @@ def preferences() -> dict:
     except (OSError, ValueError):
         raw = {}
     values = dict(DEFAULTS)
-    if isinstance(raw, dict):
-        if isinstance(raw.get("adapter"), str):
-            values["adapter"] = raw["adapter"]
+    if isinstance(raw, dict) and isinstance(raw.get("adapter"), str):
+        values["adapter"] = raw["adapter"]
     return values
 
 
@@ -234,7 +233,7 @@ def _ensure_locked(inventory: Inventory, options: dict | None = None,
             inventory, factory_ip=factory, extra=_search_addresses(options),
             prefix=planning.DEFAULT_PREFIX,
             known=_known_networks(found, adapter, values["adapter"]))
-    except Exception as exc:                           # noqa: BLE001
+    except Exception as exc:
         result["failed"].append({"network": "", "error": _short(exc)})
         return result
 
@@ -264,7 +263,7 @@ def _ensure_locked(inventory: Inventory, options: dict | None = None,
             record = aliases.add(adapter.handle, address,
                                  entry.network.prefixlen,
                                  adapter_name=adapter.name)
-        except Exception as exc:                   # noqa: BLE001
+        except Exception as exc:
             result["failed"].append({"network": str(entry.network),
                                      "error": _short(exc)})
             continue
@@ -319,7 +318,7 @@ def select_adapter(inventory: Inventory, name: str,
                     continue
                 try:
                     removed = aliases.remove(record)
-                except Exception as exc:                       # noqa: BLE001
+                except Exception as exc:
                     removed = False
                     detail = _short(exc)
                 else:

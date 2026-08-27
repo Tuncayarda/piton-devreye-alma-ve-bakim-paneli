@@ -71,7 +71,7 @@ _IMPORT_RE = re.compile(
         (['"])(?P<target>[^'"]+)\1 # module specifier
         |                          # or a bare side-effect import
         (?:^|\n)\s*import\s*(['"])(?P<bare>[^'"]+)\2""",
-    re.S | re.X)
+    re.DOTALL | re.VERBOSE)
 
 
 def _import_targets(path):
@@ -92,7 +92,7 @@ def _code(path) -> str:
     note at the top of a file is the rule, not a violation of it.
     """
     text = path.read_text(encoding="utf-8")
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     return "\n".join(line for line in text.splitlines()
                      if not line.lstrip().startswith("//"))
 
@@ -106,12 +106,13 @@ class Frontend(unittest.TestCase):
             self.skipTest("deno is not installed — the JS lint check was "
                           "skipped (install: brew install deno)")
         lint = subprocess.run([deno, "lint", str(JS_DIR)],
-                              capture_output=True, text=True, timeout=180)
+                              capture_output=True, text=True, timeout=180,
+                              check=False)
         self.assertEqual(lint.returncode, 0,
                          f"deno lint errors:\n{lint.stderr}")
         check = subprocess.run(
             [deno, "check", "--no-lock", str(JS_DIR / "app.js")],
-            capture_output=True, text=True, timeout=180)
+            capture_output=True, text=True, timeout=180, check=False)
         self.assertEqual(check.returncode, 0,
                          f"deno check errors:\n{check.stderr}")
 

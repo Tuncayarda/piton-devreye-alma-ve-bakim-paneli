@@ -5,7 +5,6 @@ Single source of truth for the sidebar and the target-group pickers; the UI
 keeps no list of its own and takes these from the API.
 """
 from __future__ import annotations
-from .. import i18n
 
 # ── sidebar categories ──────────────────────────────────────────────────
 CATEGORIES = [

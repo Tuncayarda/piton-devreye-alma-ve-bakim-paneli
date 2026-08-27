@@ -549,8 +549,8 @@ def fetch_hmi(ip: str, cfg) -> dict:
 
 
 def _adb(target: str, *args, timeout: int) -> str:
-    r = subprocess.run(["adb", "-s", target, *args],
-                       capture_output=True, text=True, timeout=timeout)
+    r = subprocess.run(["adb", "-s", target, *args], capture_output=True,
+                       text=True, timeout=timeout, check=False)
     return r.stdout.strip()
 
 
@@ -558,7 +558,7 @@ def fetch_compartment_lcd(ip: str, cfg) -> dict:
     """LCD / Compartment — Android, over ADB."""
     target = f"{ip}:{cfg.adb_port}"
     subprocess.run(["adb", "connect", target], capture_output=True,
-                   text=True, timeout=cfg.adb_timeout)
+                   text=True, timeout=cfg.adb_timeout, check=False)
     try:
         # NOTE: the version is not collected for now — grey in the template.
         # ro.build.display.id is the Android build id (C33P-V1.5-...), and
@@ -578,7 +578,7 @@ def fetch_compartment_lcd(ip: str, cfg) -> dict:
         return {k: v for k, v in out.items() if v}
     finally:
         subprocess.run(["adb", "disconnect", target], capture_output=True,
-                       text=True, timeout=cfg.adb_timeout)
+                       text=True, timeout=cfg.adb_timeout, check=False)
 
 
 # Which type uses which collector (an extra query beyond DeviceMap)
@@ -863,7 +863,7 @@ def main() -> int:
         dev = index.get(str(tmpl))
         if not dev:
             continue
-        typ, sub = dev["Type"], dev["SubType"]
+        typ, _sub = dev["Type"], dev["SubType"]
         if cfg.only and typ not in cfg.only:
             continue
         if typ in cfg.skip:
@@ -886,7 +886,7 @@ def main() -> int:
           f"({cfg.workers} at a time)...")
 
     def work(target):
-        row, tmpl, ip, dev = target
+        row, _tmpl, ip, dev = target
         # The device name is identity data and is always written.
         values = {COL_DEVICE_NAME: dev["Name"]}
 

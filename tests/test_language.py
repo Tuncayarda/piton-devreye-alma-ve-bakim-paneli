@@ -168,8 +168,8 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     # Every FILE the build produces is still named "dabp-<edition>".
     "panel/editions/catalogue.py": (
         ("Devreye Alma ve Bakım Paneli",
-         "product name: macOS bundle, Windows resource, setup wizard, "
-         "Release title"),
+         ("product name: macOS bundle, Windows resource, setup wizard, "
+         "Release title")),
         ("Yataklı", "project name as the customer's DeviceMap spells it"),
     ),
     # Kept as the #ifndef fallback, for a build run by hand without /D.

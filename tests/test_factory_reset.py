@@ -205,7 +205,7 @@ class FactoryReset(PanelTest):
         frees up.
         """
         inventory = self.build({"10.1.1.10": ["a", "b"]})
-        job, summary = self.run_reset(inventory)
+        _job, summary = self.run_reset(inventory)
 
         self.assertEqual(self.network.layout.get("10.1.1.10"), [])
         self.assertEqual(self.network.layout["10.1.1.12"], ["a", "b"])

@@ -104,7 +104,7 @@ def run_command(argv: list[str],
     """
     try:
         result = subprocess.run(argv, capture_output=True, timeout=timeout,
-                                **_NO_WINDOW)
+                                **_NO_WINDOW, check=False)
     except (OSError, subprocess.SubprocessError):
         return None, ""
     return int(result.returncode), decode(result.stdout) + decode(result.stderr)

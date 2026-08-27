@@ -14,6 +14,17 @@ from .queue import JobQueue, QUEUE
 from .sweep import sweep_devices
 from .view import DeviceStateView, next_generation, view_for
 
-__all__ = ["CANCELLED", "DONE", "FAILED", "Job", "JobQueue", "QUEUE",
-           "QUEUED", "RUNNING", "DeviceStateView", "next_generation",
-           "sweep_devices", "view_for"]
+__all__ = [
+           "CANCELLED",
+           "DONE",
+           "FAILED",
+           "QUEUE",
+           "QUEUED",
+           "RUNNING",
+           "DeviceStateView",
+           "Job",
+           "JobQueue",
+           "next_generation",
+           "sweep_devices",
+           "view_for",
+]

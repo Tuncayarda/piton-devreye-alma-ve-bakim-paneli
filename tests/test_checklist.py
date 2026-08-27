@@ -171,22 +171,22 @@ class LiveJob(ServiceTest):
             settings.ANNOUNCEMENT_PORT = silent.port
             base = self.start_service()
 
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
 
             # Live progress sits in the job's rows
-            code, full = self.call(base, f"/api/job?id={started['id']}")
+            _code, full = self.call(base, f"/api/job?id={started['id']}")
             states = {row["state"] for row in full["rows"]}
             self.assertTrue(states & {"queued", "running"}, states)
 
             # The device list carries NO scan-progress field
-            code, state = self.call(base, "/api/state?set=1")
+            _code, state = self.call(base, "/api/state?set=1")
             self.assertTrue(state["scanRunning"])
             for device in state["devices"]:
                 self.assertNotIn("job", device)
 
             self.call(base, "/api/job/cancel", {"id": started["id"]})
             self.await_job(jobs.QUEUE.find(started["id"]), timeout=25)
-            code, state = self.call(base, "/api/state?set=1")
+            _code, state = self.call(base, "/api/state?set=1")
             self.assertFalse(state["scanRunning"])
 
     def test_informational_rows_stay_out_of_the_counters(self):

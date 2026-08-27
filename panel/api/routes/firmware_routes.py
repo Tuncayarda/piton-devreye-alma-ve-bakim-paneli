@@ -7,7 +7,7 @@ from pathlib import Path
 from ... import firmware, jobs, settings
 from ...inventory import catalog
 from ...system import files
-from ..presenters import (find_device, inventory_for, reported_version,
+from ..presenters import (inventory_for, reported_version,
                           target_devices)
 from ..response import respond
 from .helpers import single

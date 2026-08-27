@@ -73,7 +73,21 @@ def install(device: Device, credentials=None, verify_window: float = 45.0, *,
     return upload_image(device, path, credentials, verify_window)
 
 
-__all__ = ["EXTENSIONS", "MAX_APK_SIZE", "MAX_BIN_SIZE", "MAX_SIZE",
-           "clear_all", "clear_selection", "file_extension", "has_selection",
-           "install", "is_supported", "max_size_for", "post_image",
-           "selection_for", "selections", "select_file", "validate_file"]
+__all__ = [
+    "EXTENSIONS",
+    "MAX_APK_SIZE",
+    "MAX_BIN_SIZE",
+    "MAX_SIZE",
+    "clear_all",
+    "clear_selection",
+    "file_extension",
+    "has_selection",
+    "install",
+    "is_supported",
+    "max_size_for",
+    "post_image",
+    "select_file",
+    "selection_for",
+    "selections",
+    "validate_file",
+]

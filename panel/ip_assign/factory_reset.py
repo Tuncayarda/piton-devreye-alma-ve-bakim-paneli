@@ -321,9 +321,9 @@ def _probe(module, config, candidates: list[str], cancelled=None) -> dict:
         if found:
             return found
         module.arp_forget(candidates)
-        if attempt + 1 < PROBE_ATTEMPTS:
-            if not _wait(PROBE_INTERVAL, cancelled):
-                return {}
+        if attempt + 1 < PROBE_ATTEMPTS and not _wait(PROBE_INTERVAL,
+                                                      cancelled):
+            return {}
     return found
 
 

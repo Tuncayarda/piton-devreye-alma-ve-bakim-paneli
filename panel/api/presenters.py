@@ -6,7 +6,7 @@ import threading
 import time
 
 from .. import credentials as credential_store
-from .. import jobs, settings, status
+from .. import jobs, status
 from ..inventory import catalog
 from ..inventory import device_map as inventory_module
 from ..probe import reader, result as probe_result

@@ -92,8 +92,8 @@ LINES = [
     "    closing the ports in range, opening 12...",
     ev("port_step", port=12, step="poe_on",
        detail="closing the ports in range, opening 12"),
-    "    [!] The port did not link in 45 s — the cable or the device may need "
-    "checking",
+    ("    [!] The port did not link in 45 s — the cable or the device may need "
+    "checking"),
     ev("port_note", port=12, level="warning",
        text="the port did not link in 45 s"),
     "    [!] Port 12: the port did not link (no link up)",

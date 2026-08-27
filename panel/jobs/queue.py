@@ -183,7 +183,7 @@ class JobQueue:
                 # problem is on the side running the job, not the device.
                 job.state = FAILED
                 job.error = _error_text(exc)
-            except BaseException as exc:                     # noqa: BLE001
+            except BaseException as exc:
                 # SystemExit and friends must CLOSE the job too.
                 #
                 # Uncaught, the job stayed "running" forever and the

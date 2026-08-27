@@ -184,8 +184,8 @@ class PosixAdapters(unittest.TestCase):
                 ("inet 10.0.2.15/24", ("10.0.2.15", 24)),
                 ("inet 10.0.2.15 netmask 0xffff0000", ("10.0.2.15", 16)),
                 ("inet 10.0.2.15 netmask 255.255.255.0", ("10.0.2.15", 24)),
-                ("inet addr:10.0.2.15  Bcast:10.0.2.255  "
-                 "Mask:255.255.255.0", ("10.0.2.15", 24))):
+                (("inet addr:10.0.2.15  Bcast:10.0.2.255  "
+                 "Mask:255.255.255.0"), ("10.0.2.15", 24))):
             self.assertIn(expected, adapters.parse_posix_addresses(text), text)
 
     def test_the_field_computer_is_read_out_of_ifconfig(self):

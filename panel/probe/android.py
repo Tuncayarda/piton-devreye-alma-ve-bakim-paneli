@@ -74,12 +74,13 @@ def read(ip: str, timeout: int | None = None) -> dict:
 
     def run(*args) -> str:
         result = subprocess.run(["adb", "-s", target, *args],
-                                capture_output=True, text=True, timeout=limit)
+                                capture_output=True, text=True, timeout=limit,
+                                check=False)
         return result.stdout.strip()
 
     try:
         subprocess.run(["adb", "connect", target], capture_output=True,
-                       text=True, timeout=limit)
+                       text=True, timeout=limit, check=False)
     except FileNotFoundError:
         raise NotApplicableError(
             i18n.t("error.adbMissing"))
@@ -119,6 +120,6 @@ def read(ip: str, timeout: int | None = None) -> dict:
     finally:
         try:
             subprocess.run(["adb", "disconnect", target], capture_output=True,
-                           text=True, timeout=limit)
+                           text=True, timeout=limit, check=False)
         except Exception:
             pass

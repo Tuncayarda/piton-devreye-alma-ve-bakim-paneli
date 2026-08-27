@@ -29,7 +29,22 @@ from .secret import accepted_digests, can_write, mint, usable, verify
 from .volumes import removable
 from .watcher import WATCH, KeyWatch
 
-__all__ = ["FILENAME", "KeyFile", "KeyWatch", "PACK_DIR", "WATCH",
-           "handback", "handoff", "media", "pack",
-           "accepted_digests", "can_write", "mint", "read", "removable",
-           "usable", "verify", "write"]
+__all__ = [
+                      "FILENAME",
+                      "PACK_DIR",
+                      "WATCH",
+                      "KeyFile",
+                      "KeyWatch",
+                      "accepted_digests",
+                      "can_write",
+                      "handback",
+                      "handoff",
+                      "media",
+                      "mint",
+                      "pack",
+                      "read",
+                      "removable",
+                      "usable",
+                      "verify",
+                      "write",
+]

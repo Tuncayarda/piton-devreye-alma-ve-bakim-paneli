@@ -24,7 +24,7 @@ class TelemetrySnapshot:
         self.set_no = None
         self.error: str | None = None
 
-    def collect(self, expected_set: int | None = None) -> "TelemetrySnapshot":
+    def collect(self, expected_set: int | None = None) -> TelemetrySnapshot:
         if not self.broker:
             self.error = i18n.t("error.piscuNotFound")
             return self

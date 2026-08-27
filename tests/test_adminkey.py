@@ -23,9 +23,9 @@ from unittest import mock
 
 from .support.base import PanelTest
 
-from panel import (adminkey, api, editions, i18n, jobs,  # noqa: E402
+from panel import (adminkey, api, editions, i18n, jobs,
                    settings)
-from panel.adminkey import (handback, handoff, keyfile,  # noqa: E402
+from panel.adminkey import (handback, handoff, keyfile,
                             media, pack, secret, volumes, watcher)
 
 SECRET = "a-build-secret-for-the-tests"
@@ -131,12 +131,11 @@ class KeyMaterial(unittest.TestCase):
             new_proof = secret.mint()
             new_digest = secret.digest(base64.b64decode(new_proof))
         patcher, old_digest = with_digest_only()
-        with patcher:
-            with mock.patch.dict(
-                    os.environ,
-                    {"DAP_ADMIN_KEY_DIGESTS": f"{old_digest},{new_digest}"}):
-                self.assertTrue(secret.verify(old_proof))
-                self.assertTrue(secret.verify(new_proof))
+        with patcher, mock.patch.dict(
+                os.environ,
+                {"DAP_ADMIN_KEY_DIGESTS": f"{old_digest},{new_digest}"}):
+            self.assertTrue(secret.verify(old_proof))
+            self.assertTrue(secret.verify(new_proof))
 
     def test_the_digest_can_be_recovered_from_a_stick(self):
         """FOR THE DAY THE BUILD SECRET IS LOST.
@@ -487,10 +486,10 @@ class KeyFileOnTheStick(unittest.TestCase):
     def test_nothing_on_a_stick_can_raise(self):
         for body in ("", "{", "[]", "null", '{"format": "something else"}',
                      '{"format": "dabp-admin-key"}',
-                     '{"format": "dabp-admin-key", "version": 99,'
-                     ' "proof": "x"}',
-                     '{"format": "dabp-admin-key", "version": 1,'
-                     ' "proof": 12}'):
+                     ('{"format": "dabp-admin-key", "version": 99,'
+                     ' "proof": "x"}'),
+                     ('{"format": "dabp-admin-key", "version": 1,'
+                     ' "proof": 12}')):
             with self.subTest(body[:32]):
                 self.write(body)
                 found = keyfile.read(self.volume)
@@ -532,11 +531,11 @@ class Handback(unittest.TestCase):
         running the same command as the same user again is a process spent
         to be told the same thing — twice a second, on the watcher's
         thread."""
-        with mock.patch.object(handback.subprocess, "run") as run:
-            with mock.patch.object(handback, "applicable",
-                                   return_value=False):
-                self.assertIsNone(handback.names("/Volumes/X"))
-                self.assertIsNone(handback.read_bytes("/Volumes/X/k", 10))
+        with (mock.patch.object(handback.subprocess, "run") as run,
+              mock.patch.object(handback, "applicable",
+                                return_value=False)):
+            self.assertIsNone(handback.names("/Volumes/X"))
+            self.assertIsNone(handback.read_bytes("/Volumes/X/k", 10))
         run.assert_not_called()
 
     def test_the_command_goes_through_the_operators_session(self):

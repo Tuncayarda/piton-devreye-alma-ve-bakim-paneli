@@ -162,10 +162,10 @@ class RunProgress:
         """Advance the phase. Never goes back: pass 2 does not restart it."""
         if name not in _ORDER:
             return
-        if _ORDER.index(name) >= _ORDER.index(self._phase):
-            if name != self._phase:
-                self._phase = name
-                self._fraction = 0.0
+        if (_ORDER.index(name) >= _ORDER.index(self._phase)
+                and name != self._phase):
+            self._phase = name
+            self._fraction = 0.0
         self._publish()
 
     def _closed_ports(self) -> int:

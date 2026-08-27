@@ -79,9 +79,9 @@ def _native_dialog(message: str, hint: str = "") -> None:
                       "buttons {"
                       f"{applescript_string(i18n.t('elevate.quit'))}"
                       "} default button 1 with icon stop")
-            subprocess.run(["osascript", "-e", script],
-                           capture_output=True, text=True, timeout=300)
-    except Exception:                              # noqa: BLE001
+            subprocess.run(["osascript", "-e", script], capture_output=True,
+                           text=True, timeout=300, check=False)
+    except Exception:
         pass
 
 
@@ -101,7 +101,7 @@ def show_failure(message: str = "", hint: str = "") -> None:
     message = message or explanation()
     try:
         import webview
-    except Exception:                              # noqa: BLE001
+    except Exception:
         _native_dialog(message, hint)
         return
 
@@ -116,7 +116,7 @@ def show_failure(message: str = "", hint: str = "") -> None:
 
         window.expose(decide)
         webview.start()
-    except Exception:                              # noqa: BLE001
+    except Exception:
         _native_dialog(message, hint)
 
 
@@ -137,5 +137,5 @@ def hide_dock_icon() -> None:
         # 1 = NSApplicationActivationPolicyAccessory: the process lives on but
         # is invisible in the Dock and the app switcher.
         NSApplication.sharedApplication().setActivationPolicy_(1)
-    except Exception:                              # noqa: BLE001
+    except Exception:
         pass

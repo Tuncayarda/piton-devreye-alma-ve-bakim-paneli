@@ -51,10 +51,10 @@ def _sources():
         path = settings.ROOT / name
         if not name or not path.is_file():
             continue
-        if name.startswith(("panel/", "static/js/", "tests/")) \
-                or name == "static/index.html":
-            if path.suffix in (".py", ".js", ".html"):
-                yield name, path
+        if ((name.startswith(("panel/", "static/js/", "tests/"))
+             or name == "static/index.html")
+                and path.suffix in (".py", ".js", ".html")):
+            yield name, path
 
 
 def used_keys(areas: set[str]) -> set[str]:

@@ -234,7 +234,8 @@ class LockFlow(ServiceTest):
             " group='switch')}))"
         )
         output = subprocess.run([sys.executable, "-c", script],
-                                capture_output=True, text=True, timeout=60)
+                                capture_output=True, text=True, timeout=60,
+                                check=False)
         self.assertEqual(output.returncode, 0, output.stderr)
         data = __import__("json").loads(output.stdout.strip().splitlines()[-1])
         self.assertEqual(data["count"], 0)

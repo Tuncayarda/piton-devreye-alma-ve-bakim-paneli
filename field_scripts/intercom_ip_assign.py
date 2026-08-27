@@ -211,7 +211,7 @@ def command_output(cmd, timeout: float = 3.0):
     """
     try:
         result = subprocess.run(cmd, capture_output=True, timeout=timeout,
-                                **_NO_WINDOW)
+                                **_NO_WINDOW, check=False)
     except (OSError, subprocess.SubprocessError):
         return None, ""
     return result.returncode, _decode(result.stdout) + _decode(result.stderr)
@@ -299,7 +299,7 @@ def can_flush_arp() -> bool:
     try:
         # -n never prompts for a password; returns 0 if the timestamp is fresh.
         return subprocess.run(["sudo", "-n", "true"], capture_output=True,
-                              timeout=5).returncode == 0
+                              timeout=5, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -956,9 +956,9 @@ def main() -> int:
 
     # Flushing ARP is what lets the run finish in one pass; if permission is
     # missing the user should learn it at the start, not at the end.
-    if cfg.arp_flush and not cfg.dry_run:
-        if arp_forget([cfg.factory_ip], cfg):
-            print("ARP         : the cache can be flushed")
+    if (cfg.arp_flush and not cfg.dry_run
+            and arp_forget([cfg.factory_ip], cfg)):
+        print("ARP         : the cache can be flushed")
     if cfg.dry_run:
         print("\n[dry-run] Nothing will be changed.\n")
 
@@ -1289,10 +1289,10 @@ def main() -> int:
                     print("        The write request is accepted but may not "
                           "reach flash; try --full-net-payload.")
 
-        if cfg.factory_ip not in targets:
-            if read_settings(cfg.factory_ip, cfg) is not None:
-                print(f"\n[!] {cfg.factory_ip} still answers — an "
-                      f"unconfigured intercom is left")
+        if (cfg.factory_ip not in targets
+                and read_settings(cfg.factory_ip, cfg) is not None):
+            print(f"\n[!] {cfg.factory_ip} still answers — an "
+                  f"unconfigured intercom is left")
 
         incomplete = [p for p in ports if plan[p]["target"] not in seen]
         if incomplete:

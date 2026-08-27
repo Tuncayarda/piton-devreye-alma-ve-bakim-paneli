@@ -682,7 +682,7 @@ class RunReport(VideoTest):
 
     def steps(self, fake, devices, group):
         inventory = self.build(devices)
-        device = [d for d in inventory.devices if d.type == group][0]
+        device = next(d for d in inventory.devices if d.type == group)
         settings.VIDEO_PORT = fake.port
         collected = []
         config_sync.apply_targets(

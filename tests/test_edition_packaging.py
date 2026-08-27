@@ -22,8 +22,8 @@ import unittest
 
 from .support.base import ROOT                   # noqa: F401  (sys.path)
 
-from panel import settings                       # noqa: E402
-from panel.editions import catalogue             # noqa: E402
+from panel import settings
+from panel.editions import catalogue
 
 SPEC = settings.ROOT / "dabp.spec"
 ISS = settings.ROOT / "packaging" / "windows" / "dabp.iss"
@@ -49,7 +49,7 @@ def bash_runs() -> bool:
     """
     try:
         done = subprocess.run(["bash", "-c", "echo ok"], capture_output=True,
-                              text=True, timeout=30)
+                              text=True, timeout=30, check=False)
     except (OSError, subprocess.SubprocessError):
         return False
     return done.returncode == 0 and done.stdout.strip() == "ok"
@@ -145,7 +145,7 @@ class ToolOutput(unittest.TestCase):
                      "--field", "display_name"],
                     capture_output=True, text=True, encoding="utf-8",
                     env={**os.environ, "PYTHONIOENCODING": "cp1252",
-                         "PYTHONUTF8": "0"})
+                         "PYTHONUTF8": "0"}, check=False)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(done.stdout.strip(), edition.product_name)
 
@@ -180,7 +180,7 @@ class TagParsing(unittest.TestCase):
         # The bug, still reproducible:
         self.assertEqual(by_tag["dap-vip-yatakli-v0.9.8"][0], "ip-yatakli-v0.9.8")
         # ...and the fix, for every shape of tag:
-        for _tag, (_short, long) in by_tag.items():
+        for (_short, long) in by_tag.values():
             self.assertRegex(long, r"^\d+\.\d+\.\d+$")
 
     @unittest.skipUnless(BASH, "no working POSIX shell on this machine")
@@ -191,7 +191,7 @@ class TagParsing(unittest.TestCase):
                 tag = f"dap-{edition.id}-v0.9.8"
                 result = subprocess.run(
                     ["bash", "-c",
-                     f'E="${{1#dap-}}"; echo "${{E%-v*}}"', "_", tag],
+                     'E="${1#dap-}"; echo "${E%-v*}"', "_", tag],
                     capture_output=True, text=True, check=True)
                 self.assertEqual(result.stdout.strip(), edition.id)
 
@@ -260,7 +260,7 @@ class Workflows(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, "tools/edition_info.py",
              "--edition", "not-a-customer", "--field", "app_name"],
-            cwd=settings.ROOT, capture_output=True, text=True)
+            cwd=settings.ROOT, capture_output=True, text=True, check=False)
         self.assertNotEqual(result.returncode, 0)
 
 

@@ -150,7 +150,7 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
                 audit = ip_assign.audit_identities(
                     inventory, switch_id, intercom_ports,
                     intercom_groups, options)
-            except Exception as exc:               # noqa: BLE001
+            except Exception as exc:
                 job.add_row("identity", i18n.lazy("job.identityUnverified"),
                             state="warning", note=_short_error(exc))
             else:

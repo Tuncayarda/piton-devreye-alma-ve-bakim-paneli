@@ -239,5 +239,13 @@ def mac_table(ip: str, credentials: tuple[str, str] | None = None,
     return {}
 
 
-__all__ = ["read", "ports", "mac_table", "validate", "api",
-           "AuthError", "UnreachableError", "VerificationError"]
+__all__ = [
+    "AuthError",
+    "UnreachableError",
+    "VerificationError",
+    "api",
+    "mac_table",
+    "ports",
+    "read",
+    "validate",
+]

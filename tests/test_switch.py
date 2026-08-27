@@ -553,7 +553,7 @@ class WindowsArp(unittest.TestCase):
         self.assertTrue(any("netsh" in c for c in flat), flat)
         # `sudo` and `ip neigh` do not exist on Windows. ("neigh" alone is not
         # searched for: the netsh command itself says "neighbors".)
-        self.assertFalse(any(c.startswith("sudo") or c.startswith("ip neigh")
+        self.assertFalse(any(c.startswith(("sudo", "ip neigh"))
                              for c in flat), flat)
 
     def test_host_mac_reads_the_windows_dash_format(self):

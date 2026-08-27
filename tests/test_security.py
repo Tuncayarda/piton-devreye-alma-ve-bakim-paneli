@@ -43,7 +43,7 @@ class Security(ServiceTest):
             settings.ANNOUNCEMENT_PORT = device.port
             base = self.start_service()
 
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             self.await_job(jobs.QUEUE.find(started["id"]))
 
             switch_id = inventory.switches()[0].id
@@ -83,10 +83,10 @@ class Security(ServiceTest):
             self.call(base, "/api/credentials", {
                 "set": 1, "deviceId": switch_id,
                 "username": "admin", "password": PASSWORD})
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             self.await_job(jobs.QUEUE.find(started["id"]))
 
-            code, full = self.call(base, f"/api/job?id={started['id']}")
+            _code, full = self.call(base, f"/api/job?id={started['id']}")
             text = json.dumps(full, ensure_ascii=False)
             self.assertNotIn(PASSWORD, text)
             self.assertNotIn("Traceback", text)
@@ -128,7 +128,7 @@ class Security(ServiceTest):
             self.call(base, "/api/credentials", {
                 "set": 1, "deviceId": switch_id, "username": "admin",
                 "password": PASSWORD, "applyToGroup": True})
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             self.await_job(jobs.QUEUE.find(started["id"]))
             self.call(base, "/api/config/target", {
                 "set": 1, "deviceId": inventory.devices[1].id,
@@ -238,7 +238,7 @@ class Security(ServiceTest):
     def test_the_body_size_is_limited(self):
         self.build_map(_topology())
         base = self.start_service()
-        code, body = self.call(base, "/api/credentials", {
+        code, _body = self.call(base, "/api/credentials", {
             "set": 1, "deviceId": "sw1",
             "username": "a" * 200, "password": "b"})
         self.assertEqual(code, 400)

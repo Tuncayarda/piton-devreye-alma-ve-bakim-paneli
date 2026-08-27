@@ -13,8 +13,8 @@ from unittest import mock
 
 from .support.base import ROOT  # noqa: F401  (sys.path + temp data dir)
 
-import app  # noqa: E402
-from panel import i18n, settings  # noqa: E402
+import app
+from panel import i18n, settings
 from panel.desktop import (BRIDGE_MARKER, CAPABILITY_SLOT, PanelBridge,
                            load_html)
 

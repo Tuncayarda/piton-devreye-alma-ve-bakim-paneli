@@ -1,0 +1,73 @@
+# Lint configuration. This file declares NO build system and NO project
+# metadata on purpose: the panel is not a pip-installable package, it is
+# packaged with PyInstaller (see dabp.spec). Only the linter reads this.
+
+[tool.ruff.lint]
+# WHY THIS FILE EXISTS AT ALL. Ruff was run with no configuration, so the
+# gate was whatever that version happened to default to — and that default
+# has already moved once (it used to be E4/E7/E9/F; 0.16 enables 413 rules).
+# An unconfigured linter is a gate that changes underneath the code without
+# anyone deciding to change it. The CI job pins the ruff version to match
+# (.github/workflows/ci.yml).
+
+# Both of these are already suppressed line by line throughout the tree:
+# the code was written against a wider rule set than ruff now defaults to,
+# so its `# noqa: E402` and `# noqa: E731` comments had quietly become
+# decoration. Turning the rules back on costs ZERO new violations and makes
+# those comments mean something again.
+extend-select = ["E402", "E731"]
+
+# Lazy imports are deliberate here — a frozen build's start-up time, and a
+# handful of genuine import cycles. Enabling PLC0415 would mean 97
+# violations and a decision this change is not making; this line stops ruff
+# reporting the existing `# noqa: PLC0415` comments as useless while the
+# rule is off, so they survive until that decision is taken.
+external = ["PLC0415"]
+
+ignore = [
+    # Import ORDER. This tree writes multi-name imports as a compact hanging
+    # indent —
+    #     from panel import (config_sync, credentials, editions,
+    #                        firmware, jobs, settings)
+    # — which ruff's isort cannot produce; its fix rewrites them one name per
+    # line. Enforcing it would restyle 91 files and 600 lines to settle a
+    # question of taste that the tree has already settled consistently, and
+    # would bury the changes that matter under the ones that do not.
+    "I001",
+
+    # Every module in this tree opens with `#!/usr/bin/env python3` and none
+    # of them carry the executable bit — packaging/appimage.sh is the only
+    # file meant to be run directly. That is the house style, not an error.
+    "EXE001",
+
+    # `except Exception` around an OS or network call, and the try/except/pass
+    # that follows it, are how this panel stays open when a device, a drive or
+    # a system tool misbehaves; the reason is written at each site. There are
+    # 141 of them, and 141 noqa comments would bury those reasons rather than
+    # record them.
+    "BLE001",
+    "S110",
+    "S112",
+
+    # "Raise TypeError, not ValueError, for a bad type." Not here. Every one
+    # of these raises carries a TRANSLATED SENTENCE for the person at the
+    # keyboard, and `panel/jobs/queue.py:_error_text` singles ValueError out
+    # as an error whose message is safe to show. Swapping the class would
+    # turn "the set number must be a whole number" into "the job failed:
+    # TypeError" on screen. The type is the contract; the rule does not know
+    # that.
+    "TRY004",
+
+    # "Merge nested `with` statements." All eight that remain are a
+    # `mock.patch` wrapping an `assertRaises`, where the inner `with` exists
+    # precisely to show WHICH statement is expected to raise:
+    #
+    #     with mock.patch.object(media, "drives", return_value=[]):
+    #         with self.assertRaises(media.MediaError):
+    #             media.prepare("/dev/disk0")
+    #
+    # Flattening those puts the assertion on a level with the setup and
+    # widens what it covers. The one pair that really was two patches side
+    # by side has been merged (tests/test_adminkey.py).
+    "SIM117",
+]

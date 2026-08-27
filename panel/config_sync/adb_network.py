@@ -68,7 +68,7 @@ def _app_details(device: Device) -> dict:
     """
     try:
         return android.read(device.ip)
-    except Exception:                                  # noqa: BLE001
+    except Exception:
         return {}
 
 

@@ -15,11 +15,11 @@ import sys
 import unittest
 from unittest import mock
 
-from .support.base import PanelTest             # noqa: F401  (sys.path, env)
+from .support.base import PanelTest
 
-from panel import api, editions, jobs, settings  # noqa: E402
-from panel.editions import catalogue            # noqa: E402
-from panel.inventory import device_map          # noqa: E402
+from panel import api, editions, jobs, settings
+from panel.editions import catalogue
+from panel.inventory import device_map
 
 
 class Table(unittest.TestCase):

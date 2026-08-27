@@ -38,7 +38,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from panel import elevation                          # noqa: E402
-from panel.elevation import is_elevated              # noqa: F401,E402  (test patch point)
+from panel.elevation import is_elevated              # noqa: E402  (test patch point)
 
 MINIMUM_PYTHON = (3, 10)
 WIDTH, HEIGHT = 1440, 900

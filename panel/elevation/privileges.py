@@ -190,8 +190,8 @@ def elevation_plan(system: str | None = None, executable: str = "",
         return {"kind": "osascript", "executable": executable, "argv": args,
                 "directory": directory,
                 "command": ["osascript", "-e",
-                            f"do shell script {applescript_string(command)} "
-                            "with administrator privileges"]}
+                            (f"do shell script {applescript_string(command)} "
+                            "with administrator privileges")]}
 
     if shutil.which("pkexec"):
         # polkit clears the environment; the display variables are carried
@@ -417,5 +417,5 @@ def elevate(plan: dict | None = None) -> tuple[bool, str]:
                     process.kill()
                 except OSError:
                     pass
-    except Exception as exc:                       # noqa: BLE001
+    except Exception as exc:
         return False, f"Could not restart: {type(exc).__name__}"

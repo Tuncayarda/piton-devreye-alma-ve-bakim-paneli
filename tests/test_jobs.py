@@ -54,7 +54,7 @@ class Queue(ServiceTest):
             flags = [reply[1]["new"] for reply in replies]
             self.assertCountEqual(flags, [True, False])
 
-            code, listing = self.call(base, "/api/jobs")
+            _code, listing = self.call(base, "/api/jobs")
             scans = [j for j in listing["jobs"] if j["kind"] == "scan"]
             self.assertEqual(len(scans), 1)
 
@@ -91,8 +91,8 @@ class Queue(ServiceTest):
             self.switch_port(switch.port)
             settings.ANNOUNCEMENT_PORT = device.port
             base = self.start_service()
-            code, one = self.call(base, "/api/scan", {"set": 1})
-            code, two = self.call(base, "/api/scan", {"set": 2})
+            _code, one = self.call(base, "/api/scan", {"set": 1})
+            _code, two = self.call(base, "/api/scan", {"set": 2})
             self.assertNotEqual(one["id"], two["id"])
             self.await_job(jobs.QUEUE.find(one["id"]))
             self.await_job(jobs.QUEUE.find(two["id"]))
@@ -105,7 +105,7 @@ class Queue(ServiceTest):
             settings.ANNOUNCEMENT_PORT = silent.port
             base = self.start_service()
 
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             job = jobs.QUEUE.find(started["id"])
             time.sleep(0.5)
 
@@ -129,7 +129,7 @@ class Queue(ServiceTest):
             self.switch_port(silent.port)
             settings.ANNOUNCEMENT_PORT = silent.port
             base = self.start_service()
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             code, removed = self.call(base, "/api/job/remove",
                                       {"id": started["id"]})
             self.assertEqual(code, 409)
@@ -169,7 +169,7 @@ class Queue(ServiceTest):
             settings.VIDEO_PORT = closed
             base = self.start_service()
 
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
             self.await_job(jobs.QUEUE.find(started["id"]), timeout=30)
 
             code, state = self.call(base, "/api/state?set=1")
@@ -194,7 +194,7 @@ class Queue(ServiceTest):
             self.switch_port(silent.port)
             settings.ANNOUNCEMENT_PORT = silent.port
             base = self.start_service()
-            code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, started = self.call(base, "/api/scan", {"set": 1})
 
             code, refreshed = self.call(base, "/api/refresh", {"set": 1})
             self.assertEqual(code, 409)
@@ -290,8 +290,8 @@ class Queue(ServiceTest):
             self.switch_port(silent.port)
             settings.ANNOUNCEMENT_PORT = silent.port
             base = self.start_service()
-            code, started = self.call(base, "/api/scan", {"set": 1})
-            code, full = self.call(base, f"/api/job?id={started['id']}")
+            _code, started = self.call(base, "/api/scan", {"set": 1})
+            _code, full = self.call(base, f"/api/job?id={started['id']}")
             # 4 devices + the switch; counters exclude progress rows
             self.assertEqual(full["counts"]["total"], 5)
             self.assertGreaterEqual(len(full["rows"]), 5)
