@@ -75,17 +75,15 @@ class VideoTest(PanelTest):
 
     def setUp(self):
         super().setUp()
-        # A device really does take a minute to come back; the tests must not.
-        self._waits = (video_isapi.REBOOT_DELAY,
-                       video_isapi.REBOOT_ATTEMPTS,
-                       video_isapi.REBOOT_INTERVAL)
-        video_isapi.REBOOT_DELAY = 0.01
+        # The DURATIONS are handled for every test at once now (the fake
+        # clock in tests/support/clock.py), so only the attempt COUNT is
+        # shortened here — and that is not a wait, it is a real thirty HTTP
+        # round trips against the fake camera.
+        self._attempts = video_isapi.REBOOT_ATTEMPTS
         video_isapi.REBOOT_ATTEMPTS = 3
-        video_isapi.REBOOT_INTERVAL = 0.01
 
     def tearDown(self):
-        (video_isapi.REBOOT_DELAY, video_isapi.REBOOT_ATTEMPTS,
-         video_isapi.REBOOT_INTERVAL) = self._waits
+        video_isapi.REBOOT_ATTEMPTS = self._attempts
         super().tearDown()
 
     def build(self, devices):

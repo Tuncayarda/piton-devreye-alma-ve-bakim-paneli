@@ -2,12 +2,11 @@
 """Announcement equipment — firmware image over HTTP multipart."""
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 import requests
 
-from .. import settings
+from .. import clock, settings
 from ..errors import AuthError, VerificationError, classify
 from ..inventory.device_map import Device
 from ..probe import announcement
@@ -60,10 +59,10 @@ def upload_image(device: Device, path, credentials,
     post_image(device.ip, path, credentials)
 
     # The device is rebooting: the version can only be read once it is back.
-    deadline = time.time() + verify_window
+    deadline = clock.monotonic() + verify_window
     current = ""
-    while time.time() < deadline:
-        time.sleep(2.0)
+    while clock.monotonic() < deadline:
+        clock.sleep(2.0)
         try:
             current = announcement.read(device.ip, credentials,
                                         timeout=2.5).get("version", "")

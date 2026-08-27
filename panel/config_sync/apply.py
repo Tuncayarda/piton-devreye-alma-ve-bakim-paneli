@@ -2,12 +2,11 @@
 """Reading a device's current values, comparing them, and writing targets."""
 from __future__ import annotations
 
-import time
 from dataclasses import replace
 
 import requests
 
-from .. import settings, video_config
+from .. import clock, settings, video_config
 from ..errors import (AuthError, NotApplicableError, VerificationError,
                       classify)
 from ..inventory.device_map import Device, Inventory
@@ -215,13 +214,13 @@ def _wait_for_reboot(device: Device, credentials=None,
     so "it answered" is not enough — the uptime must have wound back. On
     timeout this returns False and verification is attempted anyway.
     """
-    deadline = time.monotonic() + REBOOT_WAIT
-    time.sleep(min(2.0, REBOOT_WAIT))
-    while time.monotonic() < deadline:
+    deadline = clock.monotonic() + REBOOT_WAIT
+    clock.sleep(min(2.0, REBOOT_WAIT))
+    while clock.monotonic() < deadline:
         try:
             flat = _read_flat(device, credentials)
         except Exception:
-            time.sleep(1.0)
+            clock.sleep(1.0)
             continue
         uptime = probe_fields.pick(flat, *probe_fields.UPTIME_KEYS)
         try:
@@ -229,7 +228,7 @@ def _wait_for_reboot(device: Device, credentials=None,
                 return True
         except (TypeError, ValueError):
             return True
-        time.sleep(1.0)
+        clock.sleep(1.0)
     return False
 
 

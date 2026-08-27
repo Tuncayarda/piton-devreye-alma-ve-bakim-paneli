@@ -81,7 +81,16 @@ class _Server:
         # Content-Type only; never retain Authorization or request bodies here.
         self.request_content_types: list[tuple[str, str, str]] = []
         handler_class.fake = self
-        self._t = threading.Thread(target=self.srv.serve_forever, daemon=True)
+        # POLL FAST, so closing is quick. `serve_forever` defaults to a
+        # half-second poll and `shutdown()` blocks until the loop next comes
+        # round — so every fake server cost about half a second to close,
+        # and this suite closes a few hundred of them. That was the single
+        # largest cost in the run: 9.7 of test_video_config's 9.8 seconds
+        # were spent here, waiting for servers that had nothing left to do.
+        # The tighter beat is only paid while a server is actually up.
+        self._t = threading.Thread(
+            target=self.srv.serve_forever, kwargs={"poll_interval": 0.01},
+            daemon=True)
         self._t.start()
 
     def close(self):

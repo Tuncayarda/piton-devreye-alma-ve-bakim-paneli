@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import time
 
+from .. import clock
 from .. import credentials as credential_store
 from .. import script_loader
 from ..inventory.device_map import Inventory
@@ -290,11 +291,11 @@ def _device_trace(module, ip: str, device_settings: dict | None) -> str:
 
 def _wait(seconds: float, cancelled=None) -> bool:
     """Sleep in slices, returning early on cancel. Returns whether it waited."""
-    deadline = time.monotonic() + seconds
-    while time.monotonic() < deadline:
+    deadline = clock.monotonic() + seconds
+    while clock.monotonic() < deadline:
         if cancelled and cancelled():
             return False
-        time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        clock.sleep(min(0.5, max(0.0, deadline - clock.monotonic())))
     return not (cancelled and cancelled())
 
 
@@ -338,7 +339,7 @@ def _address_freed(module, config, ip: str, trace: str,
     """
     # The window is read at call time: a module constant baked into a default
     # argument could not be changed by tests.
-    deadline = time.monotonic() + (RESET_WAIT if window is None else window)
+    deadline = clock.monotonic() + (RESET_WAIT if window is None else window)
     silent = 0
     while True:
         current = module.read_settings(ip, config)
@@ -355,9 +356,9 @@ def _address_freed(module, config, ip: str, trace: str,
             if silent >= 2:
                 return True
             module.arp_forget([ip])
-        if time.monotonic() >= deadline:
+        if clock.monotonic() >= deadline:
             return silent > 0
-        time.sleep(getattr(config, "poll_interval", 1.0))
+        clock.sleep(getattr(config, "poll_interval", 1.0))
 
 
 def reset_to_factory(inventory: Inventory, switch_id: str, ports: list[int],

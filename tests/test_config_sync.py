@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 
 from panel import config_sync, settings
-from panel.config_sync import apply as apply_module
 from panel.inventory import device_map
 from panel.config_sync import fields as field_table
 from panel.errors import VerificationError
@@ -36,17 +35,6 @@ HANDSET_MODES = {"answerMode": 0, "hangupMode": 2, "callMode": 1,
 
 
 class ConfigWrite(PanelTest):
-
-    def setUp(self):
-        super().setUp()
-        # Waiting for the device to reboot must not slow the tests down; the
-        # wait is shortened, the logic stays the same.
-        self._old_wait = apply_module.REBOOT_WAIT
-        apply_module.REBOOT_WAIT = 0.5
-
-    def tearDown(self):
-        apply_module.REBOOT_WAIT = self._old_wait
-        super().tearDown()
 
     def build(self, subtype="Intercom", **extra):
         topology = fakes.device_map([{
@@ -374,15 +362,6 @@ class DeviceMapConfig(PanelTest):
     field name is the device's own field name (SpeakerVolume, Target1…) and the
     panel keeps no extra mapping table.
     """
-
-    def setUp(self):
-        super().setUp()
-        self._old_wait = apply_module.REBOOT_WAIT
-        apply_module.REBOOT_WAIT = 0.5
-
-    def tearDown(self):
-        apply_module.REBOOT_WAIT = self._old_wait
-        super().tearDown()
 
     def build(self, config=None, device_extra=None, subtype="Intercom",
               second=None):
@@ -781,9 +760,6 @@ class SipPassword(ServiceTest):
         inventory, device = self.build()
         config_sync.set_group_target("Intercom", "sipPassword", self.PASSWORD,
                                      "Intercom")
-        previous = apply_module.REBOOT_WAIT
-        apply_module.REBOOT_WAIT = 0.5
-        self.addCleanup(setattr, apply_module, "REBOOT_WAIT", previous)
         with fakes.announcement() as fake:
             settings.ANNOUNCEMENT_PORT = fake.port
             config_sync.apply_targets(device, inventory, None, "Intercom")

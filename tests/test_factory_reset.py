@@ -140,16 +140,12 @@ class FactoryReset(PanelTest):
             mock.patch.object(factory_reset.script_loader,
                               "intercom_ip_assign", network.module),
             mock.patch.object(factory_reset, "can_flush_arp", lambda: arp),
-            # Waiting is meaningless in a test: the fake network answers
-            # instantly and no ARP entry ever goes stale.
-            mock.patch.object(factory_reset, "RESET_WAIT", 0.0),
-            mock.patch.object(factory_reset, "PASS_INTERVAL_UNPRIVILEGED", 0.0),
-            mock.patch.object(factory_reset, "PASS_INTERVAL_PRIVILEGED", 0.0),
-            mock.patch.object(factory_reset, "PROBE_INTERVAL", 0.0),
+            # The four waits used to be zeroed here. They are durations, and
+            # a duration costs nothing now (tests/support/clock.py), so the
+            # reset waits out its real window against the fake network.
             mock.patch.object(audit, "script_loader",
                               SimpleNamespace(
                                   intercom_ip_assign=network.module)),
-            mock.patch.object(audit, "PASS_INTERVAL", 0.0),
         )
         for patch in patches:
             patch.start()

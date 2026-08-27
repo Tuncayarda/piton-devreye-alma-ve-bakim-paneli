@@ -23,10 +23,9 @@ and after, but only to say so in the run log.
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 
-from .. import firmware, i18n
+from .. import clock, firmware, i18n
 from ..errors import user_message
 from ..probe import announcement
 
@@ -63,11 +62,11 @@ def wait_back(ip: str, credentials=None, window: float = REBOOT_WINDOW,
     The address does not change: a firmware upload does not move the device,
     and the factory address is where it was already.
     """
-    deadline = time.monotonic() + window
-    while time.monotonic() < deadline:
+    deadline = clock.monotonic() + window
+    while clock.monotonic() < deadline:
         if cancelled is not None and cancelled():
             return ""
-        time.sleep(POLL_INTERVAL)
+        clock.sleep(POLL_INTERVAL)
         version = read_version(ip, credentials)
         if version:
             return version

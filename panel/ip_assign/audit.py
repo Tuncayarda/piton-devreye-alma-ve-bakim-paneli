@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from .. import script_loader
+from .. import clock, script_loader
 from ..inventory.device_map import Inventory
 from .addressing import factory_ip, is_ipv4, search_candidates
 from .plan import devices_by_port, resolve_groups
@@ -96,7 +96,7 @@ def address_map(inventory: Inventory, switch_id: str, groups,
     for index in range(max(1, passes)):
         if index:
             module.arp_forget(candidates)
-            time.sleep(PASS_INTERVAL)
+            clock.sleep(PASS_INTERVAL)
         for ip, device_settings in module.probe_all(candidates, config).items():
             extension = extension_of(device_settings)
             port, name = extension_owner.get(extension, (None, ""))
@@ -179,7 +179,7 @@ def audit_identities(inventory: Inventory, switch_id: str, ports: list[int],
             # A second device on the same address only appears once the entry
             # turns over (see address_map).
             module.arp_forget(addresses)
-            time.sleep(PASS_INTERVAL)
+            clock.sleep(PASS_INTERVAL)
         for ip, device_settings in module.probe_all(addresses, config).items():
             extension = extension_of(device_settings)
             port, name = extension_owner.get(extension, (None, ""))

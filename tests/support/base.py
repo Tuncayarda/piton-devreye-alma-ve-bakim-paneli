@@ -66,6 +66,7 @@ editions.activate(os.environ["DAP_EDITION"])
 from panel.inventory import device_map  # noqa: E402
 from panel.probe import switch as switch_probe  # noqa: E402
 
+from . import clock as fake_clock  # noqa: E402
 from . import fakes  # noqa: E402,F401  (re-exported for the tests)
 
 
@@ -84,6 +85,11 @@ class PanelTest(unittest.TestCase):
     def setUp(self):
         # Belt and braces: a test elsewhere may have switched language.
         i18n.use("en", persist=False)
+        # Device waits pass instantly (see panel/clock.py). Every wait in
+        # this suite is a fake device that is never actually rebooting, so
+        # the seconds were pure cost. A test whose subject IS the timing
+        # calls `self.clock.uninstall()` to get the real one back.
+        self.clock = fake_clock.install(self)
         self._old_device_map = settings.DEVICE_MAP
         self._old_kyland = settings.KYLAND_PORT
         self._old_video = settings.VIDEO_PORT
@@ -130,7 +136,9 @@ class PanelTest(unittest.TestCase):
                        if job.state in (jobs.QUEUED, jobs.RUNNING)]
             if not pending:
                 break
-            time.sleep(0.1)
+            # A tenth of a second per look is a long time to hold every
+            # tearDown in the suite; the queue finishes far quicker than that.
+            time.sleep(0.01)
         for job in jobs.QUEUE.list():
             jobs.QUEUE.remove(job.id)
 
@@ -164,7 +172,11 @@ class ServiceTest(PanelTest):
 
         srv = http_adapter.serve("127.0.0.1", 0)
         port = srv.server_address[1]
-        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        # Poll fast so `shutdown` returns promptly — same reason as the fake
+        # devices in support/fakes.py: the default half-second beat made
+        # every service test pay half a second to put the server away.
+        t = threading.Thread(target=srv.serve_forever,
+                             kwargs={"poll_interval": 0.01}, daemon=True)
         t.start()
         self.addCleanup(srv.server_close)
         self.addCleanup(srv.shutdown)

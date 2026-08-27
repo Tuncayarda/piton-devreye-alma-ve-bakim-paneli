@@ -183,13 +183,9 @@ class CompartmentLcdRun(CompartmentLcdPlan):
         super().setUp()
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
-        self.stack.enter_context(mock.patch.object(lcd_runner, "POE_SETTLE", 0))
-        self.stack.enter_context(mock.patch.object(
-            lcd_runner, "CONNECT_RETRY_INTERVAL", 0))
-        self.stack.enter_context(mock.patch.object(
-            lcd_runner, "RESTORE_RETRY_INTERVAL", 0))
-        self.stack.enter_context(mock.patch.object(
-            lcd_runner, "DISCOVERY_RETRY_INTERVAL", 0))
+        # The four settle/retry intervals used to be zeroed here. They are
+        # durations, and durations cost nothing now (tests/support/clock.py),
+        # so the run exercises the real ones.
 
     def run_manual(self, inventory, adb, port=8, options=None,
                    cancelled=None, ports=(8,)):

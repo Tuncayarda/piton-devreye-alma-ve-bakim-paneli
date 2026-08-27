@@ -29,12 +29,11 @@ import ipaddress
 import json
 import re
 import subprocess
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from types import SimpleNamespace
 
-from .. import firmware, i18n, script_loader, settings
+from .. import clock, firmware, i18n, script_loader, settings
 from ..inventory.device_map import Device, Inventory, resolve_template
 from .addressing import DEFAULT_TARGET_PREFIX
 
@@ -136,7 +135,7 @@ def _connect(ip: str, cancelled=None, attempts: int = CONNECT_ATTEMPTS) -> bool:
         except Exception:
             pass
         if attempt + 1 < attempts and CONNECT_RETRY_INTERVAL:
-            time.sleep(CONNECT_RETRY_INTERVAL)
+            clock.sleep(CONNECT_RETRY_INTERVAL)
     return False
 
 
@@ -334,18 +333,18 @@ def _discover(module, addresses, port: int, cfg, cancelled=None):
     this port could be proved and `detail` says what each address answered.
     """
     reasons: dict[str, str] = {}
-    deadline = time.monotonic() + DISCOVERY_TIMEOUT
+    deadline = clock.monotonic() + DISCOVERY_TIMEOUT
     for attempt in range(DISCOVERY_ROUNDS):
         if cancelled is not None and cancelled():
             break
         found = _probe_round(module, addresses, port, cfg, cancelled, reasons)
         if found is not None:
             return (*found, "")
-        if attempt + 1 >= DISCOVERY_ROUNDS or time.monotonic() >= deadline:
+        if attempt + 1 >= DISCOVERY_ROUNDS or clock.monotonic() >= deadline:
             break
         if DISCOVERY_RETRY_INTERVAL:
-            time.sleep(min(DISCOVERY_RETRY_INTERVAL,
-                           max(0.0, deadline - time.monotonic())))
+            clock.sleep(min(DISCOVERY_RETRY_INTERVAL,
+                           max(0.0, deadline - clock.monotonic())))
     detail = "; ".join(f"{ip}: {reason}" for ip, reason in reasons.items())
     return "", "", set(), detail[-320:]
 
@@ -404,7 +403,7 @@ def _restore(module, cfg, state, managed: set[int], emit) -> bool:
             return True
         except Exception:
             if attempt + 1 < RESTORE_ATTEMPTS and RESTORE_RETRY_INTERVAL:
-                time.sleep(RESTORE_RETRY_INTERVAL)
+                clock.sleep(RESTORE_RETRY_INTERVAL)
     _event(emit, "ports_left_closed", switch=cfg.switch_ip)
     return False
 
@@ -485,7 +484,7 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
         # a display already commissioned is never power-cycled again mid-run.
         module.poe_apply(cfg, state, set(), managed)
         if POE_SETTLE:
-            time.sleep(POE_SETTLE)
+            clock.sleep(POE_SETTLE)
         _event(emit, "pass_started", **{"pass": 1})
 
         for index, port in enumerate(sorted(managed), start=1):
@@ -502,7 +501,7 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
                        detail=f"opening switch port {port}")
                 module.poe_apply(cfg, state, completed | {port}, managed)
                 if POE_SETTLE:
-                    time.sleep(POE_SETTLE)
+                    clock.sleep(POE_SETTLE)
                 linked, _elapsed = module.wait_for_link(cfg, port, cfg.link_wait)
                 if linked is False:
                     raise RuntimeError("the switch port did not link")
@@ -674,7 +673,7 @@ def run_manual(inventory: Inventory, switch, port: int, account, emit,
     try:
         module.poe_apply(cfg, state, set(), managed)
         if POE_SETTLE:
-            time.sleep(POE_SETTLE)
+            clock.sleep(POE_SETTLE)
         _event(emit, "pass_started", **{"pass": 1})
         _event(emit, "port_started", port=port, target=target_ip,
                index=1, total=1)
@@ -685,7 +684,7 @@ def run_manual(inventory: Inventory, switch, port: int, account, emit,
                    detail=f"opening switch port {port}")
             module.poe_apply(cfg, state, managed, managed)
             if POE_SETTLE:
-                time.sleep(POE_SETTLE)
+                clock.sleep(POE_SETTLE)
             linked, _elapsed = module.wait_for_link(cfg, port, cfg.link_wait)
             if linked is False:
                 raise RuntimeError("the switch port did not link")

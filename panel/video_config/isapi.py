@@ -16,14 +16,13 @@ The endpoints themselves are listed in `panel/video_config/camera.py` and
 """
 from __future__ import annotations
 
-import time
 import xml.etree.ElementTree as ET
 
 import requests
 import urllib3
 from requests.auth import HTTPDigestAuth
 
-from .. import i18n, settings
+from .. import clock, i18n, settings
 from ..errors import AuthError, VerificationError, classify
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -207,14 +206,14 @@ def interface_mask(root, ip: str) -> str:
 
 def wait_until_back(ip: str, credentials) -> bool:
     """Wait for a device to answer again after a restart."""
-    time.sleep(REBOOT_DELAY)
+    clock.sleep(REBOOT_DELAY)
     for _attempt in range(REBOOT_ATTEMPTS):
         try:
             if read(ip, "System/deviceInfo", credentials) is not None:
                 return True
         except Exception:
             pass
-        time.sleep(REBOOT_INTERVAL)
+        clock.sleep(REBOOT_INTERVAL)
     return False
 
 
