@@ -5,6 +5,38 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.1 — 27 Ağustos 2026
+
+Bakım sürümü. Ekranlarda ve akışlarda değişiklik yok; bir donma hatası
+düzeltildi, geri kalanı kodun kendisiyle ilgili.
+
+### Geniş bir arama maskesi paneli artık dondurmuyor
+
+IP atama ekranındaki "Arama ağı" alanına geniş bir maske yazıldığında —
+örneğin `255.255.0.0` ya da `255.0.0.0` — panel on sekiz saniyeye kadar
+donuyor ve yaklaşık bir gigabayt bellek harcıyordu. Sonunda gösterdiği şey
+yalnızca "arama ağı çok geniş" uyarısıydı; yani tüm o bekleme, verilecek
+cevabı zaten bilen bir işlem içindi. Uyarı artık anında çıkıyor.
+
+Yanlışlıkla yazılan bir maske de aynı yoldan geçtiği için, bu hata sahada
+"panel kilitlendi" olarak görülebiliyordu.
+
+### Kapak altında
+
+Kullanıcıya dönük bir karşılığı yok, ama bu sürümde yapılanlar:
+
+- **Adres haritasındaki üç ifade artık çeviriye tabi.** "the factory
+  address" gibi parçalar İngilizce arayüzde de Türkçe arayüzde de
+  kataloğa uğramadan yazılıyordu.
+- **Anons ve switch tarafında kalan iki Türkçe cümle** İngilizceye
+  çevrildi (kod tabanı İngilizce, arayüz metni katalogdan gelir).
+- **Cihaz okuma yöntemleri tablosu ile saha betiğinin toplayıcı tablosu**
+  arasındaki tutarsızlık bir testle bağlandı; ikisi sessizce ayrışamıyor.
+- **Bağımlılık sürümleri sabitlendi**, böylece aynı etiketin iki derlemesi
+  aynı paketleri taşıyor.
+- Testler 117 saniye yerine 25 saniyede koşuyor; sürekli tümleştirme her
+  değişiklikte çalışıyor ve linter kapısı eklendi.
+
 ## v1.0.0 — 26 Ağustos 2026
 
 ### Her müşteri kendi paketini alıyor, rol seçme ekranı kalktı

@@ -17,7 +17,7 @@ from pathlib import Path
 # Short and ASCII so it survives every shell, ZIP and installer it passes
 # through, and unchanged by the language.
 APP_SLUG = "dabp"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a
 # temp dir and reports it via sys._MEIPASS.
