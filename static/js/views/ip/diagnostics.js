@@ -32,13 +32,19 @@ function mapRow(row) {
   const label = labelKey ? t(labelKey) : row.state;
   const who = row.found.length
     ? row.found.map(entry => (entry.port
-      ? `${entry.name || entry.extension} · port ${entry.port}`
-      : `extension ${entry.extension || '?'}`)).join(' + ')
+      ? t('ipmap.devicePort', {
+        name: entry.name || entry.extension, port: entry.port,
+      })
+      : t('ipmap.extensionOnly', { extension: entry.extension || '?' })))
+      .join(' + ')
     : '—';
   const expected = row.isFactory
-    ? 'the factory address'
+    ? t('ipmap.factoryAddress')
     : (row.expectedPort
-      ? `${row.expectedName} · port ${row.expectedPort}` : '—');
+      ? t('ipmap.devicePort', {
+        name: row.expectedName, port: row.expectedPort,
+      })
+      : '—');
   return el('div', {
     class: 'table-row', style: `--table-columns:${MAP_COLUMNS}`,
   }, [

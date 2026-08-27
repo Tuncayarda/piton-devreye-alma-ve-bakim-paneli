@@ -217,7 +217,7 @@ function lightLoop() {
         } catch (e) {
           // 409 = a full scan cut in; quietly leave it to the next round
           if (e.status && e.status !== 409) {
-            console.warn('hafif yenileme:', e.message);
+            console.warn('light refresh:', e.message);
           }
         }
       } else {

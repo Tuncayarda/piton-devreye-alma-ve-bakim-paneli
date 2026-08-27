@@ -467,7 +467,7 @@ class SavedDefaults(PanelTest):
     A password NEVER reaches the file: it stays in memory for the session.
     """
 
-    PASSWORD = "sip-parolasi-4471"
+    PASSWORD = "sip-password-4471"
 
     def build(self, subtype="Intercom"):
         topology = fakes.device_map([{
@@ -716,7 +716,7 @@ class FastFieldEndpoint(ServiceTest):
 class SipPassword(ServiceTest):
     """The SIP password can be written but never comes back in a reply."""
 
-    PASSWORD = "sip-parolasi-9713"
+    PASSWORD = "sip-password-9713"
 
     def build(self):
         topology = fakes.device_map([{

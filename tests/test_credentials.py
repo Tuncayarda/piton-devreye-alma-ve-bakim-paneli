@@ -35,7 +35,7 @@ def _camera_topology():
     return fakes.device_map([{
         "Name": "Corridor_Cam_1", "IP": "127.0.0.1", "IsActive": True,
         "Type": "Camera", "SubType": "Corridor", "Port": "1",
-        "Username": "admin", "Password": "devicemap-parolasi",
+        "Username": "admin", "Password": "devicemap-password",
         "Status": {"NoError": False},
     }])
 
@@ -158,7 +158,7 @@ class LockFlow(ServiceTest):
 
         with fakes.kyland(password=PASSWORD) as switch:
             self.switch_port(switch.port)
-            wrong = reader.read_device(device, credentials=("admin", "hatali"),
+            wrong = reader.read_device(device, credentials=("admin", "wrong-one"),
                                        timeout=3)
         self.assertEqual(wrong.state, status.AUTH)
         self.assertEqual(wrong.verification, status.AUTH_REQUIRED)

@@ -486,7 +486,11 @@ class IpSummaryError(unittest.TestCase):
         text = self._summary(ok=10, failed=2)
         self.assertIn("10/12", text)
         self.assertIn("2 port", text)
-        self.assertNotIn("koduyla", text)
+        # ...and NOT the bare exit code, which is the sentence this class
+        # exists to keep out of a run that mostly worked. It used to be
+        # asserted here by its Turkish wording, from before the codebase was
+        # English; that string could no longer appear whatever the code did.
+        self.assertNotIn("exited with code", text)
 
     def test_a_separate_sentence_when_none_finished(self):
         self.assertIn("No port could be completed", self._summary(ok=0, failed=12))

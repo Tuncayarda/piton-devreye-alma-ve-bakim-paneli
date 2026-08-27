@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-MbrjHaT6lnXlMrKqaOvvVD4EyWo/9Et19x2TEN7Cdtk=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-JM486rkx0TdUaUbxZ9/DjifbcQ91PZs9N2Kk8m024OQ=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -11566,7 +11566,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
             }
           } catch (e) {
             if (e.status && e.status !== 409) {
-              console.warn("hafif yenileme:", e.message);
+              console.warn("light refresh:", e.message);
             }
           }
         } else {

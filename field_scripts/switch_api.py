@@ -506,7 +506,7 @@ def set_network(ip: str, addr: str, prefix: str, mtu="1500") -> dict:
                 result["saved"] = True
             except Exception:
                 result["saved"] = False
-                result["saveError"] = (f"{addr} adresinden kaydedilemedi — "
+                result["saveError"] = (f"could not save from {addr} — "
                                        f"connect on the new address and "
                                        f"press Save")
         return result
@@ -773,7 +773,7 @@ def main() -> int:
         return 1
 
     print(f"API: http://{args.host}:{args.port}   (Ctrl-C to stop)")
-    print(f"Switch'ler {SWITCH_PORT} portunda aranacak")
+    print(f"Switches will be looked for on port {SWITCH_PORT}")
     print("Credentials are asked for in the UI and written nowhere.")
     try:
         server.serve_forever()

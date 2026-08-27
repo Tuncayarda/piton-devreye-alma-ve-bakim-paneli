@@ -89,8 +89,20 @@ TURKISH_WORDS = (
     "sifre", "sonuc", "surum", "sutun", "tamamlandi", "tarama", "tumu",
     "uyari", "yazildi", "yazilim", "yenile", "yetki", "yukle", "yuklendi",
 )
+# TURKISH IS AGGLUTINATIVE, so the stem is only the beginning of the word:
+# "yenile" is in the list above, but what leaked through was "yenileme", and
+# an exact-word match cannot see it — the "me" on the end breaks the word
+# boundary. A bounded suffix closes that: five letters covers the endings
+# that actually occur ("adresinden", "portunda", "parolasi", "koduyla") and
+# stays short enough not to swallow a longer, unrelated word.
+#
+# Measured before it was adopted: the looser form flagged eight more lines
+# across the tree and produced no false positives. Two of the eight were
+# user-facing Turkish sentences in field_scripts/switch_api.py that both
+# earlier checks had walked past.
 ASCII_WORD = re.compile(
-    r"(?<![A-Za-z0-9_])(" + "|".join(TURKISH_WORDS) + r")(?![A-Za-z0-9_])",
+    r"(?<![A-Za-z0-9_])(" + "|".join(TURKISH_WORDS) + r")[a-z]{0,5}"
+    r"(?![A-Za-z0-9_])",
     re.IGNORECASE)
 
 # ── allowlist ────────────────────────────────────────────────────────────
