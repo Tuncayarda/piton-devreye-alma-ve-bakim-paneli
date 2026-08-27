@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-JM486rkx0TdUaUbxZ9/DjifbcQ91PZs9N2Kk8m024OQ=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-J3MQcZau9Zd5kTC/opw38h1yBE65EjSY2EG3GDp6RXU=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -3029,6 +3029,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
     container.addEventListener("keydown", trap);
     return () => container.removeEventListener("keydown", trap);
+  }
+  function showFieldWarning2(input2, warning, message) {
+    input2.setAttribute("aria-invalid", String(!!message));
+    warning.textContent = message;
+    warning.hidden = !message;
   }
 
   // static/js/core/i18n.js
@@ -6267,6 +6272,20 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
     return "";
   }
+  function validatePorts(text, allowed, plan) {
+    const { ports, error } = parsePorts(text, allowed);
+    if (error) return error;
+    const protectedPorts = new Map(protectedPortsFor(plan));
+    const clashing = ports.filter((port) => protectedPorts.has(port));
+    if (clashing.length) {
+      const port = clashing[0];
+      return t("ip.portProtected", {
+        port,
+        reason: protectedPorts.get(port)
+      });
+    }
+    return "";
+  }
 
   // static/js/views/ip/software.js
   var LCD_ASSIGNMENT_KIND = "compartment-lcd";
@@ -6842,1050 +6861,6 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ]
     });
   }
-
-  // static/js/views/ip/plan_table.js
-  var COLUMNS2 = "68px minmax(150px,1.25fr) minmax(104px,.85fr) 112px 112px minmax(150px,1fr)";
-  var HEADINGS = [
-    "col.port",
-    "col.targetDevice",
-    "col.group",
-    "col.factoryIp",
-    "col.ipToAssign",
-    "col.state"
-  ];
-  function planRowStateKey(plan, row2) {
-    if (!row2.actionable) return "ipplan.outsideTargetGroup";
-    if (usesPhysicalPortDiscovery(plan) && !row2.deviceId) {
-      return "ipplan.automaticDeviceMatch";
-    }
-    return "ipplan.inThePlan";
-  }
-  function planRow(plan, row2, factoryIp) {
-    return el("div", {
-      class: "table-row ip-plan-row",
-      style: `--table-columns:${COLUMNS2}`,
-      dataset: {
-        actionable: row2.actionable ? "1" : "0"
-      }
-    }, [
-      el("span", {
-        class: "ip-port-badge",
-        text: `p${row2.port}`
-      }),
-      el("span", {
-        class: "mono truncate ip-device-name",
-        text: deviceMapName(row2) || NONE
-      }),
-      el("span", {
-        class: "mono truncate ip-group-name",
-        text: row2.group || NONE
-      }),
-      // A shared source can be overridden by the Intercom form. Compartment LCD
-      // sources are per device and always come from the server's DeviceMap plan.
-      el("span", {
-        class: "mono text-mid ip-address",
-        text: sourceAddress(plan, row2, factoryIp) || NONE
-      }),
-      el("span", {
-        class: "mono ip-address ip-target-ip",
-        text: row2.targetIp || NONE
-      }),
-      el("span", {
-        class: row2.actionable ? "ip-state-badge included" : "ip-state-badge excluded"
-      }, [
-        el("i", {
-          "aria-hidden": "true"
-        }),
-        t(planRowStateKey(plan, row2))
-      ])
-    ]);
-  }
-  function planTable(plan, check) {
-    const { inPlan, outOfPlan, factoryIp } = check;
-    const headings = [
-      ...HEADINGS
-    ];
-    if (perDeviceSource(plan)) headings[3] = "col.sourceIp";
-    return el("details", {
-      class: "ip-plan-section ip-collapsible",
-      // Opened by default when something falls outside the plan: that is the
-      // case the user has to look at.
-      open: local.openSections.plan ?? outOfPlan > 0,
-      ontoggle: (e) => {
-        local.openSections.plan = e.currentTarget.open;
-      }
-    }, [
-      el("summary", {
-        class: "ip-section-head ip-collapsible-summary"
-      }, [
-        el("div", {
-          class: "ip-section-title"
-        }, [
-          el("div", {}, [
-            el("h3", {
-              text: t("ipplan.assignmentPlan")
-            }),
-            el("p", {
-              text: t(usesPhysicalPortDiscovery(plan) ? "ipplan.physicalPortDiscoveryNote" : "ipplan.reviewTheCurrentAndTarget")
-            })
-          ])
-        ]),
-        el("div", {
-          class: "ip-plan-metrics"
-        }, [
-          el("span", {
-            text: t("ipplan.includedCount", {
-              count: inPlan
-            })
-          }),
-          outOfPlan ? el("span", {
-            text: t("ipplan.outOfScopeCount", {
-              count: outOfPlan
-            })
-          }) : null
-        ])
-      ]),
-      dataTable({
-        template: COLUMNS2,
-        minWidth: 800,
-        wrapClass: "ip-plan-table",
-        label: t("ipplan.assignmentPlan"),
-        columns: headings.map((key) => t(key)),
-        rows: plan.rows.map((row2) => planRow(plan, row2, factoryIp)),
-        empty: t("ipplan.noTargetDeviceOnThe")
-      })
-    ]);
-  }
-
-  // static/js/views/ip/index.js
-  var refreshToken = 0;
-  async function refreshPanels() {
-    const data = state.ipState;
-    if (!data || !onScreen()) return;
-    const setNo = state.setNo;
-    const fresh = await Promise.all((data.plan.switches || []).map((entry) => api.ipPanel(setNo, entry.id).catch(() => null)));
-    const usable = fresh.filter(Boolean);
-    if (!usable.length || setNo !== state.setNo || !onScreen()) return;
-    data.panels = usable;
-    drawPanels(data);
-  }
-  function drawPanels(data) {
-    if (!live.stack) return;
-    fill(live.stack, data.panelsLoading ? [
-      el("div", {
-        class: "info ip-panel-empty",
-        role: "status"
-      }, [
-        el("span", {
-          text: t("ip.readingSwitchPanel")
-        })
-      ])
-    ] : data.panels.length ? data.panels.map((panel) => panelCard(panel, data.plan, {
-      onPortClick: togglePort,
-      onCredentials: () => refresh()
-    })) : [
-      el("div", {
-        class: "ip-panel-empty"
-      }, [
-        el("span", {
-          class: "eyebrow",
-          text: t("ip.noPanelInformation")
-        }),
-        el("p", {
-          text: t("ip.theSwitchFrontPanelCannot")
-        })
-      ])
-    ]);
-    writeFreshness();
-  }
-  function freshnessTick() {
-    clearTimeout(live.ticker);
-    live.ticker = null;
-    if (!onScreen()) return;
-    writeFreshness();
-    live.ticker = setTimeout(freshnessTick, 1e3);
-  }
-  async function refreshRound() {
-    clearTimeout(live.timer);
-    live.timer = null;
-    if (!onScreen() || !live.enabled) return;
-    try {
-      await refreshPanels();
-    } catch {
-    }
-    if (!onScreen() || !live.enabled) return;
-    live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
-  }
-  async function protectedRound() {
-    clearTimeout(live.protectedTimer);
-    live.protectedTimer = null;
-    if (!onScreen() || !live.enabled) return;
-    try {
-      await refreshProtected();
-    } catch {
-    }
-    if (!onScreen() || !live.enabled) return;
-    live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
-  }
-  function startRefreshing() {
-    if (!live.ticker) freshnessTick();
-    if (!live.enabled) return;
-    if (!live.timer) live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
-    if (!live.protectedTimer) {
-      live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
-    }
-  }
-  function targetPicker() {
-    const active = currentTarget();
-    return el("label", {
-      class: "target-picker"
-    }, [
-      el("span", {
-        class: "label",
-        text: t("groupbar.deviceType")
-      }),
-      el("select", {
-        class: "field",
-        "aria-label": t("ip.deviceTypeToAssignIps"),
-        disabled: local.apkPickerOpen,
-        onchange: (e) => {
-          if (e.target.value === local.targetId) return;
-          e.target.blur();
-          local.targetId = e.target.value;
-          selectAssignmentSwitch(null);
-          local.factoryIp = null;
-          local.searchOpen = false;
-          local.searchNetwork = null;
-          local.searchNetmask = null;
-          local.searchFirst = null;
-          local.searchLast = null;
-          local.preflash = false;
-          local.targetMask = null;
-          local.manualPort = "";
-          local.manualIp = "";
-          refresh();
-        }
-      }, IP_TARGETS.map((target) => el("option", {
-        value: target.id,
-        selected: target.id === active.id ? true : null,
-        text: targetLabel(target)
-      })))
-    ]);
-  }
-  function validateRun(data) {
-    const { plan, panels = [] } = data;
-    const allowed = plan.allowedPorts || [];
-    const rows2 = plan.rows || [];
-    const portText = local.portText ?? formatPorts(rows2.filter((row2) => row2.actionable).map((row2) => row2.port));
-    const parsed = parsePorts(portText, allowed);
-    const selectedPorts = parsed.ports.length;
-    const inPlan = rows2.filter((row2) => row2.actionable).length;
-    const outOfPlan = rows2.length - inPlan;
-    const panelById = new Map(panels.map((panel) => [
-      panel.switchId,
-      panel
-    ]));
-    const protectedText = protectedWaitText();
-    const protectedPending = !local.protected;
-    const protectedWait = protectedPending ? protectedText : "";
-    const protectedError = protectedPending ? "" : protectedText;
-    const portError = parsed.error || validatePorts(portText, allowed, plan);
-    const target = currentTarget();
-    const scopeError = !selectedPorts ? t("ip.selectTargetPort") : !inPlan ? t("ip.noTargetOnPorts", {
-      target: targetLabel(target)
-    }) : "";
-    const activePanel = panelById.get(plan.switchId);
-    const panelWait = data.panelsLoading ? t("ip.readingSwitchPanel") : "";
-    const plannedSwitch = (plan.switches || []).find((entry) => entry.id === plan.switchId);
-    const credentialError = activePanelError(activePanel, plannedSwitch, data.panelsLoading);
-    const groupError = target.groups.some((group) => !(plan.groups || []).includes(group)) ? t("ip.noTargetFound", {
-      target: targetLabel(target)
-    }) : "";
-    const sharedSource = plan.sourceMode !== "perDevice";
-    const factoryIp = sharedSource ? local.factoryIp ?? plan.factoryIp ?? "" : "";
-    const factoryError = sharedSource && !isIpv4(factoryIp) ? t("ip.factoryIpInvalid") : "";
-    const searchError = sharedSource && local.searchOpen ? validateSearch(local.searchNetwork ?? plan.searchNetwork, local.searchNetmask ?? plan.searchNetmask, local.searchFirst, local.searchLast) : "";
-    const maskError = validateTargetMask(local.targetMask ?? "", plan.minTargetPrefix, plan.maxTargetPrefix);
-    const net = plan.network || {};
-    const networkError = net.needsAdapter ? t("ip.networkNoAdapter") : net.supported === false ? t("ip.networkUnsupported") : "";
-    const software = plan.software || {};
-    const apkMissing = local.installApk && isCompartmentPlan(plan) ? missingSoftwareRows(plan) : [];
-    const apkUnsupported = local.installApk && isCompartmentPlan(plan) && (software.supported !== true || software.extension !== "apk");
-    const apkError = apkUnsupported ? t("ip.apkUnsupported") : apkMissing.length ? t("ip.apkMissingCount", {
-      count: apkMissing.length
-    }) : "";
-    const error = groupError || networkError || factoryError || maskError || searchError || apkError || protectedError || portError || scopeError || credentialError;
-    return {
-      groupError,
-      factoryIp,
-      factoryError,
-      maskError,
-      networkError,
-      searchError,
-      apkError,
-      apkMissing,
-      credentialError,
-      waiting: panelWait || protectedWait,
-      protectedError,
-      allowed,
-      portText,
-      selectedPorts,
-      inPlan,
-      outOfPlan,
-      panelById,
-      portError: portError || (!selectedPorts ? scopeError : ""),
-      error,
-      ready: !error && !panelWait && !protectedWait
-    };
-  }
-  function validatePorts(text, allowed, plan) {
-    const { ports, error } = parsePorts(text, allowed);
-    if (error) return error;
-    const protectedPorts = new Map(protectedPortsFor(plan));
-    const clashing = ports.filter((port) => protectedPorts.has(port));
-    if (clashing.length) {
-      const port = clashing[0];
-      return t("ip.portProtected", {
-        port,
-        reason: protectedPorts.get(port)
-      });
-    }
-    return "";
-  }
-  async function refresh() {
-    stopPanels();
-    const token = ++refreshToken;
-    const setNo = state.setNo;
-    const groups = selectedGroups();
-    local.errorText = "";
-    patch({
-      ipState: null
-    });
-    try {
-      const plan = await api.ipPlan(setNo, groups.join(","), local.portText || "", local.switchId || "");
-      if (token !== refreshToken || setNo !== state.setNo) return;
-      local.errorText = "";
-      resetProtectedForSet(setNo);
-      patch({
-        ipState: {
-          plan,
-          panels: [],
-          panelsLoading: true
-        }
-      });
-      if (!protectedFound()) refreshProtected();
-      const panels = await Promise.all((plan.switches || []).map((entry) => api.ipPanel(setNo, entry.id).catch(() => null)));
-      if (token !== refreshToken || setNo !== state.setNo) return;
-      patch({
-        ipState: {
-          plan,
-          panels: panels.filter(Boolean),
-          panelsLoading: false
-        }
-      });
-    } catch (e) {
-      if (token !== refreshToken || setNo !== state.setNo) return;
-      local.errorText = e.message;
-      patch({
-        ipState: null
-      });
-    }
-  }
-  function runHeader(data, check) {
-    const headerState = data ? check.ready ? "ready" : check.error ? "error" : "waiting" : local.errorText ? "error" : "waiting";
-    const headerText = data ? t(check.ready ? "ip.planReady" : check.error ? "ip.checkTheSettings" : "ip.badgeWaiting") : t(local.errorText ? "ip.planUnusable" : "ip.preparingPlan");
-    const readinessText = el("span", {
-      text: headerText
-    });
-    const readiness = el("span", {
-      class: "ip-readiness",
-      dataset: {
-        state: headerState
-      }
-    }, [
-      el("i", {
-        "aria-hidden": "true"
-      }),
-      readinessText
-    ]);
-    const startButton = el("button", {
-      type: "button",
-      class: "btn btn-primary ip-start-btn",
-      text: t("ip.startIpAssignment"),
-      disabled: !data || !check.ready,
-      title: check && (check.error || check.waiting) ? check.error || check.waiting : t("ip.startJobTitle"),
-      onclick: start
-    });
-    const summaryBadge = data ? el("span", {
-      class: check.ready ? "badge ip-ready-badge" : check.error ? "badge ip-error-badge" : "badge ip-waiting-badge",
-      text: t(check.ready ? "ip.badgeReady" : check.error ? "ip.badgeNeedsCheck" : "ip.badgeWaiting")
-    }) : null;
-    const runError = data ? el("p", {
-      class: "ip-run-error",
-      role: "alert",
-      text: check.error,
-      hidden: !check.error
-    }) : null;
-    const networkLink = data && check.networkError ? el("button", {
-      type: "button",
-      class: "btn btn-small ip-network-link",
-      text: t("ip.openNetworkScreen"),
-      onclick: () => patch({
-        view: "network"
-      })
-    }) : null;
-    function showActionState(result, waitingText = "") {
-      const waitText = waitingText || result.waiting || "";
-      const ready = !!result.ready && !waitText;
-      startButton.disabled = !ready;
-      startButton.title = result.error || waitText || t("ip.startJobTitle");
-      readiness.dataset.state = ready ? "ready" : result.error ? "error" : "waiting";
-      readinessText.textContent = ready ? t("ip.planReady") : result.error ? t("ip.checkTheSettings") : waitText;
-      summaryBadge.className = ready ? "badge ip-ready-badge" : result.error ? "badge ip-error-badge" : "badge ip-waiting-badge";
-      summaryBadge.textContent = ready ? t("ip.badgeReady") : t(result.error ? "ip.badgeNeedsCheck" : "ip.badgeWaiting");
-      runError.textContent = result.error || "";
-      runError.hidden = !result.error;
-    }
-    const bar = el("div", {
-      class: "page-head ip-page-head"
-    }, [
-      // The heading is the same on all three operation screens: the tab bar
-      // below already says which screen this is.
-      el("h2", {
-        text: t("nav.operations")
-      })
-    ]);
-    const actionBar = el("div", {
-      class: "ip-action-bar"
-    }, [
-      readiness,
-      startButton
-    ]);
-    return {
-      bar,
-      actionBar,
-      summaryBadge,
-      runError,
-      networkLink,
-      showActionState
-    };
-  }
-  function showFieldWarning(input2, warning, message) {
-    input2.setAttribute("aria-invalid", String(!!message));
-    warning.textContent = message;
-    warning.hidden = !message;
-  }
-  function switchArea(plan) {
-    const switches = plan.switches || [];
-    return el("fieldset", {
-      class: "ip-form-section ip-switch-picker-area"
-    }, [
-      el("legend", {
-        class: "visually-hidden",
-        text: t("ip.assignmentSwitch")
-      }),
-      el("label", {
-        class: "label",
-        for: "ip-assignment-switch",
-        text: t("ip.assignmentSwitch")
-      }),
-      el("select", {
-        id: "ip-assignment-switch",
-        class: "field",
-        "aria-label": t("ip.assignmentSwitch"),
-        disabled: !switches.length || local.apkPickerOpen,
-        onchange: (event) => {
-          if (event.target.value === plan.switchId) return;
-          event.target.blur();
-          selectAssignmentSwitch(event.target.value);
-          refresh();
-        }
-      }, switches.map((entry) => el("option", {
-        value: entry.id,
-        selected: entry.id === plan.switchId ? true : null,
-        // Both values come straight from DeviceMap; never translate either.
-        text: [
-          entry.name,
-          entry.ip
-        ].filter(Boolean).join(" \xB7 ")
-      }))),
-      el("p", {
-        class: "ip-field-help",
-        text: t("ip.assignmentSwitchHelp")
-      })
-    ]);
-  }
-  function portArea(data, check, showActionState) {
-    const { plan } = data;
-    const { allowed, portText, selectedPorts } = check;
-    const portWarning = el("p", {
-      id: "port-warning",
-      class: "warning",
-      text: check.portError,
-      role: "alert",
-      hidden: !check.portError
-    });
-    const portInput = el("input", {
-      id: "ip-ports",
-      class: "field",
-      value: portText,
-      "aria-invalid": String(!!check.portError),
-      "aria-describedby": "port-warning",
-      autocomplete: "off",
-      spellcheck: "false",
-      // While typing only the warning is shown; the screen is not redrawn, or
-      // focus would leave the field on every keystroke.
-      oninput: (e) => {
-        const parsed = parsePorts(e.target.value, allowed);
-        const message = validatePorts(e.target.value, allowed, plan) || (!parsed.ports.length ? t("ip.selectTargetPort") : "");
-        e.target.setAttribute("aria-invalid", String(!!message));
-        portWarning.textContent = message;
-        portWarning.hidden = !message;
-        showActionState({
-          ready: false,
-          error: message
-        }, message ? "" : t("ip.updateThePlan"));
-      },
-      onchange: (e) => {
-        const { ports, error } = parsePorts(e.target.value, allowed);
-        if (error || !ports.length || validatePorts(e.target.value, allowed, plan)) return;
-        local.portText = formatPorts(ports);
-        refresh();
-      }
-    });
-    return el("fieldset", {
-      class: "ip-form-section ip-port-area"
-    }, [
-      el("legend", {
-        class: "visually-hidden",
-        text: t("ip.targetPorts")
-      }),
-      el("div", {
-        class: "ip-field-head"
-      }, [
-        el("label", {
-          class: "label",
-          for: "ip-ports",
-          text: t("ip.targetPorts")
-        }),
-        el("span", {
-          class: "ip-field-count",
-          text: t("ip.portsSelected", {
-            count: selectedPorts
-          })
-        })
-      ]),
-      portInput,
-      portWarning,
-      el("p", {
-        class: "ip-field-help",
-        text: t("ip.rangesAndSinglePortsCan")
-      })
-    ]);
-  }
-  function optionToggle(pressed, label, title, onToggle, disabled = false) {
-    return el("button", {
-      type: "button",
-      class: "checkbox",
-      "aria-pressed": String(pressed),
-      title: title || null,
-      disabled,
-      onclick: () => {
-        if (disabled) return;
-        onToggle();
-        patch({
-          ipState: {
-            ...state.ipState
-          }
-        });
-      }
-    }, [
-      el("span", {
-        class: "box",
-        "aria-hidden": "true"
-      }),
-      el("span", {
-        text: label
-      })
-    ]);
-  }
-  function currentPlanIs(plan, setNo) {
-    return state.setNo === setNo && !!state.ipState && state.ipState.plan === plan && isCompartmentPlan(plan);
-  }
-  function applySoftwareReply(plan, reply) {
-    plan.software = mergedSoftware(plan, reply);
-    patch({
-      ipState: {
-        ...state.ipState
-      }
-    });
-  }
-  async function pickApk(plan) {
-    const ids = softwareDeviceIds(plan);
-    if (!ids.length || local.apkPickerOpen) return;
-    const setNo = state.setNo;
-    local.apkPickerOpen = true;
-    patch({
-      ipState: {
-        ...state.ipState
-      }
-    });
-    try {
-      const reply = await api.firmwarePick(setNo, LCD_GROUP, ids);
-      if (!currentPlanIs(plan, setNo)) return;
-      if (!reply.cancelled) {
-        applySoftwareReply(plan, reply);
-        showSuccess(t("firmware.fileSelectedFor", {
-          count: ids.length
-        }));
-      }
-    } catch (error) {
-      showError(error.message);
-    } finally {
-      local.apkPickerOpen = false;
-      if (state.view === "ip" && state.ipState) {
-        patch({
-          ipState: {
-            ...state.ipState
-          }
-        });
-      }
-    }
-  }
-  async function removeApks(plan) {
-    const ids = softwareDeviceIds(plan);
-    if (!ids.length || local.apkPickerOpen) return;
-    const setNo = state.setNo;
-    try {
-      const reply = await api.firmwareRemove(setNo, LCD_GROUP, ids);
-      if (currentPlanIs(plan, setNo)) applySoftwareReply(plan, reply);
-    } catch (error) {
-      showError(error.message);
-    }
-  }
-  function apkFields(plan, check) {
-    const rows2 = softwareRows(plan);
-    const files = softwareFiles(plan);
-    const ready = rows2.filter((row2) => files[row2.deviceId] && files[row2.deviceId].selected).length;
-    const supported = !!(plan.software && plan.software.supported && plan.software.extension === "apk");
-    return el("div", {
-      class: "ip-apk-block"
-    }, [
-      el("div", {
-        class: "ip-apk-head"
-      }, [
-        el("span", {
-          class: "label",
-          text: t("ip.apkFiles")
-        }),
-        el("span", {
-          class: ready === rows2.length && rows2.length ? "badge ip-ready-badge" : "badge",
-          text: t("ip.apkReadyCount", {
-            ready,
-            count: rows2.length
-          })
-        })
-      ]),
-      el("div", {
-        class: "ip-apk-controls"
-      }, [
-        el("div", {
-          class: "ip-apk-actions"
-        }, [
-          el("button", {
-            type: "button",
-            class: "btn btn-small btn-primary",
-            text: local.apkPickerOpen ? t("firmware.selectingFile") : t("ip.selectApkFor", {
-              count: rows2.length
-            }),
-            title: `${t("firmware.yourComputersFileDialogOpens")} (.apk)`,
-            disabled: !supported || !rows2.length || local.apkPickerOpen,
-            onclick: () => pickApk(plan)
-          }),
-          el("button", {
-            type: "button",
-            class: "btn btn-small",
-            text: t("firmware.clearTheSelections"),
-            disabled: !ready || local.apkPickerOpen,
-            onclick: () => removeApks(plan)
-          })
-        ])
-      ]),
-      el("div", {
-        class: "ip-apk-list"
-      }, rows2.map((row2) => {
-        const file = files[row2.deviceId] || {
-          selected: false
-        };
-        return el("div", {
-          class: "ip-apk-row",
-          dataset: {
-            selected: file.selected ? "1" : "0"
-          }
-        }, [
-          el("span", {
-            class: "mono truncate",
-            text: deviceMapName(row2)
-          }),
-          el("span", {
-            class: file.selected ? "mono truncate" : "mono truncate text-dim",
-            title: file.name || t("firmware.noFileSelectedYet"),
-            text: file.selected ? file.name : t("firmware.noFileSelected")
-          }),
-          el("span", {
-            class: file.selected ? "text-mid" : "text-dim",
-            text: file.selected ? t("firmware.readyToInstall", {
-              size: fileSize(file.size)
-            }) : "\u2014"
-          })
-        ]);
-      })),
-      check.apkError ? el("p", {
-        class: "ip-field-error ip-apk-error",
-        role: "alert",
-        text: check.apkError
-      }) : null
-    ]);
-  }
-  var maskBoxes = [];
-  var maskWatchers = [];
-  function forgetMaskBoxes() {
-    maskBoxes.length = 0;
-    maskWatchers.length = 0;
-  }
-  function maskField(data, check, showActionState, prefix = "ip-target-mask") {
-    const { plan } = data;
-    const defaultMask = plan.targetNetmask || "255.255.255.0";
-    const maskWarning = el("p", {
-      id: `${prefix}-error`,
-      class: "ip-field-error",
-      role: "alert",
-      text: check.maskError,
-      hidden: !check.maskError
-    });
-    const input2 = el("input", {
-      id: prefix,
-      class: "field ip-medium-field",
-      value: local.targetMask ?? defaultMask,
-      autocomplete: "off",
-      spellcheck: "false",
-      "aria-invalid": String(!!check.maskError),
-      "aria-describedby": `${prefix}-error`,
-      oninput: (event) => {
-        local.targetMask = event.target.value.trim();
-        const result = validateRun(data);
-        for (const box of maskBoxes) {
-          if (box.input !== event.target) box.input.value = event.target.value;
-          showFieldWarning(box.input, box.warning, result.maskError);
-        }
-        showActionState(result);
-        for (const watch of maskWatchers) watch(result);
-      }
-    });
-    maskBoxes.push({
-      input: input2,
-      warning: maskWarning
-    });
-    return [
-      el("label", {
-        class: "setting-row",
-        for: prefix
-      }, [
-        el("span", {
-          class: "label",
-          text: t("ip.targetMask")
-        }),
-        input2
-      ]),
-      maskWarning,
-      el("p", {
-        class: "ip-field-help",
-        text: t("ip.targetMaskHelp", {
-          mask: defaultMask
-        })
-      })
-    ];
-  }
-  function lcdAddressingArea(data, check, showActionState) {
-    const { plan } = data;
-    const sources = softwareRows(plan).map((row2) => row2.sourceIp || row2.factoryIp || "").filter(Boolean);
-    const sourceRange = !sources.length ? "\u2014" : sources.length === 1 ? sources[0] : `${sources[0]} \u2013 ${sources[sources.length - 1]}`;
-    return el("fieldset", {
-      class: "setting-section ip-lcd-settings"
-    }, [
-      el("legend", {
-        class: "visually-hidden",
-        text: t("ip.lcdAddressing")
-      }),
-      el("div", {
-        class: "ip-sub-head"
-      }, [
-        el("span", {
-          class: "eyebrow",
-          text: t("ip.lcdAddressing")
-        })
-      ]),
-      el("div", {
-        class: "ip-lcd-source"
-      }, [
-        el("div", {
-          class: "row"
-        }, [
-          el("span", {
-            text: t("ip.lcdSourceRange")
-          }),
-          el("b", {
-            class: "mono",
-            text: sourceRange
-          })
-        ]),
-        el("p", {
-          class: "ip-field-help",
-          text: t(usesPhysicalPortDiscovery(plan) ? "ip.lcdPhysicalSourcePolicy" : "ip.lcdSourcePolicy")
-        })
-      ]),
-      ...maskField(data, check, showActionState),
-      optionToggle(local.installApk, t("ip.installApkBeforeAssignment"), t("ip.installApkNote"), () => {
-        local.installApk = !local.installApk;
-      }, !(plan.software && plan.software.supported)),
-      ...local.installApk ? [
-        apkFields(plan, check)
-      ] : []
-    ]);
-  }
-  function preflashFields(plan) {
-    const file = plan && plan.preflashFile || {
-      name: ""
-    };
-    return [
-      el("div", {
-        class: "setting-row"
-      }, [
-        el("span", {
-          class: "label",
-          text: t("ip.preflashFile")
-        }),
-        el("span", {
-          class: "ip-preflash-file"
-        }, [
-          el("span", {
-            class: file.name ? "mono" : "text-dim",
-            text: file.name || t("ip.preflashNoFile")
-          }),
-          el("button", {
-            type: "button",
-            class: "btn btn-small",
-            text: t("ip.preflashPick"),
-            onclick: async () => {
-              try {
-                const answer = await api.ipPreflashFile();
-                if (answer.cancelled) return;
-                plan.preflashFile = answer.preflashFile;
-                patch({
-                  ipState: {
-                    ...state.ipState
-                  }
-                });
-              } catch (e) {
-                showError(e.message);
-              }
-            }
-          }),
-          file.name && el("button", {
-            type: "button",
-            class: "btn btn-small",
-            text: t("net.releaseOne"),
-            onclick: async () => {
-              try {
-                const answer = await api.ipPreflashFile(true);
-                plan.preflashFile = answer.preflashFile;
-                patch({
-                  ipState: {
-                    ...state.ipState
-                  }
-                });
-              } catch (e) {
-                showError(e.message);
-              }
-            }
-          })
-        ])
-      ])
-    ];
-  }
-  function addressingArea(data, check, showActionState) {
-    const { plan } = data;
-    if (isCompartmentPlan(plan)) {
-      return lcdAddressingArea(data, check, showActionState);
-    }
-    const factoryWarning = el("p", {
-      id: "ip-factory-error",
-      class: "ip-field-error",
-      role: "alert",
-      text: check.factoryError,
-      hidden: !check.factoryError
-    });
-    const factoryInput = el("input", {
-      id: "ip-factory",
-      class: "field",
-      value: check.factoryIp,
-      autocomplete: "off",
-      spellcheck: "false",
-      inputmode: "numeric",
-      "aria-invalid": String(!!check.factoryError),
-      "aria-describedby": "ip-factory-error",
-      oninput: (e) => {
-        local.factoryIp = e.target.value.trim();
-        const result = validateRun(data);
-        showFieldWarning(e.target, factoryWarning, result.factoryError);
-        showActionState(result);
-      }
-    });
-    const searchWarning = el("p", {
-      id: "ip-search-error",
-      class: "ip-field-error",
-      role: "alert",
-      text: check.searchError,
-      hidden: !check.searchError
-    });
-    const searchField = (key, id, label, fallback) => el("label", {
-      class: "setting-row",
-      for: id
-    }, [
-      el("span", {
-        class: "label",
-        text: label
-      }),
-      el("input", {
-        id,
-        class: "field ip-medium-field",
-        value: local[key] ?? fallback ?? "",
-        autocomplete: "off",
-        spellcheck: "false",
-        "aria-describedby": "ip-search-error",
-        oninput: (e) => {
-          local[key] = e.target.value.trim();
-          const result = validateRun(data);
-          showFieldWarning(e.target, searchWarning, result.searchError);
-          showActionState(result);
-        }
-      })
-    ]);
-    return el("fieldset", {
-      class: "setting-section"
-    }, [
-      el("legend", {
-        class: "visually-hidden",
-        text: t("ip.addressing")
-      }),
-      el("div", {
-        class: "ip-sub-head"
-      }, [
-        el("span", {
-          class: "eyebrow",
-          text: t("ip.addressing")
-        })
-      ]),
-      el("label", {
-        class: "setting-row",
-        for: "ip-factory"
-      }, [
-        el("span", {
-          class: "label",
-          text: t("ip.factoryIpAddress")
-        }),
-        factoryInput
-      ]),
-      factoryWarning,
-      ...maskField(data, check, showActionState),
-      optionToggle(local.searchOpen, t("ip.searchIfNotFactory"), "", () => {
-        local.searchOpen = !local.searchOpen;
-      }),
-      // Flash before assigning. Old intercoms report their version and identity
-      // wrongly, and the run is the only moment one of them is reachable alone
-      // and still on the factory address.
-      optionToggle(local.preflash, t("ip.preflash"), t("ip.preflashNote"), () => {
-        local.preflash = !local.preflash;
-      }),
-      ...local.preflash ? preflashFields(plan) : [],
-      ...local.searchOpen ? [
-        searchField("searchNetwork", "ip-search-network", t("ip.searchNetwork"), plan.searchNetwork),
-        searchField("searchNetmask", "ip-search-mask", t("ip.searchNetmask"), plan.searchNetmask),
-        // An explicit range: when the project mask is wide (/8 in the top bar)
-        // opening the network means millions of addresses. With a range given,
-        // the network/mask pair above is not used.
-        searchField("searchFirst", "ip-search-first", t("ip.rangeStart")),
-        searchField("searchLast", "ip-search-last", t("ip.rangeEnd")),
-        searchWarning,
-        el("p", {
-          class: "ip-field-help",
-          text: t("ip.ifARangeIsGiven", {
-            limit: SEARCH_LIMIT
-          })
-        })
-      ] : []
-    ]);
-  }
-  function settingsCard(data, check, header) {
-    const { plan } = data;
-    return el("details", {
-      class: "card corner ip-settings-card ip-collapsible",
-      open: local.openSections.scope,
-      ontoggle: (e) => {
-        local.openSections.scope = e.currentTarget.open;
-      }
-    }, [
-      el("summary", {
-        class: "ip-card-head ip-collapsible-summary"
-      }, [
-        el("h3", {
-          text: t("ip.ipSettings")
-        }),
-        header.summaryBadge
-      ]),
-      switchArea(plan),
-      portArea(data, check, header.showActionState),
-      addressingArea(data, check, header.showActionState),
-      // ── summary: what happens on which switch ──
-      el("div", {
-        class: "setting-summary"
-      }, [
-        el("div", {
-          class: "ip-summary-head"
-        }, [
-          el("span", {
-            class: "eyebrow",
-            text: t("ip.jobSummary")
-          })
-        ]),
-        el("div", {
-          class: "row"
-        }, [
-          el("span", {
-            text: t("ip.target")
-          }),
-          el("b", {
-            text: t("ip.targetSummary", {
-              switch: value(plan.switch),
-              count: plan.targetCount
-            })
-          })
-        ]),
-        el("div", {
-          class: "row"
-        }, [
-          el("span", {
-            text: t("ip.targetMask")
-          }),
-          el("b", {
-            class: "mono",
-            text: local.targetMask || plan.targetNetmask || "255.255.255.0"
-          })
-        ])
-      ]),
-      header.actionBar
-    ]);
-  }
   function factoryResetSelection() {
     if (local.factoryResetScope !== "external") {
       return {
@@ -7931,7 +6906,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       oninput: (event) => {
         local.factoryResetSet = event.target.value.trim();
         const choice = factoryResetSelection();
-        showFieldWarning(event.target, warning, choice.error);
+        showFieldWarning2(event.target, warning, choice.error);
         if (resetButton) {
           resetButton.disabled = !!choice.error || !!check.factoryError;
         }
@@ -8156,7 +7131,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
             oninput: (event) => {
               local.factoryResetSet = event.target.value.trim();
               const choice = factoryResetSelection();
-              showFieldWarning(event.target, warning, choice.error);
+              showFieldWarning2(event.target, warning, choice.error);
               if (resetButton) {
                 resetButton.disabled = !!choice.error || !!check.portError;
               }
@@ -8177,6 +7152,252 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ])
     ]);
   }
+
+  // static/js/views/ip/plan_table.js
+  var COLUMNS2 = "68px minmax(150px,1.25fr) minmax(104px,.85fr) 112px 112px minmax(150px,1fr)";
+  var HEADINGS = [
+    "col.port",
+    "col.targetDevice",
+    "col.group",
+    "col.factoryIp",
+    "col.ipToAssign",
+    "col.state"
+  ];
+  function planRowStateKey(plan, row2) {
+    if (!row2.actionable) return "ipplan.outsideTargetGroup";
+    if (usesPhysicalPortDiscovery(plan) && !row2.deviceId) {
+      return "ipplan.automaticDeviceMatch";
+    }
+    return "ipplan.inThePlan";
+  }
+  function planRow(plan, row2, factoryIp) {
+    return el("div", {
+      class: "table-row ip-plan-row",
+      style: `--table-columns:${COLUMNS2}`,
+      dataset: {
+        actionable: row2.actionable ? "1" : "0"
+      }
+    }, [
+      el("span", {
+        class: "ip-port-badge",
+        text: `p${row2.port}`
+      }),
+      el("span", {
+        class: "mono truncate ip-device-name",
+        text: deviceMapName(row2) || NONE
+      }),
+      el("span", {
+        class: "mono truncate ip-group-name",
+        text: row2.group || NONE
+      }),
+      // A shared source can be overridden by the Intercom form. Compartment LCD
+      // sources are per device and always come from the server's DeviceMap plan.
+      el("span", {
+        class: "mono text-mid ip-address",
+        text: sourceAddress(plan, row2, factoryIp) || NONE
+      }),
+      el("span", {
+        class: "mono ip-address ip-target-ip",
+        text: row2.targetIp || NONE
+      }),
+      el("span", {
+        class: row2.actionable ? "ip-state-badge included" : "ip-state-badge excluded"
+      }, [
+        el("i", {
+          "aria-hidden": "true"
+        }),
+        t(planRowStateKey(plan, row2))
+      ])
+    ]);
+  }
+  function planTable(plan, check) {
+    const { inPlan, outOfPlan, factoryIp } = check;
+    const headings = [
+      ...HEADINGS
+    ];
+    if (perDeviceSource(plan)) headings[3] = "col.sourceIp";
+    return el("details", {
+      class: "ip-plan-section ip-collapsible",
+      // Opened by default when something falls outside the plan: that is the
+      // case the user has to look at.
+      open: local.openSections.plan ?? outOfPlan > 0,
+      ontoggle: (e) => {
+        local.openSections.plan = e.currentTarget.open;
+      }
+    }, [
+      el("summary", {
+        class: "ip-section-head ip-collapsible-summary"
+      }, [
+        el("div", {
+          class: "ip-section-title"
+        }, [
+          el("div", {}, [
+            el("h3", {
+              text: t("ipplan.assignmentPlan")
+            }),
+            el("p", {
+              text: t(usesPhysicalPortDiscovery(plan) ? "ipplan.physicalPortDiscoveryNote" : "ipplan.reviewTheCurrentAndTarget")
+            })
+          ])
+        ]),
+        el("div", {
+          class: "ip-plan-metrics"
+        }, [
+          el("span", {
+            text: t("ipplan.includedCount", {
+              count: inPlan
+            })
+          }),
+          outOfPlan ? el("span", {
+            text: t("ipplan.outOfScopeCount", {
+              count: outOfPlan
+            })
+          }) : null
+        ])
+      ]),
+      dataTable({
+        template: COLUMNS2,
+        minWidth: 800,
+        wrapClass: "ip-plan-table",
+        label: t("ipplan.assignmentPlan"),
+        columns: headings.map((key) => t(key)),
+        rows: plan.rows.map((row2) => planRow(plan, row2, factoryIp)),
+        empty: t("ipplan.noTargetDeviceOnThe")
+      })
+    ]);
+  }
+
+  // static/js/views/ip/validation.js
+  var maskBoxes = [];
+  var maskWatchers = [];
+  function onMaskResult(watcher) {
+    maskWatchers.push(watcher);
+  }
+  function validateRun(data) {
+    const { plan, panels = [] } = data;
+    const allowed = plan.allowedPorts || [];
+    const rows2 = plan.rows || [];
+    const portText = local.portText ?? formatPorts(rows2.filter((row2) => row2.actionable).map((row2) => row2.port));
+    const parsed = parsePorts(portText, allowed);
+    const selectedPorts = parsed.ports.length;
+    const inPlan = rows2.filter((row2) => row2.actionable).length;
+    const outOfPlan = rows2.length - inPlan;
+    const panelById = new Map(panels.map((panel) => [
+      panel.switchId,
+      panel
+    ]));
+    const protectedText = protectedWaitText();
+    const protectedPending = !local.protected;
+    const protectedWait = protectedPending ? protectedText : "";
+    const protectedError = protectedPending ? "" : protectedText;
+    const portError = parsed.error || validatePorts(portText, allowed, plan);
+    const target = currentTarget();
+    const scopeError = !selectedPorts ? t("ip.selectTargetPort") : !inPlan ? t("ip.noTargetOnPorts", {
+      target: targetLabel(target)
+    }) : "";
+    const activePanel = panelById.get(plan.switchId);
+    const panelWait = data.panelsLoading ? t("ip.readingSwitchPanel") : "";
+    const plannedSwitch = (plan.switches || []).find((entry) => entry.id === plan.switchId);
+    const credentialError = activePanelError(activePanel, plannedSwitch, data.panelsLoading);
+    const groupError = target.groups.some((group) => !(plan.groups || []).includes(group)) ? t("ip.noTargetFound", {
+      target: targetLabel(target)
+    }) : "";
+    const sharedSource = plan.sourceMode !== "perDevice";
+    const factoryIp = sharedSource ? local.factoryIp ?? plan.factoryIp ?? "" : "";
+    const factoryError = sharedSource && !isIpv4(factoryIp) ? t("ip.factoryIpInvalid") : "";
+    const searchError = sharedSource && local.searchOpen ? validateSearch(local.searchNetwork ?? plan.searchNetwork, local.searchNetmask ?? plan.searchNetmask, local.searchFirst, local.searchLast) : "";
+    const maskError = validateTargetMask(local.targetMask ?? "", plan.minTargetPrefix, plan.maxTargetPrefix);
+    const net = plan.network || {};
+    const networkError = net.needsAdapter ? t("ip.networkNoAdapter") : net.supported === false ? t("ip.networkUnsupported") : "";
+    const software = plan.software || {};
+    const apkMissing = local.installApk && isCompartmentPlan(plan) ? missingSoftwareRows(plan) : [];
+    const apkUnsupported = local.installApk && isCompartmentPlan(plan) && (software.supported !== true || software.extension !== "apk");
+    const apkError = apkUnsupported ? t("ip.apkUnsupported") : apkMissing.length ? t("ip.apkMissingCount", {
+      count: apkMissing.length
+    }) : "";
+    const error = groupError || networkError || factoryError || maskError || searchError || apkError || protectedError || portError || scopeError || credentialError;
+    return {
+      groupError,
+      factoryIp,
+      factoryError,
+      maskError,
+      networkError,
+      searchError,
+      apkError,
+      apkMissing,
+      credentialError,
+      waiting: panelWait || protectedWait,
+      protectedError,
+      allowed,
+      portText,
+      selectedPorts,
+      inPlan,
+      outOfPlan,
+      panelById,
+      portError: portError || (!selectedPorts ? scopeError : ""),
+      error,
+      ready: !error && !panelWait && !protectedWait
+    };
+  }
+  function forgetMaskBoxes() {
+    maskBoxes.length = 0;
+    maskWatchers.length = 0;
+  }
+  function maskField(data, check, showActionState, prefix = "ip-target-mask") {
+    const { plan } = data;
+    const defaultMask = plan.targetNetmask || "255.255.255.0";
+    const maskWarning = el("p", {
+      id: `${prefix}-error`,
+      class: "ip-field-error",
+      role: "alert",
+      text: check.maskError,
+      hidden: !check.maskError
+    });
+    const input2 = el("input", {
+      id: prefix,
+      class: "field ip-medium-field",
+      value: local.targetMask ?? defaultMask,
+      autocomplete: "off",
+      spellcheck: "false",
+      "aria-invalid": String(!!check.maskError),
+      "aria-describedby": `${prefix}-error`,
+      oninput: (event) => {
+        local.targetMask = event.target.value.trim();
+        const result = validateRun(data);
+        for (const box of maskBoxes) {
+          if (box.input !== event.target) box.input.value = event.target.value;
+          showFieldWarning2(box.input, box.warning, result.maskError);
+        }
+        showActionState(result);
+        for (const watch of maskWatchers) watch(result);
+      }
+    });
+    maskBoxes.push({
+      input: input2,
+      warning: maskWarning
+    });
+    return [
+      el("label", {
+        class: "setting-row",
+        for: prefix
+      }, [
+        el("span", {
+          class: "label",
+          text: t("ip.targetMask")
+        }),
+        input2
+      ]),
+      maskWarning,
+      el("p", {
+        class: "ip-field-help",
+        text: t("ip.targetMaskHelp", {
+          mask: defaultMask
+        })
+      })
+    ];
+  }
+
+  // static/js/views/ip/manual.js
   function manualAssignCard(data, check) {
     const { plan } = data;
     const warning = el("p", {
@@ -8225,7 +7446,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         }
       })
     ]);
-    maskWatchers.push((result) => review(result));
+    onMaskResult((result) => review(result));
     const card = el("section", {
       class: "card corner ip-manual-card"
     }, [
@@ -8314,6 +7535,796 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         });
       }
     }
+  }
+
+  // static/js/views/ip/apk.js
+  function currentPlanIs(plan, setNo) {
+    return state.setNo === setNo && !!state.ipState && state.ipState.plan === plan && isCompartmentPlan(plan);
+  }
+  function applySoftwareReply(plan, reply) {
+    plan.software = mergedSoftware(plan, reply);
+    patch({
+      ipState: {
+        ...state.ipState
+      }
+    });
+  }
+  async function pickApk(plan) {
+    const ids = softwareDeviceIds(plan);
+    if (!ids.length || local.apkPickerOpen) return;
+    const setNo = state.setNo;
+    local.apkPickerOpen = true;
+    patch({
+      ipState: {
+        ...state.ipState
+      }
+    });
+    try {
+      const reply = await api.firmwarePick(setNo, LCD_GROUP, ids);
+      if (!currentPlanIs(plan, setNo)) return;
+      if (!reply.cancelled) {
+        applySoftwareReply(plan, reply);
+        showSuccess(t("firmware.fileSelectedFor", {
+          count: ids.length
+        }));
+      }
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      local.apkPickerOpen = false;
+      if (state.view === "ip" && state.ipState) {
+        patch({
+          ipState: {
+            ...state.ipState
+          }
+        });
+      }
+    }
+  }
+  async function removeApks(plan) {
+    const ids = softwareDeviceIds(plan);
+    if (!ids.length || local.apkPickerOpen) return;
+    const setNo = state.setNo;
+    try {
+      const reply = await api.firmwareRemove(setNo, LCD_GROUP, ids);
+      if (currentPlanIs(plan, setNo)) applySoftwareReply(plan, reply);
+    } catch (error) {
+      showError(error.message);
+    }
+  }
+  function apkFields(plan, check) {
+    const rows2 = softwareRows(plan);
+    const files = softwareFiles(plan);
+    const ready = rows2.filter((row2) => files[row2.deviceId] && files[row2.deviceId].selected).length;
+    const supported = !!(plan.software && plan.software.supported && plan.software.extension === "apk");
+    return el("div", {
+      class: "ip-apk-block"
+    }, [
+      el("div", {
+        class: "ip-apk-head"
+      }, [
+        el("span", {
+          class: "label",
+          text: t("ip.apkFiles")
+        }),
+        el("span", {
+          class: ready === rows2.length && rows2.length ? "badge ip-ready-badge" : "badge",
+          text: t("ip.apkReadyCount", {
+            ready,
+            count: rows2.length
+          })
+        })
+      ]),
+      el("div", {
+        class: "ip-apk-controls"
+      }, [
+        el("div", {
+          class: "ip-apk-actions"
+        }, [
+          el("button", {
+            type: "button",
+            class: "btn btn-small btn-primary",
+            text: local.apkPickerOpen ? t("firmware.selectingFile") : t("ip.selectApkFor", {
+              count: rows2.length
+            }),
+            title: `${t("firmware.yourComputersFileDialogOpens")} (.apk)`,
+            disabled: !supported || !rows2.length || local.apkPickerOpen,
+            onclick: () => pickApk(plan)
+          }),
+          el("button", {
+            type: "button",
+            class: "btn btn-small",
+            text: t("firmware.clearTheSelections"),
+            disabled: !ready || local.apkPickerOpen,
+            onclick: () => removeApks(plan)
+          })
+        ])
+      ]),
+      el("div", {
+        class: "ip-apk-list"
+      }, rows2.map((row2) => {
+        const file = files[row2.deviceId] || {
+          selected: false
+        };
+        return el("div", {
+          class: "ip-apk-row",
+          dataset: {
+            selected: file.selected ? "1" : "0"
+          }
+        }, [
+          el("span", {
+            class: "mono truncate",
+            text: deviceMapName(row2)
+          }),
+          el("span", {
+            class: file.selected ? "mono truncate" : "mono truncate text-dim",
+            title: file.name || t("firmware.noFileSelectedYet"),
+            text: file.selected ? file.name : t("firmware.noFileSelected")
+          }),
+          el("span", {
+            class: file.selected ? "text-mid" : "text-dim",
+            text: file.selected ? t("firmware.readyToInstall", {
+              size: fileSize(file.size)
+            }) : "\u2014"
+          })
+        ]);
+      })),
+      check.apkError ? el("p", {
+        class: "ip-field-error ip-apk-error",
+        role: "alert",
+        text: check.apkError
+      }) : null
+    ]);
+  }
+
+  // static/js/views/ip/settings_card.js
+  function optionToggle(pressed, label, title, onToggle, disabled = false) {
+    return el("button", {
+      type: "button",
+      class: "checkbox",
+      "aria-pressed": String(pressed),
+      title: title || null,
+      disabled,
+      onclick: () => {
+        if (disabled) return;
+        onToggle();
+        patch({
+          ipState: {
+            ...state.ipState
+          }
+        });
+      }
+    }, [
+      el("span", {
+        class: "box",
+        "aria-hidden": "true"
+      }),
+      el("span", {
+        text: label
+      })
+    ]);
+  }
+  function lcdAddressingArea(data, check, showActionState) {
+    const { plan } = data;
+    const sources = softwareRows(plan).map((row2) => row2.sourceIp || row2.factoryIp || "").filter(Boolean);
+    const sourceRange = !sources.length ? "\u2014" : sources.length === 1 ? sources[0] : `${sources[0]} \u2013 ${sources[sources.length - 1]}`;
+    return el("fieldset", {
+      class: "setting-section ip-lcd-settings"
+    }, [
+      el("legend", {
+        class: "visually-hidden",
+        text: t("ip.lcdAddressing")
+      }),
+      el("div", {
+        class: "ip-sub-head"
+      }, [
+        el("span", {
+          class: "eyebrow",
+          text: t("ip.lcdAddressing")
+        })
+      ]),
+      el("div", {
+        class: "ip-lcd-source"
+      }, [
+        el("div", {
+          class: "row"
+        }, [
+          el("span", {
+            text: t("ip.lcdSourceRange")
+          }),
+          el("b", {
+            class: "mono",
+            text: sourceRange
+          })
+        ]),
+        el("p", {
+          class: "ip-field-help",
+          text: t(usesPhysicalPortDiscovery(plan) ? "ip.lcdPhysicalSourcePolicy" : "ip.lcdSourcePolicy")
+        })
+      ]),
+      ...maskField(data, check, showActionState),
+      optionToggle(local.installApk, t("ip.installApkBeforeAssignment"), t("ip.installApkNote"), () => {
+        local.installApk = !local.installApk;
+      }, !(plan.software && plan.software.supported)),
+      ...local.installApk ? [
+        apkFields(plan, check)
+      ] : []
+    ]);
+  }
+  function preflashFields(plan) {
+    const file = plan && plan.preflashFile || {
+      name: ""
+    };
+    return [
+      el("div", {
+        class: "setting-row"
+      }, [
+        el("span", {
+          class: "label",
+          text: t("ip.preflashFile")
+        }),
+        el("span", {
+          class: "ip-preflash-file"
+        }, [
+          el("span", {
+            class: file.name ? "mono" : "text-dim",
+            text: file.name || t("ip.preflashNoFile")
+          }),
+          el("button", {
+            type: "button",
+            class: "btn btn-small",
+            text: t("ip.preflashPick"),
+            onclick: async () => {
+              try {
+                const answer = await api.ipPreflashFile();
+                if (answer.cancelled) return;
+                plan.preflashFile = answer.preflashFile;
+                patch({
+                  ipState: {
+                    ...state.ipState
+                  }
+                });
+              } catch (e) {
+                showError(e.message);
+              }
+            }
+          }),
+          file.name && el("button", {
+            type: "button",
+            class: "btn btn-small",
+            text: t("net.releaseOne"),
+            onclick: async () => {
+              try {
+                const answer = await api.ipPreflashFile(true);
+                plan.preflashFile = answer.preflashFile;
+                patch({
+                  ipState: {
+                    ...state.ipState
+                  }
+                });
+              } catch (e) {
+                showError(e.message);
+              }
+            }
+          })
+        ])
+      ])
+    ];
+  }
+  function addressingArea(data, check, showActionState) {
+    const { plan } = data;
+    if (isCompartmentPlan(plan)) {
+      return lcdAddressingArea(data, check, showActionState);
+    }
+    const factoryWarning = el("p", {
+      id: "ip-factory-error",
+      class: "ip-field-error",
+      role: "alert",
+      text: check.factoryError,
+      hidden: !check.factoryError
+    });
+    const factoryInput = el("input", {
+      id: "ip-factory",
+      class: "field",
+      value: check.factoryIp,
+      autocomplete: "off",
+      spellcheck: "false",
+      inputmode: "numeric",
+      "aria-invalid": String(!!check.factoryError),
+      "aria-describedby": "ip-factory-error",
+      oninput: (e) => {
+        local.factoryIp = e.target.value.trim();
+        const result = validateRun(data);
+        showFieldWarning(e.target, factoryWarning, result.factoryError);
+        showActionState(result);
+      }
+    });
+    const searchWarning = el("p", {
+      id: "ip-search-error",
+      class: "ip-field-error",
+      role: "alert",
+      text: check.searchError,
+      hidden: !check.searchError
+    });
+    const searchField = (key, id, label, fallback) => el("label", {
+      class: "setting-row",
+      for: id
+    }, [
+      el("span", {
+        class: "label",
+        text: label
+      }),
+      el("input", {
+        id,
+        class: "field ip-medium-field",
+        value: local[key] ?? fallback ?? "",
+        autocomplete: "off",
+        spellcheck: "false",
+        "aria-describedby": "ip-search-error",
+        oninput: (e) => {
+          local[key] = e.target.value.trim();
+          const result = validateRun(data);
+          showFieldWarning(e.target, searchWarning, result.searchError);
+          showActionState(result);
+        }
+      })
+    ]);
+    return el("fieldset", {
+      class: "setting-section"
+    }, [
+      el("legend", {
+        class: "visually-hidden",
+        text: t("ip.addressing")
+      }),
+      el("div", {
+        class: "ip-sub-head"
+      }, [
+        el("span", {
+          class: "eyebrow",
+          text: t("ip.addressing")
+        })
+      ]),
+      el("label", {
+        class: "setting-row",
+        for: "ip-factory"
+      }, [
+        el("span", {
+          class: "label",
+          text: t("ip.factoryIpAddress")
+        }),
+        factoryInput
+      ]),
+      factoryWarning,
+      ...maskField(data, check, showActionState),
+      optionToggle(local.searchOpen, t("ip.searchIfNotFactory"), "", () => {
+        local.searchOpen = !local.searchOpen;
+      }),
+      // Flash before assigning. Old intercoms report their version and identity
+      // wrongly, and the run is the only moment one of them is reachable alone
+      // and still on the factory address.
+      optionToggle(local.preflash, t("ip.preflash"), t("ip.preflashNote"), () => {
+        local.preflash = !local.preflash;
+      }),
+      ...local.preflash ? preflashFields(plan) : [],
+      ...local.searchOpen ? [
+        searchField("searchNetwork", "ip-search-network", t("ip.searchNetwork"), plan.searchNetwork),
+        searchField("searchNetmask", "ip-search-mask", t("ip.searchNetmask"), plan.searchNetmask),
+        // An explicit range: when the project mask is wide (/8 in the top bar)
+        // opening the network means millions of addresses. With a range given,
+        // the network/mask pair above is not used.
+        searchField("searchFirst", "ip-search-first", t("ip.rangeStart")),
+        searchField("searchLast", "ip-search-last", t("ip.rangeEnd")),
+        searchWarning,
+        el("p", {
+          class: "ip-field-help",
+          text: t("ip.ifARangeIsGiven", {
+            limit: SEARCH_LIMIT
+          })
+        })
+      ] : []
+    ]);
+  }
+  function settingsCard(data, check, header, areas2) {
+    const { plan } = data;
+    return el("details", {
+      class: "card corner ip-settings-card ip-collapsible",
+      open: local.openSections.scope,
+      ontoggle: (e) => {
+        local.openSections.scope = e.currentTarget.open;
+      }
+    }, [
+      el("summary", {
+        class: "ip-card-head ip-collapsible-summary"
+      }, [
+        el("h3", {
+          text: t("ip.ipSettings")
+        }),
+        header.summaryBadge
+      ]),
+      areas2.switchArea(plan),
+      areas2.portArea(data, check, header.showActionState),
+      addressingArea(data, check, header.showActionState),
+      // ── summary: what happens on which switch ──
+      el("div", {
+        class: "setting-summary"
+      }, [
+        el("div", {
+          class: "ip-summary-head"
+        }, [
+          el("span", {
+            class: "eyebrow",
+            text: t("ip.jobSummary")
+          })
+        ]),
+        el("div", {
+          class: "row"
+        }, [
+          el("span", {
+            text: t("ip.target")
+          }),
+          el("b", {
+            text: t("ip.targetSummary", {
+              switch: value(plan.switch),
+              count: plan.targetCount
+            })
+          })
+        ]),
+        el("div", {
+          class: "row"
+        }, [
+          el("span", {
+            text: t("ip.targetMask")
+          }),
+          el("b", {
+            class: "mono",
+            text: local.targetMask || plan.targetNetmask || "255.255.255.0"
+          })
+        ])
+      ]),
+      header.actionBar
+    ]);
+  }
+
+  // static/js/views/ip/index.js
+  var refreshToken = 0;
+  async function refreshPanels() {
+    const data = state.ipState;
+    if (!data || !onScreen()) return;
+    const setNo = state.setNo;
+    const fresh = await Promise.all((data.plan.switches || []).map((entry) => api.ipPanel(setNo, entry.id).catch(() => null)));
+    const usable = fresh.filter(Boolean);
+    if (!usable.length || setNo !== state.setNo || !onScreen()) return;
+    data.panels = usable;
+    drawPanels(data);
+  }
+  function drawPanels(data) {
+    if (!live.stack) return;
+    fill(live.stack, data.panelsLoading ? [
+      el("div", {
+        class: "info ip-panel-empty",
+        role: "status"
+      }, [
+        el("span", {
+          text: t("ip.readingSwitchPanel")
+        })
+      ])
+    ] : data.panels.length ? data.panels.map((panel) => panelCard(panel, data.plan, {
+      onPortClick: togglePort,
+      onCredentials: () => refresh()
+    })) : [
+      el("div", {
+        class: "ip-panel-empty"
+      }, [
+        el("span", {
+          class: "eyebrow",
+          text: t("ip.noPanelInformation")
+        }),
+        el("p", {
+          text: t("ip.theSwitchFrontPanelCannot")
+        })
+      ])
+    ]);
+    writeFreshness();
+  }
+  function freshnessTick() {
+    clearTimeout(live.ticker);
+    live.ticker = null;
+    if (!onScreen()) return;
+    writeFreshness();
+    live.ticker = setTimeout(freshnessTick, 1e3);
+  }
+  async function refreshRound() {
+    clearTimeout(live.timer);
+    live.timer = null;
+    if (!onScreen() || !live.enabled) return;
+    try {
+      await refreshPanels();
+    } catch {
+    }
+    if (!onScreen() || !live.enabled) return;
+    live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
+  }
+  async function protectedRound() {
+    clearTimeout(live.protectedTimer);
+    live.protectedTimer = null;
+    if (!onScreen() || !live.enabled) return;
+    try {
+      await refreshProtected();
+    } catch {
+    }
+    if (!onScreen() || !live.enabled) return;
+    live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
+  }
+  function startRefreshing() {
+    if (!live.ticker) freshnessTick();
+    if (!live.enabled) return;
+    if (!live.timer) live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
+    if (!live.protectedTimer) {
+      live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
+    }
+  }
+  function targetPicker() {
+    const active = currentTarget();
+    return el("label", {
+      class: "target-picker"
+    }, [
+      el("span", {
+        class: "label",
+        text: t("groupbar.deviceType")
+      }),
+      el("select", {
+        class: "field",
+        "aria-label": t("ip.deviceTypeToAssignIps"),
+        disabled: local.apkPickerOpen,
+        onchange: (e) => {
+          if (e.target.value === local.targetId) return;
+          e.target.blur();
+          local.targetId = e.target.value;
+          selectAssignmentSwitch(null);
+          local.factoryIp = null;
+          local.searchOpen = false;
+          local.searchNetwork = null;
+          local.searchNetmask = null;
+          local.searchFirst = null;
+          local.searchLast = null;
+          local.preflash = false;
+          local.targetMask = null;
+          local.manualPort = "";
+          local.manualIp = "";
+          refresh();
+        }
+      }, IP_TARGETS.map((target) => el("option", {
+        value: target.id,
+        selected: target.id === active.id ? true : null,
+        text: targetLabel(target)
+      })))
+    ]);
+  }
+  async function refresh() {
+    stopPanels();
+    const token = ++refreshToken;
+    const setNo = state.setNo;
+    const groups = selectedGroups();
+    local.errorText = "";
+    patch({
+      ipState: null
+    });
+    try {
+      const plan = await api.ipPlan(setNo, groups.join(","), local.portText || "", local.switchId || "");
+      if (token !== refreshToken || setNo !== state.setNo) return;
+      local.errorText = "";
+      resetProtectedForSet(setNo);
+      patch({
+        ipState: {
+          plan,
+          panels: [],
+          panelsLoading: true
+        }
+      });
+      if (!protectedFound()) refreshProtected();
+      const panels = await Promise.all((plan.switches || []).map((entry) => api.ipPanel(setNo, entry.id).catch(() => null)));
+      if (token !== refreshToken || setNo !== state.setNo) return;
+      patch({
+        ipState: {
+          plan,
+          panels: panels.filter(Boolean),
+          panelsLoading: false
+        }
+      });
+    } catch (e) {
+      if (token !== refreshToken || setNo !== state.setNo) return;
+      local.errorText = e.message;
+      patch({
+        ipState: null
+      });
+    }
+  }
+  function runHeader(data, check) {
+    const headerState = data ? check.ready ? "ready" : check.error ? "error" : "waiting" : local.errorText ? "error" : "waiting";
+    const headerText = data ? t(check.ready ? "ip.planReady" : check.error ? "ip.checkTheSettings" : "ip.badgeWaiting") : t(local.errorText ? "ip.planUnusable" : "ip.preparingPlan");
+    const readinessText = el("span", {
+      text: headerText
+    });
+    const readiness = el("span", {
+      class: "ip-readiness",
+      dataset: {
+        state: headerState
+      }
+    }, [
+      el("i", {
+        "aria-hidden": "true"
+      }),
+      readinessText
+    ]);
+    const startButton = el("button", {
+      type: "button",
+      class: "btn btn-primary ip-start-btn",
+      text: t("ip.startIpAssignment"),
+      disabled: !data || !check.ready,
+      title: check && (check.error || check.waiting) ? check.error || check.waiting : t("ip.startJobTitle"),
+      onclick: start
+    });
+    const summaryBadge = data ? el("span", {
+      class: check.ready ? "badge ip-ready-badge" : check.error ? "badge ip-error-badge" : "badge ip-waiting-badge",
+      text: t(check.ready ? "ip.badgeReady" : check.error ? "ip.badgeNeedsCheck" : "ip.badgeWaiting")
+    }) : null;
+    const runError = data ? el("p", {
+      class: "ip-run-error",
+      role: "alert",
+      text: check.error,
+      hidden: !check.error
+    }) : null;
+    const networkLink = data && check.networkError ? el("button", {
+      type: "button",
+      class: "btn btn-small ip-network-link",
+      text: t("ip.openNetworkScreen"),
+      onclick: () => patch({
+        view: "network"
+      })
+    }) : null;
+    function showActionState(result, waitingText = "") {
+      const waitText = waitingText || result.waiting || "";
+      const ready = !!result.ready && !waitText;
+      startButton.disabled = !ready;
+      startButton.title = result.error || waitText || t("ip.startJobTitle");
+      readiness.dataset.state = ready ? "ready" : result.error ? "error" : "waiting";
+      readinessText.textContent = ready ? t("ip.planReady") : result.error ? t("ip.checkTheSettings") : waitText;
+      summaryBadge.className = ready ? "badge ip-ready-badge" : result.error ? "badge ip-error-badge" : "badge ip-waiting-badge";
+      summaryBadge.textContent = ready ? t("ip.badgeReady") : t(result.error ? "ip.badgeNeedsCheck" : "ip.badgeWaiting");
+      runError.textContent = result.error || "";
+      runError.hidden = !result.error;
+    }
+    const bar = el("div", {
+      class: "page-head ip-page-head"
+    }, [
+      // The heading is the same on all three operation screens: the tab bar
+      // below already says which screen this is.
+      el("h2", {
+        text: t("nav.operations")
+      })
+    ]);
+    const actionBar = el("div", {
+      class: "ip-action-bar"
+    }, [
+      readiness,
+      startButton
+    ]);
+    return {
+      bar,
+      actionBar,
+      summaryBadge,
+      runError,
+      networkLink,
+      showActionState
+    };
+  }
+  function switchArea(plan) {
+    const switches = plan.switches || [];
+    return el("fieldset", {
+      class: "ip-form-section ip-switch-picker-area"
+    }, [
+      el("legend", {
+        class: "visually-hidden",
+        text: t("ip.assignmentSwitch")
+      }),
+      el("label", {
+        class: "label",
+        for: "ip-assignment-switch",
+        text: t("ip.assignmentSwitch")
+      }),
+      el("select", {
+        id: "ip-assignment-switch",
+        class: "field",
+        "aria-label": t("ip.assignmentSwitch"),
+        disabled: !switches.length || local.apkPickerOpen,
+        onchange: (event) => {
+          if (event.target.value === plan.switchId) return;
+          event.target.blur();
+          selectAssignmentSwitch(event.target.value);
+          refresh();
+        }
+      }, switches.map((entry) => el("option", {
+        value: entry.id,
+        selected: entry.id === plan.switchId ? true : null,
+        // Both values come straight from DeviceMap; never translate either.
+        text: [
+          entry.name,
+          entry.ip
+        ].filter(Boolean).join(" \xB7 ")
+      }))),
+      el("p", {
+        class: "ip-field-help",
+        text: t("ip.assignmentSwitchHelp")
+      })
+    ]);
+  }
+  function portArea(data, check, showActionState) {
+    const { plan } = data;
+    const { allowed, portText, selectedPorts } = check;
+    const portWarning = el("p", {
+      id: "port-warning",
+      class: "warning",
+      text: check.portError,
+      role: "alert",
+      hidden: !check.portError
+    });
+    const portInput = el("input", {
+      id: "ip-ports",
+      class: "field",
+      value: portText,
+      "aria-invalid": String(!!check.portError),
+      "aria-describedby": "port-warning",
+      autocomplete: "off",
+      spellcheck: "false",
+      // While typing only the warning is shown; the screen is not redrawn, or
+      // focus would leave the field on every keystroke.
+      oninput: (e) => {
+        const parsed = parsePorts(e.target.value, allowed);
+        const message = validatePorts(e.target.value, allowed, plan) || (!parsed.ports.length ? t("ip.selectTargetPort") : "");
+        e.target.setAttribute("aria-invalid", String(!!message));
+        portWarning.textContent = message;
+        portWarning.hidden = !message;
+        showActionState({
+          ready: false,
+          error: message
+        }, message ? "" : t("ip.updateThePlan"));
+      },
+      onchange: (e) => {
+        const { ports, error } = parsePorts(e.target.value, allowed);
+        if (error || !ports.length || validatePorts(e.target.value, allowed, plan)) return;
+        local.portText = formatPorts(ports);
+        refresh();
+      }
+    });
+    return el("fieldset", {
+      class: "ip-form-section ip-port-area"
+    }, [
+      el("legend", {
+        class: "visually-hidden",
+        text: t("ip.targetPorts")
+      }),
+      el("div", {
+        class: "ip-field-head"
+      }, [
+        el("label", {
+          class: "label",
+          for: "ip-ports",
+          text: t("ip.targetPorts")
+        }),
+        el("span", {
+          class: "ip-field-count",
+          text: t("ip.portsSelected", {
+            count: selectedPorts
+          })
+        })
+      ]),
+      portInput,
+      portWarning,
+      el("p", {
+        class: "ip-field-help",
+        text: t("ip.rangesAndSinglePortsCan")
+      })
+    ]);
   }
   function panelSection(panels) {
     const panelStack = el("div", {
@@ -8409,7 +8420,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     parts.push(el("div", {
       class: "ip-grid"
     }, [
-      settingsCard(data, check, header),
+      settingsCard(data, check, header, {
+        switchArea,
+        portArea
+      }),
       panelSection(panels)
     ]));
     drawPanels(data);

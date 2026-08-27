@@ -9,6 +9,7 @@
 // are read by the user, so they come from the same place as every other
 // sentence on screen.
 
+import { protectedPortsFor } from './state.js';
 import { t } from '../../core/i18n.js';
 
 // The reading of a `tried[].state` code from the server. The codes are the
@@ -180,6 +181,27 @@ export function validateSearch(networkText, maskText, firstText, lastText) {
   const count = prefix >= 31 ? 1 : (2 ** (32 - prefix)) - 2;
   if (count > SEARCH_LIMIT) {
     return t('ip.maskTooWide', { count, limit: SEARCH_LIMIT });
+  }
+  return '';
+}
+
+
+// Port text the user typed, judged against the plan: parseable, and not
+// touching a port the run must leave alone. Still no DOM — the caller
+// decides where the returned sentence is shown.
+// The single validation point for the text in the field: format + defined on
+// this switch + the ports the run must not touch. Returns the error text, or
+// '' when there is none.
+export function validatePorts(text, allowed, plan) {
+  const { ports, error } = parsePorts(text, allowed);
+  if (error) return error;
+  const protectedPorts = new Map(protectedPortsFor(plan));
+  const clashing = ports.filter(port => protectedPorts.has(port));
+  if (clashing.length) {
+    const port = clashing[0];
+    return t('ip.portProtected', {
+      port, reason: protectedPorts.get(port),
+    });
   }
   return '';
 }

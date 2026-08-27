@@ -146,3 +146,13 @@ export function focusTrap(container, close) {
   container.addEventListener('keydown', trap);
   return () => container.removeEventListener('keydown', trap);
 }
+
+
+// Mark a field as invalid and show (or clear) the message under it.
+// Lives here rather than beside one form: every screen that validates as
+// the user types needs exactly this, and it is nothing but DOM.
+export function showFieldWarning(input, warning, message) {
+  input.setAttribute('aria-invalid', String(!!message));
+  warning.textContent = message;
+  warning.hidden = !message;
+}

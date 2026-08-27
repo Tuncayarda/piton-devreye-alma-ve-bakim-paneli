@@ -120,14 +120,17 @@ Deno.test("changing the operation switch retires switch-derived UI state", () =>
 });
 
 Deno.test("the operation switch picker is rendered above the port picker", () => {
+  // The card moved out of index.js into its own module; the two areas are
+  // handed to it by the screen rather than imported, so they read as
+  // `areas.switchArea(...)` here.
   const source = Deno.readTextFileSync(
-    new URL("../../static/js/views/ip/index.js", import.meta.url),
+    new URL("../../static/js/views/ip/settings_card.js", import.meta.url),
   );
   const start = source.indexOf("function settingsCard");
-  const end = source.indexOf("function factoryResetSelection", start);
-  const settingsCard = source.slice(start, end);
-  const switchPicker = settingsCard.indexOf("switchArea(plan)");
-  const portPicker = settingsCard.indexOf("portArea(data, check");
+  assert.ok(start >= 0, "settingsCard is missing from settings_card.js");
+  const settingsCard = source.slice(start);
+  const switchPicker = settingsCard.indexOf("areas.switchArea(plan)");
+  const portPicker = settingsCard.indexOf("areas.portArea(data, check");
   assert.ok(switchPicker >= 0, "switch picker is missing from the settings card");
   assert.ok(portPicker >= 0, "port picker is missing from the settings card");
   assert.ok(switchPicker < portPicker, "switch picker must be above ports");
