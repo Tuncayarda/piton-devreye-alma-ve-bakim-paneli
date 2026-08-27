@@ -594,7 +594,15 @@ COLLECTORS = {
     ("NVR", None):                 fetch_isapi,
     ("LCD", "Compartment"):        fetch_compartment_lcd,
 }
-# Fed from DeviceMap only: PISCU, ICU, HMI, AP, LED, LCD/Landing, UIC
+# Fed from DeviceMap only, with no extra query: ICU, AP, LED, LCD/Landing,
+# and Announcement/UIC. (PISCU and HMI are NOT in that list — they are
+# collected above, over MQTT AppStatus.)
+#
+# The UIC is the one the panel and this table see differently: the panel
+# WRITES its SIP and threshold settings over HTTP, so it carries an `http`
+# read method there, while everything the checklist reports for a UIC
+# already arrives in DeviceMap. tests/test_data.py holds that difference
+# with its reason; if a collector is added here, the exemption there must go.
 
 
 # ------------------------------------------------------------------- flow --

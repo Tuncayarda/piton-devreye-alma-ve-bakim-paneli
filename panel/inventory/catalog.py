@@ -54,8 +54,20 @@ READ_METHODS = {
 def read_method_for(device_type: str, subtype: str | None) -> str:
     """Which reader handles this device type.
 
-    Mirrors the COLLECTORS table in field_scripts/device_verify.py so the two
-    never disagree.
+    This is the panel's own map: how a device is READ and WRITTEN while the
+    panel is open. The COLLECTORS table in field_scripts/device_verify.py
+    answers a narrower question — which extra query the checklist export
+    makes — and the two are deliberately not the same table.
+
+    Where they overlap they must agree, and one device is deliberately in
+    this map and not in that one (Announcement/UIC: the panel writes its
+    settings over HTTP, but the checklist gets every UIC field it reports
+    from DeviceMap). That is pinned by
+    tests/test_data.py:ReadMethodsMatchTheFieldScript — a claim in a
+    docstring could not be checked, and was already untrue when it said the
+    two mirrored each other.
+
+    `mqtt` is the fallback: described by DeviceMap, asked nothing directly.
     """
     if device_type == "Switch":
         return "kyland"

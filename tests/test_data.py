@@ -9,6 +9,7 @@ Excel.
 from __future__ import annotations
 
 import ipaddress
+import json
 import tempfile
 import time
 import unittest
@@ -852,6 +853,117 @@ class ExcelExport(ServiceTest):
                 self.assertIsNone(
                     sheet.cell(row, columns[cols.VERSION]).value,
                     f"a made-up version was written for {template}")
+
+
+class ReadMethodsMatchTheFieldScript(unittest.TestCase):
+    """`read_method_for` and device_verify's COLLECTORS must not drift apart.
+
+    Two tables describe how a device is reached. `panel.inventory.catalog`
+    names the method the panel reads and writes with; the COLLECTORS table
+    in `field_scripts/device_verify.py` names the function the checklist
+    export queries with. They answer different questions and are not merged
+    — but a device that one of them thinks is reachable and the other has
+    never heard of is a silent hole, and the first sign of it is an empty
+    Excel column nobody can explain.
+
+    The claim that the two mirror each other used to sit in a docstring,
+    where nothing could check it. It was already false: Announcement/UIC.
+    """
+
+    # The panel names a method; the field script names the function that
+    # implements it. This is the join between the two tables.
+    METHOD_FOR_COLLECTOR = {
+        "fetch_switch": "kyland",
+        "fetch_isapi": "isapi",
+        "fetch_announcement": "http",
+        "fetch_piscu": "app",
+        "fetch_hmi": "app",
+        "fetch_compartment_lcd": "adb",
+    }
+
+    # A device the panel queries but the field script deliberately does not.
+    # Same rule as the allowlists in tests/test_language.py: narrow, and
+    # every entry says why. NOT somewhere to park a collector nobody has
+    # written yet.
+    NO_COLLECTOR_ON_PURPOSE = {
+        ("Announcement", "UIC"): (
+            "the panel writes its SIP and threshold settings over HTTP "
+            "(panel/config_sync/targets.py), but every field the checklist "
+            "reports for a UIC already arrives in DeviceMap, so the export "
+            "has no second query to make"),
+    }
+
+    # `mqtt` is the fallback in `read_method_for`: it means the device is
+    # described by DeviceMap and asked nothing directly.
+    FED_FROM_DEVICEMAP = "mqtt"
+
+    def setUp(self):
+        self.collectors = script_loader.device_verify().COLLECTORS
+
+    def device_pairs(self):
+        """Every (type, subtype) in the DeviceMaps this checkout carries.
+
+        Read from the files rather than a fixture: the point is to catch a
+        device the customer really has and the tables really disagree on.
+        """
+        pairs = set()
+        maps = ([settings.ROOT / "DeviceMap.json"]
+                + sorted((settings.ROOT / "devicemaps").glob("DeviceMap*.json")))
+        found = 0
+        for path in maps:
+            if not path.is_file():
+                continue
+            found += 1
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for switch in data.get("Switches") or []:
+                pairs.add(("Switch", None))
+                for device in switch.get("Devices") or []:
+                    pairs.add((device.get("Type"),
+                               device.get("SubType") or None))
+        self.assertTrue(found, "no DeviceMap to check the tables against")
+        return pairs
+
+    def test_every_collector_agrees_with_the_read_method_map(self):
+        for (kind, subtype), collector in sorted(
+                self.collectors.items(), key=str):
+            expected = self.METHOD_FOR_COLLECTOR.get(collector.__name__)
+            self.assertIsNotNone(
+                expected,
+                f"{collector.__name__} is a new collector; say which read "
+                "method it implements in METHOD_FOR_COLLECTOR")
+            self.assertEqual(catalog.read_method_for(kind, subtype), expected,
+                             f"{kind}/{subtype}")
+
+    def test_every_queried_device_has_a_collector_or_a_stated_reason(self):
+        missing = []
+        for kind, subtype in sorted(self.device_pairs(), key=str):
+            method = catalog.read_method_for(kind, subtype)
+            if method == self.FED_FROM_DEVICEMAP:
+                continue
+            if (kind, subtype) in self.collectors:
+                continue
+            if (kind, subtype) in self.NO_COLLECTOR_ON_PURPOSE:
+                continue
+            missing.append(f"{kind}/{subtype or '-'} reads over {method!r} "
+                           "but device_verify has no collector for it")
+        self.assertEqual(
+            missing, [],
+            "the two tables disagree. Add a collector to "
+            "field_scripts/device_verify.py, or an entry saying why not to "
+            "NO_COLLECTOR_ON_PURPOSE:\n  " + "\n  ".join(missing))
+
+    def test_the_exception_list_is_still_needed(self):
+        """A stale exemption hides the next disagreement."""
+        stale = []
+        for kind, subtype in self.NO_COLLECTOR_ON_PURPOSE:
+            if (kind, subtype) in self.collectors:
+                stale.append(f"{kind}/{subtype}: device_verify collects it "
+                             "now, so the exemption is wrong")
+            elif catalog.read_method_for(kind, subtype) == (
+                    self.FED_FROM_DEVICEMAP):
+                stale.append(f"{kind}/{subtype}: the panel no longer queries "
+                             "it, so no exemption is needed")
+        self.assertEqual(stale, [], "stale exemptions:\n  " + "\n  ".join(stale))
 
 
 if __name__ == "__main__":
