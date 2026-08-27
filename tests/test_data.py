@@ -8,7 +8,9 @@ Excel.
 """
 from __future__ import annotations
 
+import ipaddress
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -588,6 +590,39 @@ class IpPlan(PanelTest):
         with self.assertRaises(ValueError) as caught:
             ip_assign.search_candidates("10.0.0.0", "255.0.0.0")
         self.assertIn("too wide", str(caught.exception))
+
+    def test_a_network_too_wide_is_refused_without_being_built(self):
+        """The limit is decided by counting, never by building the list.
+
+        A /8 holds 16.7 million addresses. Building them to find out there
+        are too many took eighteen seconds and about a gigabyte — on the
+        request thread, in an elevated process, for a mask the user can
+        type by accident. The refusal must cost nothing.
+        """
+        started = time.monotonic()
+        with self.assertRaises(ValueError) as caught:
+            ip_assign.search_candidates("10.0.0.0", "255.0.0.0")
+        self.assertLess(time.monotonic() - started, 1.0,
+                        "the address list was built before it was refused")
+        # The count in the message is the usable host count, as before.
+        self.assertIn("16777214", str(caught.exception))
+
+    def test_the_refused_count_matches_what_would_have_been_built(self):
+        """Counting and building must not disagree at the edges.
+
+        `hosts()` treats /31 and /32 specially, so a count derived from
+        `num_addresses` has to as well — otherwise a mask one bit either
+        side of the limit is refused or accepted wrongly.
+        """
+        for prefix in range(23, 33):
+            network = ipaddress.ip_network(f"10.1.1.0/{prefix}", strict=False)
+            built = len(list(network.hosts())) or 1
+            candidates = ip_assign.search_candidates(
+                "10.1.1.0", str(network.netmask), limit=built)
+            self.assertEqual(len(candidates), built, f"/{prefix}")
+            with self.assertRaises(ValueError, msg=f"/{prefix}"):
+                ip_assign.search_candidates(
+                    "10.1.1.0", str(network.netmask), limit=built - 1)
 
     def test_a_search_range_replaces_the_network_mask(self):
         """With a wide mask, the search area is narrowed by a range."""

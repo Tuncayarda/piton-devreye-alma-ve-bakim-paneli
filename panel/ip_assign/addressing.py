@@ -168,9 +168,15 @@ def search_candidates(network: str, netmask: str, limit: int = SEARCH_LIMIT,
             i18n.t("error.searchNetworkUnparsed", detail=exc)) from exc
     if net.version != 4:
         raise ValueError(i18n.t("error.searchNetworkNotIpv4"))
-    addresses = [str(host) for host in net.hosts()] or [str(net.network_address)]
-    if len(addresses) > limit:
+    # COUNT BEFORE BUILDING, the way `range_candidates` above does. Asking
+    # `net.hosts()` first means a /8 typed by mistake materialises 16.7
+    # million strings — eighteen seconds and a gigabyte — only to be thrown
+    # away by the very next line. The count is the same either way:
+    # `hosts()` drops the network and broadcast addresses below /31, and
+    # yields the single address at /31 and /32 (which is why the list below
+    # falls back to the network address rather than staying empty).
+    usable = net.num_addresses - (2 if net.prefixlen < 31 else 0)
+    if usable > limit:
         raise ValueError(
-            i18n.t("error.searchNetworkTooWide", count=len(addresses),
-                   limit=limit))
-    return addresses
+            i18n.t("error.searchNetworkTooWide", count=usable, limit=limit))
+    return [str(host) for host in net.hosts()] or [str(net.network_address)]
