@@ -18,6 +18,7 @@ import unittest
 from panel import settings
 
 JS_DIR = settings.STATIC_DIR / "js"
+JS_TEST_DIR = settings.ROOT / "tests" / "js"
 CSS_DIR = settings.STATIC_DIR / "css"
 
 
@@ -105,7 +106,10 @@ class Frontend(unittest.TestCase):
         if not deno:
             self.skipTest("deno is not installed — the JS lint check was "
                           "skipped (install: brew install deno)")
-        lint = subprocess.run([deno, "lint", str(JS_DIR)],
+        # The TEST sources are linted too. They import the production
+        # modules, so a rule that holds for one holds for the other, and a
+        # test file is exactly where a stray `console.log` survives.
+        lint = subprocess.run([deno, "lint", str(JS_DIR), str(JS_TEST_DIR)],
                               capture_output=True, text=True, timeout=180,
                               check=False)
         self.assertEqual(lint.returncode, 0,
@@ -115,6 +119,36 @@ class Frontend(unittest.TestCase):
             capture_output=True, text=True, timeout=180, check=False)
         self.assertEqual(check.returncode, 0,
                          f"deno check errors:\n{check.stderr}")
+
+    def test_19d_the_javascript_unit_tests_pass(self):
+        """Run tests/js/ — otherwise nothing does.
+
+        These assert against the real modules under static/js, and until
+        now they were listed in the README and run by hand. Reached from
+        here rather than as a CI step so that one command still checks
+        everything, on every platform the matrix covers.
+
+        `--no-lock`: there is no deno.json or deno.lock in this repository,
+        and a lock file appearing would fail the "is the working tree clean"
+        step in CI. `--allow-read` is for tests/js/api_transport_test.js,
+        which reads the real message catalogue.
+        """
+        deno = shutil.which("deno")
+        if not deno:
+            self.skipTest("deno is not installed — the JS unit tests were "
+                          "skipped (install: brew install deno)")
+        result = subprocess.run(
+            [deno, "test", "--no-lock", "--allow-read", str(JS_TEST_DIR)],
+            capture_output=True, text=True, timeout=180, check=False,
+            cwd=settings.ROOT)
+        self.assertEqual(result.returncode, 0,
+                         f"deno test failures:\n{result.stdout}\n{result.stderr}")
+        # A file whose assertions all sit at module level reports zero tests
+        # and would pass this silently. Every test file must register some.
+        for path in sorted(JS_TEST_DIR.glob("*_test.js")):
+            self.assertIn("Deno.test", path.read_text(encoding="utf-8"),
+                          f"{path.name} registers no test with Deno.test, so "
+                          "`deno test` reports nothing for it")
 
     def test_19b_module_structure_is_consistent(self):
         """Every module is an ES module; imports must resolve to real files."""
