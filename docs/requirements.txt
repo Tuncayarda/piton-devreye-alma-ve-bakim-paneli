@@ -4,8 +4,14 @@
 #   macOS   : docs/requirements-macos.txt
 #   Windows : docs/requirements-windows.txt
 #   Linux   : docs/requirements-linux.txt
+#
+# SÜRÜMLER SABİT. Gerekçe requirements-build.txt'te PyInstaller için zaten
+# yazılıydı ama buraya uygulanmamıştı: paketler imzasız ve elden gidiyor,
+# yani aynı etiketin iki derlemesi farklı sürüm taşırsa sahadaki bir farkın
+# nereden geldiği hiçbir yerde yazmıyor. Yükseltmek artık bilinçli bir
+# commit — ve o commit'in testleri de yeni sürümle koşuyor.
 
-requests>=2.31
-openpyxl>=3.1
-paho-mqtt>=2.0        # MQTT telemetri; yoksa ilgili cihazlar gri kalır
-pywebview==6.2.1      # soketsiz expose köprüsü; --tarayici ile gerekmez
+requests==2.34.2
+openpyxl==3.1.5
+paho-mqtt==2.1.0      # MQTT telemetri; yoksa ilgili cihazlar gri kalır
+pywebview==6.2.1      # soketsiz expose köprüsü; --browser ile gerekmez

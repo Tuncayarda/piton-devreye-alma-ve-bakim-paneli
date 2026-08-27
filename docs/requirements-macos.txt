@@ -1,4 +1,6 @@
 -r requirements.txt
-pyobjc-core>=10.0
-pyobjc-framework-Cocoa>=10.0
-pyobjc-framework-WebKit>=10.0
+# Pencere motoru: WebKit, PyObjC köprüsüyle. Sürümler requirements.txt ile
+# aynı gerekçeyle sabit.
+pyobjc-core==12.2.1
+pyobjc-framework-Cocoa==12.2.1
+pyobjc-framework-WebKit==12.2.1

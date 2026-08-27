@@ -1,5 +1,11 @@
 -r requirements.txt
-# Qt tabanlı pencere motoru
+# Qt tabanlı pencere motoru.
+#
+# BU İKİSİ HENÜZ SABİT DEĞİL, kasten: diğer bağımlılıklar bu depoda
+# çalıştırılıp doğrulanmış bir sürüme sabitlendi, PyQt6 ise yalnız Linux'ta
+# kuruluyor ve burada hiç çalıştırılmadı. Görmediği bir sürüme sabitlemek,
+# sabitlemenin verdiği güveni taklit etmek olurdu. Bir Linux koşusu hangi
+# sürümün doğrulandığını söylediğinde buraya da == girer.
 PyQt6>=6.6
 PyQt6-WebEngine>=6.6
 # Sistem kütüphaneleri gerekebilir:
