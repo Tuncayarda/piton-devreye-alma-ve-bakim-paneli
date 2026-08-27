@@ -8,21 +8,35 @@ name: CI
 # The Switch Management Panel is not on this branch — that application's CI
 # lives in its own ci.yml on the `syp` branch.
 #
-# It does NOT run on every commit, for cost. Only:
-#   • on a tag push (last check before a release)
-#   • when started by hand (Actions → CI → Run workflow)
+# WHAT RUNS WHEN. This used to fire only on a tag, "for cost" — a reason
+# that stopped being true when the repository was made public, because
+# Actions is free for public repositories. A gate that first speaks at
+# release time is not a gate, so:
+#
+#   push to main, pull request  ->  lint + Ubuntu (about four minutes)
+#   tag push, manual run        ->  the above, plus Windows and macOS
+#
+# The three-platform matrix is what a release must pass; one platform is
+# enough to catch a regression the moment it lands. The platform list is
+# decided by the `matrix` job below rather than duplicated into two copies
+# of the same twelve steps.
+#
 # For day-to-day development, run locally:
 #   python3 app.py --self-test
 #   python3 -m unittest discover -s tests -t .
+#   ruff check .
 
 on:
   push:
+    branches:
+      - main
     tags:
       # One tag per customer package: dap-gdm-v0.9.8, dap-gaziray-v0.9.8 …
       # The older single-edition "dap-v*" is still accepted while tags from
       # before the split are around.
       - "dap-*-v*"
       - "dap-v*"
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -49,20 +63,67 @@ env:
   PYTHONUTF8: "1"
 
 jobs:
+  # The fastest thing that can say "no", so it says it first.
+  lint:
+    name: Lint
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # PINNED, and it has to be. Ruff's rule selection is configured in
+      # pyproject.toml, but which rules EXIST and how they behave comes from
+      # the binary; an unpinned `pip install ruff` would move the gate on
+      # someone else's release schedule. Same version as docs/requirements-dev.txt.
+      - name: Ruff 0.16.2
+        run: python -m pip install ruff==0.16.2
+
+      - name: Lint
+        run: ruff check --output-format github .
+
+  # WHICH PLATFORMS. `with:` and `strategy:` are evaluated before any shell
+  # runs, so the row list cannot be filtered inline — this job computes it,
+  # the same way build-commissioning-panel.yml resolves its edition. One
+  # platform for everyday pushes, all three for a tag or a manual run.
+  matrix:
+    name: Which platforms
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      rows: ${{ steps.pick.outputs.rows }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          set -euo pipefail
+          UBUNTU='{"name":"Ubuntu","os":"ubuntu-22.04","req":"requirements-linux.txt"}'
+          WINDOWS='{"name":"Windows","os":"windows-2025","req":"requirements-windows.txt"}'
+          MACOS='{"name":"macOS","os":"macos-15","req":"requirements-macos.txt"}'
+          if [ "${{ github.ref_type }}" = "tag" ] \
+             || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ROWS="[$UBUNTU,$WINDOWS,$MACOS]"
+            echo "A tag or a manual run: all three platforms."
+          else
+            ROWS="[$UBUNTU]"
+            echo "An everyday push: Ubuntu only. A tag runs all three."
+          fi
+          echo "rows=$ROWS" >> "$GITHUB_OUTPUT"
+
   self-test:
     name: Commissioning Panel · ${{ matrix.name }}
+    needs: matrix
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      # The matrix is written out deliberately: producing one row per
-      # platform with `include` yields too few or too many jobs because of
-      # GitHub's merge rules. Keep the three rows explicit.
       matrix:
-        include:
-          - { name: Windows, os: windows-2025, req: requirements-windows.txt }
-          - { name: Ubuntu,  os: ubuntu-22.04, req: requirements-linux.txt }
-          - { name: macOS,   os: macos-15,     req: requirements-macos.txt }
+        include: ${{ fromJSON(needs.matrix.outputs.rows) }}
 
     steps:
       - name: Check out the repository

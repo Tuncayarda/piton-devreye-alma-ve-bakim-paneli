@@ -1,0 +1,7 @@
+# Development-only tools. Not needed to run the panel and never packaged.
+#
+# The version is FIXED, and not only for reproducibility: ruff's rule set is
+# configured in pyproject.toml, but which rules exist and how they behave
+# comes from the binary. An unpinned ruff would move the gate whenever ruff
+# releases. The CI lint job installs this same version.
+ruff==0.16.2
