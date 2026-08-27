@@ -28,12 +28,13 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from types import SimpleNamespace
 
 from .. import clock, firmware, i18n, script_loader, settings
+from ..adb import client
+from ..adb.client import CONNECT_ATTEMPTS, AdbTimeout, AdbUnavailable
 from ..inventory.device_map import Device, Inventory, resolve_template
 from .addressing import DEFAULT_TARGET_PREFIX
 
@@ -43,8 +44,6 @@ ETHERNET_INTERFACE = "eth0"
 TARGET_PREFIX = DEFAULT_TARGET_PREFIX
 POE_SETTLE = 2.0
 LINK_WAIT = 45.0
-CONNECT_ATTEMPTS = 12
-CONNECT_RETRY_INTERVAL = 2.0
 RESTORE_ATTEMPTS = 3
 RESTORE_RETRY_INTERVAL = 5.0
 # A moved test cable means the physical port no longer identifies an LCD.
@@ -56,14 +55,6 @@ DISCOVERY_WORKERS = 8
 DISCOVERY_COMMAND_TIMEOUT = 2.0
 DISCOVERY_TIMEOUT = 45.0
 DISCOVERY_RETRY_INTERVAL = 1.0
-
-
-class AdbUnavailable(RuntimeError):
-    """The host cannot execute ADB at all."""
-
-
-class AdbTimeout(RuntimeError):
-    """One ADB command exceeded its bounded wait."""
 
 
 def commissioning_ip(device: Device, set_no: int = 1) -> str:
@@ -81,73 +72,20 @@ def _event(emit, event: str, **fields) -> None:
                               ensure_ascii=False, separators=(",", ":")))
 
 
-def _adb(*args: str, timeout: float | None = None):
-    """Run ADB without ever relying on its implicit current device."""
-    try:
-        return subprocess.run(
-            ["adb", *args], capture_output=True, text=True,
-            timeout=(settings.ADB_TIMEOUT if timeout is None else timeout),
-            check=False)
-    except FileNotFoundError as exc:
-        raise AdbUnavailable("adb command was not found") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise AdbTimeout(f"adb {args[0] if args else ''} timed out") from exc
-
-
-def _target(ip: str) -> str:
-    return f"{ip}:{settings.ADB_PORT}"
-
-
-def _disconnect(ip: str, *, timeout: float | None = None) -> None:
-    if not ip:
-        return
-    try:
-        _adb("disconnect", _target(ip), timeout=timeout)
-    except Exception:
-        # Cleanup must neither hide the port result nor prevent PoE restore.
-        pass
-
-
-def _connect_once(ip: str, *, timeout: float | None = None) -> bool:
-    """Connect and prove that this exact TCP serial is in ``device`` state."""
-    target = _target(ip)
-    command_timeout = (min(settings.ADB_TIMEOUT, 5) if timeout is None
-                       else timeout)
-    _disconnect(ip, timeout=command_timeout)
-    connected = _adb("connect", target, timeout=command_timeout)
-    if getattr(connected, "returncode", 0) != 0:
-        return False
-    state = _adb("-s", target, "get-state",
-                 timeout=command_timeout)
-    return (getattr(state, "returncode", 0) == 0
-            and str(getattr(state, "stdout", "") or "").strip() == "device")
-
-
-def _connect(ip: str, cancelled=None, attempts: int = CONNECT_ATTEMPTS) -> bool:
-    """Bounded reconnect; stale ``adb devices`` rows are never consulted."""
-    for attempt in range(max(1, int(attempts))):
-        if cancelled is not None and cancelled():
-            return False
-        try:
-            if _connect_once(ip):
-                return True
-        except AdbUnavailable:
-            raise
-        except Exception:
-            pass
-        if attempt + 1 < attempts and CONNECT_RETRY_INTERVAL:
-            clock.sleep(CONNECT_RETRY_INTERVAL)
-    return False
-
-
-def _shell(ip: str, *command: str) -> str:
-    """Run a shell command on one explicitly named Android transport."""
-    result = _adb("-s", _target(ip), "shell", *command)
-    if getattr(result, "returncode", 0) != 0:
-        detail = (str(getattr(result, "stderr", "") or "").strip()
-                  or str(getattr(result, "stdout", "") or "").strip())
-        raise RuntimeError(detail[:160] or "adb shell failed")
-    return str(getattr(result, "stdout", "") or "").strip()
+# ── the transport ────────────────────────────────────────────────────────
+# It lives in `panel.adb.client` now. It was written here, and every rule in
+# it was learned here — one command per named serial, a bounded wait, a
+# connection that is not believed until the serial reports `device` — but
+# this is no longer the only screen that runs ADB, and three private copies
+# of those rules meant three different answers to a missing executable.
+#
+# The aliases below are what the rest of this file still calls them.
+_adb = client.run
+_target = client.target
+_disconnect = client.disconnect
+_connect_once = client.connect_once
+_connect = client.connect
+_shell = client.shell
 
 
 def _serial(ip: str) -> str:

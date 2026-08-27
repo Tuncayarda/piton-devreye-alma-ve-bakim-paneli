@@ -180,6 +180,30 @@ export function createApi(carrier = transport) {
     firmwareInstall: (set, group, devices) =>
       post("/api/firmware/install", { set, group, devices }),
 
+    // ── the ADB screen ──
+    // No `set` on any of these, and that is the whole point: this screen's
+    // devices are a list of addresses the user keeps, not a project (see
+    // panel/adb/pool.py).
+    adb: () => get("/api/adb"),
+    // The runner alone, polled once a second while an operation runs. Its
+    // `generation` counter is what lets the client tell in one integer
+    // whether anything moved.
+    adbState: () => get("/api/adb/state"),
+    adbDevices: (body) => post("/api/adb/devices", body),
+    // The picker opens in the OS; the path never travels from the browser.
+    adbImport: () => post("/api/adb/import", {}),
+    adbPackages: (devices, keyword) =>
+      post("/api/adb/packages", { devices, keyword }),
+    adbApk: () => post("/api/adb/apk", {}),
+    adbAutostart: (devices, name) =>
+      post("/api/adb/autostart", { devices, package: name }),
+    // Which files an autostart install would write. Asked before the
+    // confirmation dialog so it names the paths the server will really use.
+    adbAutostartFiles: (name) =>
+      post("/api/adb/autostart/files", { package: name }),
+    adbRun: (body) => post("/api/adb/run", body),
+    adbCancel: () => post("/api/adb/cancel", {}),
+
     checklistExport: (set) => post("/api/checklist/export", { set }),
 
     piscu: (set) => get("/api/piscu", { set }),

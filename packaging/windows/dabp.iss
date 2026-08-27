@@ -119,6 +119,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
 [Files]
 ; The WHOLE PyInstaller onedir output — the _internal folder included.
 ; Copying only the exe does not work.
+;
+; `recursesubdirs` is also what carries the bundled Android tools
+; (platform-tools\adb.exe, see dabp.spec): they need no line of their own,
+; and no executable bit on Windows. Written down because the AppImage script
+; DOES need a line for them, and the two packagings should not look
+; inconsistent by accident.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 

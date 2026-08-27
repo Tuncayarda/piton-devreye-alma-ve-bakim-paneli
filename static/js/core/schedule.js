@@ -20,11 +20,24 @@ export function writingRunInProgress(jobs) {
       && (job.state === 'running' || job.state === 'queued'));
 }
 
+// The ADB screen is a run that is NOT IN THE QUEUE, on purpose (see
+// panel/adb/runner.py): it belongs to no train set and has nothing to be
+// listed under. So neither `state.jobs` check above can see it, and both
+// rounds have to ask separately.
+//
+// It holds both back, not just the light one. That screen installs APKs and
+// writes to the system partition of a display, and it reaches it over the
+// same global ADB server the rounds do — a Compartment LCD read arriving
+// mid-install takes the transport out from under it.
+export function adbRunInProgress(state) {
+  return state.adbBusy === true;
+}
+
 // The discovery round: every address in DeviceMap, one timeout per device
 // that does not answer.
 export function scanRoundAllowed(state) {
   return !!state.meta && state.autoRefresh !== false && !state.scanRunning
-    && !writingRunInProgress(state.jobs);
+    && !writingRunInProgress(state.jobs) && !adbRunInProgress(state);
 }
 
 // The light round: only devices that went green in the last discovery. Held
@@ -32,5 +45,6 @@ export function scanRoundAllowed(state) {
 // the request's own thread and is the only path that can collide.
 export function lightRoundAllowed(state) {
   return !!state.meta && state.autoRefresh !== false && !state.scanRunning
-    && !(state.jobs || []).some(job => job.state === 'running');
+    && !(state.jobs || []).some(job => job.state === 'running')
+    && !adbRunInProgress(state);
 }

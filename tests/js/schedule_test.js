@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 
 import {
+  adbRunInProgress,
   lightRoundAllowed,
   scanRoundAllowed,
   writingRunInProgress,
 } from "../../static/js/core/schedule.js";
+import { state } from "../../static/js/core/store.js";
 
 function running(overrides = {}) {
   return {
@@ -80,4 +82,55 @@ Deno.test("the two rounds differ on a reading job", () => {
   const reading = running({ jobs: [{ kind: "scan", state: "running" }] });
   assert.equal(scanRoundAllowed(reading), true);
   assert.equal(lightRoundAllowed(reading), false);
+});
+
+// ── the run that is NOT in the queue ───────────────────────────────────
+// The ADB screen works outside `jobs` on purpose (panel/adb/runner.py): it
+// belongs to no train set, so there is nothing for it to be listed under.
+// That means neither `state.jobs` check above can see it, and the rounds have
+// to be told separately — which is what `state.adbBusy` is.
+//
+// It has to hold BOTH rounds, not only the light one. That screen installs
+// APKs and writes to a display's system partition, and it reaches the display
+// over the same global ADB server the rounds do.
+Deno.test("an ADB screen operation holds both rounds back", () => {
+  const working = running({ adbBusy: true });
+  assert.equal(scanRoundAllowed(working), false);
+  assert.equal(lightRoundAllowed(working), false);
+  assert.equal(adbRunInProgress(working), true);
+});
+
+Deno.test("an idle ADB screen holds nothing back", () => {
+  const idle = running({ adbBusy: false });
+  assert.equal(scanRoundAllowed(idle), true);
+  assert.equal(lightRoundAllowed(idle), true);
+  assert.equal(adbRunInProgress(idle), false);
+});
+
+// A state written before this flag existed — and the first paint, where the
+// store has not been filled in yet — must not read as "busy". Everything
+// would stop refreshing and nothing on screen would say why.
+Deno.test("an absent flag does not read as busy", () => {
+  const older = { meta: { project: "YATAKLI" }, scanRunning: false,
+                  jobs: [] };
+  assert.equal(adbRunInProgress(older), false);
+  assert.equal(scanRoundAllowed(older), true);
+  assert.equal(lightRoundAllowed(older), true);
+});
+
+// ── what the panel does when it opens ──────────────────────────────────
+// PAUSED. Reading a device is not free, and the panel is opened far more
+// often to do one thing to one device — write an address, install an APK,
+// restart an application on the bench — than to watch a whole train set.
+// Starting in the middle of a scan meant that one thing was done against a
+// background of traffic nobody asked for.
+//
+// Asserted here rather than trusted to a literal in the store, because it is
+// this module that decides what the flag then stops.
+Deno.test("the panel opens with the automatic rounds paused", () => {
+  assert.equal(state.autoRefresh, false);
+  assert.equal(scanRoundAllowed({ ...state, meta: { project: "YATAKLI" } }),
+               false);
+  assert.equal(lightRoundAllowed({ ...state, meta: { project: "YATAKLI" } }),
+               false);
 });

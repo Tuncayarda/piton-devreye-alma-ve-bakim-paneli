@@ -159,7 +159,28 @@ if not catalogues:
     raise SystemExit(f"[spec] no message catalogue under {MESSAGES_DIR}")
 print(f"[spec] message catalogues: {', '.join(catalogues)}")
 
+# The ADB tools. An Android display is reached with `adb` and nothing else,
+# and a machine the panel is installed on has no reason to carry Android
+# Studio: shipping the executable is the difference between a Compartment LCD
+# that can be read on a fresh installation and one that reports "the adb
+# command was not found". `panel/adb/binary.py` looks for it here first and
+# falls back to PATH.
+#
+# SKIPPED RATHER THAN FATAL when the folder is absent, exactly as an
+# undelivered DeviceMap is: the tools are a third-party download (Google's
+# platform-tools, with its own licence beside it), not something the source
+# tree carries, and a developer build must not stop because of it. It is
+# printed either way, so a release build that forgot the step says so in the
+# log rather than producing a package that is quietly missing adb.
+PLATFORM_TOOLS = ROOT / "platform-tools"
+
 data = [("static", "static"), (str(MESSAGES_DIR), "messages")]
+if PLATFORM_TOOLS.is_dir():
+    data.append((str(PLATFORM_TOOLS), "platform-tools"))
+    print(f"[spec] adb tools: {PLATFORM_TOOLS}")
+else:
+    print(f"[spec] no platform-tools folder at {PLATFORM_TOOLS} — the "
+          f"package will fall back to an adb on PATH")
 missing = []
 for source_path, bundle_name in DATA_FILES:
     if source_path.exists():

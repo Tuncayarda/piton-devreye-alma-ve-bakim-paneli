@@ -5,6 +5,58 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.2 — 27 Ağustos 2026
+
+Panele gömülü bir ADB aracı eklendi; otomatik tarama artık duraklatılmış
+başlıyor.
+
+### ADB araçları ekranı
+
+Menüde kendi başlığı olan yeni bir ekran. Diğer ekranlardan farkı, projeye
+bağlı olmaması: kendi adres listesini tutar ve DeviceMap'i hiç tanımaz.
+Tezgâhtaki ya da kabindeki Android ekranlarla doğrudan çalışmak içindir.
+
+- **Kendi cihaz listesi.** Adresler elle eklenir, çıkarılır ya da bir JSON
+  dosyasından içe aktarılır; liste kaydedilir ve panel kapanınca kaybolmaz.
+  Bozuk bir satır ekranı kapatmaz — atlanır ve kaç tanesinin atlandığı
+  söylenir.
+- **Anahtar kelimeyle uygulama arama.** Paket adını kimse ezbere yazmaz;
+  kutuya "gebze" yazılır ve seçili cihazlardaki eşleşen paketler listelenir.
+  Virgülle ayırarak birkaç kelime aynı anda aranabilir.
+- **Toplu işlem.** Seçili cihazlarda uygulama başlatma, durdurma, yeniden
+  başlatma, silme ve APK kurma — hepsi aynı anda. Farklı cihazlarda farklı
+  paketler seçildiyse her cihaza kendi paketi için komut gider; paketin
+  bulunmadığı cihaza hiç komut gitmez ve hangi cihazın dışarıda kaldığı
+  ekranda yazar.
+- **Kendiliğinden başlatma.** Bir uygulama, ekran açıldığında kendiliğinden
+  kalkacak biçimde ayarlanabilir. Bu, cihazın sistem bölümüne iki dosya
+  yazar ve fabrika ayarlarına dönmek onları geri getirmez, o yüzden ne
+  yazılacağı dosya adlarıyla gösterilip onaylatılır. Kaldırma da aynı iki
+  dosyayı siler.
+- İşlem sürerken panelin kendi yenileme turları durur. Bu ekranın işi iş
+  kuyruğuna girmez; üst çubuktaki listede görünmez.
+
+### Otomatik tarama duraklatılmış başlıyor
+
+Panel açılır açılmaz DeviceMap'teki her adrese gitmiyor artık. Bir
+Compartment LCD adb ile okunuyor ve kendiliğinden başlayan bir tur, o
+ekranla uğraşan kişinin bağlantısını elinden alıyordu. Üst çubukta
+"Duraklatıldı" yazar; **Şimdi tara** her zaman çalışır ve ilk tıklamada
+otomatik turlar da başlar.
+
+### Kapak altında
+
+Kullanıcıya dönük bir karşılığı yok, ama bu sürümde yapılanlar:
+
+- **Tek bir ADB taşıma katmanı.** `adb`, birbirinden habersiz dört ayrı
+  yerden ve dört ayrı hata davranışıyla çağrılıyordu. Artık tek yerden
+  çağrılıyor; "adb kurulu değil" gibi bir durum da ekranda okunabilir bir
+  cümle olarak çıkıyor, "beklenmedik cihaz sorunu" olarak değil.
+- **`adb` pakete gömülebiliyor.** Paketin içinde bir `platform-tools`
+  klasörü varsa panel onu kullanır, yoksa PATH'teki `adb`'ye düşer —
+  Android geliştirme araçları kurulu olmayan bir bilgisayarda da ekranlara
+  ulaşılabilsin diye.
+
 ## v1.0.1 — 27 Ağustos 2026
 
 Bakım sürümü. Ekranlarda ve akışlarda değişiklik yok; bir donma hatası

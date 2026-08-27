@@ -50,6 +50,17 @@ const MAIN_AREAS = [
            'M3.5 10h13', 'M10 3.5c1.8 1.8 2.7 4.1 2.7 6.5S11.8 14.7 10 16.5',
            'M10 3.5C8.2 5.3 7.3 7.6 7.3 10s.9 4.7 2.7 6.5'],
   },
+  // The ADB tool. Its own area rather than a fourth Operations tab: those
+  // three screens all work on the project's device list for one train set,
+  // and this one works on a list of addresses that belongs to no project at
+  // all (see panel/adb/pool.py). Filing it beside them would say the set
+  // picker in the top bar applies to it, and it does not.
+  {
+    labelKey: 'nav.adb', view: 'adb',
+    active: v => v === 'adb',
+    icon: ['M6 8.5h8v6H6z', 'M7.5 8.5V7a2.5 2.5 0 0 1 5 0v1.5',
+           'M4 10.5h2M14 10.5h2'],
+  },
   {
     labelKey: 'nav.verification', view: 'checklist',
     active: v => v === 'checklist',

@@ -66,7 +66,7 @@ from dataclasses import dataclass
 # in the frontend because the API guard enforces the same list server-side,
 # and two copies would drift on the first screen added.
 BASE_VIEWS = ("overview", "devices", "ip", "config", "firmware",
-              "network", "checklist", "history")
+              "network", "adb", "checklist", "history")
 # The engineer's screens: the project and device list, PISCU and MQTT. They
 # expose the project definition itself, which is the one thing an edition
 # exists to keep to itself.

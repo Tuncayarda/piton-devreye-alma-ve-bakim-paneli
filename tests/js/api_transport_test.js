@@ -25,12 +25,22 @@ applyCatalogue({
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("the api surface keeps its 51 methods", () => {
+Deno.test("the api surface keeps its 61 methods", () => {
   const api = createApi({ request: () => ok() });
   const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
     methods,
     [
+      "adb",
+      "adbApk",
+      "adbAutostart",
+      "adbAutostartFiles",
+      "adbCancel",
+      "adbDevices",
+      "adbImport",
+      "adbPackages",
+      "adbRun",
+      "adbState",
       "adminKey",
       "adminKeyDrives",
       "adminKeyPrepare",

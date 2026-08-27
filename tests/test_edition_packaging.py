@@ -126,6 +126,63 @@ class Icons(unittest.TestCase):
                       self.APPIMAGE.read_text(encoding="utf-8"))
 
 
+class AndroidTools(unittest.TestCase):
+    """The adb executable travels INSIDE the package.
+
+    None of this is exercised by running the panel from a source tree, where
+    a developer's own adb is on PATH. On the machines these are installed on
+    there is no Android tooling at all, and the whole Compartment LCD half of
+    the product — reading a display, installing an APK, the ADB screen —
+    reports "the adb command was not found" on hardware that is perfectly
+    healthy. That was the failure; this is the agreement that fixes it, read
+    back out of the build files as text.
+    """
+
+    APPIMAGE = settings.ROOT / "packaging" / "appimage.sh"
+
+    def test_the_spec_ships_the_tools_folder(self):
+        spec = read(SPEC)
+        self.assertIn('PLATFORM_TOOLS = ROOT / "platform-tools"', spec)
+        self.assertIn('data.append((str(PLATFORM_TOOLS), "platform-tools"))',
+                      spec)
+
+    def test_a_tree_without_the_tools_still_builds(self):
+        """SKIPPED, NOT FATAL — the same rule an undelivered DeviceMap gets.
+
+        The tools are a third-party download, not something the source tree
+        carries, and a developer build must not stop because of it. It is
+        printed either way, so a release build that forgot the step says so
+        in the log instead of producing a package quietly missing adb.
+        """
+        spec = read(SPEC)
+        self.assertIn("if PLATFORM_TOOLS.is_dir():", spec)
+        self.assertIn("no platform-tools folder at", spec)
+
+    def test_the_runtime_looks_in_the_bundle_before_the_path(self):
+        """Otherwise shipping the executable changes nothing: a machine with
+        no adb on PATH would still find none."""
+        source = (settings.ROOT / "panel" / "adb" / "binary.py").read_text(
+            encoding="utf-8")
+        self.assertLess(source.index("found = bundled()"),
+                        source.index('shutil.which("adb")'))
+
+    def test_the_appimage_restores_the_executable_bit(self):
+        """PyInstaller copies these in as DATA, and a data file is not
+        marked runnable. Without this the AppImage carries an adb it cannot
+        start — which on screen is indistinguishable from carrying none."""
+        text = self.APPIMAGE.read_text(encoding="utf-8")
+        self.assertIn('chmod 0755 "$APPDIR/usr/bin/platform-tools/adb"', text)
+
+    def test_windows_needs_no_line_of_its_own(self):
+        """Inno Setup already takes the whole onedir output recursively, and
+        Windows has no executable bit. Asserted so that the asymmetry with
+        the AppImage script reads as a decision rather than as an omission.
+        """
+        iss = read(ISS)
+        self.assertIn("recursesubdirs createallsubdirs", iss)
+        self.assertIn("platform-tools", iss)
+
+
 class ToolOutput(unittest.TestCase):
     """The one Turkish string, on a console that is not."""
 

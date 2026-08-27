@@ -13,6 +13,7 @@ const KEYS = new Set([
   'configState', 'firmwareState', 'mqttState', 'piscuState', 'meta',
   'checklistState', 'checklistCategory', 'historyFilter', 'networkState',
   'autoRefresh', 'deviceSearch', 'deviceSort', 'deviceSortDesc',
+  'adbState', 'adbBusy',
 ]);
 
 const _subscribers = new Set();
@@ -59,6 +60,15 @@ export const state = {
   mqttState: null,
   piscuState: null,
   networkState: null,
+  // The ADB screen: its address list plus whatever its runner is doing.
+  adbState: null,
+  // Is that screen writing to a device right now? Kept as a flag of its own
+  // rather than read out of `adbState` on every tick, because the two
+  // automatic refresh rounds consult it (core/schedule.js) and they must not
+  // have to know the shape of another screen's data. It is the browser half
+  // of the lock; the server refuses the round as well
+  // (panel/api/routes/session_routes.py).
+  adbBusy: false,
   checklistState: null,
   checklistCategory: 'all',
   // Free text typed on the devices screen. Lives here rather than in the
@@ -72,10 +82,25 @@ export const state = {
   deviceSort: null,
   deviceSortDesc: false,
   historyFilter: 'all',
-  // Automatic rounds on or off. Session-scoped on purpose: it is NOT written
-  // to disk. A panel that came back paused the next morning would show a
-  // screen full of yesterday's readings with nothing saying why.
-  autoRefresh: true,
+  // Automatic rounds on or off.
+  //
+  // OFF WHEN THE PANEL OPENS. Reading a device is not free — a Compartment
+  // LCD is read over adb, and the rounds take that connection out from under
+  // whoever is working on the display. The panel is opened far more often to
+  // do ONE thing to ONE device (write an address, install an APK, restart an
+  // application on the bench) than to watch a whole train set, and starting
+  // in the middle of a scan meant that one thing was being done against a
+  // background of traffic nobody had asked for.
+  //
+  // Nothing is hidden by this: the top bar says "paused" from the first
+  // paint, "Scan now" still works and is not gated on this flag, and one
+  // click starts the rounds and pulls the first one forward immediately.
+  //
+  // Still session-scoped and NOT written to disk — the choice a user makes
+  // during a session is theirs for that session, and a panel that came back
+  // in yesterday's mode would show a screen full of yesterday's readings
+  // with nothing saying why.
+  autoRefresh: false,
 };
 
 // Subscribers are told WHICH keys changed: redrawing the whole UI on every

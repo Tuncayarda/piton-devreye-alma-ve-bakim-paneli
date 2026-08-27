@@ -682,3 +682,76 @@
    question that one click answers. */
 .net-ask { border-color: var(--accent); }
 .net-ask > .eyebrow { color: var(--accent); font-size: var(--fs-base); }
+
+/* ─────────────────────────────────────────────────────────── ADB screen ── */
+/* The bench tool. Three cards down the page — the address list, the
+   application, the operations — rather than side by side: they are read in
+   that order once and then the operator lives in the third one. */
+.adb-intro { max-width: 74ch; }
+
+.adb-pool { margin-top: 16px; }
+.adb-packages, .adb-operations { margin-top: 16px; }
+
+.adb-add { margin-top: 12px; }
+.adb-add-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.adb-add-fields .field { flex: 1 1 160px; min-width: 0; }
+.adb-ip-field { font-family: var(--font-mono); flex: 0 1 170px; }
+
+.adb-pool-tools {
+  display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px;
+}
+
+/* The selectable row. `button.table-row[aria-selected="true"]` already paints
+   the selected background; the row here is a div because it CONTAINS two
+   buttons (the tick and the remove), and a button inside a button is not
+   valid markup. So the selected background is repeated for this one case. */
+.adb-row[data-selected="1"] { background: var(--accent-soft); }
+.adb-tick {
+  width: 22px; height: 22px; padding: 0; justify-content: center;
+  border-color: var(--line);
+}
+.adb-row .btn-small { justify-self: start; }
+
+.adb-search { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.adb-keyword { flex: 1 1 200px; min-width: 0; }
+
+.adb-package-list {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 12px;
+}
+.adb-package { align-items: flex-start; }
+.adb-package .box { margin-top: 4px; }
+.adb-package-text {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+/* Found everywhere / found on some. The second is the whole reason the search
+   answers per device (see views/adb/packages.js), so it is marked. */
+.adb-package-note { color: var(--text-mid); font-size: var(--fs-sm); }
+.adb-package-warn { color: var(--auth-text); font-size: var(--fs-sm); }
+
+.adb-op-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.adb-op-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 0; border-top: 1px solid var(--line-soft);
+  margin-top: 12px;
+}
+.adb-op-row > .label { flex: 0 0 140px; }
+.adb-op-row > .mono, .adb-op-row > .adb-op-empty { flex: 1 1 160px; min-width: 0; }
+.adb-op-empty { color: var(--text-dim); font-size: var(--fs-sm); }
+
+.adb-run-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: 18px 0 8px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.adb-run-head .spacer { flex: 1; }
+.adb-run-state { font-size: var(--fs-sm); }
+.adb-run-row[data-state="ok"] .adb-run-state { color: var(--ok-text); }
+.adb-run-row[data-state="failed"] .adb-run-state { color: var(--failed-text); }
+.adb-run-row[data-state="unknown"] .adb-run-state {
+  color: var(--unknown-text);
+}
+.adb-run-row[data-state="failed"] { box-shadow: inset 3px 0 0 var(--failed); }
+
+@media (max-width: 620px) {
+  .adb-op-row > .label { flex: 1 1 100%; }
+}

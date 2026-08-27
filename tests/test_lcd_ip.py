@@ -9,6 +9,7 @@ from contextlib import ExitStack
 from unittest import mock
 
 from panel import credentials
+from panel.adb import client as adb_client
 from panel.errors import AuthError
 from panel.inventory import catalog, device_map
 from panel.ip_assign import lcd_runner, runner
@@ -195,7 +196,7 @@ class CompartmentLcdRun(CompartmentLcdPlan):
             lcd_runner.script_loader, "intercom_ip_assign",
             return_value=switch_api))
         self.stack.enter_context(mock.patch.object(
-            lcd_runner.subprocess, "run", side_effect=adb))
+            adb_client.subprocess, "run", side_effect=adb))
         code = lcd_runner.run_manual(
             inventory, inventory.switches()[0], port, ("admin", "pw"),
             lines.append, options or {}, cancelled=cancelled)
@@ -209,7 +210,7 @@ class CompartmentLcdRun(CompartmentLcdPlan):
             lcd_runner.script_loader, "intercom_ip_assign",
             return_value=switch_api))
         self.stack.enter_context(mock.patch.object(
-            lcd_runner.subprocess, "run", side_effect=adb))
+            adb_client.subprocess, "run", side_effect=adb))
         if install is not None:
             self.stack.enter_context(mock.patch.object(
                 lcd_runner.firmware, "has_selection", return_value=True))

@@ -53,6 +53,19 @@ cp -a "$DIST_DIR/." "$APPDIR/usr/bin/"
 test -x "$APPDIR/usr/bin/$APP_BINARY_NAME" \
   || chmod +x "$APPDIR/usr/bin/$APP_BINARY_NAME"
 
+# The bundled Android tools. PyInstaller copies these in as DATA, and a data
+# file is not marked runnable — the AppImage would then carry an adb it
+# cannot start, which reads on screen as "the adb command was not found" on a
+# machine that is carrying one. Restored here as well as at runtime
+# (panel/adb/binary.py) so a read-only installation still works.
+if [ -d "$APPDIR/usr/bin/platform-tools" ]; then
+  chmod 0755 "$APPDIR/usr/bin/platform-tools/adb" 2>/dev/null || true
+  find "$APPDIR/usr/bin/platform-tools" -maxdepth 1 -type f \
+       \( -name 'adb' -o -name 'fastboot' -o -name 'etc1tool' \) \
+       -exec chmod 0755 {} + 2>/dev/null || true
+  echo "==> bundled adb made executable"
+fi
+
 # .desktop — required by AppImage
 cat > "$APPDIR/usr/share/applications/$DESKTOP_ID.desktop" <<DESKTOP
 [Desktop Entry]

@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-J3MQcZau9Zd5kTC/opw38h1yBE65EjSY2EG3GDp6RXU=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-1HrG+s3rzjR6td1xQxEV0URCUGi7sc2uiXZtTS1cqF0=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -1774,6 +1774,79 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .net-ask { border-color: var(--accent); }
 .net-ask > .eyebrow { color: var(--accent); font-size: var(--fs-base); }
 
+/* ─────────────────────────────────────────────────────────── ADB screen ── */
+/* The bench tool. Three cards down the page — the address list, the
+   application, the operations — rather than side by side: they are read in
+   that order once and then the operator lives in the third one. */
+.adb-intro { max-width: 74ch; }
+
+.adb-pool { margin-top: 16px; }
+.adb-packages, .adb-operations { margin-top: 16px; }
+
+.adb-add { margin-top: 12px; }
+.adb-add-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.adb-add-fields .field { flex: 1 1 160px; min-width: 0; }
+.adb-ip-field { font-family: var(--font-mono); flex: 0 1 170px; }
+
+.adb-pool-tools {
+  display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px;
+}
+
+/* The selectable row. `button.table-row[aria-selected="true"]` already paints
+   the selected background; the row here is a div because it CONTAINS two
+   buttons (the tick and the remove), and a button inside a button is not
+   valid markup. So the selected background is repeated for this one case. */
+.adb-row[data-selected="1"] { background: var(--accent-soft); }
+.adb-tick {
+  width: 22px; height: 22px; padding: 0; justify-content: center;
+  border-color: var(--line);
+}
+.adb-row .btn-small { justify-self: start; }
+
+.adb-search { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.adb-keyword { flex: 1 1 200px; min-width: 0; }
+
+.adb-package-list {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 12px;
+}
+.adb-package { align-items: flex-start; }
+.adb-package .box { margin-top: 4px; }
+.adb-package-text {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+/* Found everywhere / found on some. The second is the whole reason the search
+   answers per device (see views/adb/packages.js), so it is marked. */
+.adb-package-note { color: var(--text-mid); font-size: var(--fs-sm); }
+.adb-package-warn { color: var(--auth-text); font-size: var(--fs-sm); }
+
+.adb-op-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.adb-op-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 0; border-top: 1px solid var(--line-soft);
+  margin-top: 12px;
+}
+.adb-op-row > .label { flex: 0 0 140px; }
+.adb-op-row > .mono, .adb-op-row > .adb-op-empty { flex: 1 1 160px; min-width: 0; }
+.adb-op-empty { color: var(--text-dim); font-size: var(--fs-sm); }
+
+.adb-run-head {
+  display: flex; align-items: center; gap: 10px;
+  margin: 18px 0 8px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.adb-run-head .spacer { flex: 1; }
+.adb-run-state { font-size: var(--fs-sm); }
+.adb-run-row[data-state="ok"] .adb-run-state { color: var(--ok-text); }
+.adb-run-row[data-state="failed"] .adb-run-state { color: var(--failed-text); }
+.adb-run-row[data-state="unknown"] .adb-run-state {
+  color: var(--unknown-text);
+}
+.adb-run-row[data-state="failed"] { box-shadow: inset 3px 0 0 var(--failed); }
+
+@media (max-width: 620px) {
+  .adb-op-row > .label { flex: 1 1 100%; }
+}
+
 /* static/css/ip.css */
 /* The IP assignment screen: the switch front panel, the run
    settings card and the assignment plan.
@@ -2828,6 +2901,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       <div class="view" id="v-devices" hidden></div>
       <div class="view" id="v-ip" hidden></div>
       <div class="view" id="v-network" hidden></div>
+      <div class="view" id="v-adb" hidden></div>
       <div class="view" id="v-config" hidden></div>
       <div class="view" id="v-firmware" hidden></div>
       <div class="view" id="v-checklist" hidden></div>
@@ -2949,7 +3023,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     ]) : [];
     draw2();
     if (!outer) return;
-    const apply = () => {
+    const apply2 = () => {
       if (outerTop && outer.scrollHeight > outer.clientHeight) {
         outer.scrollTop = outerTop;
       }
@@ -2960,8 +3034,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         if (top) current2[i].scrollTop = top;
       }
     };
-    apply();
-    requestAnimationFrame(apply);
+    apply2();
+    requestAnimationFrame(apply2);
   }
   var SVG_NS = "http://www.w3.org/2000/svg";
   function svg(attributes = {}, children = []) {
@@ -3283,9 +3357,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         set,
         auto
       }),
-      refresh: (set, devices) => post("/api/refresh", {
+      refresh: (set, devices2) => post("/api/refresh", {
         set,
-        devices
+        devices: devices2
       }),
       // The only place a password appears. The caller clears the form the
       // moment the reply arrives and keeps nothing.
@@ -3389,10 +3463,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         group,
         scope
       }),
-      configApply: (set, group, devices) => post("/api/config/apply", {
+      configApply: (set, group, devices2) => post("/api/config/apply", {
         set,
         group,
-        devices
+        devices: devices2
       }),
       // An image is chosen per device. With `devices` given only those are
       // assigned/cleared, otherwise every device in the group.
@@ -3402,21 +3476,49 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }),
       // The file picker opens in the OS: the browser does not reveal the real
       // path. The request lasts until the user closes the window — no timeout.
-      firmwarePick: (set, group, devices) => post("/api/firmware/pick", {
+      firmwarePick: (set, group, devices2) => post("/api/firmware/pick", {
         set,
         group,
-        devices
+        devices: devices2
       }),
-      firmwareRemove: (set, group, devices) => post("/api/firmware/remove", {
+      firmwareRemove: (set, group, devices2) => post("/api/firmware/remove", {
         set,
         group,
-        devices
+        devices: devices2
       }),
-      firmwareInstall: (set, group, devices) => post("/api/firmware/install", {
+      firmwareInstall: (set, group, devices2) => post("/api/firmware/install", {
         set,
         group,
-        devices
+        devices: devices2
       }),
+      // ── the ADB screen ──
+      // No `set` on any of these, and that is the whole point: this screen's
+      // devices are a list of addresses the user keeps, not a project (see
+      // panel/adb/pool.py).
+      adb: () => get("/api/adb"),
+      // The runner alone, polled once a second while an operation runs. Its
+      // `generation` counter is what lets the client tell in one integer
+      // whether anything moved.
+      adbState: () => get("/api/adb/state"),
+      adbDevices: (body) => post("/api/adb/devices", body),
+      // The picker opens in the OS; the path never travels from the browser.
+      adbImport: () => post("/api/adb/import", {}),
+      adbPackages: (devices2, keyword) => post("/api/adb/packages", {
+        devices: devices2,
+        keyword
+      }),
+      adbApk: () => post("/api/adb/apk", {}),
+      adbAutostart: (devices2, name) => post("/api/adb/autostart", {
+        devices: devices2,
+        package: name
+      }),
+      // Which files an autostart install would write. Asked before the
+      // confirmation dialog so it names the paths the server will really use.
+      adbAutostartFiles: (name) => post("/api/adb/autostart/files", {
+        package: name
+      }),
+      adbRun: (body) => post("/api/adb/run", body),
+      adbCancel: () => post("/api/adb/cancel", {}),
       checklistExport: (set) => post("/api/checklist/export", {
         set
       }),
@@ -3473,7 +3575,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     "autoRefresh",
     "deviceSearch",
     "deviceSort",
-    "deviceSortDesc"
+    "deviceSortDesc",
+    "adbState",
+    "adbBusy"
   ]);
   var _subscribers = /* @__PURE__ */ new Set();
   var state = {
@@ -3523,6 +3627,15 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     mqttState: null,
     piscuState: null,
     networkState: null,
+    // The ADB screen: its address list plus whatever its runner is doing.
+    adbState: null,
+    // Is that screen writing to a device right now? Kept as a flag of its own
+    // rather than read out of `adbState` on every tick, because the two
+    // automatic refresh rounds consult it (core/schedule.js) and they must not
+    // have to know the shape of another screen's data. It is the browser half
+    // of the lock; the server refuses the round as well
+    // (panel/api/routes/session_routes.py).
+    adbBusy: false,
     checklistState: null,
     checklistCategory: "all",
     // Free text typed on the devices screen. Lives here rather than in the
@@ -3536,10 +3649,25 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     deviceSort: null,
     deviceSortDesc: false,
     historyFilter: "all",
-    // Automatic rounds on or off. Session-scoped on purpose: it is NOT written
-    // to disk. A panel that came back paused the next morning would show a
-    // screen full of yesterday's readings with nothing saying why.
-    autoRefresh: true
+    // Automatic rounds on or off.
+    //
+    // OFF WHEN THE PANEL OPENS. Reading a device is not free — a Compartment
+    // LCD is read over adb, and the rounds take that connection out from under
+    // whoever is working on the display. The panel is opened far more often to
+    // do ONE thing to ONE device (write an address, install an APK, restart an
+    // application on the bench) than to watch a whole train set, and starting
+    // in the middle of a scan meant that one thing was being done against a
+    // background of traffic nobody had asked for.
+    //
+    // Nothing is hidden by this: the top bar says "paused" from the first
+    // paint, "Scan now" still works and is not gated on this flag, and one
+    // click starts the rounds and pulls the first one forward immediately.
+    //
+    // Still session-scoped and NOT written to disk — the choice a user makes
+    // during a session is theirs for that session, and a panel that came back
+    // in yesterday's mode would show a screen full of yesterday's readings
+    // with nothing saying why.
+    autoRefresh: false
   };
   function patch(changes) {
     const changed = [];
@@ -3620,11 +3748,14 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function writingRunInProgress(jobs) {
     return (jobs || []).some((job) => WRITING_JOB_KINDS.has(job.kind) && (job.state === "running" || job.state === "queued"));
   }
+  function adbRunInProgress(state2) {
+    return state2.adbBusy === true;
+  }
   function scanRoundAllowed(state2) {
-    return !!state2.meta && state2.autoRefresh !== false && !state2.scanRunning && !writingRunInProgress(state2.jobs);
+    return !!state2.meta && state2.autoRefresh !== false && !state2.scanRunning && !writingRunInProgress(state2.jobs) && !adbRunInProgress(state2);
   }
   function lightRoundAllowed(state2) {
-    return !!state2.meta && state2.autoRefresh !== false && !state2.scanRunning && !(state2.jobs || []).some((job) => job.state === "running");
+    return !!state2.meta && state2.autoRefresh !== false && !state2.scanRunning && !(state2.jobs || []).some((job) => job.state === "running") && !adbRunInProgress(state2);
   }
 
   // static/js/components/toast.js
@@ -3795,6 +3926,21 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         "M3.5 10h13",
         "M10 3.5c1.8 1.8 2.7 4.1 2.7 6.5S11.8 14.7 10 16.5",
         "M10 3.5C8.2 5.3 7.3 7.6 7.3 10s.9 4.7 2.7 6.5"
+      ]
+    },
+    // The ADB tool. Its own area rather than a fourth Operations tab: those
+    // three screens all work on the project's device list for one train set,
+    // and this one works on a list of addresses that belongs to no project at
+    // all (see panel/adb/pool.py). Filing it beside them would say the set
+    // picker in the top bar applies to it, and it does not.
+    {
+      labelKey: "nav.adb",
+      view: "adb",
+      active: (v) => v === "adb",
+      icon: [
+        "M6 8.5h8v6H6z",
+        "M7.5 8.5V7a2.5 2.5 0 0 1 5 0v1.5",
+        "M4 10.5h2M14 10.5h2"
       ]
     },
     {
@@ -4483,7 +4629,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
     if (onClose) onClose();
   }
-  function show({ title, content, actions = [], width, onClose }) {
+  function show({ title, content, actions: actions2 = [], width, onClose }) {
     close();
     const previousFocus = document.activeElement;
     const box = el("div", {
@@ -4498,9 +4644,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         text: title
       }),
       content,
-      actions.length ? el("div", {
+      actions2.length ? el("div", {
         class: "actions"
-      }, actions) : null
+      }, actions2) : null
     ]);
     const backdrop = el("div", {
       class: "backdrop",
@@ -4607,11 +4753,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function render4() {
     const list = $("#locked-list");
     if (!list) return;
-    const devices = state.locked || [];
+    const devices2 = state.locked || [];
     const badge = $("#locked-count");
     if (badge) {
-      badge.textContent = String(devices.length);
-      badge.hidden = devices.length === 0;
+      badge.textContent = String(devices2.length);
+      badge.hidden = devices2.length === 0;
     }
     const button = $("#locked-btn");
     if (button) button.setAttribute("aria-expanded", String(!!state.lockedOpen));
@@ -4620,10 +4766,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       lastSignature2 = null;
       return;
     }
-    const signature = JSON.stringify(devices);
+    const signature = JSON.stringify(devices2);
     if (signature === lastSignature2) return;
     lastSignature2 = signature;
-    if (!devices.length) {
+    if (!devices2.length) {
       fill(list, [
         el("div", {
           class: "empty-state",
@@ -4640,7 +4786,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ]);
       return;
     }
-    fill(list, devices.map((device) => el("button", {
+    fill(list, devices2.map((device) => el("button", {
       type: "button",
       class: "locked-row",
       onclick: () => credentialDialog(device)
@@ -4830,7 +4976,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
 
   // static/js/components/confirm.js
-  function confirmWrite({ title, lead, notes = [], items = [], danger = false, confirmLabel, run }) {
+  function confirmWrite({ title, lead, notes = [], items: items2 = [], danger = false, confirmLabel, run }) {
     const content = el("div", {}, [
       el("p", {
         class: "description",
@@ -4841,9 +4987,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         style: "margin-top:10px",
         text: note.text
       })),
-      items.length ? el("div", {
+      items2.length ? el("div", {
         class: "confirm-list"
-      }, items.map((item) => el("div", {
+      }, items2.map((item) => el("div", {
         class: "row"
       }, [
         el("span", {
@@ -4947,7 +5093,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const fields = result.fields || {};
     const method = device.readMethodInfo || {};
     const colour = STATE_COLOUR[result.state] || null;
-    const actions = [
+    const actions2 = [
       el("button", {
         type: "button",
         class: "btn btn-primary",
@@ -4965,7 +5111,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       })
     ];
     if (result.verification === "auth_required") {
-      actions.push(el("button", {
+      actions2.push(el("button", {
         type: "button",
         class: "btn",
         text: t("detail.enterCredentials"),
@@ -4977,7 +5123,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }));
     }
     if (device.hasCredentials) {
-      actions.push(el("button", {
+      actions2.push(el("button", {
         type: "button",
         class: "btn",
         text: t("detail.deleteCredentials"),
@@ -5213,7 +5359,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ]),
       el("div", {
         style: "display:flex;gap:8px;margin-top:16px;flex-wrap:wrap"
-      }, actions),
+      }, actions2),
       el("div", {
         class: "info",
         style: "margin-top:14px",
@@ -5294,12 +5440,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     });
   }
   function render6(root, refreshNow2) {
-    const devices = state.devices;
-    const total = devices.length;
+    const devices2 = state.devices;
+    const total = devices2.length;
     const counts = state.counts;
     const read = counts.ok + counts.auth + counts.failed;
     const scanned = !!state.lastScan || read > 0;
-    const withVersion = devices.filter((d) => d.result.fields && d.result.fields.version).length;
+    const withVersion = devices2.filter((d) => d.result.fields && d.result.fields.version).length;
     const parts = [];
     parts.push(el("div", {
       class: "page-head"
@@ -5367,7 +5513,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         })
       ]),
       ...(state.meta ? state.meta.categories : []).map((category) => {
-        const members = category.id === "all" ? devices : devices.filter((d) => d.category === category.id);
+        const members = category.id === "all" ? devices2 : devices2.filter((d) => d.category === category.id);
         const reachable = members.filter((d) => d.result.state === "ok").length;
         const barColour = !members.length ? "unknown" : reachable === members.length ? "ok" : reachable ? "auth" : "unknown";
         return el("button", {
@@ -5687,7 +5833,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function render7(root) {
     const categories = state.meta ? state.meta.categories : [];
     const category = categories.find((c) => c.id === state.category);
-    const devices = visibleDevices();
+    const devices2 = visibleDevices();
     const categoryTotal = state.category === "all" ? state.devices.length : state.devices.filter((d) => d.category === state.category).length;
     const parts = [];
     parts.push(el("div", {
@@ -5764,7 +5910,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       "col.accessState",
       "col.uptime"
     ];
-    const rows2 = sorted(devices).map((device) => {
+    const rows2 = sorted(devices2).map((device) => {
       const result = device.result || {};
       return el("button", {
         type: "button",
@@ -5854,12 +6000,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }
     });
   }
-  function sorted(devices) {
+  function sorted(devices2) {
     const chosen = SORTS.find((entry) => entry.id === state.deviceSort);
-    if (!chosen) return devices;
+    if (!chosen) return devices2;
     const direction = state.deviceSortDesc ? -1 : 1;
     return [
-      ...devices
+      ...devices2
     ].sort((one, other) => {
       const left = chosen.of(one);
       const right = chosen.of(other);
@@ -8886,6 +9032,1026 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     fill(root, parts);
   }
 
+  // static/js/views/adb/state.js
+  var POLL_INTERVAL = 1e3;
+  var local2 = {
+    // Which addresses the operations apply to. A Set rather than an array:
+    // every use is a membership test while drawing a row.
+    selected: /* @__PURE__ */ new Set(),
+    // The add-a-device form. Held here so a refresh round cannot empty a
+    // half-typed address.
+    newIp: "",
+    newLabel: "",
+    addError: "",
+    // The application. `keyword` is what the operator typed — a
+    // COMMA-SEPARATED LIST, because a bench rarely holds one kind of display
+    // — `found` the server's answer, and `packages` the bundles they then
+    // chose out of it. Several, on purpose: four displays running three
+    // customers' applications is the ordinary case, and restarting them one
+    // bundle at a time is three searches and three runs for one intention.
+    keyword: "",
+    found: null,
+    searching: false,
+    packages: /* @__PURE__ */ new Set(),
+    // The APK to install. Only ever a path the SERVER chose through the
+    // operating system's dialog — the browser never sees a real one.
+    apk: null,
+    pickerOpen: false,
+    importing: false,
+    // What the autostart button should say for the one device it was asked
+    // about: { ip, package, state }.
+    autostart: null,
+    checkingAutostart: false
+  };
+  var live2 = {
+    timer: null,
+    // The last runner generation drawn. The poll compares against this and
+    // redraws only on a real change.
+    generation: -1
+  };
+  function onScreen2() {
+    return state.view === "adb";
+  }
+  function selectedIps() {
+    const known = new Set(devices().map((entry) => entry.ip));
+    return [
+      ...local2.selected
+    ].filter((ip) => known.has(ip));
+  }
+  function devices() {
+    const data = state.adbState;
+    return data && data.devices || [];
+  }
+  function runner() {
+    const data = state.adbState;
+    return data && data.runner || null;
+  }
+  function running() {
+    const current2 = runner();
+    return !!(current2 && current2.running);
+  }
+  function pruneSelection() {
+    const known = new Set(devices().map((entry) => entry.ip));
+    for (const ip of [
+      ...local2.selected
+    ]) {
+      if (!known.has(ip)) local2.selected.delete(ip);
+    }
+  }
+  function toggle3(ip) {
+    if (local2.selected.has(ip)) local2.selected.delete(ip);
+    else local2.selected.add(ip);
+  }
+  function selectAll(on) {
+    local2.selected.clear();
+    if (!on) return;
+    for (const entry of devices()) local2.selected.add(entry.ip);
+  }
+  function stopPolling() {
+    clearTimeout(live2.timer);
+    live2.timer = null;
+  }
+  function keepPackages() {
+    const answer = local2.found;
+    if (!answer) return;
+    const names = new Set((answer.packages || []).map((entry) => entry.name));
+    for (const name of [
+      ...local2.packages
+    ]) {
+      if (!names.has(name)) local2.packages.delete(name);
+    }
+  }
+  function togglePackage(name) {
+    if (local2.packages.has(name)) local2.packages.delete(name);
+    else local2.packages.add(name);
+  }
+  function operationTargets() {
+    const chosen = new Set(selectedIps());
+    const answer = local2.found;
+    if (!answer) return [];
+    const pairs = [];
+    for (const entry of answer.packages || []) {
+      if (!local2.packages.has(entry.name)) continue;
+      for (const ip of entry.present || []) {
+        if (chosen.has(ip)) pairs.push({
+          ip,
+          package: entry.name
+        });
+      }
+    }
+    return pairs;
+  }
+  function untouchedIps() {
+    const reached = new Set(operationTargets().map((pair) => pair.ip));
+    return selectedIps().filter((ip) => !reached.has(ip));
+  }
+
+  // static/js/views/adb/pool.js
+  var COLUMNS3 = "38px minmax(120px,.8fr) minmax(140px,1.4fr) 96px";
+  function poolCard(actions2) {
+    const list = devices();
+    const chosen = new Set(selectedIps());
+    const allOn = list.length > 0 && chosen.size === list.length;
+    return el("section", {
+      class: "card corner adb-pool"
+    }, [
+      el("div", {
+        class: "card-head"
+      }, [
+        el("h3", {
+          text: t("adb.deviceList")
+        }),
+        el("span", {
+          class: "spacer"
+        }),
+        el("span", {
+          class: "eyebrow",
+          text: t("adb.selectedOfTotal", {
+            selected: chosen.size,
+            total: list.length
+          })
+        })
+      ]),
+      el("p", {
+        class: "description",
+        text: t("adb.deviceListNote")
+      }),
+      addForm(actions2),
+      el("div", {
+        class: "adb-pool-tools"
+      }, [
+        el("button", {
+          type: "button",
+          class: "btn btn-small",
+          text: allOn ? t("adb.selectNone") : t("adb.selectAll"),
+          disabled: !list.length,
+          onclick: () => actions2.selectAll(!allOn)
+        }),
+        el("button", {
+          type: "button",
+          class: "btn btn-small",
+          text: local2.importing ? t("adb.importing") : t("adb.importList"),
+          disabled: local2.importing,
+          title: t("adb.importHint"),
+          onclick: () => actions2.importList()
+        })
+      ]),
+      dataTable({
+        template: COLUMNS3,
+        minWidth: 520,
+        label: t("adb.deviceList"),
+        columns: [
+          "",
+          t("adb.columnAddress"),
+          t("adb.columnLabel"),
+          ""
+        ],
+        rows: list.map((entry) => deviceRow(entry, chosen, actions2)),
+        empty: t("adb.noDeviceYet")
+      })
+    ]);
+  }
+  function deviceRow(entry, chosen, actions2) {
+    const on = chosen.has(entry.ip);
+    return el("div", {
+      class: "table-row adb-row",
+      "aria-selected": String(on),
+      dataset: {
+        selected: on ? "1" : "0"
+      },
+      style: `--table-columns:${COLUMNS3}`
+    }, [
+      el("button", {
+        type: "button",
+        class: "checkbox adb-tick",
+        "aria-pressed": String(on),
+        // The row is a grid cell, so the label the row cannot show goes here.
+        "aria-label": t("adb.selectDevice", {
+          ip: entry.ip
+        }),
+        onclick: () => actions2.toggle(entry.ip)
+      }, [
+        el("span", {
+          class: "box",
+          "aria-hidden": "true"
+        })
+      ]),
+      el("span", {
+        class: "mono",
+        text: entry.ip
+      }),
+      el("span", {
+        class: "truncate",
+        text: entry.label || "\u2014"
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small",
+        text: t("adb.remove"),
+        disabled: running(),
+        onclick: () => removeDevice(entry, actions2)
+      })
+    ]);
+  }
+  function removeDevice(entry, actions2) {
+    confirmWrite({
+      title: t("adb.removeDeviceTitle"),
+      lead: t("adb.removeDeviceLead", {
+        ip: entry.ip
+      }),
+      notes: [
+        {
+          text: t("adb.removeDeviceNote"),
+          tone: "info"
+        }
+      ],
+      items: [
+        {
+          name: entry.ip,
+          detail: entry.label || ""
+        }
+      ],
+      confirmLabel: t("adb.remove"),
+      run: () => actions2.removeDevice(entry.ip)
+    });
+  }
+  function addForm(actions2) {
+    const ipField = el("input", {
+      class: "field adb-ip-field",
+      type: "text",
+      inputmode: "decimal",
+      autocomplete: "off",
+      spellcheck: "false",
+      "aria-label": t("adb.columnAddress"),
+      placeholder: "10.1.1.40",
+      value: local2.newIp,
+      oninput: (event) => {
+        local2.newIp = event.target.value;
+      }
+    });
+    const labelField = el("input", {
+      class: "field",
+      type: "text",
+      autocomplete: "off",
+      "aria-label": t("adb.columnLabel"),
+      placeholder: t("adb.labelPlaceholder"),
+      value: local2.newLabel,
+      oninput: (event) => {
+        local2.newLabel = event.target.value;
+      }
+    });
+    const warning = el("p", {
+      class: "warning",
+      role: "alert",
+      hidden: !local2.addError,
+      text: local2.addError
+    });
+    return el("form", {
+      class: "adb-add",
+      onsubmit: (event) => {
+        event.preventDefault();
+        ipField.blur();
+        labelField.blur();
+        actions2.addDevice(ipField.value, labelField.value);
+      }
+    }, [
+      el("div", {
+        class: "adb-add-fields"
+      }, [
+        ipField,
+        labelField,
+        el("button", {
+          type: "submit",
+          class: "btn btn-primary",
+          text: t("adb.addDevice")
+        })
+      ]),
+      warning
+    ]);
+  }
+
+  // static/js/views/adb/packages.js
+  function packagesCard(actions2) {
+    const answer = local2.found;
+    const chosen = selectedIps();
+    const keywordField = el("input", {
+      class: "field adb-keyword",
+      type: "text",
+      autocomplete: "off",
+      spellcheck: "false",
+      "aria-label": t("adb.keyword"),
+      placeholder: t("adb.keywordPlaceholder"),
+      value: local2.keyword,
+      oninput: (event) => {
+        local2.keyword = event.target.value;
+      }
+    });
+    return el("section", {
+      class: "card corner adb-packages"
+    }, [
+      el("div", {
+        class: "card-head"
+      }, [
+        el("h3", {
+          text: t("adb.application")
+        })
+      ]),
+      el("p", {
+        class: "description",
+        text: t("adb.applicationNote")
+      }),
+      el("form", {
+        class: "adb-search",
+        onsubmit: (event) => {
+          event.preventDefault();
+          keywordField.blur();
+          actions2.search(keywordField.value);
+        }
+      }, [
+        keywordField,
+        el("button", {
+          type: "submit",
+          class: "btn btn-primary",
+          text: local2.searching ? t("adb.searching") : t("adb.search"),
+          disabled: local2.searching || !chosen.length || running(),
+          title: chosen.length ? "" : t("adb.selectDeviceFirst")
+        })
+      ]),
+      ...results(answer, actions2)
+    ]);
+  }
+  function results(answer, actions2) {
+    if (!answer) return [];
+    const found = answer.packages || [];
+    const failed = answer.failed || [];
+    const parts = [];
+    if (!found.length) {
+      parts.push(el("p", {
+        class: "info",
+        text: t("adb.noPackageMatched", {
+          word: (answer.keywords || []).join(", ")
+        })
+      }));
+    } else {
+      parts.push(el("div", {
+        class: "adb-package-list"
+      }, found.map((entry) => packageRow(entry, actions2))));
+    }
+    for (const row2 of failed) {
+      parts.push(el("p", {
+        class: "warning",
+        text: t("adb.deviceNotRead", {
+          ip: row2.ip,
+          error: row2.error
+        })
+      }));
+    }
+    return parts;
+  }
+  function packageRow(entry, actions2) {
+    const on = local2.packages.has(entry.name);
+    const missing = entry.missing || [];
+    return el("button", {
+      type: "button",
+      class: "checkbox adb-package",
+      "aria-pressed": String(on),
+      onclick: () => actions2.choosePackage(entry.name)
+    }, [
+      el("span", {
+        class: "box",
+        "aria-hidden": "true"
+      }),
+      el("span", {
+        class: "adb-package-text"
+      }, [
+        el("span", {
+          class: "mono truncate",
+          text: entry.name
+        }),
+        el("span", {
+          class: missing.length ? "adb-package-warn" : "adb-package-note",
+          text: missing.length ? t("adb.presentOnSomeDevices", {
+            count: (entry.present || []).length,
+            missing: missing.join(", ")
+          }) : t("adb.presentOnAllDevices", {
+            count: (entry.present || []).length
+          })
+        })
+      ])
+    ]);
+  }
+
+  // static/js/views/adb/operations.js
+  var RUN_COLUMNS = "minmax(120px,.7fr) minmax(150px,1.2fr) 110px minmax(180px,1.6fr)";
+  var ROW_TONE = {
+    pending: "unknown",
+    running: "unknown",
+    done: "ok",
+    failed: "failed",
+    cancelled: "unknown"
+  };
+  var ROW_LABEL = {
+    pending: "adb.statePending",
+    running: "adb.stateRunning",
+    done: "adb.stateDone",
+    failed: "adb.stateFailed",
+    cancelled: "adb.stateCancelled"
+  };
+  var OP_LABEL = {
+    start: "adb.opStart",
+    stop: "adb.opStop",
+    restart: "adb.opRestart",
+    uninstall: "adb.opUninstall",
+    install: "adb.opInstall",
+    autostart_install: "adb.opAutostartInstall",
+    autostart_remove: "adb.opAutostartRemove"
+  };
+  var AUTOSTART_LABEL = {
+    installed: "adb.autostartInstalled",
+    partial: "adb.autostartPartial",
+    absent: "adb.autostartAbsent"
+  };
+  function operationsCard(actions2) {
+    const chosen = selectedIps();
+    const busy2 = running();
+    const targets = operationTargets();
+    const ready = chosen.length > 0 && !busy2;
+    const withPackage = ready && targets.length > 0;
+    return el("section", {
+      class: "card corner adb-operations"
+    }, [
+      el("div", {
+        class: "card-head"
+      }, [
+        el("h3", {
+          text: t("adb.operations")
+        }),
+        el("span", {
+          class: "spacer"
+        }),
+        el("span", {
+          class: "eyebrow",
+          text: summary(chosen, targets)
+        })
+      ]),
+      el("div", {
+        class: "adb-op-bar"
+      }, [
+        opButton(t("adb.startApp"), withPackage, () => actions2.run("start", {}, targets)),
+        opButton(t("adb.stopApp"), withPackage, () => actions2.run("stop", {}, targets)),
+        opButton(t("adb.restartApp"), withPackage, () => actions2.run("restart", {}, targets)),
+        opButton(t("adb.uninstallApp"), withPackage, () => confirmUninstall(targets, actions2), "btn-danger")
+      ]),
+      skipped(targets),
+      apkRow(chosen, ready, actions2),
+      autostartRow(targets, ready, actions2),
+      ...runTable(actions2)
+    ]);
+  }
+  function summary(chosen, targets) {
+    if (!chosen.length) return t("adb.selectDeviceFirst");
+    if (!local2.packages.size) return t("adb.chooseApplicationFirst");
+    if (!targets.length) return t("adb.noTargets");
+    return t("adb.readyOn", {
+      count: targets.length,
+      devices: new Set(targets.map((pair) => pair.ip)).size,
+      packages: new Set(targets.map((pair) => pair.package)).size
+    });
+  }
+  function skipped(targets) {
+    if (!targets.length || !local2.packages.size) return null;
+    const idle = untouchedIps();
+    if (!idle.length) return null;
+    return el("p", {
+      class: "info adb-op-note",
+      text: t("adb.devicesWithoutBundle", {
+        list: idle.join(", ")
+      })
+    });
+  }
+  function opButton(label, enabled, onclick, extra = "") {
+    return el("button", {
+      type: "button",
+      class: `btn${extra ? ` ${extra}` : ""}`,
+      text: label,
+      disabled: !enabled,
+      onclick
+    });
+  }
+  function apkRow(chosen, ready, actions2) {
+    const file = local2.apk;
+    return el("div", {
+      class: "adb-op-row"
+    }, [
+      el("span", {
+        class: "label",
+        text: t("adb.installApk")
+      }),
+      el("span", {
+        class: file ? "mono truncate" : "adb-op-empty",
+        text: file ? file.name : t("adb.noApkChosen")
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small",
+        text: local2.pickerOpen ? t("adb.choosing") : t("adb.chooseFile"),
+        disabled: local2.pickerOpen || running(),
+        title: t("adb.chooseFileHint"),
+        onclick: () => actions2.pickApk()
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small btn-primary",
+        text: t("adb.install"),
+        disabled: !ready || !file,
+        onclick: () => confirmInstall(chosen, file, actions2)
+      })
+    ]);
+  }
+  function autostartRow(targets, ready, actions2) {
+    const known = local2.autostart;
+    const first = targets[0];
+    const asked = !!(known && first && known.ip === first.ip && known.package === first.package);
+    const enabled = ready && targets.length > 0;
+    return el("div", {
+      class: "adb-op-row"
+    }, [
+      el("span", {
+        class: "label",
+        text: t("adb.autostart")
+      }),
+      el("span", {
+        class: "adb-op-empty",
+        text: asked ? t(AUTOSTART_LABEL[known.state] || "adb.autostartAbsent", {
+          ip: known.ip
+        }) : t("adb.autostartUnknown")
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small",
+        text: local2.checkingAutostart ? t("adb.checking") : t("adb.check"),
+        disabled: !enabled || local2.checkingAutostart,
+        title: t("adb.checkAutostartHint"),
+        onclick: () => actions2.checkAutostart()
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small",
+        text: t("adb.autostartInstall"),
+        disabled: !enabled,
+        onclick: () => confirmAutostart(targets, actions2, true)
+      }),
+      el("button", {
+        type: "button",
+        class: "btn btn-small btn-danger",
+        text: t("adb.autostartRemove"),
+        disabled: !enabled,
+        onclick: () => confirmAutostart(targets, actions2, false)
+      })
+    ]);
+  }
+  function items(chosen) {
+    const labels = new Map(devices().map((entry) => [
+      entry.ip,
+      entry.label
+    ]));
+    return chosen.map((ip) => ({
+      name: ip,
+      detail: labels.get(ip) || ""
+    }));
+  }
+  function pairItems(targets) {
+    return targets.map((pair) => ({
+      name: pair.ip,
+      detail: pair.package
+    }));
+  }
+  function confirmUninstall(targets, actions2) {
+    confirmWrite({
+      title: t("adb.uninstallTitle"),
+      lead: t("adb.uninstallLead", {
+        count: targets.length,
+        devices: new Set(targets.map((pair) => pair.ip)).size
+      }),
+      notes: [
+        {
+          text: t("adb.uninstallNote"),
+          tone: "warning"
+        }
+      ],
+      items: pairItems(targets),
+      danger: true,
+      confirmLabel: t("adb.uninstallApp"),
+      run: () => actions2.run("uninstall", {}, targets)
+    });
+  }
+  function confirmInstall(chosen, file, actions2) {
+    confirmWrite({
+      title: t("adb.installTitle"),
+      lead: t("adb.installLead", {
+        count: chosen.length,
+        name: file.name
+      }),
+      notes: [
+        {
+          text: t("adb.installNote"),
+          tone: "info"
+        }
+      ],
+      items: items(chosen),
+      confirmLabel: t("adb.install"),
+      // No path travels. The server installs the file its own dialog chose.
+      run: () => actions2.run("install", {})
+    });
+  }
+  async function confirmAutostart(targets, actions2, on) {
+    const names = [
+      ...new Set(targets.map((pair) => pair.package))
+    ];
+    const answers = await Promise.all(names.map((name) => actions2.autostartFiles(name)));
+    if (answers.some((paths2) => !paths2)) return;
+    const paths = answers.flat();
+    confirmWrite({
+      title: on ? t("adb.autostartInstallTitle") : t("adb.autostartRemoveTitle"),
+      lead: on ? t("adb.autostartInstallLead", {
+        count: targets.length
+      }) : t("adb.autostartRemoveLead", {
+        count: targets.length
+      }),
+      notes: [
+        {
+          text: t("adb.autostartSystemWarning"),
+          tone: "warning"
+        },
+        on && {
+          text: t("adb.autostartFilesNote"),
+          tone: "info"
+        }
+      ],
+      items: [
+        ...paths.map((path) => ({
+          name: path,
+          detail: t("adb.systemFile")
+        })),
+        ...pairItems(targets)
+      ],
+      danger: true,
+      confirmLabel: on ? t("adb.autostartInstall") : t("adb.autostartRemove"),
+      run: () => actions2.run(on ? "autostart_install" : "autostart_remove", {}, targets)
+    });
+  }
+  function runTable(actions2) {
+    const current2 = runner();
+    if (!current2 || !(current2.rows || []).length) return [];
+    const busy2 = !!current2.running;
+    return [
+      el("div", {
+        class: "adb-run-head"
+      }, [
+        el("span", {
+          class: "eyebrow",
+          text: t("adb.runningOperation", {
+            operation: t(OP_LABEL[current2.operation] || "adb.operations")
+          })
+        }),
+        el("span", {
+          class: "spacer"
+        }),
+        busy2 ? el("button", {
+          type: "button",
+          class: "btn btn-small",
+          text: current2.cancelling ? t("adb.cancelling") : t("adb.cancel"),
+          disabled: !!current2.cancelling,
+          title: t("adb.cancelHint"),
+          onclick: () => actions2.cancel()
+        }) : null
+      ]),
+      dataTable({
+        template: RUN_COLUMNS,
+        minWidth: 640,
+        label: t("adb.operations"),
+        // The bundle has a column of its own: one run can carry a different
+        // package name per device, and without it two rows for one address
+        // would be indistinguishable.
+        columns: [
+          t("adb.columnAddress"),
+          t("adb.columnPackage"),
+          t("col.state"),
+          t("adb.columnDetail")
+        ],
+        rows: (current2.rows || []).map(runRow),
+        empty: ""
+      })
+    ];
+  }
+  function runRow(row2) {
+    return el("div", {
+      class: "table-row adb-run-row",
+      dataset: {
+        state: ROW_TONE[row2.state] || "unknown"
+      },
+      style: `--table-columns:${RUN_COLUMNS}`
+    }, [
+      el("span", {
+        class: "mono",
+        text: row2.ip
+      }),
+      el("span", {
+        class: "mono truncate",
+        text: row2.package || "\u2014"
+      }),
+      el("span", {
+        class: "adb-run-state",
+        text: t(ROW_LABEL[row2.state] || "adb.statePending")
+      }),
+      el("span", {
+        class: "truncate",
+        text: row2.detail || ""
+      })
+    ]);
+  }
+
+  // static/js/views/adb/index.js
+  var refreshToken2 = 0;
+  async function refresh3() {
+    const token = ++refreshToken2;
+    try {
+      const body = await api.adb();
+      if (token !== refreshToken2) return;
+      apply(body);
+    } catch {
+      if (token !== refreshToken2) return;
+      patch({
+        adbState: null,
+        adbBusy: false
+      });
+    }
+  }
+  function apply(body) {
+    const current2 = body && body.runner;
+    patch({
+      adbState: body,
+      adbBusy: !!(current2 && current2.running)
+    });
+    pruneSelection();
+    live2.generation = current2 ? current2.generation : -1;
+    schedulePoll();
+  }
+  function schedulePoll() {
+    stopPolling();
+    if (!onScreen2() || !running()) return;
+    live2.timer = setTimeout(pollRound, POLL_INTERVAL);
+  }
+  async function pollRound() {
+    live2.timer = null;
+    if (!onScreen2()) return;
+    let current2 = null;
+    try {
+      current2 = await api.adbState();
+    } catch {
+      schedulePoll();
+      return;
+    }
+    if (!onScreen2()) return;
+    const data = state.adbState;
+    const moved = !data || !data.runner || current2.generation !== live2.generation;
+    live2.generation = current2.generation;
+    if (moved) {
+      patch({
+        adbState: {
+          ...data || {},
+          runner: current2
+        },
+        adbBusy: !!current2.running
+      });
+    } else if (state.adbBusy !== !!current2.running) {
+      patch({
+        adbBusy: !!current2.running
+      });
+    }
+    if (!current2.running) finished(current2);
+    schedulePoll();
+  }
+  function finished(current2) {
+    const rows2 = current2.rows || [];
+    const failed = rows2.filter((row2) => row2.state === "failed").length;
+    const done = rows2.filter((row2) => row2.state === "done").length;
+    if (failed) notify(t("adb.finishedWithFailures", {
+      done,
+      failed
+    }));
+    else if (done) showSuccess(t("adb.finished", {
+      count: done
+    }));
+  }
+  var actions = {
+    toggle(ip) {
+      toggle3(ip);
+      redraw();
+    },
+    selectAll(on) {
+      selectAll(on);
+      redraw();
+    },
+    async addDevice(ip, label) {
+      local2.addError = "";
+      try {
+        const body = await api.adbDevices({
+          action: "add",
+          ip,
+          label
+        });
+        local2.newIp = "";
+        local2.newLabel = "";
+        patchDevices(body);
+      } catch (error) {
+        local2.addError = error.message;
+        redraw();
+      }
+    },
+    async removeDevice(ip) {
+      local2.selected.delete(ip);
+      patchDevices(await api.adbDevices({
+        action: "remove",
+        ip
+      }));
+    },
+    async importList() {
+      local2.importing = true;
+      redraw();
+      try {
+        const body = await api.adbImport();
+        if (body.cancelled) return;
+        patchDevices(body);
+        showSuccess(t("adb.imported", {
+          count: body.imported || 0,
+          skipped: body.skipped || 0
+        }));
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        local2.importing = false;
+        redraw();
+      }
+    },
+    async search(keyword) {
+      local2.keyword = keyword;
+      local2.searching = true;
+      redraw();
+      try {
+        local2.found = await api.adbPackages(selectedIps(), keyword);
+        const list = local2.found.packages || [];
+        local2.packages = new Set(list.map((entry) => entry.name));
+        keepPackages();
+      } catch (error) {
+        local2.found = null;
+        showError(error.message);
+      } finally {
+        local2.searching = false;
+        redraw();
+      }
+    },
+    choosePackage(name) {
+      togglePackage(name);
+      local2.autostart = null;
+      redraw();
+    },
+    async pickApk() {
+      local2.pickerOpen = true;
+      redraw();
+      try {
+        const body = await api.adbApk();
+        if (!body.cancelled) local2.apk = {
+          name: body.name
+        };
+      } catch (error) {
+        showError(error.message);
+      } finally {
+        local2.pickerOpen = false;
+        redraw();
+      }
+    },
+    async checkAutostart() {
+      const targets = operationTargets();
+      if (!targets.length) return;
+      const first = targets[0];
+      local2.checkingAutostart = true;
+      redraw();
+      try {
+        const body = await api.adbAutostart([
+          first.ip
+        ], first.package);
+        local2.autostart = {
+          ip: first.ip,
+          package: body.package,
+          state: body.state
+        };
+      } catch (error) {
+        local2.autostart = null;
+        showError(error.message);
+      } finally {
+        local2.checkingAutostart = false;
+        redraw();
+      }
+    },
+    async autostartFiles(pkg) {
+      try {
+        const body = await api.adbAutostartFiles(pkg);
+        return body.files || [];
+      } catch (error) {
+        showError(error.message);
+        return null;
+      }
+    },
+    // `targets` are (device, bundle) pairs when the operation is about a
+    // bundle. Installing an APK is the exception and passes none: the package
+    // is inside the file, so the run works on the selected devices.
+    async run(operation, parameters, targets = null) {
+      try {
+        const current2 = await api.adbRun({
+          operation,
+          ...targets ? {
+            targets
+          } : {
+            devices: selectedIps()
+          },
+          ...parameters
+        });
+        apply({
+          ...state.adbState || {},
+          runner: current2
+        });
+      } catch (error) {
+        showError(error.message);
+      }
+    },
+    async cancel() {
+      try {
+        apply({
+          ...state.adbState || {},
+          runner: await api.adbCancel()
+        });
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+  };
+  function patchDevices(body) {
+    const data = state.adbState || {};
+    patch({
+      adbState: {
+        ...data,
+        devices: body.devices || []
+      }
+    });
+    pruneSelection();
+    redraw();
+  }
+  function redraw() {
+    if (!onScreen2()) return;
+    patch({
+      adbState: {
+        ...state.adbState || {}
+      }
+    });
+  }
+  function render11(root) {
+    const busy2 = running();
+    fill(root, [
+      el("div", {
+        class: "page-head"
+      }, [
+        el("h2", {
+          text: t("nav.adb")
+        }),
+        el("div", {
+          class: "actions"
+        }, [
+          el("button", {
+            type: "button",
+            class: "btn",
+            text: t("adb.reload"),
+            disabled: busy2,
+            onclick: () => refresh3()
+          })
+        ])
+      ]),
+      el("p", {
+        class: "description adb-intro",
+        text: t("adb.intro")
+      }),
+      busy2 ? el("p", {
+        class: "info",
+        role: "status",
+        text: t("adb.roundsPaused")
+      }) : null,
+      poolCard(actions),
+      packagesCard(actions),
+      operationsCard(actions)
+    ]);
+    if (busy2 && !live2.timer) schedulePoll();
+  }
+
   // static/js/components/group_bar.js
   function groupsFor(op) {
     const meta = state.meta;
@@ -8936,7 +10102,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
 
   // static/js/views/config.js
-  var COLUMNS3 = "minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) 86px 104px";
+  var COLUMNS4 = "minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) 86px 104px";
   var COMPARISON_LABEL = {
     match: [
       "compare.match",
@@ -8977,7 +10143,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     routing: "section.routing",
     information: "section.information"
   };
-  var local2 = {
+  var local3 = {
     deviceId: null,
     errorText: "",
     needsCredentials: false,
@@ -8992,27 +10158,27 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const group = currentGroup("cfg");
     return group ? devicesIn(group) : [];
   }
-  async function refresh3(fast = true) {
-    const devices = targetDevices();
-    if (!devices.length) {
+  async function refresh4(fast = true) {
+    const devices2 = targetDevices();
+    if (!devices2.length) {
       patch({
         configState: null
       });
       return;
     }
-    if (!devices.some((d) => d.id === local2.deviceId)) {
-      local2.deviceId = devices[0].id;
+    if (!devices2.some((d) => d.id === local3.deviceId)) {
+      local3.deviceId = devices2[0].id;
     }
-    const token = local2.token = (local2.token || 0) + 1;
-    const current2 = () => token === local2.token;
-    const id = local2.deviceId;
+    const token = local3.token = (local3.token || 0) + 1;
+    const current2 = () => token === local3.token;
+    const id = local3.deviceId;
     const group = groupName();
     if (fast) {
       try {
         const preview = await api.configFields(state.setNo, id, group);
         if (!current2()) return;
-        local2.errorText = "";
-        local2.needsCredentials = false;
+        local3.errorText = "";
+        local3.needsCredentials = false;
         patch({
           configState: preview
         });
@@ -9022,14 +10188,14 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     try {
       const body = await api.config(state.setNo, id, group);
       if (!current2()) return;
-      local2.errorText = body.error || "";
-      local2.needsCredentials = !!body.auth;
+      local3.errorText = body.error || "";
+      local3.needsCredentials = !!body.auth;
       patch({
         configState: body
       });
     } catch (e) {
       if (!current2()) return;
-      local2.errorText = e.message;
+      local3.errorText = e.message;
       patch({
         configState: {
           deviceId: id,
@@ -9038,11 +10204,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       });
     }
   }
-  function render11(root) {
-    const devices = targetDevices();
+  function render12(root) {
+    const devices2 = targetDevices();
     const data = state.configState;
     const parts = [];
-    if (local2.window && !devices.some((d) => d.id === local2.window.device.id)) {
+    if (local3.window && !devices2.some((d) => d.id === local3.window.device.id)) {
       close();
     }
     parts.push(el("div", {
@@ -9059,21 +10225,21 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("button", {
           type: "button",
           class: "btn btn-primary",
-          text: devices.length ? t("config.applyToCount", {
-            count: devices.length
+          text: devices2.length ? t("config.applyToCount", {
+            count: devices2.length
           }) : t("config.applyToDevices"),
-          disabled: !devices.length,
+          disabled: !devices2.length,
           onclick: applyToGroup
         })
       ])
     ]));
     parts.push(render8());
     parts.push(picker("cfg", () => {
-      if (local2.window) close();
-      local2.deviceId = null;
-      refresh3();
+      if (local3.window) close();
+      local3.deviceId = null;
+      refresh4();
     }));
-    if (!devices.length) {
+    if (!devices2.length) {
       parts.push(el("p", {
         class: "info",
         style: "margin-top:16px",
@@ -9110,13 +10276,13 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           el("span", {
             class: "badge",
             text: t("config.deviceCount", {
-              count: devices.length
+              count: devices2.length
             })
           })
         ]),
         el("div", {
           class: "cfg-device-list"
-        }, devices.map(deviceItem))
+        }, devices2.map(deviceItem))
       ])
     ]));
     fill(root, parts);
@@ -9124,7 +10290,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function deviceItem(device) {
     const colour = device.result && device.result.state || "unknown";
-    const open3 = !!local2.window && local2.window.device.id === device.id;
+    const open3 = !!local3.window && local3.window.device.id === device.id;
     return el("button", {
       type: "button",
       class: "cfg-device-item",
@@ -9160,7 +10326,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     ]);
   }
   function openDevice(device) {
-    local2.deviceId = device.id;
+    local3.deviceId = device.id;
     const body = el("div", {
       class: "cfg-window-body"
     });
@@ -9170,7 +10336,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       width: "840px",
       // Clear the list marker when closed with Escape or a backdrop click too.
       onClose: () => {
-        local2.window = null;
+        local3.window = null;
       },
       actions: [
         el("button", {
@@ -9178,7 +10344,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           class: "btn",
           text: t("config.readFromTheDevice"),
           title: t("config.readThisDevicesCurrentSettings"),
-          onclick: () => refresh3()
+          onclick: () => refresh4()
         }),
         el("button", {
           type: "button",
@@ -9197,16 +10363,16 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         })
       ]
     });
-    local2.window = {
+    local3.window = {
       device,
       body,
       close: handle.close
     };
     renderWindow();
-    refresh3();
+    refresh4();
   }
   function renderWindow() {
-    const win = local2.window;
+    const win = local3.window;
     if (!win || !win.body.isConnected) return;
     const data = state.configState;
     const ours = !!data && data.deviceId === win.device.id;
@@ -9220,12 +10386,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           ip: win.device.ip
         })
       }),
-      local2.errorText ? el("p", {
-        class: local2.needsCredentials ? "info" : "warning",
-        text: local2.errorText + (local2.needsCredentials ? ` ${t("config.enterCredentialsHint")}` : "")
+      local3.errorText ? el("p", {
+        class: local3.needsCredentials ? "info" : "warning",
+        text: local3.errorText + (local3.needsCredentials ? ` ${t("config.enterCredentialsHint")}` : "")
       }) : null,
       dataTable({
-        template: COLUMNS3,
+        template: COLUMNS4,
         minWidth: 660,
         label: t("tabs.deviceSettings"),
         columns: [
@@ -9238,7 +10404,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         rows: rows2.map(renderRow2),
         // Writing "could not be read" while the read is in progress is wrong:
         // the device has not even been tried yet.
-        empty: t((!ours || data && data.reading) && !local2.errorText ? "config.readingDevice" : "config.couldNotRead")
+        empty: t((!ours || data && data.reading) && !local3.errorText ? "config.readingDevice" : "config.couldNotRead")
       })
     ]);
     if (focusLabel) {
@@ -9426,7 +10592,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   async function resetDefaults() {
     try {
-      const body = await api.configReset(state.setNo, local2.deviceId, groupName());
+      const body = await api.configReset(state.setNo, local3.deviceId, groupName());
       patch({
         configState: body
       });
@@ -9445,7 +10611,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   async function writeTarget(field, newValue, scope) {
     try {
-      const body = await api.configTarget(state.setNo, local2.deviceId, field, newValue, groupName(), scope);
+      const body = await api.configTarget(state.setNo, local3.deviceId, field, newValue, groupName(), scope);
       patch({
         configState: body
       });
@@ -9467,7 +10633,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const currentText = row2.secret ? row2.hasCurrent ? "\u2022\u2022\u2022" : "\u2014" : value(row2.current);
     return el("div", {
       class: "table-row",
-      style: `--table-columns:${COLUMNS3}`
+      style: `--table-columns:${COLUMNS4}`
     }, [
       el("span", {
         class: "mono t-base",
@@ -9510,20 +10676,20 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   function applyToGroup() {
     const group = currentGroup("cfg");
     if (!group) return;
-    const devices = devicesIn(group);
+    const devices2 = devicesIn(group);
     confirmWrite({
       title: t("config.applyToDevices"),
       lead: t("confirm.configGroupLead", {
-        count: devices.length,
+        count: devices2.length,
         group: group.label || group.name
       }),
       notes: writeNotes(group),
-      items: devices.map((device) => ({
+      items: devices2.map((device) => ({
         name: device.name,
         detail: device.ip || ""
       })),
       confirmLabel: t("config.applyToCount", {
-        count: devices.length
+        count: devices2.length
       }),
       run: async () => {
         const job = await api.configApply(state.setNo, group.name, null);
@@ -9541,26 +10707,26 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
 
   // static/js/views/firmware.js
-  var COLUMNS4 = "minmax(150px,1.1fr) 112px 92px minmax(210px,1.6fr) minmax(120px,.8fr)";
-  var local3 = {
+  var COLUMNS5 = "minmax(150px,1.1fr) 112px 92px minmax(210px,1.6fr) minmax(120px,.8fr)";
+  var local4 = {
     pickerOpen: false
   };
-  var refreshToken2 = 0;
+  var refreshToken3 = 0;
   function groupName2() {
     const group = currentGroup("fw");
     return group ? group.name : "";
   }
-  async function refresh4() {
-    const token = ++refreshToken2;
+  async function refresh5() {
+    const token = ++refreshToken3;
     const setNo = state.setNo;
     try {
       const body = await api.firmware(setNo, groupName2());
-      if (token !== refreshToken2 || setNo !== state.setNo) return;
+      if (token !== refreshToken3 || setNo !== state.setNo) return;
       patch({
         firmwareState: body
       });
     } catch {
-      if (token !== refreshToken2) return;
+      if (token !== refreshToken3) return;
       patch({
         firmwareState: null
       });
@@ -9583,7 +10749,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     ];
     return types.map((t2) => `.${t2}`).join(" / ");
   }
-  function render12(root) {
+  function render13(root) {
     const list = rows();
     const selected = selectedCount(list);
     const installable = list.filter((d) => d.installable).length;
@@ -9620,7 +10786,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ])
     ]));
     parts.push(render8());
-    parts.push(picker("fw", () => refresh4()));
+    parts.push(picker("fw", () => refresh5()));
     const types = typeText(list);
     parts.push(el("section", {
       class: "card corner fw-bulk"
@@ -9638,10 +10804,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("button", {
           type: "button",
           class: "btn btn-primary",
-          text: local3.pickerOpen ? t("firmware.selectingFile") : installable ? t("firmware.selectAndApply", {
+          text: local4.pickerOpen ? t("firmware.selectingFile") : installable ? t("firmware.selectAndApply", {
             count: installable
           }) : t("firmware.selectFile"),
-          disabled: !installable || local3.pickerOpen,
+          disabled: !installable || local4.pickerOpen,
           // The expected file type lives in the tooltip of the button that
           // makes the choice, not as a separate note line.
           title: t("firmware.yourComputersFileDialogOpens") + (types ? ` (${types})` : ""),
@@ -9650,7 +10816,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ])
     ]));
     parts.push(dataTable({
-      template: COLUMNS4,
+      template: COLUMNS5,
       minWidth: 960,
       label: t("tabs.firmware"),
       columns: [
@@ -9672,7 +10838,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const path = file.path || "";
     return el("div", {
       class: "table-row fw-row",
-      style: `--table-columns:${COLUMNS4}`,
+      style: `--table-columns:${COLUMNS5}`,
       dataset: {
         selected: file.selected ? "1" : "0"
       }
@@ -9714,7 +10880,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           type: "button",
           class: "btn btn-small fw-pick-btn",
           text: t(file.selected ? "firmware.change" : "firmware.select"),
-          disabled: local3.pickerOpen,
+          disabled: local4.pickerOpen,
           title: t("firmware.selectFileFor", {
             device: device.name
           }) + (device.extension ? ` (.${device.extension})` : ""),
@@ -9755,35 +10921,35 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       size: fileSize(file.size)
     });
   }
-  async function pickFile(devices) {
-    if (local3.pickerOpen) return;
-    local3.pickerOpen = true;
+  async function pickFile(devices2) {
+    if (local4.pickerOpen) return;
+    local4.pickerOpen = true;
     patch({
       firmwareState: {
         ...state.firmwareState
       }
     });
     try {
-      const reply = await api.firmwarePick(state.setNo, groupName2(), devices);
-      local3.pickerOpen = false;
+      const reply = await api.firmwarePick(state.setNo, groupName2(), devices2);
+      local4.pickerOpen = false;
       if (reply.cancelled) {
-        await refresh4();
+        await refresh5();
         return;
       }
-      await refresh4();
-      showSuccess(devices ? t("firmware.fileSelected") : t("firmware.fileSelectedFor", {
+      await refresh5();
+      showSuccess(devices2 ? t("firmware.fileSelected") : t("firmware.fileSelectedFor", {
         count: reply.deviceCount
       }));
     } catch (e) {
-      local3.pickerOpen = false;
+      local4.pickerOpen = false;
       showError(e.message);
-      await refresh4();
+      await refresh5();
     }
   }
-  async function removeSelection(devices) {
+  async function removeSelection(devices2) {
     try {
-      await api.firmwareRemove(state.setNo, groupName2(), devices);
-      await refresh4();
+      await api.firmwareRemove(state.setNo, groupName2(), devices2);
+      await refresh5();
     } catch (e) {
       showError(e.message);
     }
@@ -10067,7 +11233,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ])
     ];
   }
-  async function refresh5() {
+  async function refresh6() {
     try {
       patch({
         checklistState: await api.checklist(state.setNo)
@@ -10080,7 +11246,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
   }
   var tickTimer = null;
-  function onScreen2() {
+  function onScreen3() {
     return state.view === "checklist" && !!state.meta;
   }
   function writeFreshness2() {
@@ -10101,7 +11267,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function startTicker() {
     clearTimeout(tickTimer);
-    if (!onScreen2()) return;
+    if (!onScreen3()) return;
     writeFreshness2();
     tickTimer = setTimeout(startTicker, 1e3);
   }
@@ -10111,7 +11277,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   var pullScanForward = () => {
   };
-  function render13(root, refreshNow2) {
+  function render14(root, refreshNow2) {
     if (refreshNow2) pullScanForward = refreshNow2;
     const data = state.checklistState;
     const parts = [];
@@ -10183,7 +11349,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       text: t(labelKey),
       onclick: () => {
         reportTab = id;
-        render13(root);
+        render14(root);
       }
     }))));
     const categories = state.meta ? state.meta.categories : [];
@@ -10222,15 +11388,15 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       ]))
     ]));
     const rows2 = selected === "all" ? allRows : allRows.filter((row2) => deviceCategory.get(row2.deviceId) === selected);
-    const results = rows2.map((row2) => evaluate(row2, data.columns));
-    const passed = results.filter((r) => r.passed).length;
-    const reachIssues = results.filter((r) => r.problems.some((p) => [
+    const results2 = rows2.map((row2) => evaluate(row2, data.columns));
+    const passed = results2.filter((r) => r.passed).length;
+    const reachIssues = results2.filter((r) => r.problems.some((p) => [
       "reach",
       "auth",
       "unread"
     ].includes(p.code))).length;
-    const ipIssues = results.filter((r) => r.problems.some((p) => p.code === "ip")).length;
-    const sipIssues = results.filter((r) => r.problems.some((p) => p.code === "sip")).length;
+    const ipIssues = results2.filter((r) => r.problems.some((p) => p.code === "ip")).length;
+    const sipIssues = results2.filter((r) => r.problems.some((p) => p.code === "sip")).length;
     parts.push(el("div", {
       class: "check-criteria"
     }, [
@@ -10494,7 +11660,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     firmware: "history.kindFirmware",
     checklist: "history.kindChecklist"
   };
-  var COLUMNS5 = "minmax(235px,1.7fr) minmax(120px,.8fr) 105px minmax(125px,.8fr) minmax(210px,1.4fr) 105px";
+  var COLUMNS6 = "minmax(235px,1.7fr) minmax(120px,.8fr) 105px minmax(125px,.8fr) minmax(210px,1.4fr) 105px";
   function jobName(job) {
     if (job.kind === "scan" && job.auto) return t("history.automaticScan");
     if (KIND_NAME[job.kind]) return t(KIND_NAME[job.kind]);
@@ -10552,7 +11718,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const ok = Number(counts.ok || 0);
     const auth = Number(counts.auth || 0);
     const failed = Number(counts.failed || 0);
-    const skipped = Number(counts.skipped || 0);
+    const skipped2 = Number(counts.skipped || 0);
     const total = Number(counts.total || 0);
     if (!total) {
       if (job.state === "cancelled") return t("history.stoppedEarly");
@@ -10571,8 +11737,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     if (failed) parts.push(t("history.countFailed", {
       count: failed
     }));
-    if (skipped) parts.push(t("history.countSkipped", {
-      count: skipped
+    if (skipped2) parts.push(t("history.countSkipped", {
+      count: skipped2
     }));
     return parts.join(" \xB7 ");
   }
@@ -10584,7 +11750,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     const startedAt = job.startedAt || job.createdAt;
     return el("div", {
       class: "table-row",
-      style: `--table-columns:${COLUMNS5}`
+      style: `--table-columns:${COLUMNS6}`
     }, [
       el("span", {
         style: "display:flex;flex-direction:column;gap:3px;min-width:0"
@@ -10685,7 +11851,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         })
       ]),
       dataTable({
-        template: COLUMNS5,
+        template: COLUMNS6,
         minWidth: 1040,
         wrapStyle: "margin-top:0",
         label: title,
@@ -10702,12 +11868,12 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       })
     ]);
   }
-  function filters(active, finished) {
+  function filters(active, finished2) {
     const options = [
       {
         id: "all",
         label: t("history.filterAll", {
-          count: active.length + finished.length
+          count: active.length + finished2.length
         })
       },
       {
@@ -10719,7 +11885,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       {
         id: "finished",
         label: t("history.filterFinished", {
-          count: finished.length
+          count: finished2.length
         })
       }
     ];
@@ -10738,11 +11904,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       })
     })));
   }
-  function render14(root) {
+  function render15(root) {
     const eligible = (state.jobs || []).filter((job) => IN_PROGRESS.has(job.state) || FINISHED.has(job.state));
     const sorted2 = eligible.slice().sort((a, b) => (b.finishedAt || b.startedAt || b.createdAt || 0) - (a.finishedAt || a.startedAt || a.createdAt || 0));
     const active = sorted2.filter((job) => IN_PROGRESS.has(job.state));
-    const finished = sorted2.filter((job) => FINISHED.has(job.state));
+    const finished2 = sorted2.filter((job) => FINISHED.has(job.state));
     const parts = [
       el("div", {
         class: "page-head"
@@ -10750,20 +11916,20 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         el("h2", {
           text: t("nav.history")
         }),
-        filters(active, finished)
+        filters(active, finished2)
       ])
     ];
     if (state.historyFilter !== "finished") {
       parts.push(section(t("history.inProgressTitle"), t("history.inProgressNote"), active, t("history.inProgressEmpty")));
     }
     if (state.historyFilter !== "active") {
-      parts.push(section(t("history.finishedTitle"), t("history.finishedNote"), finished, t("history.finishedEmpty")));
+      parts.push(section(t("history.finishedTitle"), t("history.finishedNote"), finished2, t("history.finishedEmpty")));
     }
     fill(root, parts);
   }
 
   // static/js/views/piscu.js
-  async function refresh6() {
+  async function refresh7() {
     try {
       patch({
         piscuState: await api.piscu(state.setNo)
@@ -10774,7 +11940,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       });
     }
   }
-  function render15(root) {
+  function render16(root) {
     const data = state.piscuState;
     const parts = [];
     parts.push(el("div", {
@@ -10792,7 +11958,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           type: "button",
           class: "btn",
           text: t("piscu.refresh"),
-          onclick: refresh6
+          onclick: refresh7
         })
       ])
     ]));
@@ -10896,7 +12062,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
 
   // static/js/views/mqtt.js
-  async function refresh7() {
+  async function refresh8() {
     try {
       patch({
         mqttState: await api.mqtt()
@@ -10907,7 +12073,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       });
     }
   }
-  function render16(root) {
+  function render17(root) {
     const data = state.mqttState || {
       running: false,
       topics: [],
@@ -11039,7 +12205,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
 
   // static/js/views/admin.js
-  var COLUMNS6 = "minmax(140px,1.3fr) minmax(120px,1fr) 76px 110px 96px";
+  var COLUMNS7 = "minmax(140px,1.3fr) minmax(120px,1fr) 76px 110px 96px";
   function setBox(meta, changeSet2) {
     const min = meta.setMin || 1;
     const max = meta.setMax || 254;
@@ -11055,7 +12221,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       value: String(state.setNo),
       "aria-label": t("admin.trainSetNumber")
     });
-    const apply = () => {
+    const apply2 = () => {
       const next = Number(field.value.trim());
       if (!Number.isInteger(next) || next < min || next > max) {
         showError(t("topbar.setOutOfRange", {
@@ -11070,7 +12236,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     field.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        apply();
+        apply2();
       }
     });
     return el("div", {
@@ -11084,7 +12250,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           type: "button",
           class: "btn",
           text: t("admin.apply"),
-          onclick: apply
+          onclick: apply2
         })
       ]),
       el("p", {
@@ -11281,7 +12447,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       }
     });
   }
-  function render17(root, changeSet2) {
+  function render18(root, changeSet2) {
     const meta = state.meta;
     if (!meta) return;
     const parts = [];
@@ -11401,7 +12567,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           })
         ]),
         dataTable({
-          template: COLUMNS6,
+          template: COLUMNS7,
           minWidth: 600,
           wrapStyle: "margin-top:0",
           label: t("admin.devicePortMapping"),
@@ -11414,7 +12580,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
           ].map((key) => key ? t(key) : ""),
           rows: state.devices.map((device) => el("div", {
             class: "table-row",
-            style: `--table-columns:${COLUMNS6}`
+            style: `--table-columns:${COLUMNS7}`
           }, [
             el("span", {
               class: "mono truncate t-sm",
@@ -11502,7 +12668,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     }
     lastSignature3 = signature;
     lastRefreshAt = now;
-    await refresh5();
+    await refresh6();
   }
   var lastJobSignature = null;
   async function fetchJobs() {
@@ -11525,14 +12691,14 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   }
   function jobLoop() {
     clearTimeout(jobTimer);
-    const running = (state.jobs || []).some(
+    const running2 = (state.jobs || []).some(
       (j) => j.state === "running" || j.state === "queued"
     );
-    const needed = running || state.queueOpen;
+    const needed = running2 || state.queueOpen;
     jobTimer = setTimeout(async () => {
       if (state.meta) {
         await fetchJobs();
-        if (running) {
+        if (running2) {
           try {
             await fetchState();
           } catch {
@@ -11595,13 +12761,14 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     devices: ["#v-devices", (root) => render7(root)],
     ip: ["#v-ip", (root) => render9(root)],
     network: ["#v-network", (root) => render10(root)],
-    config: ["#v-config", (root) => render11(root)],
-    firmware: ["#v-firmware", (root) => render12(root)],
-    checklist: ["#v-checklist", (root) => render13(root, refreshNow)],
-    history: ["#v-history", (root) => render14(root)],
-    piscu: ["#v-piscu", (root) => render15(root)],
-    mqtt: ["#v-mqtt", (root) => render16(root)],
-    admin: ["#v-admin", (root) => render17(root, changeSet)]
+    adb: ["#v-adb", (root) => render11(root)],
+    config: ["#v-config", (root) => render12(root)],
+    firmware: ["#v-firmware", (root) => render13(root)],
+    checklist: ["#v-checklist", (root) => render14(root, refreshNow)],
+    history: ["#v-history", (root) => render15(root)],
+    piscu: ["#v-piscu", (root) => render16(root)],
+    mqtt: ["#v-mqtt", (root) => render17(root)],
+    admin: ["#v-admin", (root) => render18(root, changeSet)]
   };
   var lastView = null;
   var PANEL_KEYS = /* @__PURE__ */ new Set(["openJob", "queueOpen", "lockedOpen"]);
@@ -11626,11 +12793,11 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     lastView = null;
     close2();
     close();
-    render18(state, null);
+    render19(state, null);
     render3();
     render4();
   }
-  function render18(_state, changed) {
+  function render19(_state, changed) {
     if (!state.meta) return;
     if (Array.isArray(changed) && changed.length && changed.every((key) => PANEL_KEYS.has(key))) {
       render3();
@@ -11683,6 +12850,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     config: "tabs.deviceSettings",
     firmware: "tabs.firmware",
     network: "nav.network",
+    adb: "nav.adb",
     checklist: "nav.verification",
     history: "nav.history",
     piscu: "nav.piscu",
@@ -11777,16 +12945,17 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     );
   }
   function onViewEntered(name) {
-    if (name === "checklist") refresh5();
+    if (name === "checklist") refresh6();
     else if (name === "ip") refresh();
     else if (name === "network") refresh2();
-    else if (name === "config") refresh3();
-    else if (name === "firmware") refresh4();
-    else if (name === "piscu") refresh6();
-    else if (name === "mqtt") refresh7();
+    else if (name === "adb") refresh3();
+    else if (name === "config") refresh4();
+    else if (name === "firmware") refresh5();
+    else if (name === "piscu") refresh7();
+    else if (name === "mqtt") refresh8();
   }
   async function refreshNow() {
-    const running = writingRunInProgress(state.jobs);
+    const running2 = writingRunInProgress(state.jobs);
     try {
       const job = await api.scan(state.setNo);
       patch({ openJob: job.id, scanRunning: true });
@@ -11794,7 +12963,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
         notify(t("topbar.scanAlreadyQueued"));
       } else {
         flash();
-        if (running) notify(t("topbar.scanQueued"));
+        if (running2) notify(t("topbar.scanQueued"));
       }
       await fetchJobs();
     } catch (e) {
@@ -12086,7 +13255,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
       fetchJobs();
       onViewEntered(state.view);
     });
-    subscribe(render18);
+    subscribe(render19);
     try {
       await loadInitialData();
     } catch (e) {
@@ -12096,7 +13265,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
     lightLoop();
     scanLoop(FIRST_SCAN_DELAY);
     adminKeyLoop();
-    render18();
+    render19();
     $("#content").focus();
     try {
       const seen = await api.adminKey();

@@ -12,13 +12,16 @@
 //         green in the last round. It never touches an unreachable device,
 //         which is what makes it fast.
 //   · Both automatic rounds can be PAUSED (`state.autoRefresh`, the top
-//     bar's pause button). Reading a device is not free: a Compartment LCD is
-//     read over adb, and a round arriving mid-session takes the connection
-//     out from under whoever is working on that panel. Pausing stops both
-//     rounds, never a job already queued, and never "Scan now" — the operator
-//     keeps a way to read on demand. While paused the status text says so,
-//     because a screen that quietly stops updating is worse than one that
-//     interrupts.
+//     bar's pause button), and THE PANEL OPENS PAUSED. Reading a device is
+//     not free: a Compartment LCD is read over adb, and a round arriving
+//     mid-session takes the connection out from under whoever is working on
+//     that panel. The panel is opened far more often to do one thing to one
+//     device than to watch a whole set, so the rounds are something the
+//     operator turns ON when they want to watch (see core/store.js).
+//     Pausing stops both rounds, never a job already queued, and never
+//     "Scan now" — the operator keeps a way to read on demand. While paused
+//     the status text says so, because a screen that quietly stops updating
+//     is worse than one that interrupts.
 //   · The light refresh does not run while a full scan is in progress.
 //   · No scan is started on its own while an IP assignment / configuration /
 //     firmware run is in progress; those runs reboot devices. A scan the user
@@ -44,6 +47,7 @@ import * as overviewView from './views/overview.js';
 import * as devicesView from './views/devices.js';
 import * as ipView from './views/ip/index.js';
 import * as networkView from './views/network.js';
+import * as adbView from './views/adb/index.js';
 import * as configView from './views/config.js';
 import * as firmwareView from './views/firmware.js';
 import * as checklistView from './views/checklist.js';
@@ -239,6 +243,7 @@ const VIEWS = {
   devices: ['#v-devices', (root) => devicesView.render(root)],
   ip: ['#v-ip', (root) => ipView.render(root)],
   network: ['#v-network', (root) => networkView.render(root)],
+  adb: ['#v-adb', (root) => adbView.render(root)],
   config: ['#v-config', (root) => configView.render(root)],
   firmware: ['#v-firmware', (root) => firmwareView.render(root)],
   checklist: ['#v-checklist', (root) => checklistView.render(root, refreshNow)],
@@ -413,6 +418,7 @@ const VIEW_NAME = {
   config: 'tabs.deviceSettings',
   firmware: 'tabs.firmware',
   network: 'nav.network',
+  adb: 'nav.adb',
   checklist: 'nav.verification',
   history: 'nav.history',
   piscu: 'nav.piscu',
@@ -532,6 +538,7 @@ function onViewEntered(name) {
   if (name === 'checklist') checklistView.refresh();
   else if (name === 'ip') ipView.refresh();
   else if (name === 'network') networkView.refresh();
+  else if (name === 'adb') adbView.refresh();
   else if (name === 'config') configView.refresh();
   else if (name === 'firmware') firmwareView.refresh();
   else if (name === 'piscu') piscuView.refresh();

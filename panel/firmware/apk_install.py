@@ -16,6 +16,7 @@ from __future__ import annotations
 import subprocess
 
 from .. import settings
+from ..adb.binary import adb_path
 from ..errors import NotApplicableError, UnreachableError, VerificationError
 from ..inventory.device_map import Device
 from ..probe.android import package_info
@@ -38,7 +39,8 @@ KNOWN_FAILURES = {
 
 def _adb(*args: str, timeout: int) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(["adb", *args], capture_output=True, text=True,
+        return subprocess.run([adb_path(), *args], capture_output=True,
+                              text=True,
                               timeout=timeout, check=False)
     except FileNotFoundError:
         raise NotApplicableError(

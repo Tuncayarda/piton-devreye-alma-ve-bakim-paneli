@@ -12,6 +12,7 @@ import re
 import subprocess
 
 from .. import settings
+from ..adb.binary import adb_path
 from ..errors import (NotApplicableError, UnreachableError, VerificationError)
 from .. import i18n
 
@@ -73,13 +74,13 @@ def read(ip: str, timeout: int | None = None) -> dict:
     target = f"{ip}:{settings.ADB_PORT}"
 
     def run(*args) -> str:
-        result = subprocess.run(["adb", "-s", target, *args],
+        result = subprocess.run([adb_path(), "-s", target, *args],
                                 capture_output=True, text=True, timeout=limit,
                                 check=False)
         return result.stdout.strip()
 
     try:
-        subprocess.run(["adb", "connect", target], capture_output=True,
+        subprocess.run([adb_path(), "connect", target], capture_output=True,
                        text=True, timeout=limit, check=False)
     except FileNotFoundError:
         raise NotApplicableError(

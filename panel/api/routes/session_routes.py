@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ... import credentials as credential_store
 from ... import jobs, settings, status
+from ...adb.runner import RUNNER as ADB_RUNNER
 from ...probe import reader
 from ..presenters import (WRITING_JOB_KINDS, cached_telemetry,
                           collect_telemetry, credentials_for, device_dto,
@@ -28,6 +29,14 @@ def post_refresh(body):
     that can collide. During a run a device is rebooting or its PoE port is
     off, and an interleaved read would record that temporary state as the
     result.
+
+    NOR WHILE THE ADB SCREEN IS WORKING, and that check cannot be folded
+    into the two above because it is not a job: that screen runs outside the
+    queue on purpose (see `panel.adb.runner`), so nothing in `jobs.QUEUE`
+    mentions it. The collision is real and is the worst one available —
+    both this round and that screen talk to a Compartment LCD over the same
+    global ADB server, and a refresh landing mid-install takes the transport
+    out from under it.
     """
     inventory = inventory_for(body.get("set"))
     if jobs.QUEUE.active(f"scan:{inventory.set_no}"):
@@ -40,6 +49,9 @@ def post_refresh(body):
     if running is not None:
         return respond(409, {"error": i18n.t("error.jobRunning",
                                              title=running.title),
+                             "waiting": True})
+    if ADB_RUNNER.busy():
+        return respond(409, {"error": i18n.t("error.adbRunnerBusy"),
                              "waiting": True})
 
     view = jobs.view_for(inventory.set_no)

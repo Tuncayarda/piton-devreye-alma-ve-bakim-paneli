@@ -17,7 +17,7 @@ from pathlib import Path
 # Short and ASCII so it survives every shell, ZIP and installer it passes
 # through, and unchanged by the language.
 APP_SLUG = "dabp"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a
 # temp dir and reports it via sys._MEIPASS.
@@ -139,6 +139,21 @@ def network_settings_file() -> Path:
     return data_dir() / "network.json"
 
 
+def adb_devices_file() -> Path:
+    """The ADB screen's own device list — addresses the user typed in.
+
+    A FUNCTION rather than a constant, like every other path here: the
+    edition sub-folder is appended by `activate()` at start-up, and a module
+    constant would have been resolved before that happened.
+
+    Unlike the DeviceMap this list is a PREFERENCE, not a definition. It
+    belongs to no project, it is not derived from anything, and a corrupt
+    file must leave the screen usable rather than stop the panel opening
+    (see `panel.adb.pool`).
+    """
+    return data_dir() / "adb_devices.json"
+
+
 def ui_settings_file() -> Path:
     """Choices about the interface itself — currently just the language.
 
@@ -212,6 +227,14 @@ FIRMWARE_WORKERS = int(os.environ.get("FIRMWARE_WORKERS", "4"))
 # device's read + write + verify wait end to end. Same width as firmware:
 # a write can reboot the device, so it must stay narrower than scanning.
 CONFIG_WORKERS = int(os.environ.get("CONFIG_WORKERS", FIRMWARE_WORKERS))
+
+# How many devices the ADB screen works on at once. Wider than firmware
+# because most of what that screen does is cheap and does not reboot
+# anything — starting, stopping and listing packages — and the operator is
+# watching a table of devices fill in. Installing an APK through it is the
+# one heavy operation and is bounded by the same per-device timeout as
+# everywhere else.
+ADB_WORKERS = int(os.environ.get("ADB_WORKERS", "8"))
 
 # ────────────────────────────────────────────────────────── verification ──
 EXPECTED_TIMEZONE = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")
