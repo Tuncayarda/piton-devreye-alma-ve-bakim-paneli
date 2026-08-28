@@ -146,17 +146,32 @@ class AndroidTools(unittest.TestCase):
         self.assertIn('data.append((str(PLATFORM_TOOLS), "platform-tools"))',
                       spec)
 
-    def test_a_tree_without_the_tools_still_builds(self):
-        """SKIPPED, NOT FATAL — the same rule an undelivered DeviceMap gets.
+    def test_a_tree_without_the_tools_refuses_to_build(self):
+        """FATAL, NOT SKIPPED — and it was the other way round.
 
-        The tools are a third-party download, not something the source tree
-        carries, and a developer build must not stop because of it. It is
-        printed either way, so a release build that forgot the step says so
-        in the log instead of producing a package quietly missing adb.
+        "Printed either way, so a release build that forgot the step says so
+        in the log" was the rule, and it did not hold: CI never fetched the
+        tools at all, so every package it produced shipped without adb and
+        nobody read the line. A note in a build log is not a gate.
+
+        The escape hatch stays for a developer who means it, named the same
+        way the admin key's is.
         """
         spec = read(SPEC)
-        self.assertIn("if PLATFORM_TOOLS.is_dir():", spec)
-        self.assertIn("no platform-tools folder at", spec)
+        self.assertIn("if ADB_BINARY.is_file():", spec)
+        self.assertIn("DAP_ALLOW_NO_ADB", spec)
+        guard = spec.split("ADB_BINARY.is_file()")[1][:2000]
+        self.assertIn("raise SystemExit", guard)
+
+    def test_the_bundled_tool_must_match_the_build_target(self):
+        """A macOS adb unzipped on a Windows runner looks right and is not.
+
+        `binary.py` would find no `adb.exe`, fall back to PATH and ship a
+        package that is quietly missing the tool — the same silent failure,
+        arrived at from the other direction.
+        """
+        spec = read(SPEC)
+        self.assertIn('ADB_NAME = "adb.exe" if sys.platform == "win32"', spec)
 
     def test_the_runtime_looks_in_the_bundle_before_the_path(self):
         """Otherwise shipping the executable changes nothing: a machine with

@@ -309,10 +309,14 @@ FIELDS: dict[str, Field] = {
 # Which field goes to which endpoint on which device type. Every row matches
 # the body that device's own web UI sends.
 ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    (ADB_NETWORK, ("Compartment",), ("ipAddress",)),
+    (ADB_NETWORK, ("Compartment", "Twin"), ("ipAddress",)),
     (AUDIO_ENDPOINT, ("Amplifier",),
      ("speakerVolume", "speakerGain", "logLevel")),
-    (AUDIO_ENDPOINT, ("Intercom",),
+    # The Swanneck microphone carries the Intercom's firmware and answers the
+    # same endpoints with the same body, so it shares the scope rather than
+    # repeating it. If a rack ever shows it does not (a mic with no speaker
+    # refusing speakerVolume), it becomes a scope of its own here.
+    (AUDIO_ENDPOINT, ("Intercom", "Swanneck"),
      ("speakerVolume", "micVolume", "speakerGain", "micGain", "logLevel")),
     (AUDIO_ENDPOINT, ("Handset",), ("speakerVolume", "micVolume")),
     (AUDIO_ENDPOINT, ("UIC",), ("speakerVolume", "micVolume", "logLevel")),
@@ -324,7 +328,7 @@ ROUTES: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
      ("tcSpeakerGain", "tcMicGain", "tlSpeakerGain", "tlMicGain")),
     (SIP_ENDPOINT, ("Amplifier",),
      ("sipPbx", "sipExtension", "sipPassword")),
-    (SIP_ENDPOINT, ("Intercom",),
+    (SIP_ENDPOINT, ("Intercom", "Swanneck"),
      ("sipPbx", "sipExtension", "sipPassword", "sipOutbound")),
     (SIP_ENDPOINT, ("Handset",),
      ("sipPbx", "sipExtension", "sipPassword", "sipOutbound", "ringTimeout")),

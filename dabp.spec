@@ -14,7 +14,7 @@ Output:
 
 Notes:
   • The version comes from one place: APP_VERSION in panel/settings.py.
-  • The panel reads three data files and three field scripts at runtime.
+  • The panel reads its data files and two field scripts at runtime.
     They are copied to the ROOT of the bundle; panel.settings.data_file()
     looks there when frozen (see panel/settings.py).
   • The window engine's data files (PyObjC / PyQt / pythonnet) are gathered
@@ -125,7 +125,6 @@ FIELD_SCRIPTS_DIR = ROOT / "field_scripts"   # engines loaded at runtime
 DATA_FILES = [
     (ROOT / "Field_Device_Verification.xlsx",
      "Field_Device_Verification.xlsx"),
-    (FIELD_SCRIPTS_DIR / "switch_api.py", "switch_api.py"),
     (FIELD_SCRIPTS_DIR / "device_verify.py", "device_verify.py"),
     (FIELD_SCRIPTS_DIR / "intercom_ip_assign.py", "intercom_ip_assign.py"),
 ]
@@ -147,6 +146,23 @@ for project in EDITION.projects:
         print(f"[spec] device list: {project.label} <- {project.map_name}")
     else:
         print(f"[spec] project not delivered yet, skipped: {project.label}")
+    # A project whose devices are not in the shared checklist workbook
+    # carries its own (see panel/editions/catalogue.py). Missing, the report
+    # comes out with every row empty and nothing says why — so it is fatal
+    # here rather than skipped: unlike a DeviceMap, this file is generated
+    # from one (`tools/make_checklist_template.py`) and its absence is a
+    # step forgotten, not a delivery still to come.
+    if project.checklist_name:
+        sheet = ROOT.joinpath(*project.checklist_source)
+        if not sheet.exists():
+            raise SystemExit(
+                f"[spec] {project.label} carries its own checklist workbook "
+                f"but {sheet} is not there.\n"
+                f"        python3 tools/make_checklist_template.py "
+                f"{project.key}")
+        DATA_FILES.append((sheet, project.checklist_name))
+        print(f"[spec] checklist: {project.label} <- "
+              f"{project.checklist_name}")
 
 # The message catalogue: EVERY visible string in the panel, in both
 # languages. It is data sitting next to a Python package, and PyInstaller
@@ -166,21 +182,45 @@ print(f"[spec] message catalogues: {', '.join(catalogues)}")
 # command was not found". `panel/adb/binary.py` looks for it here first and
 # falls back to PATH.
 #
-# SKIPPED RATHER THAN FATAL when the folder is absent, exactly as an
-# undelivered DeviceMap is: the tools are a third-party download (Google's
-# platform-tools, with its own licence beside it), not something the source
-# tree carries, and a developer build must not stop because of it. It is
-# printed either way, so a release build that forgot the step says so in the
-# log rather than producing a package that is quietly missing adb.
+# FATAL WHEN ABSENT, and it used to be a printed note. That note was the
+# whole safeguard, and it did not work: CI never fetched the tools, so every
+# package it produced shipped without adb and the line went unread. The
+# tools are still a third-party download (Google's platform-tools, with its
+# own licence beside it) and the source tree still does not carry them —
+# CI fetches them now, and a developer who means to build without says so
+# with DAP_ALLOW_NO_ADB=1.
 PLATFORM_TOOLS = ROOT / "platform-tools"
+# The name for THIS build's target. Checked rather than assumed: the archive
+# is downloaded per operating system, and unzipping the macOS one on a Windows
+# runner leaves a folder that looks right and holds an executable Windows
+# cannot run. `panel/adb/binary.py` then finds nothing and falls back to PATH
+# — silently, which is the whole problem.
+ADB_NAME = "adb.exe" if sys.platform == "win32" else "adb"
+ADB_BINARY = PLATFORM_TOOLS / ADB_NAME
 
 data = [("static", "static"), (str(MESSAGES_DIR), "messages")]
-if PLATFORM_TOOLS.is_dir():
+if ADB_BINARY.is_file():
     data.append((str(PLATFORM_TOOLS), "platform-tools"))
     print(f"[spec] adb tools: {PLATFORM_TOOLS}")
+elif os.environ.get("DAP_ALLOW_NO_ADB") == "1":
+    print("[spec] adb tools: NONE (DAP_ALLOW_NO_ADB=1) — an Android display "
+          "can only be reached if this machine has adb on PATH")
 else:
-    print(f"[spec] no platform-tools folder at {PLATFORM_TOOLS} — the "
-          f"package will fall back to an adb on PATH")
+    # REQUIRED BY DEFAULT, and for the same reason the admin key is: a
+    # package that is missing it still builds, still opens, and fails in the
+    # field on hardware that is not at fault. A developer build that does not
+    # care says so explicitly.
+    detail = (f"{PLATFORM_TOOLS} holds no {ADB_NAME}"
+              if PLATFORM_TOOLS.is_dir()
+              else f"there is no {PLATFORM_TOOLS} folder")
+    raise SystemExit(
+        f"[spec] {detail}, so this package could not reach an Android "
+        "display on a machine without adb installed.\n"
+        "        Download the tools for THIS operating system and unzip them "
+        "into the repository root:\n"
+        "          https://developer.android.com/tools/releases/platform-tools\n"
+        "        For a build that deliberately has none (a developer trial): "
+        "DAP_ALLOW_NO_ADB=1")
 missing = []
 for source_path, bundle_name in DATA_FILES:
     if source_path.exists():

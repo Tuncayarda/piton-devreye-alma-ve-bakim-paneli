@@ -2,7 +2,8 @@
 """Switch access — the same behaviour as the Switch Management Panel.
 
 Covered requirements:
-  1. An account that works in the Switch Management Panel verifies here too.
+  1. One switch client for the whole panel: the identity it reports is the
+     identity every screen reads.
   2. A wrong switch password is not accepted as success.
   3. Login HTML returned with HTTP 200 is not accepted as switch data.
  11. Two switches with the same name and different IPs are not confused.
@@ -13,7 +14,8 @@ import subprocess
 import unittest
 from unittest import mock
 
-from panel import credentials, i18n, ip_assign, script_loader, status
+from panel import (credentials, i18n, ip_assign, script_loader, status,
+                   switch)
 from panel.errors import AuthError, VerificationError
 from panel.probe import reader
 from panel.probe import switch as switch_probe
@@ -23,32 +25,110 @@ from .support import fakes
 from .support.base import PanelTest
 
 
+class NotASwitch(unittest.TestCase):
+    """Addresses that answer, but are not switches.
+
+    A discovery sweep knocks on every address on the network, and a
+    commissioning network has more than switches on it. The panel used to read
+    "the reply did not parse as JSON" as "this switch wants a password", which
+    is true of a SICOM's login page and of nothing else — so the PISCU at
+    10.1.1.1, whose web interface answers any path with its own page, was
+    listed as a switch and the operator was asked to sign in to it.
+    """
+
+    def test_a_web_interface_is_not_a_locked_switch(self):
+        with fakes.web_ui() as fake:
+            with mock.patch.object(switch.CLIENT, "port", fake.port):
+                self.assertIsNone(
+                    switch.CLIENT.identity("127.0.0.1", timeout=2))
+
+    def test_a_login_page_still_means_sign_in(self):
+        """The narrower rule must not hide a switch that is merely locked."""
+        with fakes.kyland(password="123", login_page=True) as fake:
+            with mock.patch.object(switch.CLIENT, "port", fake.port):
+                info = switch.CLIENT.identity("127.0.0.1", timeout=2,
+                                              credentials=("admin", "123"))
+        self.assertIsNotNone(info)
+        self.assertTrue(info["locked"])
+
+    def test_what_tells_the_two_pages_apart(self):
+        """A box to type into. Both are 200 text/html; only one can be used."""
+        page = switch.client.looks_like_login_page
+        self.assertTrue(page(fakes.LOGIN_HTML.decode()))
+        self.assertFalse(page(fakes.WEB_UI_HTML.decode()))
+        # Spelling of the attribute is not what the answer turns on.
+        self.assertTrue(page("<form><input type='password'></form>"))
+        self.assertTrue(page('<INPUT TYPE = "PASSWORD">'))
+        # A page with fields that are not credentials is still not a login.
+        self.assertFalse(page("<form><input name=search></form>"))
+
+
 class SwitchAccess(PanelTest):
 
-    def test_1_a_correct_account_works_in_both_panels(self):
-        """The same account must verify in the sibling backend and here.
+    def test_1_a_correct_account_works_on_every_screen(self):
+        """One client, so an account that works anywhere works everywhere.
 
-        Both applications go through one code path: switch_api.sw_get. The
-        test does not merely assert that; it asks both against the same fake
-        switch and shows the results are identical.
+        There used to be two switch backends and this test compared them. They
+        are one now (`panel.switch`), which is the point — but it also means
+        comparing them to each other would be comparing a thing to itself and
+        proving nothing. So the subject is the surviving client's behaviour
+        against the fake switch: the identity it reports, and the identity the
+        device screens read through it, must be the same switch.
         """
-        with fakes.kyland(username="admin", password="123") as switch:
-            self.switch_port(switch.port)
-            api = switch_probe.api()
+        with fakes.kyland(username="admin", password="123") as fake:
+            self.switch_port(fake.port)
 
-            # The Switch Management Panel's own path
-            theirs = api.is_switch("127.0.0.1", timeout=5,
-                                   credentials=("admin", "123"))
-            self.assertIsNotNone(theirs)
-            self.assertFalse(theirs["locked"])
+            identity = switch.CLIENT.identity("127.0.0.1", timeout=5,
+                                              credentials=("admin", "123"))
+            self.assertIsNotNone(identity)
+            self.assertFalse(identity["locked"])
+            self.assertEqual(identity["model"], "SICOM3028GPT")
+            self.assertEqual(identity["version"], "F6014")
+            self.assertEqual(identity["mac"], "00:11:22:33:44:55")
 
-            # This panel's path
+            # The device screens' own reader, over the same client.
             ours = switch_probe.read("127.0.0.1", ("admin", "123"))
+            self.assertEqual(identity["model"], ours["model"])
+            self.assertEqual(identity["version"], ours["version"])
+            self.assertEqual(identity["mac"], ours["mac"])
 
-            self.assertEqual(theirs["model"], ours["model"])
-            self.assertEqual(theirs["version"], ours["version"])
-            self.assertEqual(theirs["mac"], ours["mac"])
-            self.assertEqual(ours["version"], "F6014")
+    def test_1b_a_wrong_password_reports_locked_not_identified(self):
+        """`locked` is a THIRD answer, and it has to stay one.
+
+        Folding it into "nothing there" would hide every switch the operator
+        has not signed in to yet — which, on the first scan, is all of them.
+        """
+        with fakes.kyland(username="admin", password="123") as fake:
+            self.switch_port(fake.port)
+            locked = switch.CLIENT.identity("127.0.0.1", timeout=5,
+                                            credentials=("admin", "wrong"))
+            self.assertEqual(locked["locked"], True)
+            self.assertEqual(locked["model"], "")
+            # A locked switch is not a signed-in one: it must not be accepted
+            # as proof of what the device is.
+            self.assertFalse(switch.looks_like_switch(locked))
+
+    def test_1c_a_login_page_is_not_an_identity(self):
+        """HTTP 200 with the right password is still not switch data."""
+        with fakes.kyland(username="admin", password="123",
+                          login_page=True) as fake:
+            self.switch_port(fake.port)
+            identity = switch.CLIENT.identity("127.0.0.1", timeout=5,
+                                              credentials=("admin", "123"))
+            self.assertEqual(identity["locked"], True)
+
+    def test_1d_two_switches_with_one_name_are_not_confused(self):
+        """Same name, same model, different addresses — and different MACs."""
+        with fakes.kyland(password="123", mac="00:11:22:33:44:55") as first, \
+                fakes.kyland(password="123", mac="AA:BB:CC:DD:EE:FF") as second:
+            self.switch_port(first.port)
+            one = switch.CLIENT.identity("127.0.0.1", timeout=5,
+                                         credentials=("admin", "123"))
+            self.switch_port(second.port)
+            two = switch.CLIENT.identity("127.0.0.1", timeout=5,
+                                         credentials=("admin", "123"))
+            self.assertEqual(one["name"], two["name"])
+            self.assertNotEqual(one["mac"], two["mac"])
 
     def test_uptime_is_computed_from_the_operatetime_field(self):
         """KYLAND exposes no single uptime field; it arrives split."""

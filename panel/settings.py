@@ -165,12 +165,9 @@ def ui_settings_file() -> Path:
 
 
 # ── engines under field_scripts/ ────────────────────────────────────────
-# The panel imports three field-proven scripts at runtime instead of
+# The panel imports two field-proven scripts at runtime instead of
 # rewriting them (see panel.script_loader). Packaging copies them to the
 # bundle root, so path resolution knows both locations.
-SWITCH_API_SCRIPT = Path(
-    os.environ.get("SWITCH_API_SCRIPT")
-    or data_file("switch_api.py", "field_scripts", "switch_api.py"))
 DEVICE_VERIFY_SCRIPT = Path(
     os.environ.get("DEVICE_VERIFY_SCRIPT")
     or data_file("device_verify.py", "field_scripts", "device_verify.py"))
@@ -197,6 +194,18 @@ ADB_PORT = int(os.environ.get("COMPARTMENT_LCD_ADB_PORT", "5555"))
 # app version (see dumpsys package ... versionName).
 ADB_PACKAGE = os.environ.get("COMPARTMENT_LCD_PACKAGE",
                              "com.piton.train_lcd_panel")
+# Must that package be ON the display for the read to count?
+#
+# NORMALLY NOBODY ANSWERS THIS: the open project does (see
+# `panel.probe.android.app_required`). A train's display is there to run the
+# application and its absence is the fault being commissioned for; a
+# demonstration stand carries borrowed hardware running whatever each unit
+# happens to have, and demanding one named application turns the whole board
+# red and hides the units that genuinely cannot be reached.
+#
+# This is the override for a bench that is neither: "1" forces the demand on,
+# "0" off, and anything else (the default) leaves it to the project.
+ADB_REQUIRE_PACKAGE = os.environ.get("ADB_REQUIRE_PACKAGE", "")
 # SIP registration is read from the app's own log; the PBX has no ARI account.
 ADB_LOG_TAG = os.environ.get("COMPARTMENT_LCD_LOG_TAG", "AnnounceSip")
 
@@ -235,6 +244,18 @@ CONFIG_WORKERS = int(os.environ.get("CONFIG_WORKERS", FIRMWARE_WORKERS))
 # one heavy operation and is bounded by the same per-device timeout as
 # everywhere else.
 ADB_WORKERS = int(os.environ.get("ADB_WORKERS", "8"))
+
+# How long a rebooted display is given to answer again. Generous, because
+# what the operator wants to know is not "the command was accepted" but "it
+# came back": a reboot that is reported as done while the display is still
+# dark is a reboot they have to go and check by eye. These images take
+# 40-70 seconds; two minutes leaves room for a slow one without leaving
+# somebody watching a spinner for ever.
+ADB_REBOOT_WAIT = float(os.environ.get("ADB_REBOOT_WAIT", "120"))
+# How long it is given to GO DOWN first. Short: this only proves the reboot
+# was really taken, and a display that never drops the connection has
+# ignored the command.
+ADB_REBOOT_DOWN_WAIT = float(os.environ.get("ADB_REBOOT_DOWN_WAIT", "25"))
 
 # ────────────────────────────────────────────────────────── verification ──
 EXPECTED_TIMEZONE = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")

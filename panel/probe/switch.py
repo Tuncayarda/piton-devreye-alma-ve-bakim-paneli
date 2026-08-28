@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""KYLAND switch reads, through the switch panel's working client.
+"""KYLAND switch reads for the device screens.
 
-There is no second switch client here. `field_scripts/switch_api.py` is
-imported at runtime and its verified calls are used:
+There is no second switch client here. `panel.switch` is this panel's one
+client and this module calls it:
 
-    sw_get(ip, "stat/basicInfo", timeout, credentials=(user, password))
+    switch.CLIENT.get(ip, "stat/basicInfo", timeout=..., credentials=(u, p))
 
 So URL, Basic Auth shape, port, timeout, headers and the "no JSON means you
-must sign in" rule are identical in both panels.
+must sign in" rule are the same here as on the switch screen. What this module
+adds on top is the shape the device screens want: an identity validated
+against a list of expected fields, a port list keyed the way the front panel
+draws it, and the MAC table.
 
-`credentials` is always passed explicitly. As long as it is, switch_api never
-consults its own in-module store; this panel's credentials live only in
-`panel.credentials`.
+`credentials` is always passed explicitly. The client holds none — this
+panel's credentials live only in `panel.credentials`.
 """
 from __future__ import annotations
 
-from .. import script_loader, settings
+from .. import script_loader, settings, switch
 from ..errors import (AuthError, UnreachableError, VerificationError, classify)
 from .. import i18n
 
@@ -23,11 +25,6 @@ from .. import i18n
 # is not switch data — a 200 alone does not count.
 EXPECTED_FIELDS = ("deviceName", "sysName", "deviceType", "model",
                    "softVer", "softwareVersion", "macAddress", "mac")
-
-
-def api():
-    """The loaded switch_api module — shared by tests and other modules."""
-    return script_loader.switch_api()
 
 
 def _identity_body(data):
@@ -95,18 +92,14 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
     Returns: {"name", "model", "version", "mac", "uptime", "raw"}
     Raises:  AuthError / UnreachableError / VerificationError
     """
-    module = api()
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
     try:
-        data = module.sw_get(ip, "stat/basicInfo", timeout=limit,
-                             credentials=credentials)
-    except module.AuthError:
-        # 401/403, WWW-Authenticate, or a login page instead of JSON.
-        # The script's own wording is dropped on purpose: it is an
-        # untranslatable English sentence written in a file this panel
-        # only borrows (field_scripts/switch_api.py), and it says nothing
-        # the message below does not, the address included — the UI shows
-        # that beside it.
+        data = switch.CLIENT.get(ip, "stat/basicInfo", timeout=limit,
+                                 credentials=credentials)
+    except AuthError:
+        # 401/403, WWW-Authenticate, or a login page instead of JSON. Raised
+        # again rather than let through so the wording is this module's own
+        # and the same on every read below.
         raise AuthError(i18n.t("error.probeAuth"))
     except Exception as exc:                       # network / HTTP layer
         code = getattr(getattr(exc, "response", None), "status_code", None)
@@ -136,14 +129,13 @@ def ports(ip: str, credentials: tuple[str, str] | None = None,
     PoE endpoints do not exist on every model; when absent the fields stay
     empty rather than being invented.
     """
-    module = api()
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
 
     def fetch(endpoint: str):
         try:
-            return module.sw_get(ip, endpoint, timeout=limit,
-                                 credentials=credentials)
-        except module.AuthError:                # see read() on the wording
+            return switch.CLIENT.get(ip, endpoint, timeout=limit,
+                                     credentials=credentials)
+        except AuthError:                       # see read() on the wording
             raise AuthError(i18n.t("error.probeAuth"))
         except Exception as exc:
             raise classify(exc)
@@ -205,7 +197,6 @@ def mac_table(ip: str, credentials: tuple[str, str] | None = None,
     reached at all raises UnreachableError: "off" and "does not serve the
     table" call for different fixes (the switch versus the cable).
     """
-    module = api()
     assign = script_loader.intercom_ip_assign()
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
     endpoints = getattr(assign, "MAC_ENDPOINTS", ["stat/macQuery"])
@@ -216,9 +207,9 @@ def mac_table(ip: str, credentials: tuple[str, str] | None = None,
     last_error = None
     for endpoint in endpoints:
         try:
-            data = module.sw_get(ip, endpoint, timeout=limit,
-                                 credentials=credentials)
-        except module.AuthError:                # see read() on the wording
+            data = switch.CLIENT.get(ip, endpoint, timeout=limit,
+                                     credentials=credentials)
+        except AuthError:                       # see read() on the wording
             raise AuthError(i18n.t("error.switchAuth"))
         except Exception as exc:
             error = classify(exc)
@@ -243,7 +234,6 @@ __all__ = [
     "AuthError",
     "UnreachableError",
     "VerificationError",
-    "api",
     "mac_table",
     "ports",
     "read",

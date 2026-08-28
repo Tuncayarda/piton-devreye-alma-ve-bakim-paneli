@@ -9,6 +9,10 @@ env/
 # ── PyInstaller / packaging ───────────────────────────────────────
 build/
 dist/
+# Google's Android platform-tools, unzipped here before a release
+# build (see docs/BUILD_RELEASE.md). A third-party download with
+# its own licence — carried into the package, never into the repo.
+platform-tools/
 release/
 *.spec.bak
 *.manifest

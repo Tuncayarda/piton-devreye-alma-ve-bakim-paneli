@@ -6,7 +6,7 @@ truth for browser mode. This tool derives a single HTML file for pywebview
 from those same sources:
 
 * Bundles the JavaScript module graph as an IIFE with Deno 2.9.4.
-* Embeds the three CSS files, the logo and the favicon into the HTML.
+* Embeds the CSS files, the logo and the favicon into the HTML.
 * Marks the bridge transport and adds a CSP that closes off network access.
 
 The output is deterministic; it contains no date, temporary path or
@@ -43,6 +43,7 @@ CSS_FILES = (
     STATIC / "css" / "components.css",
     STATIC / "css" / "views.css",
     STATIC / "css" / "ip.css",
+    STATIC / "css" / "switch.css",
 )
 LOGO = STATIC / "piton-logo.svg"
 FAVICON = STATIC / "piton-favicon.png"

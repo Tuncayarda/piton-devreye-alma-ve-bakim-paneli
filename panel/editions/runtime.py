@@ -219,6 +219,21 @@ def map_path(project: Project) -> Path:
     return settings.data_file(project.map_name, *project.source_path)
 
 
+def checklist_path(project: Project | None = None) -> Path:
+    """This project's checklist workbook, or the shared one.
+
+    Most projects are trains built to the same drawing and share the file;
+    a project whose devices are not in it (the demonstration stand) carries
+    its own, because the workbook fills rows by IP template and would
+    otherwise produce an empty report.
+    """
+    project = project or current_project()
+    if project.checklist_name:
+        return settings.data_file(project.checklist_name,
+                                  *project.checklist_source)
+    return Path(settings.EXCEL_TEMPLATE)
+
+
 def available(project: Project) -> bool:
     """Has this project's DeviceMap actually been delivered?
 
@@ -262,6 +277,16 @@ def current_project() -> Project:
     with _LOCK:
         key = _PROJECT
     return find_project(key) or active().projects[0]
+
+
+def on_a_stand() -> bool:
+    """Is the open project a demonstration stand rather than a train?
+
+    One read depends on it — see `Project.stand` for which and why. Asked of
+    the PROJECT rather than of a setting, so a package that carries both a
+    train and a stand answers correctly for whichever is open.
+    """
+    return bool(current_project().stand)
 
 
 def current_is_extra() -> bool:

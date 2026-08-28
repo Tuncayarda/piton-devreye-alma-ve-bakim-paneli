@@ -6,15 +6,17 @@
 // removing an application on several of them at once. Nothing here reads
 // DeviceMap, and no train set applies.
 //
-// SPLIT INTO FIVE FILES FROM THE FIRST LINE, not later. The IP screen was one
-// file and reached fourteen hundred lines before anybody could stand to divide
-// it. The division is the same one that screen ended up with: state and the
-// polling round here, and one file per card.
+// SPLIT INTO SEVERAL FILES FROM THE FIRST LINE, not later. The IP screen was
+// one file and reached fourteen hundred lines before anybody could stand to
+// divide it. The division is the same one that screen ended up with: state
+// and the polling round here, and one file per card.
 //
 //   state.js       what is selected, what was searched for, the poll's timer
+//   fields.js      the one text-box shape — a tag in front, no placeholder
 //   pool.js        the address list and the row selection
 //   packages.js    the keyword search and the bundle choice
-//   operations.js  the operation bar, the confirmations, the run table
+//   operations.js  the three operation cards and their confirmations
+//   status.js      the running table and the log of what has finished
 //
 // WHILE AN OPERATION RUNS THE PANEL'S OWN ROUNDS STOP. Both this screen and
 // the light refresh reach a Compartment LCD over the same global ADB server,
@@ -29,13 +31,14 @@ import { state, patch } from '../../core/store.js';
 import { showError, showSuccess, notify } from '../../components/toast.js';
 import { t } from '../../core/i18n.js';
 import {
-  POLL_INTERVAL, keepPackages, live, local, onScreen, operationTargets,
+  POLL_INTERVAL, live, local, onScreen, operationTargets,
   pruneSelection, running, selectAll, selectedIps, stopPolling, toggle,
   togglePackage,
 } from './state.js';
 import { poolCard } from './pool.js';
 import { packagesCard } from './packages.js';
-import { operationsCard } from './operations.js';
+import { applicationCard, installCard, serverCard } from './operations.js';
+import { statusCard } from './status.js';
 
 let refreshToken = 0;
 
@@ -137,6 +140,12 @@ const actions = {
       local.newIp = '';
       local.newLabel = '';
       patchDevices(body);
+      // The box can carry a range, so the count is worth saying: "10.1.1.45-47"
+      // that adds one because the other two were already in the list is not
+      // what the operator thinks they just did.
+      if ((body.added || 0) !== 1) {
+        showSuccess(t('adb.addressAdded', { count: body.added || 0 }));
+      }
     } catch (error) {
       // Beside the field rather than in the toast strip: the mistake is in
       // the box the user is looking at, and the correction happens there.
@@ -171,19 +180,44 @@ const actions = {
     }
   },
 
+  async exportList() {
+    local.exporting = true;
+    redraw();
+    try {
+      const body = await api.adbExport();
+      // A cancelled save dialog is not a failure and gets no toast: the
+      // operator closed the window they opened and knows nothing was
+      // written.
+      if (body.cancelled) return;
+      // The file NAME, not the whole path. The operator has just chosen the
+      // folder themselves, so naming it back at them is noise, and a full
+      // path on a toast is a line of text nobody reads to the end.
+      showSuccess(t('adb.exported', {
+        count: body.count || 0, file: body.file,
+      }));
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      local.exporting = false;
+      redraw();
+    }
+  },
+
   async search(keyword) {
     local.keyword = keyword;
     local.searching = true;
     redraw();
     try {
       local.found = await api.adbPackages(selectedIps(), keyword);
-      const list = local.found.packages || [];
-      // Every answer is selected. The operator asked for these words and
-      // nothing else came back; making them tick the results afterwards is
-      // a click per bundle that carries no information. Unticking one is
-      // still there for the case where it does.
-      local.packages = new Set(list.map(entry => entry.name));
-      keepPackages();
+      // NOTHING IS SELECTED BY THE SEARCH. It used to tick every answer, on
+      // the reasoning that the operator had asked for those words — which
+      // holds for a search that returns one bundle and not for one that
+      // returns six. A display carrying several of them then had all six
+      // ticked, and the next operation ran on bundles nobody chose.
+      //
+      // A keyword is how the list is NARROWED; choosing from it is a
+      // separate decision and is made on the list itself.
+      local.packages = new Set();
     } catch (error) {
       local.found = null;
       showError(error.message);
@@ -302,13 +336,19 @@ export function render(root) {
         }),
       ]),
     ]),
-    el('p', { class: 'description adb-intro', text: t('adb.intro') }),
     busy
       ? el('p', { class: 'info', role: 'status', text: t('adb.roundsPaused') })
       : null,
+    // The order somebody works in: pick the displays, find the application,
+    // drive it, put things on it, and — only when the bench itself is the
+    // suspect — the daemon on this computer. The status card is last because
+    // it is read after a button was pressed, not before.
     poolCard(actions),
     packagesCard(actions),
-    operationsCard(actions),
+    applicationCard(actions),
+    installCard(actions),
+    serverCard(actions),
+    statusCard(actions),
   ]);
   // The poll owns its own timer and stops itself when the screen goes; it is
   // not rebuilt on every render (the IP screen's lesson: tearing the timers

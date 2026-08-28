@@ -16,8 +16,9 @@ import { dataTable } from '../../components/table.js';
 import { confirmWrite } from '../../components/confirm.js';
 import { t } from '../../core/i18n.js';
 import { local, devices, running, selectedIps } from './state.js';
+import { tagged } from './fields.js';
 
-const COLUMNS = '38px minmax(120px,.8fr) minmax(140px,1.4fr) 96px';
+const COLUMNS = '38px minmax(120px,.8fr) minmax(140px,1.4fr) 190px';
 
 export function poolCard(actions) {
   const list = devices();
@@ -34,7 +35,6 @@ export function poolCard(actions) {
                 { selected: chosen.size, total: list.length }),
       }),
     ]),
-    el('p', { class: 'description', text: t('adb.deviceListNote') }),
     addForm(actions),
     el('div', { class: 'adb-pool-tools' }, [
       el('button', {
@@ -49,6 +49,24 @@ export function poolCard(actions) {
         disabled: local.importing,
         title: t('adb.importHint'),
         onclick: () => actions.importList(),
+      }),
+      // Beside the import and disabled on an empty list: a button that
+      // writes a file with nothing in it is a button that has to be
+      // explained afterwards.
+      // And the whole selection at once, beside the other bulk buttons.
+      el('button', {
+        type: 'button', class: 'btn btn-small btn-danger',
+        text: t('adb.rebootSelected'),
+        disabled: running() || !chosen.size,
+        title: t('adb.rebootHint'),
+        onclick: () => confirmReboot([...chosen], actions),
+      }),
+      el('button', {
+        type: 'button', class: 'btn btn-small',
+        text: local.exporting ? t('adb.exporting') : t('adb.exportList'),
+        disabled: local.exporting || !list.length,
+        title: list.length ? t('adb.exportHint') : t('adb.exportEmpty'),
+        onclick: () => actions.exportList(),
       }),
     ]),
     dataTable({
@@ -75,13 +93,45 @@ function deviceRow(entry, chosen, actions) {
     }, [el('span', { class: 'box', 'aria-hidden': 'true' })]),
     el('span', { class: 'mono', text: entry.ip }),
     el('span', { class: 'truncate', text: entry.label || '—' }),
-    el('button', {
-      type: 'button', class: 'btn btn-small',
-      text: t('adb.remove'),
-      disabled: running(),
-      onclick: () => removeDevice(entry, actions),
-    }),
+    el('div', { class: 'adb-row-actions' }, [
+      // One display, on its own row, without ticking it first. Restarting a
+      // single display is the common case and it belongs next to that
+      // display — it used to live at the bottom of the operations card,
+      // where it worked on the selection and nothing else.
+      el('button', {
+        type: 'button', class: 'btn btn-small btn-danger',
+        text: t('adb.reboot'),
+        disabled: running(),
+        title: t('adb.rebootHint'),
+        onclick: () => confirmReboot([entry.ip], actions),
+      }),
+      el('button', {
+        type: 'button', class: 'btn btn-small',
+        text: t('adb.remove'),
+        disabled: running(),
+        onclick: () => removeDevice(entry, actions),
+      }),
+    ]),
   ]);
+}
+
+// The confirmation, shared by the row button and the one above the table.
+// A reboot cuts the display off for about a minute; on a train being
+// commissioned that is something the person standing next to it should have
+// agreed to (the panel's rule — see components/confirm.js).
+export function confirmReboot(ips, actions) {
+  const labels = new Map(devices().map(entry => [entry.ip, entry.label]));
+  confirmWrite({
+    title: t('adb.rebootTitle'),
+    lead: t('adb.rebootLead', { count: ips.length }),
+    notes: [{ text: t('adb.rebootNote'), tone: 'warning' }],
+    items: ips.map(ip => ({ name: ip, detail: labels.get(ip) || '' })),
+    danger: true,
+    confirmLabel: t('adb.reboot'),
+    // No pairs: the machine is the target, so the server collapses the
+    // addresses to one row each (panel/adb/runner._pairs).
+    run: () => actions.run('reboot', {}, ips.map(ip => ({ ip }))),
+  });
 }
 
 // Removing an address writes nothing to a device, so this asks for the
@@ -102,14 +152,12 @@ function addForm(actions) {
   const ipField = el('input', {
     class: 'field adb-ip-field', type: 'text', inputmode: 'decimal',
     autocomplete: 'off', spellcheck: 'false',
-    'aria-label': t('adb.columnAddress'),
-    placeholder: '10.1.1.40', value: local.newIp,
+    title: t('adb.addressHint'), value: local.newIp,
     oninput: (event) => { local.newIp = event.target.value; },
   });
   const labelField = el('input', {
     class: 'field', type: 'text', autocomplete: 'off',
-    'aria-label': t('adb.columnLabel'),
-    placeholder: t('adb.labelPlaceholder'), value: local.newLabel,
+    value: local.newLabel,
     oninput: (event) => { local.newLabel = event.target.value; },
   });
   const warning = el('p', {
@@ -132,7 +180,8 @@ function addForm(actions) {
     },
   }, [
     el('div', { class: 'adb-add-fields' }, [
-      ipField, labelField,
+      tagged('col.ip', ipField),
+      tagged('adb.columnLabel', labelField),
       el('button', {
         type: 'submit', class: 'btn btn-primary', text: t('adb.addDevice'),
       }),

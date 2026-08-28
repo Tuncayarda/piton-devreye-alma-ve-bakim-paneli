@@ -1,0 +1,169 @@
+{
+    "Switches": [
+        {
+            "Manufacturer": "KYLAND",
+            "Name": "Mc1_1",
+            "IP": "10.1.1.100",
+            "Username": "",
+            "Password": "",
+            "IsActive": true,
+            "Devices": [
+                {
+                    "Manufacturer": "PITON",
+                    "Name": "Intercom_Mc1_1",
+                    "Port": "1",
+                    "Type": "Announcement",
+                    "SubType": "Intercom",
+                    "IP": "10.1.1.10",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "PBXExtension": "2001",
+                    "PBXPassword": "",
+                    "CallerName": "Intercom_Mc1_1",
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "PITON",
+                    "Name": "Amplifier_Mc1_1",
+                    "Port": "5",
+                    "Type": "Announcement",
+                    "SubType": "Amplifier",
+                    "IP": "10.1.1.5",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "PBXExtension": "1001",
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "PITON",
+                    "Name": "Handset_Mic_Mc1_1",
+                    "Port": "6",
+                    "Type": "Announcement",
+                    "SubType": "Handset",
+                    "IP": "10.1.1.8",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "PBXExtension": "4001",
+                    "PBXPassword": "",
+                    "CallerName": "Handset_Mic_Mc1_1",
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Front_Cam_Mc1_1",
+                    "Port": "7",
+                    "Type": "Camera",
+                    "SubType": "Front",
+                    "IP": "10.1.1.21",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Username": "",
+                    "Password": "",
+                    "CameraName": "Front 1",
+                    "CameraID": "1",
+                    "CameraRotation": 0,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Cabin_Cam_Mc1_1",
+                    "Port": "8",
+                    "Type": "Camera",
+                    "SubType": "Cabin",
+                    "IP": "10.1.1.24",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Username": "",
+                    "Password": "",
+                    "CameraName": "Cabin 1",
+                    "CameraID": "2",
+                    "CameraRotation": 0,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "PITON",
+                    "Name": "Swanneck_Mic_Mc1_1",
+                    "Port": "9",
+                    "Type": "Announcement",
+                    "SubType": "Swanneck",
+                    "IP": "10.1.1.7",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "PBXExtension": "3001",
+                    "PBXPassword": "",
+                    "CallerName": "Swanneck_Mic_Mc1_1",
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Hmi_1_Mc1_1",
+                    "Port": "10",
+                    "Type": "HMI",
+                    "SubType": "",
+                    "IP": "10.1.1.4",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Hmi_2_Mc1_1",
+                    "Port": "11",
+                    "Type": "HMI",
+                    "SubType": "",
+                    "IP": "10.1.4.4",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Front_LED_Mc1_1",
+                    "Port": "12",
+                    "Type": "LED",
+                    "SubType": "Front",
+                    "IP": "10.1.1.40",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Width": 400,
+                    "Height": 40,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Twin_LCD_1_Mc1_1",
+                    "Port": "13",
+                    "Type": "LCD",
+                    "SubType": "Twin",
+                    "IP": "10.1.1.45",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Piscu_Mc1_1",
+                    "Port": "14",
+                    "Type": "PISCU",
+                    "SubType": "Master",
+                    "IP": "10.1.1.1",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Status": {}
+                },
+                {
+                    "Manufacturer": "",
+                    "Name": "Twin_LCD_2_Mc1_1",
+                    "Port": "16",
+                    "Type": "LCD",
+                    "SubType": "Twin",
+                    "IP": "10.1.1.46",
+                    "SerialNumber": "",
+                    "IsActive": true,
+                    "Status": {}
+                }
+            ],
+            "Status": {}
+        }
+    ]
+}

@@ -14,6 +14,7 @@ const KEYS = new Set([
   'checklistState', 'checklistCategory', 'historyFilter', 'networkState',
   'autoRefresh', 'deviceSearch', 'deviceSort', 'deviceSortDesc',
   'adbState', 'adbBusy',
+  'switchState', 'switchSelected', 'switchBusy',
 ]);
 
 const _subscribers = new Set();
@@ -69,6 +70,13 @@ export const state = {
   // of the lock; the server refuses the round as well
   // (panel/api/routes/session_routes.py).
   adbBusy: false,
+  // The switch screen: the server's body for it, which switch is open, and
+  // whether a write to that switch is in flight. The password that unlocked
+  // it is NOT here and cannot be — `patch()` refuses any key not listed
+  // above, and the sign-in form hands its value straight to the API call.
+  switchState: null,
+  switchSelected: null,
+  switchBusy: false,
   checklistState: null,
   checklistCategory: 'all',
   // Free text typed on the devices screen. Lives here rather than in the

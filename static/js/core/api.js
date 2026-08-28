@@ -192,6 +192,8 @@ export function createApi(carrier = transport) {
     adbDevices: (body) => post("/api/adb/devices", body),
     // The picker opens in the OS; the path never travels from the browser.
     adbImport: () => post("/api/adb/import", {}),
+    // Nor does the destination: the server picks it (Documents).
+    adbExport: () => post("/api/adb/export", {}),
     adbPackages: (devices, keyword) =>
       post("/api/adb/packages", { devices, keyword }),
     adbApk: () => post("/api/adb/apk", {}),
@@ -203,6 +205,32 @@ export function createApi(carrier = transport) {
       post("/api/adb/autostart/files", { package: name }),
     adbRun: (body) => post("/api/adb/run", body),
     adbCancel: () => post("/api/adb/cancel", {}),
+
+    // ── the switch screen ──
+    // No `set` here either: a switch is reached by address, and the screen
+    // works on whichever one the operator found (panel/switch).
+    switchScreen: () => get("/api/switch"),
+    switchInfo: (ip) => get("/api/switch/info", { ip }),
+    switchPorts: (ip) => get("/api/switch/ports", { ip }),
+    // A sweep is a queued job, not an inline call: a /24 runs for minutes.
+    switchDiscover: (cidr) => post("/api/switch/discover", { cidr }),
+    switchDiscoverCancel: () => post("/api/switch/discover/cancel", {}),
+    // THE ONE CALL THAT CARRIES A PASSWORD, and it carries it once. The
+    // value comes straight from the dialog's field; it is not stored, not
+    // written to the state above, and not sent again.
+    switchLogin: (ip, username, password, applyToGroup) =>
+      post("/api/switch/login", { ip, username, password, applyToGroup }),
+    switchLogout: (ip) => post("/api/switch/logout", { ip }),
+    switchPoe: (ip, port, mode) => post("/api/switch/poe", { ip, port, mode }),
+    switchPort: (ip, port, body) =>
+      post("/api/switch/port", { ip, port, ...body }),
+    switchBatch: (ip, poe, ports) =>
+      post("/api/switch/batch", { ip, poe, ports }),
+    switchNetwork: (ip, values) => post("/api/switch/network", { ip, ...values }),
+    switchConfigSave: (ip) => post("/api/switch/config-save", { ip }),
+    switchReboot: (ip) => post("/api/switch/reboot", { ip }),
+    switchFactoryReset: (ip, confirm) =>
+      post("/api/switch/factory-reset", { ip, confirm }),
 
     checklistExport: (set) => post("/api/checklist/export", { set }),
 

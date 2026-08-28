@@ -548,16 +548,36 @@ def fetch_hmi(ip: str, cfg) -> dict:
     return app_status_fields(ip, cfg, "MCP")
 
 
+def _adb_binary() -> str:
+    """Which `adb` to run.
+
+    THIS SCRIPT RUNS TWO WAYS and the answer differs. Inside the panel it is
+    imported at runtime (see panel/script_loader.py), and the panel SHIPS an
+    adb of its own — a commissioning laptop has no reason to carry Android
+    Studio, and calling the bare name there is how a healthy display came to
+    report "the adb command was not found". Run on its own from a terminal
+    there is no panel to ask, and the bare name is exactly right.
+
+    So the panel's resolver is preferred and its absence is not an error.
+    """
+    try:
+        from panel.adb.binary import adb_path      # noqa: PLC0415
+        return adb_path()
+    except Exception:
+        return os.environ.get("DABP_ADB_BINARY") or "adb"
+
+
 def _adb(target: str, *args, timeout: int) -> str:
-    r = subprocess.run(["adb", "-s", target, *args], capture_output=True,
-                       text=True, timeout=timeout, check=False)
+    r = subprocess.run([_adb_binary(), "-s", target, *args],
+                       capture_output=True, text=True, timeout=timeout,
+                       check=False)
     return r.stdout.strip()
 
 
 def fetch_compartment_lcd(ip: str, cfg) -> dict:
     """LCD / Compartment — Android, over ADB."""
     target = f"{ip}:{cfg.adb_port}"
-    subprocess.run(["adb", "connect", target], capture_output=True,
+    subprocess.run([_adb_binary(), "connect", target], capture_output=True,
                    text=True, timeout=cfg.adb_timeout, check=False)
     try:
         # NOTE: the version is not collected for now — grey in the template.
@@ -577,11 +597,26 @@ def fetch_compartment_lcd(ip: str, cfg) -> dict:
             out[COL_UPTIME] = uptime_text(raw.split()[0])
         return {k: v for k, v in out.items() if v}
     finally:
-        subprocess.run(["adb", "disconnect", target], capture_output=True,
-                       text=True, timeout=cfg.adb_timeout, check=False)
+        subprocess.run([_adb_binary(), "disconnect", target],
+                       capture_output=True, text=True,
+                       timeout=cfg.adb_timeout, check=False)
 
 
-# Which type uses which collector (an extra query beyond DeviceMap)
+# Which type uses which collector (an extra query beyond DeviceMap).
+#
+# A KEY WITH None FOR THE SUBTYPE MEANS "ANY SUBTYPE OF THIS TYPE", and which
+# rows are written that way is not a shortcut. A camera is reached over ISAPI
+# whether the project calls it Corridor, Landing, Front or Cabin, and a PISCU
+# answers the same way whether or not its map calls it Master: those SubTypes
+# are project vocabulary and say nothing about how the device is asked. (The
+# panel's own table agrees — `read_method_for` branches on the TYPE for both;
+# see panel/inventory/catalog.py.) The rows that DO name a subtype name one
+# that changes the answer: an Announcement/Handset is not asked like an
+# Announcement/UIC, and Compartment is the only LCD that is asked anything.
+#
+# Written the other way round — one row per subtype — every new project would
+# need this file edited before its cameras appeared in the export, and the
+# omission would show up as an empty column rather than as an error.
 COLLECTORS = {
     ("Switch", None):              fetch_switch,
     ("PISCU", None):               fetch_piscu,
@@ -589,13 +624,28 @@ COLLECTORS = {
     ("Announcement", "Amplifier"): fetch_announcement,
     ("Announcement", "Handset"):   fetch_announcement,
     ("Announcement", "Intercom"):  fetch_announcement,
-    ("Camera", "Corridor"):        fetch_isapi,
-    ("Camera", "Landing"):         fetch_isapi,
+    ("Announcement", "Swanneck"):  fetch_announcement,
+    ("Camera", None):              fetch_isapi,
     ("NVR", None):                 fetch_isapi,
     ("LCD", "Compartment"):        fetch_compartment_lcd,
+    ("LCD", "Twin"):               fetch_compartment_lcd,
 }
+
+
+def collector_for(kind, subtype):
+    """The collector for this device, or None: the pair, then the type.
+
+    One lookup in one place, so the two call sites below and the check in
+    `tests/test_data.py` cannot come to different answers about the same
+    device.
+    """
+    return COLLECTORS.get((kind, subtype)) or COLLECTORS.get((kind, None))
+
+
 # Fed from DeviceMap only, with no extra query: ICU, AP, LED, LCD/Landing,
-# and Announcement/UIC. (PISCU and HMI are NOT in that list — they are
+# and Announcement/UIC. (The two Android displays — Compartment and Twin —
+# are asked the same three properties over ADB; the collector is named after
+# the first of them and is not specific to it.) (PISCU and HMI are NOT in that list — they are
 # collected above, over MQTT AppStatus.)
 #
 # The UIC is the one the panel and this table see differently: the panel
@@ -873,7 +923,7 @@ def main() -> int:
     if cfg.list or cfg.dry_run:
         print(f"\nTargets ({len(targets)}):")
         for row, tmpl, ip, dev in targets:
-            fn = COLLECTORS.get((dev["Type"], dev["SubType"]))
+            fn = collector_for(dev["Type"], dev["SubType"])
             src = fn.__name__.replace("fetch_", "") if fn else "DeviceMap only"
             kind = f"{dev['Type']}/{dev['SubType'] or '-'}"
             print(f"  row {row:>3}  {ip:<14} {kind:<26} "
@@ -911,7 +961,7 @@ def main() -> int:
         # read from the device. It belongs in the "Expected SIP extension"
         # column of the template; only what the device reports itself is
         # written here.
-        fn = COLLECTORS.get((dev["Type"], dev["SubType"]))
+        fn = collector_for(dev["Type"], dev["SubType"])
         err = None
         if fn:
             try:

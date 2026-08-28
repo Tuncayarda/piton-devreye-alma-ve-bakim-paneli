@@ -15,6 +15,7 @@ could be guessed here.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import platform
 import threading
@@ -273,6 +274,64 @@ def _ensure_locked(inventory: Inventory, options: dict | None = None,
             emit(f"[network] {address}/{entry.network.prefixlen} "
                  f"added to {adapter.name}")
     return result
+
+
+def ensure_network(network, emit=None) -> dict:
+    """Give the computer an address on ONE network, named directly.
+
+    `ensure()` above answers "what does this PROJECT need" and reads it out of
+    the DeviceMap. The switch screen has no project: it sweeps a network the
+    operator typed, and that network may be one nothing in the inventory
+    mentions. Without an address on it the sweep finds nothing at all — and
+    not because the switches are absent, but because no packet ever left the
+    machine (see `panel/network/aliases.py`).
+
+    Nothing is done when the computer is already on the network: an address it
+    holds is a route it has, whoever put it there.
+
+    Never raises. Returns the same shape as `ensure()`, so a caller that
+    already reports one can report this.
+    """
+    result = {"added": [], "failed": [], "required": [], "needsAdapter": False}
+    if network is None:
+        return result
+    with _LOCK:
+        if not commands.supported() or not aliases.WRITES_ALLOWED:
+            return result
+        try:
+            found = adapter_module.list_adapters()
+            held = adapter_module.local_addresses(found)
+            if any(ipaddress.IPv4Address(address) in network
+                   for address in held if address):
+                return result                      # already reachable
+            result["required"] = [str(network)]
+            adapter = adapter_module.choose(
+                found, [str(network.network_address)],
+                override=preferences()["adapter"])
+        except Exception as exc:
+            result["failed"].append({"network": str(network),
+                                     "error": _short(exc)})
+            return result
+
+        if adapter is None:
+            result["needsAdapter"] = bool(adapter_module.usable(found))
+            return result
+
+        taken = set(held) | {entry.get("ip", "") for entry in aliases.active()}
+        try:
+            address = planning.choose_host(
+                network, taken, octet=planning.DEFAULT_HOST_OCTET)
+            record = aliases.add(adapter.handle, address, network.prefixlen,
+                                 adapter_name=adapter.name)
+        except Exception as exc:
+            result["failed"].append({"network": str(network),
+                                     "error": _short(exc)})
+            return result
+        result["added"].append(record)
+        if emit:
+            emit(f"[network] {address}/{network.prefixlen} "
+                 f"added to {adapter.name}")
+        return result
 
 
 def select_adapter(inventory: Inventory, name: str,

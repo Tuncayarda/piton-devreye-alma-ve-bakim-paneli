@@ -12,11 +12,14 @@ re-sending a list of addresses that cannot have changed, sixty times a
 minute; the runner's `generation` counter is there so the client can tell in
 one integer whether anything moved (see `panel.adb.runner`).
 
-The screen is in `BASE_VIEWS`, so every operator has it and `panel.api.guard`
-has no restriction to enforce here. That is a decision, not an omission: the
-bench work this screen does — start the application, put a new APK on,
-restart a display that has hung — is field work, and putting it behind the
-service key would mean the person actually holding the display cannot do it.
+The screen is an ADMIN one, so `panel.api.guard` refuses every path below
+unless the service key is in. The reason is written once, in
+`panel/editions/catalogue.py` beside the list itself — this file used to
+restate it, which is how the copy here came to say the opposite of the
+decision after the screen was moved.
+
+What matters at THIS end is that the guard matches by prefix: `/api/adb`
+covers every path in the tables below, including the next one added.
 """
 from __future__ import annotations
 
@@ -77,8 +80,11 @@ def post_devices(body):
         return respond(200, {"devices": pool.clear()})
     if action != "add":
         raise ValueError(i18n.t("error.adbUnknownOperation", operation=action))
-    return respond(200, {"devices": pool.add(body.get("ip"),
-                                             body.get("label", ""))})
+    # One box, several addresses: a list, a range, or both. `added` is part of
+    # the answer rather than a detail — "10.1.1.45-47" that adds one because
+    # the other two were already there is worth saying out loud.
+    devices, added = pool.add_many(body.get("ip"), body.get("label", ""))
+    return respond(200, {"devices": devices, "added": added})
 
 
 def post_import(body):
@@ -106,6 +112,41 @@ def post_import(body):
                          "skipped": skipped,
                          "duplicates": len(entries) - added,
                          "file": Path(chosen).name})
+
+
+def post_export(body):
+    """Write the address list where the OPERATOR SAYS, through the OS dialog.
+
+    It used to go to the Documents folder without asking, which is where the
+    panel puts everything it produces. That is the right default for a file
+    the panel itself will find again; this one is carried away on a stick or
+    attached to an e-mail, and the person doing that has a folder in mind.
+
+    The path still never comes from the client — the same rule the import
+    above follows. The dialog runs in the operator's own session and only
+    what it returned is written, so this cannot be turned into "write a file
+    anywhere on this machine" by a crafted request. A cancelled dialog is a
+    200 saying so, not an error.
+    """
+    if body.get("path"):
+        # The headless form, for tests and a scripted run. The UI never
+        # sends a path.
+        chosen = str(body.get("path"))
+    else:
+        try:
+            chosen = files.pick_save_path(i18n.t("adb.exportTitle"),
+                                          pool.EXPORT_NAME, ("json",))
+        except RuntimeError as exc:
+            return respond(500, {"error": str(exc)})
+        if not chosen:
+            return respond(200, {"cancelled": True})
+    try:
+        path = pool.write_export(chosen)
+    except OSError as exc:
+        return respond(500, {"error": i18n.t("error.adbExportFailed",
+                                             reason=str(exc))})
+    return respond(200, {"file": path.name, "path": str(path),
+                         "count": len(pool.load())})
 
 
 def post_packages(body):
@@ -232,6 +273,7 @@ GET = {
 POST = {
     "/api/adb/devices": post_devices,
     "/api/adb/import": post_import,
+    "/api/adb/export": post_export,
     "/api/adb/packages": post_packages,
     "/api/adb/apk": post_apk,
     "/api/adb/autostart": post_autostart_state,

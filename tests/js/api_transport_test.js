@@ -25,7 +25,7 @@ applyCatalogue({
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("the api surface keeps its 61 methods", () => {
+Deno.test("the api surface keeps its 76 methods", () => {
   const api = createApi({ request: () => ok() });
   const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
@@ -37,6 +37,7 @@ Deno.test("the api surface keeps its 61 methods", () => {
       "adbAutostartFiles",
       "adbCancel",
       "adbDevices",
+      "adbExport",
       "adbImport",
       "adbPackages",
       "adbRun",
@@ -90,6 +91,20 @@ Deno.test("the api surface keeps its 61 methods", () => {
       "selectProject",
       "setLanguage",
       "state",
+      "switchBatch",
+      "switchConfigSave",
+      "switchDiscover",
+      "switchDiscoverCancel",
+      "switchFactoryReset",
+      "switchInfo",
+      "switchLogin",
+      "switchLogout",
+      "switchNetwork",
+      "switchPoe",
+      "switchPort",
+      "switchPorts",
+      "switchReboot",
+      "switchScreen",
       "tryCredentials",
       "version",
     ],

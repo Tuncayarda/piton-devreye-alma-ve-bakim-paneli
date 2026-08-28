@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 import subprocess
 
-from .. import settings
+from .. import editions, settings
 from ..adb.binary import adb_path
 from ..errors import (NotApplicableError, UnreachableError, VerificationError)
 from .. import i18n
@@ -69,6 +69,31 @@ def sip_log(raw: str) -> dict:
     return data
 
 
+def app_required() -> bool:
+    """Must the named panel application be on the display for a green read?
+
+    THE PROJECT DECIDES. A train's Compartment LCD is there to run that
+    application and its absence is the fault being commissioned for; a
+    demonstration stand carries borrowed hardware running whatever each unit
+    happens to have, and demanding one named application turns the whole
+    board red and hides the units that genuinely cannot be reached (see
+    `panel.editions.catalogue.Project.stand`).
+
+    `ADB_REQUIRE_PACKAGE` overrides it in either direction, for a bench that
+    is neither. Unset — which is the normal case — nobody has to remember a
+    flag: setting the stand up is the whole of it.
+    """
+    override = str(settings.ADB_REQUIRE_PACKAGE or "").strip()
+    if override in ("0", "1"):
+        return override == "1"
+    try:
+        return not editions.on_a_stand()
+    except Exception:
+        # No edition active yet (a probe from a test or a script). The
+        # stricter answer is the safe one.
+        return True
+
+
 def read(ip: str, timeout: int | None = None) -> dict:
     limit = timeout or settings.ADB_TIMEOUT
     target = f"{ip}:{settings.ADB_PORT}"
@@ -100,7 +125,11 @@ def read(ip: str, timeout: int | None = None) -> dict:
 
         package = package_info(run("shell", "dumpsys", "package",
                                    settings.ADB_PACKAGE))
-        if not package["version"]:
+        if not package["version"] and app_required():
+            # On a train this is the fault being looked for: the display is
+            # there to run this application. On a stand it is not — see
+            # `app_required` below. Either way the display had to ANSWER to
+            # get this far; what is in question is only what is on it.
             raise VerificationError(
                 i18n.t("error.adbVersionUnreadable",
                        package=settings.ADB_PACKAGE))
@@ -120,7 +149,11 @@ def read(ip: str, timeout: int | None = None) -> dict:
         raise UnreachableError(i18n.t("error.adbTimeout"))
     finally:
         try:
-            subprocess.run(["adb", "disconnect", target], capture_output=True,
-                           text=True, timeout=limit, check=False)
+            # `adb_path()`, not the bare name: this module resolves it for
+            # every other call and a disconnect that quietly does nothing
+            # leaves the transport attached for the next read to trip over.
+            subprocess.run([adb_path(), "disconnect", target],
+                           capture_output=True, text=True, timeout=limit,
+                           check=False)
         except Exception:
             pass

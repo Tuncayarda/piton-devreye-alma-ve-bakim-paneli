@@ -189,16 +189,39 @@ def self_test() -> int:
     for asset in ("index.html", "desktop.html", "css/base.css", "js/app.js",
                   "piton-logo.svg", "piton-favicon.png"):
         check(f"static/{asset}", (settings.STATIC_DIR / asset).exists())
-    # The three field scripts (see panel.script_loader). In a packaged app
-    # they are copied into the bundle; if one is missing, switch reads, IP
-    # assignment or the Excel export will not work in the field — better to
-    # find out where the package is built.
-    for name, path in (("Switch Management Panel backend",
-                        settings.SWITCH_API_SCRIPT),
-                       ("Field verification script",
+    # The two field scripts (see panel.script_loader). In a packaged app
+    # they are copied into the bundle; if one is missing, IP assignment or
+    # the Excel export will not work in the field — better to find out where
+    # the package is built.
+    for name, path in (("Field verification script",
                         settings.DEVICE_VERIFY_SCRIPT),
                        ("IP assignment script", settings.IP_ASSIGN_SCRIPT)):
         check(name, path.exists(), str(path))
+
+    # THE ADB EXECUTABLE, and in a package this is a failure rather than a
+    # note. An Android display is reached with `adb` and nothing else, and a
+    # commissioning laptop has no reason to carry Android Studio — which is
+    # why the package ships its own (see panel/adb/binary.py). A build that
+    # forgot the download step still runs, still opens, and then reports
+    # "the Compartment LCD cannot be read" on a display that is perfectly
+    # healthy. That is exactly the failure this line exists to move from the
+    # field back to the build.
+    #
+    # From source it is only reported: a developer's machine may have adb on
+    # PATH, or no need for one at all.
+    from panel.adb import binary as adb_binary
+
+    carried = adb_binary.bundled()
+    if settings.FROZEN:
+        check("ADB executable (in the package)", carried is not None,
+              str(carried) if carried else
+              "not bundled — this package cannot reach an Android display")
+    elif carried is not None:
+        write(f"  [OK  ] ADB executable — {carried}")
+    else:
+        found = adb_binary.adb_path()
+        write(f"  [ --  ] ADB executable — not bundled; from source this "
+              f"falls back to {found}")
 
     try:
         inventory = device_map.load(1)
@@ -406,6 +429,7 @@ def main() -> int:
             return 1
 
         from panel.desktop import PanelBridge, load_html
+        from panel.system import files
 
         api.start()
         bridge = PanelBridge()
@@ -432,6 +456,11 @@ def main() -> int:
         # Only this one function, which checks the session key, joins the
         # exact-name allowlist; the bridge's state never enters the WebView.
         window.expose(bridge.invoke)
+        # The file picker borrows this window on Linux, where there is no
+        # native dialog to shell out to unless zenity or kdialog happens to be
+        # installed (see panel/system/files.py). Registered here because this
+        # is the only place that has a window at all.
+        files.use_window(window)
         # The title bar is painted by the operating system, outside the
         # WebView: the redraw that follows a language switch cannot reach it,
         # so it is told separately. Everything else on screen is rebuilt from

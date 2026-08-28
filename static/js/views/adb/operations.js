@@ -1,4 +1,22 @@
-// The operation bar, the confirmations, and the table the run fills in.
+// The three operation cards and the confirmations in front of them.
+//
+// THREE CARDS, NOT ONE, and the split is the whole point of this file. It was
+// one card called "Operations" holding, in a single column: four buttons that
+// act on the chosen application, a file picker that overwrites it, an
+// autostart pair that writes to /system, and two buttons about the ADB daemon
+// on THIS computer. Everything on the screen looked equally important and
+// equally aimed at the ticked rows, and the last two were aimed at neither.
+// So they are separated by WHAT THEY TOUCH, which is the only division an
+// operator can hold in their head:
+//
+//   applicationCard  the application on the selected displays — start, stop,
+//                    restart, remove. Reversible; no dialog.
+//   installCard      what is put ON a display — the APK, and the autostart
+//                    files. Both write; both ask first.
+//   serverCard       this computer's ADB daemon. Ignores the selection.
+//
+// The run's own table went with them, to `status.js`: it is not an operation,
+// it is what the last one did.
 //
 // WHICH OPERATIONS ASK FIRST, and why it is not all of them. The panel's rule
 // is that an operation which RESTARTS a device, CHANGES ITS ADDRESS or CUTS
@@ -9,7 +27,9 @@
 // dialogs without reading them — which is exactly what makes the ones that
 // matter useless.
 //
-// The ones that matter here are three, and they are not equal:
+// The ones that matter here are three, and they are not equal.
+// (Rebooting a display is the fourth; it moved to the device list,
+// where it can be aimed at one display without ticking it first.)
 //
 //   remove          takes the application off the display.
 //   install an APK  overwrites the application that is on it.
@@ -25,64 +45,46 @@
 //                   promise files that are not the ones written.
 
 import { el } from '../../core/dom.js';
-import { dataTable } from '../../components/table.js';
 import { confirmWrite } from '../../components/confirm.js';
 import { t } from '../../core/i18n.js';
 import {
-  devices, local, operationTargets, runner, running, selectedIps, untouchedIps,
+  devices, local, operationTargets, running, selectedIps, untouchedIps,
 } from './state.js';
 
-const RUN_COLUMNS =
-  'minmax(120px,.7fr) minmax(150px,1.2fr) 110px minmax(180px,1.6fr)';
-
-// Row state -> the status vocabulary the rest of the panel paints with, and
-// the label for it. Written out as literal keys rather than built from the
-// state name: the catalogue check reads keys out of the source as string
-// literals, and a key assembled at run time is a key nothing can verify.
-const ROW_TONE = {
-  pending: 'unknown',
-  running: 'unknown',
-  done: 'ok',
-  failed: 'failed',
-  cancelled: 'unknown',
-};
-const ROW_LABEL = {
-  pending: 'adb.statePending',
-  running: 'adb.stateRunning',
-  done: 'adb.stateDone',
-  failed: 'adb.stateFailed',
-  cancelled: 'adb.stateCancelled',
-};
-const OP_LABEL = {
-  start: 'adb.opStart',
-  stop: 'adb.opStop',
-  restart: 'adb.opRestart',
-  uninstall: 'adb.opUninstall',
-  install: 'adb.opInstall',
-  autostart_install: 'adb.opAutostartInstall',
-  autostart_remove: 'adb.opAutostartRemove',
-};
+// The check's VERDICT, not its file count. Two files sitting where they were
+// written is not evidence that anything runs at boot — three different faults
+// leave exactly that picture, and each needs a different fix (see
+// panel/adb/autostart.py:state). These are those answers.
 const AUTOSTART_LABEL = {
   installed: 'adb.autostartInstalled',
   partial: 'adb.autostartPartial',
   absent: 'adb.autostartAbsent',
+  pendingReboot: 'adb.autostartPendingReboot',
+  notParsed: 'adb.autostartNotParsed',
+  running: 'adb.autostartRunning',
+  ranOk: 'adb.autostartRanOk',
+  gaveUp: 'adb.autostartGaveUp',
+  ranSilently: 'adb.autostartRanSilently',
 };
+// A verdict that means the operator has something to do about it.
+const AUTOSTART_BAD = new Set(['absent', 'partial', 'notParsed', 'gaveUp']);
 
-export function operationsCard(actions) {
+// What the operator asked for, in the order they reach for it: the four
+// buttons that touch the application they have chosen.
+export function applicationCard(actions) {
   const chosen = selectedIps();
-  const busy = running();
   // The pairs, not the devices. See state.operationTargets: a bundle that is
   // not on a device produces no pair, so no command is sent about it.
   const targets = operationTargets();
-  const ready = chosen.length > 0 && !busy;
-  const withPackage = ready && targets.length > 0;
+  const withPackage = chosen.length > 0 && !running() && targets.length > 0;
 
-  return el('section', { class: 'card corner adb-operations' }, [
+  return el('section', { class: 'card corner adb-actions' }, [
     el('div', { class: 'card-head' }, [
-      el('h3', { text: t('adb.operations') }),
+      el('h3', { text: t('adb.appActions') }),
       el('span', { class: 'spacer' }),
       el('span', { class: 'eyebrow', text: summary(chosen, targets) }),
     ]),
+    el('p', { class: 'description', text: t('adb.appActionsNote') }),
     el('div', { class: 'adb-op-bar' }, [
       opButton(t('adb.startApp'), withPackage,
                () => actions.run('start', {}, targets)),
@@ -94,9 +96,43 @@ export function operationsCard(actions) {
                () => confirmUninstall(targets, actions), 'btn-danger'),
     ]),
     skipped(targets),
+  ]);
+}
+
+// PUTTING THE APPLICATION ON THE DISPLAY, which is a different afternoon from
+// driving one that is already there. Both rows write to the device and both
+// ask first; keeping them together is also what stops the four everyday
+// buttons above from being read as five equal things, which is how "uninstall"
+// used to sit one gap away from "start".
+export function installCard(actions) {
+  const chosen = selectedIps();
+  const targets = operationTargets();
+  const ready = chosen.length > 0 && !running();
+
+  return el('section', { class: 'card corner adb-install' }, [
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('adb.installSection') }),
+    ]),
+    el('p', { class: 'description', text: t('adb.installSectionNote') }),
     apkRow(chosen, ready, actions),
     autostartRow(targets, ready, actions),
-    ...runTable(actions),
+    autostartLog(),
+  ]);
+}
+
+// THIS COMPUTER, not the bench — the one card on the screen that ignores the
+// selection entirely. It is its own card for exactly that reason: sharing a
+// heading with the operations above implied it acted on the ticked rows, and
+// the operator reaching for it has usually just watched every row fail at
+// once, which is the daemon here rather than twelve dead displays.
+export function serverCard(actions) {
+  const list = devices();
+  return el('section', { class: 'card corner adb-server' }, [
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('adb.adbServer') }),
+    ]),
+    el('p', { class: 'description', text: t('adb.serverNote') }),
+    connectRow(list, actions),
   ]);
 }
 
@@ -132,6 +168,43 @@ function opButton(label, enabled, onclick, extra = '') {
 }
 
 // ── the APK ─────────────────────────────────────────────────────────────
+// ── attaching the whole bench ───────────────────────────────────────────
+// THE WHOLE LIST, not the selection, and that is the point of it. Every other
+// action here works on the devices the operator ticked; this one answers a
+// different question — "is my bench actually reachable from this machine?" —
+// and the useful answer covers every address they have entered, including the
+// ones they have not selected because they had assumed those were fine.
+//
+// It leaves the transports attached (see panel/adb/apps.py:connect), so
+// `adb devices` lists them afterwards and the other tools on this machine can
+// reach the same displays. Anything that will not attach becomes a failed row
+// in the table below, which is the warning that was asked for.
+function connectRow(list, actions) {
+  return el('div', { class: 'adb-op-row' }, [
+    el('button', {
+      type: 'button', class: 'btn btn-small',
+      text: t('adb.connectAll'),
+      disabled: running() || list.length === 0,
+      title: t('adb.connectAllHint'),
+      onclick: () => actions.run(
+        'connect', {}, list.map(entry => ({ ip: entry.ip }))),
+    }),
+    // Enabled with nothing selected and with an empty list, because that is
+    // exactly when it is reached for: every address failing at once is the
+    // daemon on this computer, not the bench. The panel also tries this by
+    // itself after a run where every row failed to connect (see
+    // panel/adb/runner.py); the button is for the operator who has not run
+    // anything yet, or who wants it done now.
+    el('button', {
+      type: 'button', class: 'btn btn-small',
+      text: t('adb.resetServer'),
+      disabled: running(),
+      title: t('adb.resetServerHint'),
+      onclick: () => actions.run('restart_server', {}, []),
+    }),
+  ]);
+}
+
 // The path is never typed and never travels from the browser: the server
 // opens the operating system's own dialog and sends back the file's NAME.
 // Same arrangement as the firmware screen, for the same reason — the browser
@@ -167,15 +240,21 @@ function autostartRow(targets, ready, actions) {
   const asked = !!(known && first && known.ip === first.ip
     && known.package === first.package);
   const enabled = ready && targets.length > 0;
+  const verdict = asked ? (known.verdict || known.state) : '';
   return el('div', { class: 'adb-op-row' }, [
     el('span', { class: 'label', text: t('adb.autostart') }),
     el('span', {
-      class: 'adb-op-empty',
+      class: AUTOSTART_BAD.has(verdict) ? 'adb-op-bad' : 'adb-op-empty',
       text: asked
-        ? t(AUTOSTART_LABEL[known.state] || 'adb.autostartAbsent',
-            { ip: known.ip })
+        ? t(AUTOSTART_LABEL[verdict] || 'adb.autostartAbsent', { ip: known.ip })
         : t('adb.autostartUnknown'),
     }),
+    // Whether the application is up RIGHT NOW, which is the question behind
+    // the question: an autostart that init ran is only interesting if what
+    // it launched is still there.
+    asked && known.appRunning
+      ? el('span', { class: 'pill ok', text: t('adb.autostartAppUp') })
+      : null,
     el('button', {
       type: 'button', class: 'btn btn-small',
       text: local.checkingAutostart ? t('adb.checking') : t('adb.check'),
@@ -195,6 +274,18 @@ function autostartRow(targets, ready, actions) {
       disabled: !enabled,
       onclick: () => confirmAutostart(targets, actions, false),
     }),
+  ]);
+}
+
+// The script's own log. Shown only once the check has run and only when the
+// verdict leaves something to read: "it ran and gave up" is a sentence, but
+// the line saying WHICH component it could not start is the fix.
+function autostartLog() {
+  const known = local.autostart;
+  if (!known || !(known.log || []).length) return null;
+  return el('div', { class: 'adb-autostart-log' }, [
+    el('span', { class: 'eyebrow', text: t('adb.autostartLog') }),
+    ...known.log.map(line => el('p', { class: 'mono truncate', text: line })),
   ]);
 }
 
@@ -268,57 +359,4 @@ async function confirmAutostart(targets, actions, on) {
     run: () => actions.run(
       on ? 'autostart_install' : 'autostart_remove', {}, targets),
   });
-}
-
-// ── what the run is doing ───────────────────────────────────────────────
-function runTable(actions) {
-  const current = runner();
-  if (!current || !(current.rows || []).length) return [];
-  const busy = !!current.running;
-  return [
-    el('div', { class: 'adb-run-head' }, [
-      el('span', {
-        class: 'eyebrow',
-        text: t('adb.runningOperation', {
-          operation: t(OP_LABEL[current.operation] || 'adb.operations'),
-        }),
-      }),
-      el('span', { class: 'spacer' }),
-      busy
-        ? el('button', {
-          type: 'button', class: 'btn btn-small',
-          text: current.cancelling ? t('adb.cancelling') : t('adb.cancel'),
-          disabled: !!current.cancelling,
-          title: t('adb.cancelHint'),
-          onclick: () => actions.cancel(),
-        })
-        : null,
-    ]),
-    dataTable({
-      template: RUN_COLUMNS, minWidth: 640, label: t('adb.operations'),
-      // The bundle has a column of its own: one run can carry a different
-      // package name per device, and without it two rows for one address
-      // would be indistinguishable.
-      columns: [t('adb.columnAddress'), t('adb.columnPackage'),
-                t('col.state'), t('adb.columnDetail')],
-      rows: (current.rows || []).map(runRow),
-      empty: '',
-    }),
-  ];
-}
-
-function runRow(row) {
-  return el('div', {
-    class: 'table-row adb-run-row',
-    dataset: { state: ROW_TONE[row.state] || 'unknown' },
-    style: `--table-columns:${RUN_COLUMNS}`,
-  }, [
-    el('span', { class: 'mono', text: row.ip }),
-    el('span', { class: 'mono truncate', text: row.package || '—' }),
-    el('span', {
-      class: 'adb-run-state',
-      text: t(ROW_LABEL[row.state] || 'adb.statePending'),
-    }),
-    el('span', { class: 'truncate', text: row.detail || '' }),
-  ]);
 }

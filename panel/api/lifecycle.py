@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 
 from .. import (adminkey, config_sync, credentials, editions, firmware,
-                jobs, network, telemetry)
+                jobs, network, switch, telemetry)
 from ..inventory import device_map
 
 # Starting the application service does not depend on the HTTP server. The
@@ -120,6 +120,7 @@ def reset() -> None:
     """Application shutdown: queue, listener and in-memory credentials."""
     global _STARTED, _LOADED_DEFAULTS
     from .presenters import clear_telemetry_cache
+    from .routes import switch_routes
 
     try:
         jobs.QUEUE.close()
@@ -145,6 +146,15 @@ def reset() -> None:
     config_sync.forget_targets()
     firmware.clear_all()
     credentials.forget_all()
+    # The scan gate, so a rebuilt service in the same process is not told a
+    # scan from the last one is still running, and the switches the last scan
+    # found. The client's credentials are not its own to clear — they went
+    # with `forget_all()` above.
+    try:
+        switch.reset()
+        switch_routes.reset()
+    except Exception:
+        pass
     # The copies of the project maps that came off the service key go with
     # the session that made them.
     adminkey.pack.clear_session()

@@ -99,6 +99,63 @@ if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
 '''
 
 
+# ── the desktop window, when there is one ───────────────────────────────
+# `app.py` hands its window over at start-up. It is used for ONE thing: the
+# file picker on Linux (see `_window_pick`). Kept as a module global rather
+# than passed down through every caller because a file picker is a leaf
+# operation — the four screens that open one have no business knowing which
+# window engine is underneath.
+#
+# None in `--browser` mode and in the tests, and every use below treats that
+# as "fall back to the command", not as an error.
+_WINDOW = None
+# Told apart from "the user cancelled", which is also nothing at all.
+_NO_WINDOW = object()
+
+
+def use_window(window) -> None:
+    """Register the desktop window. Called once, from `app.py`."""
+    global _WINDOW
+    _WINDOW = window
+
+
+def _window_pick(title: str, extensions: tuple[str, ...]):
+    """The window engine's own file dialog.
+
+    ONLY ON LINUX, and that is the whole point of it. macOS and Windows have
+    a native dialog this panel already opens well — the macOS one needs the
+    UTI workaround below and the Windows one a localised filter, both of them
+    tuned. Linux had neither: the picker there shells out to `zenity` or
+    `kdialog`, and on a machine carrying neither the operator simply could not
+    choose a firmware file or an APK. The window is already a GTK or Qt one,
+    so the dialog is there for the asking and needs nothing installed.
+
+    Returns `_NO_WINDOW` when there is no window to ask (browser mode, tests),
+    a path when one was chosen, or None when the operator cancelled.
+    """
+    window = _WINDOW
+    if window is None or platform.system() not in ("Linux", "FreeBSD"):
+        return _NO_WINDOW
+    try:
+        import webview                                   # noqa: PLC0415
+
+        types = ()
+        if extensions:
+            pattern = ";".join(f"*.{e}" for e in extensions)
+            firmware = i18n.t("file.firmwareFilter", pattern=pattern)
+            every = i18n.t("file.allFiles")
+            types = (f"{firmware} ({pattern})", f"{every} (*.*)")
+        chosen = window.create_file_dialog(
+            webview.OPEN_DIALOG, allow_multiple=False, file_types=types)
+    except Exception:
+        # A window engine that cannot open a dialog is not a reason to give
+        # up: the command path below may still work.
+        return _NO_WINDOW
+    if not chosen:
+        return None                       # cancelled
+    return str(chosen[0]) if isinstance(chosen, (list, tuple)) else str(chosen)
+
+
 def _picker_command(title: str, extensions: tuple[str, ...]) -> list[str]:
     system = platform.system()
     if system == "Darwin":
@@ -202,6 +259,9 @@ def pick_file(title: str = "",
     Returns the full path, or None if the user cancelled. Raises RuntimeError
     when no picker can be opened at all.
     """
+    chosen = _window_pick(title, extensions)
+    if chosen is not _NO_WINDOW:
+        return chosen
     command = as_console_user(_picker_command(title, extensions))
     try:
         result = subprocess.run(command, capture_output=True, text=True,
@@ -222,3 +282,122 @@ def pick_file(title: str = "",
         raise RuntimeError(i18n.t("error.noFileSelected",
                                   detail=error.splitlines()[0][:120]))
     return None
+
+
+# ─────────────────────────────────────────────────── the save dialog ──
+# The mirror of `pick_file`, and it exists for the same reason: a path typed
+# into the browser and posted here would make the endpoint behind it "write a
+# file anywhere on this machine". The operator chooses the folder in their own
+# OS dialog, and only what that dialog returned is ever written.
+#
+# The three platform paths are the ones `_picker_command` already uses, in
+# their saving form — `choose file name`, SaveFileDialog, `--save`. The
+# overwrite question is left to each dialog: every one of them asks, and
+# asking again in the panel would be a second confirmation for a file the
+# operator has just named.
+_MACOS_SAVE_SCRIPT = '''
+tell me to activate
+set chosen to choose file name with prompt "{title}" default name "{name}"
+POSIX path of chosen
+'''
+
+_WINDOWS_SAVE_SCRIPT = '''
+Add-Type -AssemblyName System.Windows.Forms
+$d = New-Object System.Windows.Forms.SaveFileDialog
+$d.Title = "{title}"
+$d.Filter = "{filter}"
+$d.FileName = "{name}"
+$d.OverwritePrompt = $true
+if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
+    [Console]::Out.WriteLine($d.FileName)
+}}
+'''
+
+
+def _save_filter(extensions: tuple[str, ...]) -> tuple[str, str]:
+    """(pattern, human name) for the file type being written."""
+    pattern = ";".join(f"*.{e}" for e in extensions) or "*.*"
+    return pattern, i18n.t("file.jsonFilter", pattern=pattern)
+
+
+def _window_save(title: str, name: str):
+    """The window engine's own save dialog. Linux only, as with `_window_pick`.
+
+    Returns `_NO_WINDOW` when there is no window to ask, a path when one was
+    named, or None when the operator cancelled.
+    """
+    window = _WINDOW
+    if window is None or platform.system() not in ("Linux", "FreeBSD"):
+        return _NO_WINDOW
+    try:
+        import webview                                   # noqa: PLC0415
+
+        chosen = window.create_file_dialog(
+            webview.SAVE_DIALOG, save_filename=name)
+    except Exception:
+        return _NO_WINDOW                 # the command path may still work
+    if not chosen:
+        return None                       # cancelled
+    return str(chosen[0]) if isinstance(chosen, (list, tuple)) else str(chosen)
+
+
+def _save_command(title: str, name: str,
+                  extensions: tuple[str, ...]) -> list[str]:
+    system = platform.system()
+    if system == "Darwin":
+        return ["osascript", "-e",
+                _MACOS_SAVE_SCRIPT.format(title=title, name=name)]
+    if system == "Windows":
+        pattern, human = _save_filter(extensions)
+        every = i18n.t("file.allFiles")
+        file_filter = f"{human}|{pattern}|{every} (*.*)|*.*"
+        return ["powershell", "-NoProfile", "-STA", "-Command",
+                _WINDOWS_SAVE_SCRIPT.format(title=title, name=name,
+                                            filter=file_filter)]
+    if shutil.which("zenity"):
+        return ["zenity", "--file-selection", "--save",
+                "--confirm-overwrite", f"--title={title}",
+                f"--filename={name}"]
+    if shutil.which("kdialog"):
+        pattern, _human = _save_filter(extensions)
+        return ["kdialog", "--getsavefilename", name,
+                pattern.replace(";", " "), "--title", title]
+    raise RuntimeError(i18n.t("error.noFilePicker"))
+
+
+def pick_save_path(title: str = "", name: str = "",
+                   extensions: tuple[str, ...] = ()) -> str | None:
+    """Ask the operator where to write a file. Returns the path, or None.
+
+    None means they cancelled — not an error, and the caller writes nothing.
+    RuntimeError means no dialog could be opened at all.
+
+    The suffix is put back on when the dialog returns one without it: the
+    macOS `choose file name` panel lets a name be typed with no extension,
+    and a JSON list saved as `benches` is one the import filter will not
+    even show the operator next time.
+    """
+    chosen = _window_save(title, name)
+    if chosen is _NO_WINDOW:
+        command = as_console_user(_save_command(title, name, extensions))
+        try:
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=PICKER_TIMEOUT, check=False)
+        except FileNotFoundError as exc:
+            raise RuntimeError(i18n.t("error.pickerNotOpened")) from exc
+        except subprocess.TimeoutExpired:
+            return None                    # dialog left open: treat as cancel
+        chosen = (result.stdout or "").strip()
+        if not chosen:
+            error = (result.stderr or "").strip()
+            cancelled = not error or "-128" in error or "cancel" in error.lower()
+            if result.returncode != 0 and not cancelled:
+                raise RuntimeError(i18n.t("error.noFileSelected",
+                                          detail=error.splitlines()[0][:120]))
+            return None
+    if not chosen:
+        return None
+    target = Path(chosen)
+    if extensions and target.suffix.lower().lstrip(".") not in extensions:
+        target = target.with_name(f"{target.name}.{extensions[0]}")
+    return str(target)

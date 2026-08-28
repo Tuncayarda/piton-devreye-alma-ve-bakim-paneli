@@ -1,0 +1,89 @@
+<!doctype html><meta charset="utf-8">
+<style>
+  html,body{margin:0;background:#0b1017;}
+  svg{display:block;font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;}
+  .box{fill:#141c27;stroke:#2b3a4d;stroke-width:2;rx:10;}
+  .box.accent{fill:#132132;stroke:#3b6ea5;}
+  .box.dev{fill:#141c27;stroke:#3a3f4b;stroke-dasharray:7 5;}
+  .box.wide{fill:#101a26;stroke:#2b3a4d;}
+  .t{fill:#e6edf3;font-size:22px;font-weight:600;}
+  .s{fill:#8b98a5;font-size:17px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .lbl{fill:#7c8b99;font-size:16px;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .lbl.dim{fill:#5d6b7a;}
+  line,path{stroke:#4a5b6d;stroke-width:2.2;fill:none;}
+  path.dim,line.dim{stroke:#3a4552;stroke-dasharray:7 5;}
+</style>
+<svg width="1200" height="900" viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#4a5b6d" stroke="none"/>
+    </marker>
+    <marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7"
+            markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#3a4552" stroke="none"/>
+    </marker>
+  </defs>
+
+  <!-- üst kutular -->
+  <rect class="box accent" x="140" y="24" width="400" height="86"/>
+  <text class="t" x="164" y="58">pywebview penceresi</text>
+  <text class="s" x="164" y="86">static/desktop.html · tek dosya</text>
+
+  <rect class="box dev" x="660" y="24" width="400" height="86"/>
+  <text class="t" x="684" y="58" fill="#9aa7b4">--browser (geliştirme)</text>
+  <text class="s" x="684" y="86">tarayıcı sekmesi</text>
+
+  <line x1="340" y1="110" x2="340" y2="168" marker-end="url(#a)"/>
+  <text class="lbl" x="352" y="146">invoke(yetenek, …)</text>
+  <line class="dim" x1="860" y1="110" x2="860" y2="168" marker-end="url(#ad)"/>
+  <text class="lbl dim" x="872" y="146">HTTP · 127.0.0.1</text>
+
+  <!-- taşıma katmanı -->
+  <rect class="box accent" x="140" y="170" width="400" height="92"/>
+  <text class="t" x="164" y="204">PanelBridge</text>
+  <text class="s" x="164" y="232">yetenek denetimi · JSON zarfı</text>
+
+  <rect class="box dev" x="660" y="170" width="400" height="92"/>
+  <text class="t" x="684" y="204" fill="#9aa7b4">http_adapter</text>
+  <text class="s" x="684" y="232">gövde sınırı · statik dosya</text>
+
+  <!-- servise birleşme -->
+  <path d="M340 262 L340 306 L600 306 L600 346" marker-end="url(#a)"/>
+  <path class="dim" d="M860 262 L860 306 L600 306" marker-end="url(#ad)"/>
+
+  <rect class="box accent" x="340" y="348" width="520" height="96"/>
+  <text class="t" x="364" y="382">panel.api.service.call()</text>
+  <text class="s" x="364" y="410">yol &#8594; muhafız &#8594; gövde &#8594; yanıt</text>
+
+  <line x1="600" y1="444" x2="600" y2="490" marker-end="url(#a)"/>
+
+  <rect class="box" x="390" y="492" width="420" height="86"/>
+  <text class="t" x="414" y="526">panel/api/routes/</text>
+  <text class="s" x="414" y="554">konu başına uç noktalar</text>
+
+  <path d="M600 578 L600 606 L265 606 L265 636" marker-end="url(#a)"/>
+  <path d="M600 578 L600 636" marker-end="url(#a)"/>
+
+  <rect class="box" x="100" y="638" width="330" height="92"/>
+  <text class="t" x="122" y="672">İş kuyruğu</text>
+  <text class="s" x="122" y="700">panel/jobs/ · uzun işler</text>
+
+  <rect class="box" x="460" y="638" width="280" height="92"/>
+  <text class="t" x="482" y="672">Alt sistemler</text>
+  <text class="s" x="482" y="700">probe · switch · adb</text>
+
+  <rect class="box" x="770" y="638" width="330" height="92"/>
+  <text class="t" x="792" y="672">Envanter</text>
+  <text class="s" x="792" y="700">DeviceMap · katalog</text>
+
+  <line x1="430" y1="684" x2="456" y2="684" marker-end="url(#a)"/>
+  <line class="dim" x1="770" y1="684" x2="744" y2="684" marker-end="url(#ad)"/>
+  <text class="lbl dim" x="756" y="620" text-anchor="middle">hedef çözümleme</text>
+
+  <line x1="600" y1="730" x2="600" y2="786" marker-end="url(#a)"/>
+
+  <rect class="box wide" x="100" y="788" width="1000" height="86"/>
+  <text class="t" x="124" y="822">Cihazlar</text>
+  <text class="s" x="124" y="850">KYLAND switch · Hikvision kamera/NVR · anons cihazı · Kompartıman LCD · PISCU</text>
+</svg>

@@ -114,6 +114,27 @@ yükseltme denemesi `PANEL_ELEVATION_PROMPT=0` ile kapatılır. `--self-test` ve
 | `--self-test` | Pencere ve soket açmadan paketi, cihaz listesini ve üretim köprüsünü doğrular; çıkış kodu döner. |
 | `--version` | Yalnızca uygulama sürümünü yazdırır. |
 
+### Fuar / gösterim kipi
+
+`ADB_REQUIRE_PACKAGE=0`
+
+Kompartıman LCD okuması normalde ekranda `com.piton.train_lcd_panel`
+uygulamasını arar ve bulamazsa cihazı **kırmızı** işaretler. Trende doğru
+davranış budur: ekran zaten o uygulama için oradadır.
+
+Fuarda değildir. Stantta ödünç alınmış donanım olur, her ünitede başka bir
+uygulama çalışır ve aranacak tek bir uygulama yoktur; o zaman bütün pano
+kırmızıya döner ve gerçekten erişilemeyen üniteler bu gürültünün içinde
+kaybolur. Bu değişkenle ADB'nin **bağlanabilmesi yeterli** sayılır.
+
+Gevşetilse de ekran yanıt vermek zorundadır: seri numarası, saat dilimi ve
+çalışma süresi aynı bağlantı üzerinden okunur ve hiçbirini vermeyen cihaz yine
+erişilemez sayılır. Düşen tek şart, adı belli bir uygulamanın aranmasıdır.
+
+```bash
+ADB_REQUIRE_PACKAGE=0 python app.py --edition vip-yatakli
+```
+
 ## Doğrulama
 
 Aşağıdaki komutlar pencere açmaz ve gerçek cihazlara bağlanmaz:
@@ -187,18 +208,20 @@ bulunursa iş başarısız olur.
 
 ### `field_scripts/` dizini neden ayrı?
 
-Panel, sahada denenmiş üç betiğin iş mantığını yeniden yazmak yerine bunları
+Panel, sahada denenmiş iki betiğin iş mantığını yeniden yazmak yerine bunları
 çalışma anında dosya yolundan içe aktarır (`panel/script_loader.py`).
 Paketleme sırasında dosyalar uygulama paketinin köküne kopyalanır.
 
 | Dosya | Görevi | Kaynağı |
 |---|---|---|
-| `switch_api.py` | Switch erişimi ile PoE/port okuma | Switch Yönetim Paneli (`syp` dalı) |
 | `device_verify.py` | Alan ayıklama ve Excel şeması | Saha doğrulama betiği |
 | `intercom_ip_assign.py` | Intercom IP atama akışı | Saha atama betiği |
 
-`switch_api.py`, `syp` dalındaki özgün dosyanın kopyasıdır. Switch API'sinde
-değişiklik yapıldığında iki kopya elle eşitlenmelidir.
+Switch erişimi üçüncü bir betikti (`switch_api.py`) ve iki kopyası elle
+eşitleniyordu. Artık paketin kendi parçası: `panel/switch/`. Switch ekranının
+**yazması** gerekiyordu, ödünç alınan salt-okunur bir betik ise bunu ikinci
+bir istemciye dönüşmeden büyütemezdi — ve elle eşitlenen iki kopya zaten
+ayrışmanın beklendiği yerdi.
 
 ## Depo ve sürüm düzeni
 

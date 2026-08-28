@@ -18,7 +18,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from .. import script_loader, settings, status
+from .. import editions, script_loader, status
 from ..inventory.device_map import Inventory
 from . import columns as cols
 from .workbook import SHEET_NAME
@@ -48,7 +48,9 @@ def template_layout(template: Path | None = None,
     """The template's skeleton: groups, columns, sections and the N/A map."""
     import openpyxl
 
-    template = Path(template or settings.EXCEL_TEMPLATE)
+    # The OPEN PROJECT's workbook, not one global file: a stand's
+    # devices are not in the trains' template and would fill no rows.
+    template = Path(template or editions.checklist_path())
     if not template.exists():
         raise FileNotFoundError(
             i18n.t("error.excelTemplateMissing", path=template))

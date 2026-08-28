@@ -64,7 +64,7 @@ from panel import adminkey  # noqa: E402
 # its per-edition sub-folder.
 editions.activate(os.environ["DAP_EDITION"])
 from panel.inventory import device_map  # noqa: E402
-from panel.probe import switch as switch_probe  # noqa: E402
+from panel import switch  # noqa: E402
 
 from . import clock as fake_clock  # noqa: E402
 from . import fakes  # noqa: E402,F401  (re-exported for the tests)
@@ -105,16 +105,23 @@ class PanelTest(unittest.TestCase):
         firmware.clear_all()
         jobs.view.clear_all()
         adminkey.WATCH.reset()
+        # The mode a test starts in is the one this RUN implies, not the one
+        # the previous test happened to leave behind. `editions.activate`
+        # re-reads the build secret to decide it, and a test that hides the
+        # secret (`as_shipped`) and re-activates in its own tearDown — which
+        # runs BEFORE the environment patch is undone — left the whole process
+        # in field mode from there on. That was invisible while every field
+        # screen was reachable in field mode; the ADB and switch screens are
+        # not (panel/editions/catalogue.py), so it stopped being invisible.
+        if editions.is_active():
+            editions.set_admin(editions.opens_as_admin())
 
     def tearDown(self):
         settings.DEVICE_MAP = self._old_device_map
         settings.KYLAND_PORT = self._old_kyland
         settings.VIDEO_PORT = self._old_video
         settings.ANNOUNCEMENT_PORT = self._old_announcement
-        try:
-            switch_probe.api().SWITCH_PORT = self._old_kyland
-        except Exception:
-            pass
+        switch.CLIENT.port = self._old_kyland
         device_map.clear_cache()
         credentials.forget_all()
         self.drain_queue()
@@ -144,9 +151,14 @@ class PanelTest(unittest.TestCase):
 
     # ---- helpers ----
     def switch_port(self, port: int) -> None:
-        """Apply the fake switch's port to the panel and the sibling backend."""
+        """Point the panel at the fake switch's port.
+
+        Both halves are needed: the setting is what a client built from here
+        on reads, and `CLIENT` is the one already built — it took its port at
+        construction, before any test could move the setting.
+        """
         settings.KYLAND_PORT = port
-        switch_probe.api().SWITCH_PORT = port
+        switch.CLIENT.port = port
 
     def await_job(self, job: jobs.Job, timeout: float = 30.0) -> jobs.Job:
         done = threading.Event()

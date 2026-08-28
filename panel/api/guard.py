@@ -20,19 +20,38 @@ from __future__ import annotations
 from .. import editions, i18n
 from .response import respond
 
-# path -> the view it belongs to, named exactly as the sidebar and
+# Path prefix -> the view it belongs to, named exactly as the sidebar and
 # `static/index.html` name it.
 #
 # The "Project & device list" screen (view id `admin`) has no path of its
 # own: it is drawn from `/api/project`, which every screen needs. What it
 # adds beyond the field screens is the "forget every credential" button,
 # handled separately below.
+#
+# MATCHED BY PREFIX, not by listing every path. The table used to name each
+# endpoint, which held while a restricted screen had two of them; the ADB and
+# switch screens have eleven and fourteen. A list that long is a list with a
+# gap in it, and the gap is silent — a new endpoint on a guarded screen would
+# be open until somebody remembered this file. A prefix guards the screen's
+# next endpoint on the day it is written.
+#
+# A prefix matches the path exactly or the path plus a slash, so `/api/switch`
+# never claims `/api/switchboard`.
 RESTRICTED: dict[str, str] = {
     "/api/piscu": "piscu",
     "/api/mqtt": "mqtt",
-    "/api/mqtt/start": "mqtt",
-    "/api/mqtt/stop": "mqtt",
+    "/api/adb": "adb",
+    "/api/switch": "switch",
 }
+
+
+def restricted_view(path: str) -> str | None:
+    """The view `path` belongs to, if it belongs to a restricted one."""
+    for prefix, view in RESTRICTED.items():
+        if path == prefix or path.startswith(prefix + "/"):
+            return view
+    return None
+
 
 # Paths only admin mode may reach at all, whatever the edition's view list
 # says. The service key's own endpoints: reading the key state is open (the
@@ -52,7 +71,7 @@ def refusal(path: str, body=None):
         return None                      # nothing to enforce against yet
     if path in ADMIN_ONLY and not editions.admin():
         return _denied()
-    view = RESTRICTED.get(path)
+    view = restricted_view(path)
     if view is not None and view not in editions.views():
         return _denied()
     # "Forget every credential in memory" is an admin action wearing a field

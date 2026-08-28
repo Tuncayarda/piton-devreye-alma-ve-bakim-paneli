@@ -98,8 +98,8 @@ TURKISH_WORDS = (
 #
 # Measured before it was adopted: the looser form flagged eight more lines
 # across the tree and produced no false positives. Two of the eight were
-# user-facing Turkish sentences in field_scripts/switch_api.py that both
-# earlier checks had walked past.
+# user-facing Turkish sentences in a field script that both earlier checks
+# had walked past.
 ASCII_WORD = re.compile(
     r"(?<![A-Za-z0-9_])(" + "|".join(TURKISH_WORDS) + r")[a-z]{0,5}"
     r"(?![A-Za-z0-9_])",
@@ -282,6 +282,12 @@ SCREEN_TEXT_ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "static/js/views/ip/panel.js": (
         (" unpowered", "CSS class appended to the port's class list"),
+    ),
+    "static/js/views/switch/front_panel.js": (
+        (" unpowered", "CSS class appended to the port's class list"),
+    ),
+    "static/js/views/switch/context_menu.js": (
+        (" is-selected", "CSS class appended to the menu row's class list"),
     ),
 }
 

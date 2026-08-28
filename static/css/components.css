@@ -146,6 +146,12 @@
 /* A running job: green means "finished" and queued grey reads as dormant.
    Running is blue — the accent colour already means "happening now". */
 [data-state="busy"] { --state-colour: var(--accent); --state-text: var(--accent); }
+/* A physical link, on the switch screen. The same blue as "busy" and a
+   separate name on purpose: this is a cable that is up, not work in progress,
+   and the two would have started drifting the first time either colour moved.
+   It is the blue `.pm-port.link` paints the faceplate with, so the dot in the
+   port table and the connector above it cannot disagree. */
+[data-state="link"] { --state-colour: var(--accent); --state-text: var(--accent); }
 .dot[data-state] { background: var(--state-colour); }
 .state-text[data-state] { color: var(--state-text); }
 
@@ -156,6 +162,29 @@
   font-family: var(--font-mono); font-size: var(--fs-xs); letter-spacing: .02em;
   color: var(--text-mid);
 }
+
+/* A small stated fact, coloured by whether it is a good one. Used as a button
+   on the switch screen (the port's on/off control) and as a plain span on the
+   ADB screen (whether the application came up), which is why it lives here
+   rather than in either screen's stylesheet: it arrived in switch.css, and the
+   ADB screen reaching across for `.pill ok` — a variant that did not exist —
+   is how that was noticed. `justify-self` is for the switch table's grid row
+   and is ignored everywhere else. */
+.pill {
+  padding: 3px 10px;
+  justify-self: start;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-mid);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.pill.on, .pill.ok { border-color: var(--ok-soft); color: var(--ok-text); }
+.pill.off { border-color: var(--failed-soft); color: var(--failed-text); }
+/* Only the ones that are actually a control. The ADB screen's pill is a span
+   stating a fact, and a hand cursor over it would promise a click. */
+button.pill { cursor: pointer; }
+button.pill:hover { border-color: var(--line-strong); }
 
 .mono { font-family: var(--font-mono); }
 .text-dim { color: var(--text-dim); }

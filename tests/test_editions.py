@@ -84,7 +84,7 @@ class Table(unittest.TestCase):
         machine would undo the whole arrangement. Admin is a mode now, and
         the stick is the only way into it."""
         self.assertEqual(list(catalogue.IDS),
-                         ["vip-yatakli", "gdm", "gaziray"])
+                         ["vip-yatakli", "gdm", "gaziray", "fuar"])
         self.assertFalse([field for field
                           in catalogue.Edition.__dataclass_fields__
                           if "admin" in field])
@@ -241,6 +241,27 @@ class Views(PanelTest):
         for view in catalogue.ADMIN_VIEWS:
             self.assertNotIn(view, editions.views(), view)
 
+    def test_the_two_address_driven_screens_need_the_service_key(self):
+        """The ADB and switch screens are ADMIN, and that is a decision.
+
+        It went the other way first: both replaced tools the field staff
+        already ran, and putting them behind the key means the person holding
+        the cabinet door open cannot turn a PoE port off. What changed the
+        answer is WHAT THEY REACH. Every other field screen works through the
+        project's DeviceMap and can only touch what is listed in it; these two
+        take a typed address and act on whatever answers — on a shared network,
+        any device at all. A PoE feed cut or an application pushed to the wrong
+        box is not undone by noticing afterwards.
+        """
+        as_shipped(self)
+        for view in ("adb", "switch"):
+            with self.subTest(view):
+                self.assertIn(view, catalogue.ADMIN_VIEWS)
+                self.assertNotIn(view, catalogue.BASE_VIEWS)
+                for edition in catalogue.EDITIONS:
+                    editions.activate(edition.id)
+                    self.assertNotIn(view, editions.views(), edition.id)
+
     def test_admin_mode_adds_them_to_any_edition(self):
         as_shipped(self)
         editions.activate("gaziray")
@@ -320,6 +341,68 @@ class Guard(PanelTest):
             with self.subTest(path):
                 self.assertIn(view, catalogue.BASE_VIEWS
                               + catalogue.ADMIN_VIEWS)
+
+    def test_every_endpoint_of_a_guarded_screen_is_guarded(self):
+        """Not the ones somebody remembered — all of them.
+
+        This is why `guard.RESTRICTED` matches by PREFIX. The ADB screen has
+        eleven endpoints and the switch screen fourteen; written out one by
+        one, the list would be complete on the day it was written and quietly
+        short from the next endpoint onwards. The check walks the ROUTING
+        TABLE, so an endpoint added tomorrow is covered or this fails.
+        """
+        from panel.api import guard, routes
+        registered = sorted(set(routes.GET_ROUTES)
+                            | set(routes.POST_ROUTES))
+        # Named so the check cannot pass by finding nothing to look at.
+        self.assertIn("/api/adb/run", registered)
+        self.assertIn("/api/switch/factory-reset", registered)
+
+        for view in ("adb", "switch"):
+            paths = [p for p in registered
+                     if guard.restricted_view(p) == view]
+            self.assertTrue(paths, view)
+            with self.subTest(view=view, count=len(paths)):
+                # Every path the screen owns, and nothing that is not its own.
+                self.assertEqual(
+                    paths,
+                    sorted(p for p in registered
+                           if p == f"/api/{view}" or p.startswith(f"/api/{view}/")))
+
+    def test_a_customer_package_is_refused_the_two_new_ones(self):
+        """The screens are gone from the rail; the data has to be gone too.
+
+        Hiding a screen is not keeping it — the whole API is reachable from
+        the page over the desktop bridge, so a field package that merely
+        stopped drawing these would still turn a PoE port off for anyone who
+        asked the endpoint directly.
+        """
+        as_shipped(self)
+        editions.activate("gdm")
+        for path in ("/api/adb", "/api/adb/state", "/api/switch",
+                     "/api/switch/ports"):
+            with self.subTest(path):
+                self.assertEqual(api.call("GET", path).status, 403)
+        for path, body in (("/api/adb/run", {}),
+                           ("/api/switch/factory-reset", {})):
+            with self.subTest(path):
+                self.assertEqual(
+                    api.call("POST", path, body=body).status, 403)
+
+    def test_admin_mode_opens_the_two_new_ones(self):
+        """A refusal that never lifts is a screen that does not work."""
+        editions.activate("vip-yatakli")
+        editions.set_admin(True)
+        self.assertEqual(api.call("GET", "/api/switch").status, 200)
+        self.assertEqual(api.call("GET", "/api/adb").status, 200)
+
+    def test_a_prefix_does_not_claim_a_path_that_merely_starts_with_it(self):
+        from panel.api import guard
+        self.assertEqual(guard.restricted_view("/api/switch"), "switch")
+        self.assertEqual(guard.restricted_view("/api/switch/ports"), "switch")
+        self.assertIsNone(guard.restricted_view("/api/switchboard"))
+        self.assertIsNone(guard.restricted_view("/api/adbxyz"))
+        self.assertIsNone(guard.restricted_view("/api/state"))
 
 
 class ProjectSwitching(PanelTest):

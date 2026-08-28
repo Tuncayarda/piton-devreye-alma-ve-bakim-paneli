@@ -684,18 +684,34 @@
 .net-ask > .eyebrow { color: var(--accent); font-size: var(--fs-base); }
 
 /* ─────────────────────────────────────────────────────────── ADB screen ── */
-/* The bench tool. Three cards down the page — the address list, the
-   application, the operations — rather than side by side: they are read in
-   that order once and then the operator lives in the third one. */
-.adb-intro { max-width: 74ch; }
+/* The bench tool. Cards down the page, in the order the work is done — the
+   address list, the application, what to do to it, what to put on it, this
+   computer's daemon, and what happened — rather than side by side. They used
+   to be three, with the last one holding everything that was not a list; it
+   was the card nobody could read. */
 
 .adb-pool { margin-top: 16px; }
-.adb-packages, .adb-operations { margin-top: 16px; }
+.adb-packages, .adb-actions, .adb-install,
+.adb-server, .adb-status { margin-top: 16px; }
 
 .adb-add { margin-top: 12px; }
 .adb-add-fields { display: flex; gap: 8px; flex-wrap: wrap; }
-.adb-add-fields .field { flex: 1 1 160px; min-width: 0; }
-.adb-ip-field { font-family: var(--font-mono); flex: 0 1 170px; }
+.adb-ip-field { font-family: var(--font-mono); }
+
+/* A text box with its name in front of it instead of inside it (see
+   views/adb/fields.js). The tag and the box share one outline: the tag takes
+   the left border and the box drops its own, so the pair reads as a single
+   control rather than as a word that happens to sit near a field. */
+.adb-field { display: flex; align-items: stretch; flex: 1 1 200px; min-width: 0; }
+.adb-field-tag {
+  display: flex; align-items: center; white-space: nowrap;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong); border-right: 0;
+  background: var(--panel);
+  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
+  color: var(--text-mid);
+}
+.adb-field .field { flex: 1 1 auto; width: auto; min-width: 0; }
 
 .adb-pool-tools {
   display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px;
@@ -711,9 +727,11 @@
   border-color: var(--line);
 }
 .adb-row .btn-small { justify-self: start; }
+/* The row's own buttons: restart this display, forget this address. */
+.adb-row-actions { display: flex; gap: 6px; justify-self: start; }
 
 .adb-search { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.adb-keyword { flex: 1 1 200px; min-width: 0; }
+.adb-keyword { min-width: 0; }
 
 .adb-package-list {
   display: flex; flex-direction: column; gap: 6px; margin-top: 12px;
@@ -737,13 +755,31 @@
 .adb-op-row > .label { flex: 0 0 140px; }
 .adb-op-row > .mono, .adb-op-row > .adb-op-empty { flex: 1 1 160px; min-width: 0; }
 .adb-op-empty { color: var(--text-dim); font-size: var(--fs-sm); }
-
-.adb-run-head {
-  display: flex; align-items: center; gap: 10px;
-  margin: 18px 0 8px; padding-top: 12px;
-  border-top: 1px solid var(--line);
+/* A verdict the operator has to do something about. Amber rather than red:
+   the autostart being absent or unparsed is a job to finish, not a fault in
+   the device. */
+.adb-op-row > .adb-op-bad {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--auth-text);
+  font-size: var(--fs-sm);
 }
-.adb-run-head .spacer { flex: 1; }
+/* What the generated boot script logged, under its row. Monospaced and
+   scrollable: these are the device's own words and are worth nothing
+   reflowed. */
+.adb-autostart-log {
+  margin: 4px 0 0 140px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--line);
+  max-height: 150px;
+  overflow-y: auto;
+}
+.adb-autostart-log p {
+  margin: 2px 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
 .adb-run-state { font-size: var(--fs-sm); }
 .adb-run-row[data-state="ok"] .adb-run-state { color: var(--ok-text); }
 .adb-run-row[data-state="failed"] .adb-run-state { color: var(--failed-text); }
@@ -752,6 +788,29 @@
 }
 .adb-run-row[data-state="failed"] { box-shadow: inset 3px 0 0 var(--failed); }
 
+/* The log of what has finished (views/adb/status.js). TWENTY ROWS AND THEN IT
+   SCROLLS: a bench afternoon is a hundred lines, and a card that grows to
+   hold all of them pushes everything else off the screen — including the
+   buttons that write the next line. The header row is sticky, so scrolling
+   does not leave six unlabelled columns. */
+.adb-log-head {
+  display: flex; align-items: baseline; gap: 10px;
+  margin: 18px 0 0; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.adb-log-head .spacer { flex: 1; }
+.adb-log-count { font-size: var(--fs-sm); color: var(--text-dim); }
+.adb-log {
+  /* One row is 9px of padding twice, a 20px line and a 1px border; the extra
+     row is the header sitting on top of them. */
+  --adb-log-row: 40px;
+  max-height: calc(21 * var(--adb-log-row));
+  overflow-y: auto;
+}
+
 @media (max-width: 620px) {
   .adb-op-row > .label { flex: 1 1 100%; }
+  .adb-autostart-log { margin-left: 0; }
+  /* Half the screen is not worth a log on a phone-width window. */
+  .adb-log { max-height: calc(11 * var(--adb-log-row)); }
 }

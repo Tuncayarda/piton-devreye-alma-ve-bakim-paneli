@@ -197,6 +197,100 @@ class FileSelection(PanelTest):
 
 class FilePicker(PanelTest):
 
+    def setUp(self):
+        super().setUp()
+        # No window in the suite; a test that registers one puts it back.
+        self.addCleanup(files.use_window, None)
+
+    def test_linux_uses_the_windows_own_dialog_when_there_is_a_window(self):
+        """The Linux picker needed zenity or kdialog installed, or it refused.
+
+        Neither is on a minimal image, and the operator could then not choose
+        a firmware file or an APK at all. The window engine already has a
+        dialog — this is that dialog.
+        """
+        opened = {}
+
+        class FakeWindow:
+            @staticmethod
+            def create_file_dialog(dialog_type, **kwargs):
+                opened["type"] = dialog_type
+                opened["kwargs"] = kwargs
+                return ("/home/operator/panel.apk",)
+
+        files.use_window(FakeWindow())
+        with mock.patch.object(files.platform, "system", return_value="Linux"):
+            chosen = files.pick_file("Choose .apk", ("apk",))
+
+        self.assertEqual(chosen, "/home/operator/panel.apk")
+        self.assertFalse(opened["kwargs"]["allow_multiple"])
+        # The extension reaches the dialog as a filter rather than being
+        # dropped: a folder of firmware is not a list to scroll.
+        self.assertIn("*.apk", " ".join(opened["kwargs"]["file_types"]))
+
+    def test_cancelling_the_window_dialog_is_not_an_error(self):
+        class FakeWindow:
+            @staticmethod
+            def create_file_dialog(*_args, **_kwargs):
+                return None
+
+        files.use_window(FakeWindow())
+        with mock.patch.object(files.platform, "system", return_value="Linux"):
+            self.assertIsNone(files.pick_file("Choose", ("apk",)))
+
+    def test_a_window_dialog_that_fails_falls_back_to_the_command(self):
+        """A window engine without a dialog must not lose the picker."""
+        class FakeWindow:
+            @staticmethod
+            def create_file_dialog(*_args, **_kwargs):
+                raise RuntimeError("no dialog on this backend")
+
+        files.use_window(FakeWindow())
+        with mock.patch.object(files.platform, "system", return_value="Linux"), \
+                mock.patch.object(files.shutil, "which",
+                                  side_effect=lambda name: "/usr/bin/zenity"
+                                  if name == "zenity" else None), \
+                mock.patch.object(files.subprocess, "run") as run:
+            run.return_value = mock.Mock(stdout="/tmp/a.apk\n", stderr="",
+                                         returncode=0)
+            self.assertEqual(files.pick_file("Choose", ("apk",)), "/tmp/a.apk")
+        self.assertEqual(run.call_args[0][0][0], "zenity")
+
+    def test_macos_and_windows_keep_their_own_dialogs(self):
+        """The window dialog is a LINUX fix; the other two are already tuned.
+
+        macOS needs the UTI workaround below and Windows a localised filter.
+        Routing those through the window engine would trade a working dialog
+        for an untested one.
+        """
+        class FakeWindow:
+            @staticmethod
+            def create_file_dialog(*_args, **_kwargs):
+                raise AssertionError("the window dialog was used")
+
+        files.use_window(FakeWindow())
+        for system, head in (("Darwin", "osascript"), ("Windows", "powershell")):
+            with mock.patch.object(files.platform, "system",
+                                   return_value=system), \
+                    mock.patch.object(files, "as_console_user",
+                                      side_effect=lambda c: c), \
+                    mock.patch.object(files.subprocess, "run") as run:
+                run.return_value = mock.Mock(stdout="", stderr="",
+                                             returncode=0)
+                files.pick_file("Choose", ("apk",))
+            self.assertEqual(run.call_args[0][0][0], head, system)
+
+    def test_browser_mode_has_no_window_and_still_picks(self):
+        """`--browser` registers no window; the command path must still run."""
+        with mock.patch.object(files.platform, "system", return_value="Linux"), \
+                mock.patch.object(files.shutil, "which",
+                                  side_effect=lambda name: "/usr/bin/zenity"
+                                  if name == "zenity" else None), \
+                mock.patch.object(files.subprocess, "run") as run:
+            run.return_value = mock.Mock(stdout="/tmp/b.apk\n", stderr="",
+                                         returncode=0)
+            self.assertEqual(files.pick_file("Choose", ("apk",)), "/tmp/b.apk")
+
     def test_macos_does_not_treat_apk_as_an_installed_uti(self):
         with mock.patch.object(files.platform, "system", return_value="Darwin"):
             command = files._picker_command("Choose .apk", ("apk",))
@@ -204,6 +298,59 @@ class FilePicker(PanelTest):
         self.assertEqual(command[:2], ["osascript", "-e"])
         self.assertIn("choose file", command[-1])
         self.assertNotIn("of type", command[-1])
+
+    def test_the_save_dialog_names_the_file_before_it_opens(self):
+        """The mirror of the picker, for the ADB address list.
+
+        Three platforms, three saving dialogs — `choose file name`,
+        SaveFileDialog, `--save`. Each is handed the suggested name so the
+        operator confirms rather than types, and each is opened by the same
+        command path (and the same hand-back to the logged-in user) as the
+        open dialog beside it.
+        """
+        for system, head in (("Darwin", "osascript"),
+                             ("Windows", "powershell")):
+            with mock.patch.object(files.platform, "system",
+                                   return_value=system):
+                command = files._save_command("Save", "adb-devices.json",
+                                              ("json",))
+            self.assertEqual(command[0], head, system)
+            self.assertIn("adb-devices.json", command[-1], system)
+        with mock.patch.object(files.platform, "system", return_value="Linux"), \
+                mock.patch.object(files.shutil, "which",
+                                  side_effect=lambda name: "/usr/bin/zenity"
+                                  if name == "zenity" else None):
+            command = files._save_command("Save", "adb-devices.json", ("json",))
+        self.assertEqual(command[:3],
+                         ["zenity", "--file-selection", "--save"])
+
+    def test_a_saved_name_without_a_suffix_gets_one(self):
+        """`choose file name` lets a bare word be typed. A list saved as
+        "benches" is one the import filter will not even show next time."""
+        with mock.patch.object(files.platform, "system",
+                               return_value="Darwin"), \
+                mock.patch.object(files, "as_console_user",
+                                  side_effect=lambda c: c), \
+                mock.patch.object(files.subprocess, "run") as run:
+            run.return_value = mock.Mock(stdout="/Users/op/benches\n",
+                                         stderr="", returncode=0)
+            chosen = files.pick_save_path("Save", "adb-devices.json",
+                                          ("json",))
+        self.assertEqual(chosen, "/Users/op/benches.json")
+
+    def test_a_cancelled_save_dialog_returns_nothing(self):
+        """Cancel is not a failure: the caller writes nothing and says
+        nothing. macOS reports it as error -128 rather than an exit code."""
+        with mock.patch.object(files.platform, "system",
+                               return_value="Darwin"), \
+                mock.patch.object(files, "as_console_user",
+                                  side_effect=lambda c: c), \
+                mock.patch.object(files.subprocess, "run") as run:
+            run.return_value = mock.Mock(
+                stdout="", stderr="execution error: User canceled. (-128)",
+                returncode=1)
+            self.assertIsNone(
+                files.pick_save_path("Save", "adb-devices.json", ("json",)))
 
     def test_an_elevated_panel_opens_the_dialog_as_the_logged_in_user(self):
         """Root's dialog is empty: no home, no places, no protected folders.

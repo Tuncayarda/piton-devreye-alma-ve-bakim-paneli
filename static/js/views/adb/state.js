@@ -43,6 +43,7 @@ export const local = {
   apk: null,
   pickerOpen: false,
   importing: false,
+  exporting: false,
   // What the autostart button should say for the one device it was asked
   // about: { ip, package, state }.
   autostart: null,
@@ -105,18 +106,6 @@ export function selectAll(on) {
 export function stopPolling() {
   clearTimeout(live.timer);
   live.timer = null;
-}
-
-// A chosen bundle is only meaningful while it is one of the answers on
-// screen. A new search that does not contain it would leave the operation
-// bar pointing at something nobody can see.
-export function keepPackages() {
-  const answer = local.found;
-  if (!answer) return;
-  const names = new Set((answer.packages || []).map(entry => entry.name));
-  for (const name of [...local.packages]) {
-    if (!names.has(name)) local.packages.delete(name);
-  }
 }
 
 export function togglePackage(name) {

@@ -66,11 +66,21 @@ from dataclasses import dataclass
 # in the frontend because the API guard enforces the same list server-side,
 # and two copies would drift on the first screen added.
 BASE_VIEWS = ("overview", "devices", "ip", "config", "firmware",
-              "network", "adb", "checklist", "history")
-# The engineer's screens: the project and device list, PISCU and MQTT. They
-# expose the project definition itself, which is the one thing an edition
-# exists to keep to itself.
-ADMIN_VIEWS = ("piscu", "mqtt", "admin")
+              "network", "checklist", "history")
+# The engineer's screens. Two kinds sit here for two reasons.
+#
+# PISCU, MQTT and the project screen expose the project definition itself,
+# which is the one thing an edition exists to keep to itself.
+#
+# THE ADB AND SWITCH SCREENS ARE HERE FOR A DIFFERENT REASON, and they were
+# base screens until they were moved: they are the two that write to hardware
+# without a device list in front of them. Every other field screen works
+# through the project's DeviceMap and can only touch what is in it; these two
+# take a typed address and act on whatever answers, which on a shared network
+# is any device at all — a switch port turned off, a PoE feed cut, an
+# application installed, a display rebooted. The service key is what says the
+# person doing that is the one who should be.
+ADMIN_VIEWS = ("adb", "switch", "piscu", "mqtt", "admin")
 
 
 @dataclass(frozen=True)
@@ -103,6 +113,29 @@ class Project:
     # known absolute path, and neither the bundle root nor the source tree
     # can name it. Empty for every row in the table below.
     path: str = ""
+    # A DEMONSTRATION STAND rather than a train, and one read changes because
+    # of it: a Compartment LCD is not required to be running the panel
+    # application (see `panel/probe/android.py`). On a train that application
+    # is the reason the display is there and its absence is the fault being
+    # looked for; on a stand the hardware is borrowed and every unit carries
+    # something different, so demanding one named application turns the whole
+    # board red and hides the units that genuinely cannot be reached.
+    #
+    # ON THE PROJECT, not in an environment variable: the person setting a
+    # stand up should not have to remember a flag, and the same package used
+    # on a train must not inherit the relaxation.
+    stand: bool = False
+    # This project's checklist workbook, when it is not the shared one.
+    #
+    # The workbook matches its rows to devices BY IP TEMPLATE
+    # (`panel/checklist/workbook.py`), so a project whose devices are not in
+    # the shared file gets no rows filled at all — an empty report, with
+    # nothing on screen to say why. Same two names as the DeviceMap above:
+    # flat at the bundle root, relative in the source tree.
+    #
+    # Built by `tools/make_checklist_template.py`, never by hand.
+    checklist_name: str = ""
+    checklist_source: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,8 +172,18 @@ GDM = Project("gdm", "GDM", "DeviceMap_Gdm.json",
               ("devicemaps", "DeviceMap_Gdm.json"))
 GAZIRAY = Project("gaziray", "Gaziray", "DeviceMap_Gaziray.json",
                   ("devicemaps", "DeviceMap_Gaziray.json"))
+# The exhibition rack: one KYLAND switch and the twelve devices shown beside
+# it. Not a train, and its map says so — the addresses are literal
+# (10.1.1.x) where a train's are templates (10.n.1.x), because there is one
+# set and it does not move. Everything downstream still works: the set number
+# substitutes nothing and every screen reads the same list.
+FUAR = Project("fuar", "Fuar", "DeviceMap_Fuar.json",
+               ("devicemaps", "DeviceMap_Fuar.json"), stand=True,
+               checklist_name="Field_Device_Verification_Fuar.xlsx",
+               checklist_source=("devicemaps",
+                                 "Field_Device_Verification_Fuar.xlsx"))
 
-ALL_PROJECTS = (YATAKLI, VIP, GDM, GAZIRAY)
+ALL_PROJECTS = (YATAKLI, VIP, GDM, GAZIRAY, FUAR)
 
 
 # ── the editions ─────────────────────────────────────────────────────────
@@ -174,6 +217,18 @@ EDITIONS = (
         windows_app_id="{B194E84B-B737-4F9E-8602-FAC3095BE98B}",
         projects=(GAZIRAY,),
         default_project="gaziray",
+        views=BASE_VIEWS,
+    ),
+    # The stand at the exhibition. A package like any other — the rack there
+    # is somebody's hardware, shown to people who are not the customer, and
+    # a build carrying every customer's device list is exactly what must not
+    # be on a laptop in a hall.
+    Edition(
+        id="fuar",
+        product_name="Devreye Alma ve Bakım Paneli - Fuar",
+        windows_app_id="{4981AD5D-585F-4221-A5B1-6F3C4ACFEA3A}",
+        projects=(FUAR,),
+        default_project="fuar",
         views=BASE_VIEWS,
     ),
 )

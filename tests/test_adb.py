@@ -13,7 +13,10 @@ verified by hand, on hardware.
 """
 from __future__ import annotations
 
+import builtins
+import importlib.util
 import json
+import os
 import re
 import shlex
 import threading
@@ -24,8 +27,10 @@ from unittest import mock
 from panel import settings
 from panel.adb import apps, autostart, binary, packages, pool
 from panel.adb import client as adb_client
+from panel.adb import runner as runner_module
 from panel.adb.runner import RUNNER
-from panel.errors import DeviceError
+from panel.errors import DeviceError, VerificationError
+from panel.system import files
 
 from .support.base import PanelTest
 
@@ -49,8 +54,12 @@ class FakeAdb:
     LAUNCHER = "com.example.gebze/.MainActivity"
 
     def __init__(self, devices=None, *, system_writable=True,
-                 push_to_system=True, start_fails=False,
-                 uninstall_fails=False, refuse=(), magisk_su=False):
+                 push_to_system=True, start_fails=False, unlisted=(),
+                 no_launcher=(), monkey_fails=(),
+                 uninstall_fails=False, refuse=(), magisk_su=False,
+                 reboot_refused=False, reboot_downtime=3,
+                 drops_content=False, adb_root_allowed=True,
+                 overlay_allowed=True, wedged=False):
         # ip -> {"packages": [...], "files": {path: text},
         #        "modes": {path: mode}}
         self.live = {ip: {"packages": list(record.get("packages", [])),
@@ -58,12 +67,24 @@ class FakeAdb:
                           "modes": {}}
                      for ip, record in (devices or {}).items()}
         self.connected: set[str] = set()
+        # The daemon on this computer, as opposed to any display. `wedged`
+        # clears itself on the first restart, which is what lets a test say
+        # "it was broken and the panel fixed it" rather than only one of the two.
+        self.wedged = wedged
+        self.server_restarts = 0
         self.calls: list[list[str]] = []
         self.timeline: list[str] = []
         # Which of the three write routes this device allows.
         self.system_writable = system_writable
         self.push_to_system = push_to_system
         self.start_fails = start_fails
+        # Addresses that connect but never show up in `adb devices`.
+        self.unlisted = set(unlisted)
+        # Packages with no resolvable launcher activity — the case the
+        # `monkey` fallback exists for.
+        self.no_launcher = set(no_launcher)
+        # ...and the ones monkey cannot start either.
+        self.monkey_fails = set(monkey_fails)
         self.uninstall_fails = uninstall_fails
         # Paths the device ACCEPTS AND THEN DOES NOT KEEP: the command
         # reports success and the file is not there afterwards. That is the
@@ -74,6 +95,31 @@ class FakeAdb:
         # the harder of the two is what the suite exercises.
         self.magisk_su = magisk_su
         self.staged: dict[str, str] = {}
+        # Rebooting, as the ADB server actually experiences it: the address
+        # stops answering for a while and then answers again. `down` counts
+        # the remaining refusals per address, so a test can say "comes back
+        # after three knocks" or "never comes back" with one number.
+        # What the autostart diagnosis asks the device about. Defaults
+        # describe a display that booted an hour ago with nothing installed.
+        # THE FAULT THE FIELD REPORTED. On a display whose /system sits on a
+        # verity-backed device-mapper volume, remounting it read-write
+        # appears to work and `cp` exits 0 — and the file arrives with the
+        # right owner, mode and label and ZERO BYTES. Only an overlay makes
+        # a write real. `drops_content` models exactly that.
+        self.drops_content = drops_content
+        self.adb_root_allowed = adb_root_allowed
+        self.overlay_allowed = overlay_allowed
+        self.adbd_root = False
+        self.overlay = False
+        self.props: dict[str, str] = {}
+        self.now = 10_000
+        self.uptime = 3600
+        self.mtimes: dict[str, int] = {}
+        self.logcat: list[str] = []
+        self.app_running: set[str] = set()
+        self.reboot_refused = reboot_refused
+        self.reboot_downtime = reboot_downtime
+        self.down: dict[str, int] = {}
 
     # ── plumbing ────────────────────────────────────────────────────────
     @staticmethod
@@ -89,10 +135,40 @@ class FakeAdb:
             return Result("disconnected\n")
         if verb == "connect":
             ip = self.ip_of(args[2])
+            # A wedged server refuses everything, whatever is on the bench.
+            # That is the shape the panel reads as "restart the server, not
+            # the displays" (panel/adb/runner._should_recover).
+            if self.wedged:
+                return Result("", "cannot connect to daemon\n", 1)
+            pending = self.down.get(ip, 0)
+            if pending:
+                self.down[ip] = pending - 1
+                return Result(f"failed to connect to {args[2]}\n",
+                              returncode=1)
             if ip in self.live:
                 self.connected.add(ip)
                 return Result(f"connected to {args[2]}\n")
             return Result(f"failed to connect to {args[2]}\n", returncode=1)
+        if verb in ("kill-server", "start-server"):
+            # A restart drops every transport, which is the whole point of it
+            # — and it is what makes a wedged server usable again.
+            if verb == "kill-server":
+                self.connected.clear()
+            self.wedged = False
+            # Counted on the second half only: one restart is kill+start.
+            if verb == 'start-server':
+                self.server_restarts += 1
+            return Result("")
+        if verb == "devices":
+            if self.wedged:
+                return Result("", "cannot connect to daemon\n", 1)
+            # The real listing: a header line, then "<serial>\t<state>".
+            # `unlisted` is the case worth having — a display that answers
+            # the handshake and still does not appear here.
+            rows = "".join(
+                f"{ip}:{settings.ADB_PORT}\tdevice\n"
+                for ip in sorted(self.connected) if ip not in self.unlisted)
+            return Result("List of devices attached\n" + rows)
 
         assert verb == "-s", args
         ip = self.ip_of(args[2])
@@ -105,6 +181,19 @@ class FakeAdb:
             return self._push(ip, args[4], args[5])
         if action == "uninstall":
             return self._uninstall(ip, args[4])
+        if action == "reboot":
+            return self._reboot(ip)
+        if action == "root":
+            if not self.adb_root_allowed:
+                return Result("", "adbd cannot run as root in production "
+                                  "builds\n")
+            self.adbd_root = True
+            return Result("restarting adbd as root\n")
+        if action == "remount":
+            if not self.overlay_allowed or not self.adbd_root:
+                return Result("", "remount failed\n", 1)
+            self.overlay = True
+            return Result("Using overlayfs for /system\nremount succeeded\n")
         if action == "shell":
             return self._shell(ip, args[4:])
         return Result("", f"unexpected command {action}\n", 1)
@@ -114,16 +203,27 @@ class FakeAdb:
         from pathlib import Path as _Path
 
         text = _Path(local).read_text(encoding="utf-8")
-        if remote.startswith("/system/") and not self.push_to_system:
+        # An overlay is exactly what makes a /system push land, so a device
+        # that refused one before `adb remount` accepts it afterwards.
+        if (remote.startswith("/system/")
+                and not (self.push_to_system or self.overlay)):
             return Result("", "adb: error: failed to copy: Read-only file "
                               "system\n", 1)
         self.timeline.append(f"push:{remote}")
         if remote not in self.refuse:
-            self.live[ip]["files"][remote] = text
+            self.live[ip]["files"][remote] = self._landed(remote, text)
             # A pushed file is not marked runnable; `_write_file` chmods it
             # afterwards, which this fake grants unconditionally.
             self.live[ip]["modes"][remote] = "0755"
         return Result("1 file pushed\n")
+
+    def _reboot(self, ip):
+        if self.reboot_refused:
+            return Result("", "error: closed\n", 1)
+        self.timeline.append(f"reboot:{ip}")
+        self.connected.discard(ip)
+        self.down[ip] = self.reboot_downtime
+        return Result("")
 
     def _uninstall(self, ip, package):
         if self.uninstall_fails:
@@ -158,14 +258,42 @@ class FakeAdb:
             self.timeline.append(f"start:{command[3]}")
             return Result(
                 f"Starting: Intent {{ cmp={command[3]} }}\n")
+        if command[0] == "monkey":
+            name = command[2]
+            if name in self.monkey_fails or name not in record["packages"]:
+                return Result("** No activities found to run, "
+                              "monkey aborted.\n")
+            self.timeline.append(f"monkey:{name}")
+            return Result("Events injected: 1\n")
         if command[:4] == ["cmd", "package", "resolve-activity", "--brief"]:
-            if command[4] in record["packages"]:
+            if (command[4] in record["packages"]
+                    and command[4] not in self.no_launcher):
                 return Result(f"priority=0\n{self.LAUNCHER}\n")
             return Result("No activity found\n")
         if command[:2] == ["dumpsys", "package"]:
+            if command[2] in self.no_launcher:
+                return Result("")
             return Result(_DUMPSYS if command[2] in record["packages"] else "")
         if command[0] == "chmod":
             return Result("")
+        if command == ["id"]:
+            # Asked directly on the transport, which is how `restart_as_root`
+            # proves adbd really came back as root rather than trusting the
+            # command's own cheerful answer.
+            return Result("uid=0(root) gid=0(root)\n" if self.adbd_root
+                          else "uid=2000(shell) gid=2000(shell)\n")
+        if command[0] == "getprop":
+            return Result(self.props.get(command[1], "") + "\n")
+        if command[:2] == ["cat", "/proc/uptime"]:
+            return Result(f"{self.uptime} 0.0\n")
+        if command[:2] == ["date", "+%s"]:
+            return Result(f"{self.now}\n")
+        if command[:2] == ["stat", "-c"]:
+            return Result(f"{self.mtimes.get(command[3], 0)}\n")
+        if command[0] == "logcat":
+            return Result("".join(f"I/{line}\n" for line in self.logcat))
+        if command[0] == "pidof":
+            return Result("4711\n" if command[1] in self.app_running else "")
         return Result("", f"unexpected shell {joined}\n", 1)
 
     # ── the `su` this image carries ──────────────────────────────────────
@@ -204,6 +332,18 @@ class FakeAdb:
             if held:
                 return Result(f"{said[0]}\n")
             return Result(f"{said[1]}\n" if len(said) > 1 else "\n")
+        if parts[:2] == ["stat", "-c"]:
+            # `stat -c %s p 2>/dev/null || echo -1`. The size is the whole
+            # point: this device answers it truthfully even when the write
+            # that produced the file silently dropped its contents.
+            path = parts[3]
+            if path not in record["files"]:
+                return Result("-1\n")
+            return Result(f"{len(record['files'][path].encode())}\n")
+        if parts[0] == "chmod":
+            if parts[2] in record["files"]:
+                record["modes"][parts[2]] = parts[1]
+            return Result("")
         if parts[:2] == ["rm", "-f"]:
             self._unlink(record, parts[2], root=root)
             return Result("")
@@ -249,9 +389,23 @@ class FakeAdb:
             return
         if source not in record["files"]:
             return
-        record["files"][target] = record["files"][source]
+        record["files"][target] = self._landed(target,
+                                               record["files"][source])
         record["modes"][target] = record["modes"].get(source, "0644")
         self.timeline.append(f"copy:{target}")
+
+    def _landed(self, target: str, text: str) -> str:
+        """What the filesystem really keeps of a write to `target`.
+
+        Everything, unless this display drops the contents of a /system
+        write that did not go through an overlay — which is the whole fault
+        being modelled, and the reason the panel now reads a file's SIZE
+        back rather than asking whether it exists.
+        """
+        if (self.drops_content and target.startswith("/system/")
+                and not self.overlay):
+            return ""
+        return text
 
 
 def _unquote(token: str) -> str:
@@ -332,6 +486,64 @@ class AdbTest(PanelTest):
         return RUNNER.state()
 
 
+# ─────────────────────────────────────────── the ADB server itself ────
+class Server(AdbTest):
+    """The daemon on THIS computer, as opposed to any display.
+
+    It gets stuck — a display that changed address, a laptop that slept with
+    transports open, a second `adb` claiming the port — and the symptom is
+    always misleading: every device on the bench "cannot be reached", so the
+    operator goes looking at cables.
+    """
+
+    def test_a_wedged_server_is_restarted_and_the_run_succeeds(self):
+        """The panel tries it ITSELF, once, and only on that signature.
+
+        Every row failing to connect is the daemon; a run where three of four
+        worked is three healthy transports a restart would drop for nothing.
+        """
+        adb = self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze"]},
+            "10.1.1.41": {"packages": ["com.example.gebze"]},
+        }, wedged=True))
+
+        state = self.run_and_wait("stop", ["10.1.1.40", "10.1.1.41"],
+                                  {"package": "com.example.gebze"})
+
+        self.assertEqual(adb.server_restarts, 1, "the server was not restarted")
+        self.assertEqual([row["state"] for row in state["rows"]],
+                         ["done", "done"])
+
+    def test_one_dead_display_does_not_restart_the_server(self):
+        """Three working transports are not thrown away for the fourth."""
+        adb = self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze"]},
+        }))
+        state = self.run_and_wait("stop", ["10.1.1.40", "10.1.1.99"],
+                                  {"package": "com.example.gebze"})
+        self.assertEqual(adb.server_restarts, 0)
+        self.assertEqual(sorted(row["state"] for row in state["rows"]),
+                         ["done", "failed"])
+
+    def test_the_operator_can_reset_it_with_nothing_selected(self):
+        """Which is exactly when it is reached for: nothing works yet."""
+        adb = self.with_adb(FakeAdb({}, wedged=True))
+        state = self.run_and_wait("restart_server", [])
+        self.assertEqual(len(state["rows"]), 1)
+        self.assertEqual(state["rows"][0]["state"], "done")
+        # No address, because none was involved.
+        self.assertEqual(state["rows"][0]["ip"], "")
+        self.assertEqual(adb.server_restarts, 1)
+        self.assertTrue(adb_client.server_ok())
+
+    def test_a_restart_that_does_not_come_back_is_a_failure(self):
+        self.with_adb(FakeAdb({}))
+        with mock.patch.object(adb_client, "restart_server",
+                               return_value={"ok": False, "detail": "busy"}):
+            state = self.run_and_wait("restart_server", [])
+        self.assertEqual(state["rows"][0]["state"], "failed")
+
+
 # ────────────────────────────────────────────────── which adb is run ──
 class Binary(AdbTest):
 
@@ -370,6 +582,97 @@ class Binary(AdbTest):
 
 
 # ───────────────────────────────────────────────────── the device list ──
+    def test_every_adb_call_in_the_tree_goes_through_the_resolver(self):
+        """A bare "adb" defeats the bundled copy, silently.
+
+        `panel/adb/binary.py` exists so a fresh installation can talk to an
+        Android display without Android Studio on it. A call site that writes
+        the bare name instead reaches PATH or nothing at all — and the ones
+        that did were in a `finally` behind `except Exception: pass`, so the
+        failure was invisible: the transport simply stayed attached.
+
+        Matched at the CALL, not on the word: "adb" is a legitimate string
+        elsewhere (a read method, a view id, an edition's view list).
+        """
+        call = re.compile(r"""subprocess\.run\(\s*\[\s*["']adb["']""")
+        offenders = []
+        roots = (settings.ROOT / "panel", settings.ROOT / "field_scripts")
+        for path in sorted(p for root in roots for p in root.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for match in call.finditer(text):
+                line = text[:match.start()].count("\n") + 1
+                offenders.append(f"{path.relative_to(settings.ROOT)}:{line}")
+        self.assertEqual(offenders, [],
+                         "these call adb by its bare name instead of "
+                         f"adb_path(): {offenders}")
+
+    def test_a_release_build_cannot_be_made_without_the_adb_tools(self):
+        """The spec REFUSES rather than warns, and CI has no opt-out.
+
+        Every package CI produced shipped without adb: the workflow never
+        downloaded the tools and the spec only printed a note. A display in
+        the field then reports itself unreadable while being perfectly
+        healthy — which is the failure `panel/adb/binary.py` was written to
+        prevent in the first place.
+        """
+        spec = (settings.ROOT / "dabp.spec").read_text(encoding="utf-8")
+        self.assertIn("DAP_ALLOW_NO_ADB", spec,
+                      "the deliberate-opt-out escape hatch is gone")
+        guard = spec.split("ADB_BINARY.is_file()")[1][:2000]
+        self.assertIn("raise SystemExit", guard,
+                      "a missing adb must stop the build, not print a note")
+
+        workflow = (settings.ROOT / ".github" / "workflows"
+                    / "build-app.yml").read_text(encoding="utf-8")
+        self.assertIn("platform-tools-latest-", workflow,
+                      "CI does not fetch the adb tools")
+        # ...and it must not hand itself the opt-out. Matched as a YAML
+        # assignment, so the name may still be explained in a comment.
+        self.assertNotIn("DAP_ALLOW_NO_ADB:", workflow,
+                         "CI sets the escape hatch it exists to not need")
+        for archive in ("windows", "linux", "darwin"):
+            self.assertIn(archive, workflow, f"no {archive} archive in CI")
+
+    def test_the_packaged_self_test_fails_without_a_bundled_adb(self):
+        """The second net, on the artifact rather than on the build.
+
+        `--self-test` runs against the packaged application in CI, so a
+        package that lost the tools between the spec and the artifact is
+        still caught.
+        """
+        source = (settings.ROOT / "app.py").read_text(encoding="utf-8")
+        block = source.split("ADB executable")[1][:400]
+        self.assertIn("settings.FROZEN", source.split("ADB executable")[0][-800:],
+                      "the check must be a failure only in a package")
+        self.assertIn("in the package", block)
+
+    def test_the_field_script_prefers_the_panels_adb_but_runs_without_it(self):
+        """`device_verify.py` runs two ways and needs the right answer in both.
+
+        Inside the panel it must use the bundled copy; run on its own from a
+        terminal there is no panel to ask and the bare name is correct.
+        """
+        spec = importlib.util.spec_from_file_location(
+            "dv_probe", settings.ROOT / "field_scripts" / "device_verify.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with mock.patch.dict(os.environ,
+                             {binary.ENV_OVERRIDE: "/opt/tools/adb"}):
+            self.assertEqual(module._adb_binary(), "/opt/tools/adb")
+
+        # No panel to import from: the script still answers, with the bare
+        # name, which is what a terminal run wants.
+        def refuse(name, *args, **kwargs):
+            if name.startswith("panel"):
+                raise ImportError(name)
+            return real_import(name, *args, **kwargs)
+
+        real_import = builtins.__import__
+        with mock.patch.dict(os.environ, {binary.ENV_OVERRIDE: ""}), \
+                mock.patch.object(builtins, "__import__", refuse):
+            self.assertEqual(module._adb_binary(), "adb")
+
 class Pool(AdbTest):
 
     def test_an_address_is_added_read_back_and_removed(self):
@@ -484,6 +787,134 @@ class Pool(AdbTest):
         self.assertEqual(devices[0], {"ip": "10.1.1.40", "label": "mine"})
 
 
+    def test_one_box_takes_a_list_and_a_range(self):
+        """Twelve consecutive displays is twelve rounds of type-tab-Enter.
+
+        BOTH ENDS ARE INCLUDED: "45-47" is three displays to the person
+        holding them, and a range that quietly dropped .47 would be found by
+        the operator rather than by anyone reading the code.
+        """
+        self.assertEqual(pool.parse_addresses("10.1.1.45"), ["10.1.1.45"])
+        self.assertEqual(pool.parse_addresses("10.1.1.45-47"),
+                         ["10.1.1.45", "10.1.1.46", "10.1.1.47"])
+        # The long form means the same thing.
+        self.assertEqual(pool.parse_addresses("10.1.1.45-10.1.1.47"),
+                         pool.parse_addresses("10.1.1.45-47"))
+        # Commas, semicolons and plain spaces all separate, and a repeat is
+        # collapsed rather than refused.
+        self.assertEqual(
+            pool.parse_addresses("10.1.1.40, 10.1.1.41;10.1.1.44-45 10.1.1.40"),
+            ["10.1.1.40", "10.1.1.41", "10.1.1.44", "10.1.1.45"])
+        # A range of one is a range.
+        self.assertEqual(pool.parse_addresses("10.1.1.45-45"), ["10.1.1.45"])
+
+    def test_a_bad_piece_fails_the_whole_box(self):
+        """Unlike the file import, and the two differ on purpose.
+
+        A file is somebody else's and arrives with whatever is in it. This is
+        what the operator just typed: a silently dropped piece is an address
+        they believe they added and will go looking for later.
+        """
+        for bad in ("10.1.1.47-45", "10.1.1.1-10.9.1.1", "10.1.1.45-",
+                    "10.1.1.40, oops"):
+            with self.subTest(bad):
+                with self.assertRaises(pool.PoolError):
+                    pool.parse_addresses(bad)
+        # And nothing was added on the way to the failure.
+        self.assertEqual(pool.addresses(), [])
+
+    def test_a_range_is_added_under_one_label(self):
+        devices, added = pool.add_many("10.1.1.45-47", "cabin 3")
+        self.assertEqual(added, 3)
+        self.assertEqual(devices, [{"ip": "10.1.1.45", "label": "cabin 3"},
+                                   {"ip": "10.1.1.46", "label": "cabin 3"},
+                                   {"ip": "10.1.1.47", "label": "cabin 3"}])
+        # Adding an overlapping range adds only what is new; the count is
+        # what the screen reports, so it must not count the ones already in.
+        _, added = pool.add_many("10.1.1.46-48")
+        self.assertEqual(added, 1)
+        self.assertEqual(pool.addresses(), ["10.1.1.45", "10.1.1.46",
+                                            "10.1.1.47", "10.1.1.48"])
+
+    def test_what_is_exported_can_be_imported_again(self):
+        """The round trip is the point of the format number.
+
+        An exported list is what gets attached to an e-mail and read back on
+        another bench. If the two ends drifted, the file would be refused by
+        the very screen that wrote it — and `_read` refuses silently, which is
+        the worst way to find out.
+        """
+        pool.add("10.1.1.40", "bench 2")
+        pool.add("10.1.1.41")
+
+        path = pool.write_export(settings.data_dir() / "carried-away.json")
+        self.assertTrue(path.is_file())
+        body = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(body["format"], pool.FORMAT)
+
+        pool.clear()
+        entries, skipped = pool.read_import(path)
+        self.assertEqual(skipped, 0)
+        devices, added = pool.merge(entries)
+        self.assertEqual(added, 2)
+        self.assertEqual(devices, [{"ip": "10.1.1.40", "label": "bench 2"},
+                                   {"ip": "10.1.1.41", "label": ""}])
+
+    def test_exporting_an_empty_list_writes_an_empty_list(self):
+        """Not an error. The button is disabled on an empty list, but the
+        endpoint is reachable without it and must not produce a broken file."""
+        path = pool.write_export(settings.data_dir() / "nothing.json")
+        body = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(body, {"format": pool.FORMAT, "devices": []})
+
+    def test_the_export_goes_to_documents_by_default(self):
+        """Where this panel puts everything meant to be carried away.
+
+        Still the answer when nobody named a folder — a scripted run, a test.
+        The screen itself always names one now (below)."""
+        self.assertEqual(pool.write_export.__module__, "panel.adb.pool")
+        with mock.patch.object(settings, "OUTPUT_DIR",
+                               settings.data_dir() / "documents"):
+            path = pool.write_export()
+        self.assertEqual(path.name, pool.EXPORT_NAME)
+        self.assertEqual(path.parent.name, "documents")
+
+    def test_the_export_is_written_where_the_dialog_said(self):
+        """The operator picks the folder; the file is not posted a path.
+
+        The list is carried away on a stick or attached to an e-mail, and the
+        person doing that has a folder in mind. The path still comes from the
+        OS dialog and never from the request — that is what stops this being
+        a "write a file anywhere on this machine" endpoint.
+        """
+        from panel.api import service
+
+        pool.add("10.1.1.40", "bench 2")
+        target = settings.data_dir() / "somewhere else" / "bench.json"
+        with mock.patch.object(files, "pick_save_path",
+                               return_value=str(target)) as dialog:
+            response = service.call("POST", "/api/adb/export", body={})
+        self.assertTrue(dialog.called)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.body["file"], "bench.json")
+        self.assertEqual(response.body["count"], 1)
+        self.assertEqual(json.loads(target.read_text(encoding="utf-8")),
+                         {"format": pool.FORMAT,
+                          "devices": [{"ip": "10.1.1.40",
+                                       "label": "bench 2"}]})
+
+    def test_a_cancelled_save_dialog_writes_nothing(self):
+        """Not an error, and not a toast either: the operator closed the
+        window they opened. Same shape as the import picker."""
+        from panel.api import service
+
+        with mock.patch.object(files, "pick_save_path", return_value=None):
+            response = service.call("POST", "/api/adb/export", body={})
+        self.assertEqual(response.status, 200)
+        self.assertTrue(response.body["cancelled"])
+        self.assertIsNone(response.body.get("file"))
+
+
 # ─────────────────────────────────────────────── finding the application ──
 class Packages(AdbTest):
 
@@ -596,8 +1027,16 @@ class Apps(AdbTest):
     def test_am_start_exiting_zero_is_not_believed(self):
         """It prints `Error: Activity class ... does not exist` and exits 0.
         A caller that trusts the exit code reports a launch that never
-        happened."""
-        self.with_adb(FakeAdb(self.one_device(), start_fails=True))
+        happened.
+
+        There are two routes to starting an application now (`am start -n`
+        and, when that will not do, `monkey` — see
+        `AttachingTheWholeBench` above). The invariant this test protects is
+        unchanged and is the one that matters: when the application did NOT
+        start, nothing reports that it did. Both routes therefore fail here.
+        """
+        self.with_adb(FakeAdb(self.one_device(), start_fails=True,
+                              monkey_fails={"com.example.gebze"}))
         with self.assertRaises(DeviceError):
             apps.start("10.1.1.40", "com.example.gebze")
 
@@ -622,6 +1061,319 @@ class Apps(AdbTest):
 
 
 # ───────────────────────────────────────────── running a whole script ──
+# ──────────────────────────────────────────── restarting the machine ──
+class Reboot(AdbTest):
+    """The device, not the application on it."""
+
+    def test_a_reboot_waits_for_the_display_to_answer_again(self):
+        """`adb reboot` answers the moment the device accepts it, seconds
+        before anything happens and a minute before the display is usable.
+        Reported as done at that instant, twelve rows go green on twelve
+        displays that are all still dark."""
+        adb = self.with_adb(FakeAdb(self.one_device()))
+
+        result = apps.reboot("10.1.1.40")
+
+        self.assertEqual(adb.timeline.count("reboot:10.1.1.40"), 1)
+        self.assertEqual(result["action"], "reboot")
+        # It knocked, was refused three times, and then got an answer — so
+        # the run really did hold the row open across the downtime.
+        self.assertGreater(result["seconds"], 0)
+        self.assertGreater(self.clock.waited, 0)
+
+    def test_a_device_that_never_goes_down_did_not_take_the_command(self):
+        """A display that answers throughout either ignored the reboot or is
+        not a device that reboots; either way "done" would be a guess."""
+        self.with_adb(FakeAdb(self.one_device(), reboot_downtime=0))
+
+        with self.assertRaises(VerificationError) as caught:
+            apps.reboot("10.1.1.40")
+        self.assertIn("never went down", str(caught.exception))
+
+    def test_a_display_that_does_not_come_back_is_reported_as_such(self):
+        """The one failure the operator most needs naming: eleven displays
+        came back and this one did not."""
+        self.with_adb(FakeAdb(self.one_device(), reboot_downtime=10_000))
+
+        with self.assertRaises(VerificationError) as caught:
+            apps.reboot("10.1.1.40")
+        message = str(caught.exception)
+        self.assertIn("did not answer again", message)
+        # And it says the reboot itself was accepted, so nobody goes looking
+        # for a command that was never sent.
+        self.assertIn("restarted", message)
+
+    def test_a_refused_reboot_never_starts_the_wait(self):
+        adb = self.with_adb(FakeAdb(self.one_device(), reboot_refused=True))
+
+        with self.assertRaises(VerificationError):
+            apps.reboot("10.1.1.40")
+        self.assertEqual(self.clock.waited, 0.0)
+        self.assertNotIn("reboot:10.1.1.40", adb.timeline)
+
+    def test_two_selected_bundles_reboot_the_machine_once(self):
+        """The run carries (device, bundle) pairs, and a display holding two
+        of the selected bundles produces two of them. For `stop` that is
+        exactly right; here it would send the machine the reboot command
+        twice, the second time while it is already on its way down."""
+        adb = self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze",
+                                       "com.example.darica"]},
+        }))
+
+        state = self.run_and_wait("reboot", [
+            {"ip": "10.1.1.40", "package": "com.example.gebze"},
+            {"ip": "10.1.1.40", "package": "com.example.darica"},
+        ])
+
+        self.assertEqual(len(state["rows"]), 1)
+        self.assertEqual(state["rows"][0]["state"], "done")
+        # The bundle column is empty because no bundle was involved in what
+        # happened to the machine.
+        self.assertEqual(state["rows"][0]["package"], "")
+        self.assertEqual(adb.timeline.count("reboot:10.1.1.40"), 1)
+
+    def test_a_reboot_row_says_how_long_the_display_took(self):
+        """The number an operator compares displays by when one is sick."""
+        self.with_adb(FakeAdb({"10.1.1.40": {"packages": []}}))
+
+        state = self.run_and_wait("reboot", ["10.1.1.40"])
+
+        self.assertEqual(state["rows"][0]["state"], "done")
+        self.assertRegex(state["rows"][0]["detail"], r"\d")
+
+
+
+
+class AutostartDiagnosis(AdbTest):
+    """Both files sitting where they were written is NOT evidence.
+
+    That was the whole of the old check, and it reported "installed" on a
+    display where nothing ran at boot — which is the state that actually
+    gets reported from the field. Three different faults produce it and each
+    needs a different fix, so the check has to name which.
+    """
+
+    def installed(self, **overrides):
+        """A display carrying both files, written before the last boot."""
+        script, service = autostart.files("com.example.gebze")
+        adb = self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze"],
+                          "files": {script: "#!/system/bin/sh\n",
+                                    service: "service x\n"}},
+        }))
+        # Written at 1000, booted at 6400 (now 10000 - uptime 3600).
+        adb.mtimes = {script: 1000, service: 1000}
+        for key, value in overrides.items():
+            setattr(adb, key, value)
+        return adb
+
+    def test_a_service_init_never_parsed_is_not_reported_as_installed(self):
+        """THE FAULT THAT WAS BEING HIDDEN. The files survived a reboot and
+        `init.svc.<name>` does not exist, so the .rc was never accepted."""
+        self.installed()          # no init.svc property at all
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["state"], "installed")   # the files ARE there
+        self.assertEqual(found["verdict"], "notParsed")  # and it still fails
+
+    def test_the_verdict_does_not_lean_on_the_device_clock(self):
+        """These displays have no battery-backed clock: they boot in 2024,
+        pick the real date up from the network a minute later, and
+        now-minus-uptime is nonsense in between. `init.svc.<name>` existing
+        is proof init parsed the .rc, which only happens at boot — so it
+        beats the arithmetic, which otherwise reported a display that had
+        rebooted and run as "not rebooted yet"."""
+        name = autostart.service_name("com.example.gebze")
+        adb = self.installed(props={f"init.svc.{name}": "stopped"},
+                             logcat=[f"{name}: started x/.Main"])
+        script, service = autostart.files("com.example.gebze")
+        adb.mtimes = {script: 9_999_999, service: 9_999_999}   # "the future"
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["verdict"], "ranOk")
+
+    def test_a_fresh_install_is_not_blamed_on_init(self):
+        """Right after installing there has been no boot for any of this to
+        have happened at; saying "init refused it" would be a lie the
+        operator would act on."""
+        adb = self.installed()
+        script, service = autostart.files("com.example.gebze")
+        adb.mtimes = {script: 9000, service: 9000}      # newer than boot
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["verdict"], "pendingReboot")
+
+    def test_a_running_service_is_reported_as_running(self):
+        name = autostart.service_name("com.example.gebze")
+        self.installed(props={f"init.svc.{name}": "running"})
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["verdict"], "running")
+
+    def test_a_launch_that_failed_blames_the_activity_not_the_autostart(self):
+        """`init.svc` is stopped and the script's own log says it gave up:
+        the autostart worked, the activity is the problem. Told apart because
+        the two need opposite fixes."""
+        name = autostart.service_name("com.example.gebze")
+        self.installed(props={f"init.svc.{name}": "stopped"},
+                       logcat=[(f"{name}: gave up starting "
+                                "com.example.gebze/.MainActivity")])
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["verdict"], "gaveUp")
+        self.assertTrue(found["log"], "the device's own words are the fix")
+
+    def test_a_successful_boot_launch_is_reported_as_such(self):
+        name = autostart.service_name("com.example.gebze")
+        self.installed(props={f"init.svc.{name}": "stopped"},
+                       logcat=[f"{name}: started com.example.gebze/.Main"],
+                       app_running={"com.example.gebze"})
+
+        found = autostart.state("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(found["verdict"], "ranOk")
+        self.assertTrue(found["appRunning"])
+
+    def test_the_init_service_name_fits_a_property_name(self):
+        """Init turns it into `init.svc.<name>`, and on Android 7 and earlier
+        a property name had to fit in 32 characters. The package-derived name
+        was 36 and init rejected the whole definition — both files present,
+        nothing running, which is exactly the report."""
+        for package in ("com.example.gebze_osb",
+                        "com.a.very.long.vendor.application.name.indeed"):
+            name = autostart.service_name(package)
+            self.assertLessEqual(len(f"init.svc.{name}"), 32, package)
+
+    def test_two_bundles_get_two_different_service_names(self):
+        """They are removed independently; one name would take both."""
+        self.assertNotEqual(autostart.service_name("com.example.gebze"),
+                            autostart.service_name("com.example.darica"))
+
+
+
+
+class BootScript(AdbTest):
+    """What the generated script has to do, learned on the hardware.
+
+    Both of these were found on a display that reported a successful
+    autostart and showed nothing, and each on its own is enough to produce
+    that.
+    """
+
+    def script(self, package="com.example.gebze"):
+        return autostart.script_text(package, FakeAdb.LAUNCHER)
+
+    def test_the_service_can_read_other_processes(self):
+        """/proc on these displays is mounted `hidepid=2,gid=3009`: a process
+        outside group readproc cannot see any other process AT ALL. The
+        script checks whether the application it launched is really running,
+        and without the group that check answers "no" however well the
+        launch went — thirty retries against a healthy app, then a log line
+        saying it gave up. An adb shell has readproc, which is exactly why
+        the same command worked by hand and not at boot."""
+        self.assertIn("readproc", autostart.SERVICE_GROUPS)
+        self.assertIn(f"group {autostart.SERVICE_GROUPS}",
+                      autostart.service_text("com.example.gebze"))
+
+    def test_the_launch_is_proved_by_the_process_not_the_exit_code(self):
+        """`am start` reports success for a launch that never lands — the
+        same trap this panel refuses everywhere else."""
+        text = self.script()
+        self.assertIn('pidof "$PACKAGE"', text)
+        # And the package is there to be asked about, not just the component.
+        self.assertIn('PACKAGE="com.example.gebze"', text)
+
+    def test_it_waits_past_boot_completed_before_the_first_launch(self):
+        """`sys.boot_completed=1` is not the end of starting up: the launcher
+        is still coming to the foreground behind it, and an activity started
+        into that gap is replaced by the home screen a moment later. That is
+        a launch which reports success and leaves nothing on the display."""
+        text = self.script()
+        after_boot = text.split("sys.boot_completed")[-1]
+        self.assertIn(f"sleep {autostart.BOOT_SETTLE}", after_boot)
+        self.assertGreater(autostart.BOOT_SETTLE, 0)
+
+    def test_a_launch_is_given_time_before_it_is_judged(self):
+        """Asked the instant after `am start`, the process is not up yet and
+        every attempt reads as a failure."""
+        self.assertGreater(autostart.LAUNCH_SETTLE, 0)
+        text = self.script()
+        between = text.split("am start")[-1].split("pidof")[0]
+        self.assertIn(f"sleep {autostart.LAUNCH_SETTLE}", between)
+
+
+class VerityDisplay(AdbTest):
+    """The display that reported "installed" and started nothing.
+
+    Its /system sits on a verity-backed device-mapper volume. Remounting it
+    read-write appears to work, `cp` exits 0, and the file arrives with the
+    right owner, the right mode and the right SELinux label — and zero
+    bytes. An empty .rc declares no service, so init has nothing to parse
+    and the operator has been told it is set up.
+    """
+
+    def verity(self, **overrides):
+        """A display that keeps a /system write only through an overlay."""
+        return self.with_adb(FakeAdb(
+            self.one_device(files={}), drops_content=True,
+            push_to_system=False, **overrides))
+
+    def test_an_empty_file_is_never_accepted_as_written(self):
+        """The check used to be "is the path there?", and the path IS there.
+        Only the size tells the two apart."""
+        self.verity(adb_root_allowed=False, overlay_allowed=False)
+
+        with self.assertRaises(DeviceError) as caught:
+            autostart.install("10.1.1.40", "com.example.gebze")
+        self.assertIn("cannot be written", str(caught.exception))
+
+    def test_nothing_is_left_behind_when_no_route_works(self):
+        """A display carrying a service whose script is missing runs a
+        failing service on every boot — worse than not installing at all.
+        The empty files this device DID create must go too."""
+        adb = self.verity(adb_root_allowed=False, overlay_allowed=False)
+
+        with self.assertRaises(DeviceError):
+            autostart.install("10.1.1.40", "com.example.gebze")
+        left = [path for path in adb.live["10.1.1.40"]["files"]
+                if path.startswith("/system/")]
+        self.assertEqual(left, [], f"left behind on the device: {left}")
+
+    def test_the_overlay_route_is_what_actually_writes(self):
+        """`adb root` then `adb remount` mounts an overlayfs whose upper
+        layer is really written. Remounting the read-only volume by hand
+        looks identical and is not the same thing."""
+        adb = self.verity()
+
+        result = autostart.install("10.1.1.40", "com.example.gebze")
+
+        self.assertEqual(result["route"], "overlay")
+        self.assertTrue(adb.overlay, "no overlay was ever mounted")
+        script, service = autostart.files("com.example.gebze")
+        for path in (script, service):
+            self.assertTrue(adb.live["10.1.1.40"]["files"][path].strip(),
+                            f"{path} landed empty")
+
+    def test_the_service_file_really_declares_the_service(self):
+        """What init has to find. The empty file passed every check the
+        panel used to make, and declares nothing at all."""
+        adb = self.verity()
+
+        autostart.install("10.1.1.40", "com.example.gebze")
+
+        _script, service = autostart.files("com.example.gebze")
+        written = adb.live["10.1.1.40"]["files"][service]
+        self.assertIn(f"service {autostart.service_name('com.example.gebze')}",
+                      written)
+        self.assertIn("on property:sys.boot_completed=1", written)
+
+
 class Scripts(AdbTest):
     """`adb shell` does not quote its arguments, and that is not a detail.
 
@@ -705,10 +1457,17 @@ class Autostart(AdbTest):
         self.assertIn(FakeAdb.LAUNCHER, files[script])
 
     def test_a_device_that_refuses_a_direct_push_is_written_through_su(self):
-        """The second route: stage in /data/local/tmp, remount, copy. Same
-        `su` the address write already relies on."""
+        """The LAST route: stage in /data/local/tmp, remount, copy. Same
+        `su` the address write already relies on.
+
+        The overlay is taken away as well, because it comes first now and
+        would otherwise answer this device — the point here is the image
+        that has a working `su` and no `adb remount` at all.
+        """
         adb = self.with_adb(FakeAdb(self.one_device(files={}),
-                                    push_to_system=False))
+                                    push_to_system=False,
+                                    adb_root_allowed=False,
+                                    overlay_allowed=False))
         result = autostart.install("10.1.1.40", "com.example.gebze")
         self.assertEqual(result["route"], "su")
         self.assertIn("su", adb.timeline)
@@ -732,10 +1491,17 @@ class Autostart(AdbTest):
 
     def test_a_device_whose_system_cannot_be_written_gets_nothing(self):
         """NOT HALF OF IT. Leaving one of the two files behind is the
-        failure this module exists to avoid."""
+        failure this module exists to avoid.
+
+        Every route is shut: no root adbd, no overlay, no writable /system.
+        Anything less and one of the three would answer, which is the point
+        of having three.
+        """
         adb = self.with_adb(FakeAdb(self.one_device(files={}),
                                     push_to_system=False,
-                                    system_writable=False))
+                                    system_writable=False,
+                                    adb_root_allowed=False,
+                                    overlay_allowed=False))
         with self.assertRaises(DeviceError):
             autostart.install("10.1.1.40", "com.example.gebze")
         for path in self.paths():
@@ -935,6 +1701,62 @@ class Runner(AdbTest):
             RUNNER.start("format_the_disk", ["10.1.1.40"], {})
         self.assertFalse(RUNNER.busy())
 
+    def test_a_finished_row_writes_one_line_in_the_log(self):
+        """The screen's history, and where the row DETAIL now lives.
+
+        The run table lost its detail column — it was the widest thing on the
+        screen and empty in every row that had not run yet. The detail is not
+        dropped: each finished row writes a line here, and that is what the
+        log under the status card shows.
+        """
+        self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze"]},
+            "10.1.1.42": {"packages": ["com.example.gebze"]},
+        }))
+        state = self.run_and_wait(
+            "start", ["10.1.1.40", "10.1.1.99", "10.1.1.42"],
+            {"package": "com.example.gebze"})
+        log = state["log"]
+        self.assertEqual(len(log), 3)
+        self.assertEqual({entry["operation"] for entry in log}, {"start"})
+        by_ip = {entry["ip"]: entry for entry in log}
+        self.assertEqual(by_ip["10.1.1.40"]["state"], "done")
+        self.assertEqual(by_ip["10.1.1.99"]["state"], "failed")
+        # The two things a line is for: when, and what actually happened.
+        self.assertTrue(all(entry["at"] for entry in log))
+        self.assertTrue(by_ip["10.1.1.99"]["detail"])
+
+    def test_the_log_survives_the_next_run(self):
+        """A run replaces the table and ADDS to the log. The question asked
+        on a bench is never about the current run — it is "did 42 ever come
+        back?", two runs ago."""
+        self.with_adb(FakeAdb({
+            "10.1.1.40": {"packages": ["com.example.gebze"]},
+            "10.1.1.42": {"packages": ["com.example.gebze"]},
+        }))
+        self.run_and_wait("stop", ["10.1.1.40"],
+                          {"package": "com.example.gebze"})
+        state = self.run_and_wait("start", ["10.1.1.42"],
+                                  {"package": "com.example.gebze"})
+        self.assertEqual([row["ip"] for row in state["rows"]], ["10.1.1.42"])
+        self.assertEqual([(entry["operation"], entry["ip"])
+                          for entry in state["log"]],
+                         [("stop", "10.1.1.40"), ("start", "10.1.1.42")])
+
+    def test_the_log_does_not_grow_without_end(self):
+        """It is polled once a second while a run is on; a log that kept an
+        afternoon of lines would be sent sixty times a minute."""
+        self.assertEqual(RUNNER.state()["log"], [])
+        self.assertEqual(runner_module.LOG_LIMIT,
+                         RUNNER._log.maxlen)         # noqa: SLF001
+
+    def test_a_pending_row_writes_nothing(self):
+        """Only a row that has FINISHED is a line. A run in flight would
+        otherwise write one line per device per state change."""
+        self.with_adb(FakeAdb(self.one_device()))
+        with self.held_open():
+            self.assertEqual(RUNNER.state()["log"], [])
+
     def test_a_run_with_no_device_is_refused(self):
         with self.assertRaises(ValueError):
             RUNNER.start("stop", [], {"package": "com.example.gebze"})
@@ -962,3 +1784,121 @@ class RefreshLock(AdbTest):
         # that is not released reads as a panel that stopped refreshing.
         self.assertEqual(
             service.call("POST", "/api/refresh", body={"set": 1}).status, 200)
+
+
+# ──────────────────────────────────── attaching the bench, and restarting ──
+class LaunchingWithoutALauncherActivity(AdbTest):
+    """`am start -n` needs a component. Not every bundle can supply one.
+
+    The displays on the bench run locked-down images, and some of the bundles
+    on them declare no MAIN/LAUNCHER activity that `resolve-activity` will
+    return — a disabled launcher, or an alias it does not report. Those
+    applications start perfectly well; they just cannot be started that way,
+    and "restart" reported that the bundle declared nothing to launch.
+    """
+
+    def test_a_package_with_no_launcher_activity_still_starts(self):
+        adb = FakeAdb(self.one_device(), no_launcher={"com.example.gebze"})
+        self.with_adb(adb)
+        result = apps.start("10.1.1.40", "com.example.gebze")
+        self.assertEqual(result["action"], "start")
+        # Started through monkey, so no component was ever named.
+        self.assertEqual(result["activity"], "")
+        self.assertIn("monkey:com.example.gebze", adb.timeline)
+
+    def test_restart_reaches_the_same_fallback(self):
+        adb = FakeAdb(self.one_device(), no_launcher={"com.example.gebze"})
+        self.with_adb(adb)
+        result = apps.restart("10.1.1.40", "com.example.gebze")
+        self.assertEqual(result["action"], "restart")
+        self.assertIn("monkey:com.example.gebze", adb.timeline)
+
+    def test_a_component_that_will_not_start_falls_back_too(self):
+        """`am start` exits 0 while printing an Error line.
+
+        A component that resolves and then will not launch is a stale or
+        aliased name, which is exactly what monkey does not use.
+        """
+        adb = FakeAdb(self.one_device(), start_fails=True)
+        self.with_adb(adb)
+        result = apps.start("10.1.1.40", "com.example.gebze")
+        self.assertIn("monkey:com.example.gebze", adb.timeline)
+        self.assertEqual(result["action"], "start")
+
+    def test_a_bundle_nothing_can_start_is_still_an_error(self):
+        """The fallback must not turn a real failure into a success."""
+        adb = FakeAdb(self.one_device(), no_launcher={"com.example.gebze"},
+                      monkey_fails={"com.example.gebze"})
+        self.with_adb(adb)
+        with self.assertRaises(VerificationError):
+            apps.start("10.1.1.40", "com.example.gebze")
+
+
+class AttachingTheWholeBench(AdbTest):
+    """`connect` puts every address in `adb devices` and says what did not.
+
+    Every other operation borrows a transport and hands it back. This one is
+    the deliberate exception — the operator wants the bench reachable from
+    this machine, by scrcpy or `adb logcat` as much as by this panel.
+    """
+
+    def test_connecting_leaves_the_transport_attached(self):
+        adb = FakeAdb(self.one_device())
+        self.with_adb(adb)
+        result = apps.connect("10.1.1.40")
+        self.assertEqual(result["action"], "connect")
+        self.assertEqual(result["serial"], f"10.1.1.40:{settings.ADB_PORT}")
+        self.assertIn("10.1.1.40", adb.connected)
+
+    def test_a_device_that_will_not_answer_is_an_error_not_a_silence(self):
+        adb = FakeAdb({})            # nothing is live
+        self.with_adb(adb)
+        with self.assertRaises(DeviceError):
+            apps.connect("10.1.1.40")
+
+    def test_connected_but_not_listed_is_reported(self):
+        """THE CASE THE WARNING EXISTS FOR.
+
+        A display can complete this panel's own handshake and still not appear
+        in `adb devices` — which is the list the operator is about to look at
+        in a terminal. Passing the first check and failing the second is not
+        success.
+        """
+        adb = FakeAdb(self.one_device(), unlisted={"10.1.1.40"})
+        self.with_adb(adb)
+        with self.assertRaises(VerificationError) as caught:
+            apps.connect("10.1.1.40")
+        self.assertIn("10.1.1.40", str(caught.exception))
+
+    def test_the_runner_does_not_disconnect_after_connecting(self):
+        """Otherwise the operation would undo itself on the way out."""
+        adb = FakeAdb({"10.1.1.40": {"packages": {}},
+                       "10.1.1.41": {"packages": {}}})
+        self.with_adb(adb)
+        state = RUNNER.start("connect", [{"ip": "10.1.1.40"},
+                                         {"ip": "10.1.1.41"}], {})
+        self.assertTrue(state["running"])
+        while RUNNER.busy():
+            time.sleep(0.01)
+        self.assertEqual(adb.connected, {"10.1.1.40", "10.1.1.41"})
+
+    def test_one_unreachable_address_does_not_stop_the_others(self):
+        adb = FakeAdb({"10.1.1.40": {"packages": {}},
+                       "10.1.1.42": {"packages": {}}})
+        self.with_adb(adb)
+        RUNNER.start("connect", [{"ip": "10.1.1.40"}, {"ip": "10.1.1.41"},
+                                 {"ip": "10.1.1.42"}], {})
+        while RUNNER.busy():
+            time.sleep(0.01)
+        rows = RUNNER.state()["rows"]
+        by_ip = {row["ip"]: row for row in rows}
+        self.assertEqual(by_ip["10.1.1.40"]["state"], "done")
+        self.assertEqual(by_ip["10.1.1.42"]["state"], "done")
+        # The one that is not there is a failed row — the warning.
+        self.assertEqual(by_ip["10.1.1.41"]["state"], "failed")
+        self.assertTrue(by_ip["10.1.1.41"]["detail"])
+
+    def test_connect_is_one_row_per_address_not_per_bundle(self):
+        """It addresses the DEVICE, so two bundles must not mean two rows."""
+        self.assertIn("connect", apps.DEVICE_OPERATIONS)
+        self.assertIn("connect", apps.OPERATIONS)

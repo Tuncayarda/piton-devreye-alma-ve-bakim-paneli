@@ -117,8 +117,21 @@ def _read_android(device, telemetry, pbx_ip):
         "package": data["package"], "versionCode": data["versionCode"],
         "targetSdk": data["targetSdk"],
         "updatedAt": data["updatedAt"],
-    }, "adb", i18n.t("probe.adbRead", package=settings.ADB_PACKAGE,
-                          version=data["version"]))
+    }, "adb", _adb_detail(data))
+
+
+def _adb_detail(data: dict) -> str:
+    """What the row says it read.
+
+    With `settings.ADB_REQUIRE_PACKAGE` off the display may carry no named
+    application at all, and "com.piton.train_lcd_panel  read" with an empty
+    version would be a sentence claiming something that did not happen. What
+    WAS read is said instead — the display answered, and by its serial.
+    """
+    if data["version"]:
+        return i18n.t("probe.adbRead", package=settings.ADB_PACKAGE,
+                      version=data["version"])
+    return i18n.t("probe.adbReadNoApp", serial=data["serial"] or "?")
 
 
 def _read_mqtt(device, telemetry, method):

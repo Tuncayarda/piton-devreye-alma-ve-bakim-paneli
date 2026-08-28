@@ -134,3 +134,55 @@ Deno.test("the panel opens with the automatic rounds paused", () => {
   assert.equal(lightRoundAllowed({ ...state, meta: { project: "YATAKLI" } }),
                false);
 });
+
+// ── keyboard shortcuts ──────────────────────────────────────────────────
+// The digit range and the list it indexes into must not be maintained
+// separately: a literal `[1-6]` beside a list of seven gives the seventh
+// screen a line in the help dialog and a key that does nothing.
+Deno.test("every listed shortcut screen has a digit that reaches it", () => {
+  const source = Deno.readTextFileSync(
+    new URL("../../static/js/app.js", import.meta.url),
+  );
+  const listed = source
+    .split("const SHORTCUT_VIEWS = [")[1].split("];")[0]
+    .match(/'[\w]+'/g)
+    .map((name) => name.slice(1, -1));
+  assert.ok(listed.includes("switch"), "the switch screen is reachable");
+  // No hand-written digit range may survive next to the list.
+  assert.equal(
+    /\/\^\[1-\d\]\$\//.test(source),
+    false,
+    "the digit range is written out instead of derived from SHORTCUT_VIEWS",
+  );
+  assert.ok(
+    source.includes("shortcutKeys = (views) => views.map"),
+    "the keys are derived from the list",
+  );
+});
+
+// The list holds two screens that are behind the service key now. A digit is
+// only useful if it reaches something: handed to a field user, "5" would open
+// a screen the rail does not draw and the server refuses every request on
+// (panel/api/guard.py). So the list has to be filtered the way the rail is,
+// and the digits have to be counted over what is left — not over the fixed
+// list, or the numbering would have holes where the hidden screens were.
+Deno.test("the shortcut digits count over the screens actually shown", () => {
+  const source = Deno.readTextFileSync(
+    new URL("../../static/js/app.js", import.meta.url),
+  );
+  assert.ok(
+    source.includes("function shortcutViews()"),
+    "the list is not filtered by what the package shows",
+  );
+  assert.ok(
+    /shortcutViews\(\)[\s\S]{0,200}state\.views/.test(source),
+    "the filter does not read state.views",
+  );
+  // Both the key handler and the help dialog read the filtered list; either
+  // one left on the raw list would disagree with the other.
+  assert.equal(
+    (source.match(/shortcutViews\(\)/g) || []).length >= 3,
+    true,
+    "something still indexes into the unfiltered SHORTCUT_VIEWS",
+  );
+});

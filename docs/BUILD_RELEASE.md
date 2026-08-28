@@ -27,14 +27,16 @@ Switch Yönetim Paneli `syp` dalındadır.
 ├── panel/                              uygulama paketi
 │   ├── api/                            servis katmanı + HTTP adaptörü
 │   ├── desktop/                        soketsiz pywebview köprüsü
+│   ├── adb/                            Android ekranlar + gömülü adb çözümü
+│   ├── switch/                         KYLAND switch istemcisi (tek istemci)
 │   ├── i18n.py                         mesaj kataloğu (t / lazy)
 │   ├── messages/                       en.json · tr.json — bütün metinler
 │   ├── settings.py                     sabitler ve yol çözümü
 │   └── …                               ip_assign, config_sync, probe, jobs
 ├── field_scripts/                      çalışma anında yüklenen motorlar
-│   ├── switch_api.py                   Switch Yönetim Paneli'nden kopya
 │   ├── device_verify.py                saha doğrulama betiği
 │   └── intercom_ip_assign.py           IP atama betiği
+├── platform-tools/                     adb (depoda YOK — bkz. ADB araçları)
 ├── dabp.spec                           PyInstaller yapılandırması
 ├── DeviceMap.json                      topoloji envanteri (pakete girer)
 ├── Field_Device_Verification.xlsx      Excel şablonu (pakete girer)
@@ -55,23 +57,84 @@ Switch Yönetim Paneli `syp` dalındadır.
 
 ### Pakete giren veri dosyaları
 
-Panel switch erişimini ve saha betiklerini yeniden yazmaz; çalışma anında
-dosya yolundan içe aktarır (`panel/script_loader.py`). Kaynaktan çalışırken bunlar
-depodaki yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
+Panel iki saha betiğini yeniden yazmaz; çalışma anında dosya yolundan içe
+aktarır (`panel/script_loader.py`). Kaynaktan çalışırken bunlar depodaki
+yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 
 | Dosya | Nereden | Ne için |
 |---|---|---|
-| `switch_api.py` | `field_scripts/` | switch okuma, PoE |
 | `device_verify.py` | `field_scripts/` | alan ayıklama, Excel şeması |
 | `intercom_ip_assign.py` | `field_scripts/` | IP atama koşusu |
 | `DeviceMap.json` | uygulama kökü | cihaz envanteri |
 | `Field_Device_Verification.xlsx` | uygulama kökü | kontrol listesi şablonu |
 
+> Switch erişimi üçüncü bir betikti (`switch_api.py`); emekliye ayrıldı.
+> Yerini paketin içindeki `panel/switch/` aldı — Switch ekranının **yazması**
+> gerekiyordu ve ödünç alınan salt-okunur bir betik bunu ikinci bir istemciye
+> dönüşmeden büyütemezdi.
+
 Yol çözümü `panel/settings.py` → `data_file()` içindedir: paketlenmiş durumda
-paketin kökü, kaynaktan çalışırken depodaki göreli yol. Beşinden biri
+paketin kökü, kaynaktan çalışırken depodaki göreli yol. Dördünden biri
 eksikse `dabp.spec` derlemeyi durdurur; `--self-test` de bu
 dosyaları tek tek arar. Böylece eksik paket üretilmesi ve sahada
 "DeviceMap bulunamadı" hatasıyla karşılaşılması önlenir.
+
+### ADB araçları (`platform-tools/`)
+
+**Sürüm derlemesinde bu adım atlanırsa paket sessizce eksik çıkar.**
+
+Android ekranlara `adb` ile erişilir ve panelin kurulduğu makinenin Android
+Studio taşımak için bir sebebi yoktur. Bu yüzden `adb` **paketin içine
+konur**: `panel/adb/binary.py` önce paketteki kopyayı arar, sonra `PATH`'e
+düşer. Kopya yoksa sağlıklı bir ekran sahada "adb komutu bulunamadı" der.
+
+Depo bu ikilileri taşımaz (Google'ın kendi lisansıyla gelen üçüncü taraf
+indirmesidir). Derlemeden önce depo köküne açın:
+
+```bash
+# https://developer.android.com/tools/releases/platform-tools
+# İşletim sistemine göre doğru arşivi indirin ve depo köküne açın:
+unzip platform-tools-latest-<os>.zip -d .
+ls platform-tools/adb        # macOS/Linux
+ls platform-tools/adb.exe    # Windows
+```
+
+**`dabp.spec` eksik adb ile derlemeyi durdurur.** Uyarı basıp devam etmez;
+servis anahtarındaki kalıbın aynısı. Sebebi: adb'siz bir paket derlenir,
+açılır, çalışır — ve sahada sağlam bir ekran "okunamıyor" der. Bu, arızanın
+sahadan derlemeye taşınmasıdır.
+
+Klasör doğru ikiliyi taşımalı: Windows'ta `adb.exe`, diğerlerinde `adb`.
+macOS arşivini Windows koşucusunda açmak, doğru görünen ama Windows'un
+çalıştıramayacağı bir klasör bırakır — spec bunu da reddeder.
+
+```
+[spec] adb tools: /…/platform-tools                     ← doğru
+[spec] …/platform-tools holds no adb.exe, so this …     ← derleme durur
+```
+
+Bilerek adb'siz bir geliştirici derlemesi için:
+
+```bash
+DAP_ALLOW_NO_ADB=1 DAP_EDITION=… python3 -m PyInstaller --clean dabp.spec
+```
+
+**İkinci ağ:** `--self-test` paketlenmiş uygulamada adb'yi tekrar arar ve
+bulamazsa `RESULT: failed` verip 1 ile çıkar. CI bunu her platformda
+çalıştırır, yani spec ile artefakt arasında kaybolan bir adb de yakalanır.
+
+```
+[OK  ] ADB executable (in the package) — /…/_internal/platform-tools/adb
+[FAIL] ADB executable (in the package) — not bundled — this package cannot
+       reach an Android display
+```
+
+**CI bunu kendisi indirir.** `build-app.yml` içindeki "Fetch the ADB tools"
+adımı koşucunun işletim sistemine göre doğru arşivi çeker; elle bir şey
+yapmak gerekmez. Yukarıdaki indirme yalnızca **yerel** derleme içindir.
+
+Sahadaki bir makinede başka bir `adb` kullanılması gerekirse
+`DABP_ADB_BINARY` ortam değişkeni her şeyin önüne geçer.
 
 ---
 
@@ -548,7 +611,7 @@ git push origin "dap-${PAKET}-v${SURUM}"
 Bütün paketleri yayımlamak için her biri için ayrı etiket atılır:
 
 ```bash
-for PAKET in vip-yatakli gdm gaziray; do
+for PAKET in vip-yatakli gdm gaziray fuar; do
   git tag "dap-${PAKET}-v${SURUM}"
   git push origin "dap-${PAKET}-v${SURUM}"
 done
@@ -559,6 +622,7 @@ done
 | `dap-vip-yatakli-v…` | Devreye Alma Paneli — VIP ve Yataklı |
 | `dap-gdm-v…` | Devreye Alma Paneli — GDM |
 | `dap-gaziray-v…` | Devreye Alma Paneli — Gaziray |
+| `dap-fuar-v…` | Devreye Alma Paneli — Fuar |
 | `dap-v…` | Eski, paket ayrımından önceki biçim |
 | `syp-v…` | Switch Yönetim Paneli |
 | `v…` | Switch Yönetim Paneli (depoda tek uygulama varken kullanılan eski biçim) |
@@ -636,7 +700,7 @@ geri okunarak denetlenir.
 ## 5. Üretilen dosyalar
 
 Her paket kendi adıyla, beş dosya olarak çıkar. `<paket>` yerine
-`vip-yatakli`, `gdm` veya `gaziray` gelir:
+`vip-yatakli`, `gdm`, `gaziray` veya `fuar` gelir:
 
 ```
 dabp-<paket>-<sürüm>-windows-x64-Setup.exe

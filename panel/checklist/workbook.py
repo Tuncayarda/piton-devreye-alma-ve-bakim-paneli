@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import script_loader, settings, status
+from .. import editions, script_loader, settings, status
 from ..inventory.device_map import Inventory
 from . import columns as cols
 from .. import i18n
@@ -34,7 +34,9 @@ def export(inventory: Inventory, results: dict, output: Path | None = None,
     import openpyxl
 
     verify = script_loader.device_verify()   # FILLABLE / HEADER_ROW / NA_FILL
-    template = Path(template or settings.EXCEL_TEMPLATE)
+    # The OPEN PROJECT's workbook, not one global file: a stand's
+    # devices are not in the trains' template and would fill no rows.
+    template = Path(template or editions.checklist_path())
     if not template.exists():
         raise FileNotFoundError(
             i18n.t("error.excelTemplateMissing", path=template))

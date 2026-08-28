@@ -20,6 +20,7 @@ sayfanın başlığında yazar.
 | `vip-yatakli` | Devreye Alma ve Bakım Paneli - VIP ve Yataklı | Yataklı, VIP |
 | `gdm` | Devreye Alma ve Bakım Paneli - GDM | GDM |
 | `gaziray` | Devreye Alma ve Bakım Paneli - Gaziray | Gaziray |
+| `fuar` | Devreye Alma ve Bakım Paneli - Fuar | Fuar |
 
 Farklı paketler aynı bilgisayara yan yana kurulabilir; birbirinin üzerine
 yazmaz ve ayarlarını paylaşmazlar.

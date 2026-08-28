@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Loads the working engines under field_scripts/.
 
-The panel does not reimplement three field-proven scripts; it imports them
+The panel does not reimplement two field-proven scripts; it imports them
 from disk at runtime:
 
-    field_scripts/switch_api.py           switch access
     field_scripts/device_verify.py        field extraction + Excel schema
     field_scripts/intercom_ip_assign.py   IP assignment run
 
 Why import rather than rewrite: a second implementation drifts from the first,
-and an account that works on the switch panel starts reporting "unverified"
-here.
+and a run that works in the field starts failing here.
+
+Switch access used to be a third entry. It is not any more — it is
+`panel.switch`, part of this package, because the switch screen needs to WRITE
+and a borrowed read-only script could not grow that without becoming a second
+client to the same hardware.
 
 The scripts live outside the package tree, so a plain `import` will not do.
 Each is loaded once and cached. A missing script is not skipped silently —
@@ -48,14 +51,6 @@ def load_module(name: str, path: Path, description: str):
         spec.loader.exec_module(module)
         _LOADED[name] = module
         return module
-
-
-def switch_api():
-    """Switch management backend — the single source of switch access."""
-    module = load_module("field_switch_api", settings.SWITCH_API_SCRIPT,
-                         i18n.t("script.switchApi"))
-    module.SWITCH_PORT = settings.KYLAND_PORT
-    return module
 
 
 def device_verify():

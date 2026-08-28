@@ -50,17 +50,6 @@ const MAIN_AREAS = [
            'M3.5 10h13', 'M10 3.5c1.8 1.8 2.7 4.1 2.7 6.5S11.8 14.7 10 16.5',
            'M10 3.5C8.2 5.3 7.3 7.6 7.3 10s.9 4.7 2.7 6.5'],
   },
-  // The ADB tool. Its own area rather than a fourth Operations tab: those
-  // three screens all work on the project's device list for one train set,
-  // and this one works on a list of addresses that belongs to no project at
-  // all (see panel/adb/pool.py). Filing it beside them would say the set
-  // picker in the top bar applies to it, and it does not.
-  {
-    labelKey: 'nav.adb', view: 'adb',
-    active: v => v === 'adb',
-    icon: ['M6 8.5h8v6H6z', 'M7.5 8.5V7a2.5 2.5 0 0 1 5 0v1.5',
-           'M4 10.5h2M14 10.5h2'],
-  },
   {
     labelKey: 'nav.verification', view: 'checklist',
     active: v => v === 'checklist',
@@ -78,6 +67,30 @@ const MAIN_AREAS = [
 // `state.views`, which the server produces and also enforces
 // (panel/editions/catalogue.py, panel/api/guard.py).
 const ADMIN_AREAS = [
+  // The ADB tool. Its own area rather than a fourth Operations tab: those
+  // three screens all work on the project's device list for one train set,
+  // and this one works on a list of addresses that belongs to no project at
+  // all (see panel/adb/pool.py). Filing it beside them would say the set
+  // picker in the top bar applies to it, and it does not.
+  //
+  // It sits behind the service key with the switch screen below it: the two
+  // are the only screens that write to hardware chosen by a typed address
+  // rather than by the project's device list (panel/editions/catalogue.py).
+  {
+    labelKey: 'nav.adb', view: 'adb', admin: true,
+    active: v => v === 'adb',
+    icon: ['M6 8.5h8v6H6z', 'M7.5 8.5V7a2.5 2.5 0 0 1 5 0v1.5',
+           'M4 10.5h2M14 10.5h2'],
+  },
+  // The switch screen sits next to the ADB one for the same reason: it is a
+  // cabinet tool that reaches a device by address, and the set picker in the
+  // top bar does not apply to it either.
+  {
+    labelKey: 'nav.switch', view: 'switch', admin: true,
+    active: v => v === 'switch',
+    icon: ['M3.5 6.5h13v7h-13z', 'M6 9.5v1M9 9.5v1M12 9.5v1M15 9.5v1',
+           'M3.5 6.5 6 3.5h8l2.5 3'],
+  },
   {
     labelKey: 'nav.piscu', view: 'piscu', admin: true,
     icon: ['M4 6h12v8H4z', 'M7 9h6M7 11.5h3'],

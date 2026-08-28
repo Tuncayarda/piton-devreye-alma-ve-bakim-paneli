@@ -36,6 +36,7 @@ const KIND_NAME = {
   config: 'history.kindConfig',
   firmware: 'history.kindFirmware',
   checklist: 'history.kindChecklist',
+  switchscan: 'history.kindSwitchScan',
 };
 
 const COLUMNS = 'minmax(235px,1.7fr) minmax(120px,.8fr) 105px '

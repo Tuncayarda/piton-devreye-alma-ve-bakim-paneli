@@ -1,56 +1,25 @@
-// The switch front panel.
+// The switch front panel, on the IP assignment screen.
 //
-// The panel draws the switch's real face: PoE ports column by column bottom to
-// top (1-2-3-4 | 5-6-7-8 …), with the uplink column separated by a dashed line
-// on the right. The layout matches the Switch Management Panel in the sibling
-// project; whoever looks at the same switch in both sees the same arrangement.
+// THE DRAWING IS NOT HERE. The faceplate — the connector graphic and the grid
+// that puts port 7 in the right hole — lives in
+// `components/front_panel.js` and is shared with the Switch screen, which
+// shows the front of the same SICOM3028GPT. It used to be copied into both,
+// which is exactly how two panels end up disagreeing about where a port is.
 //
-// The connector drawing matches that project too: a PoE port has 4 pins, an
-// uplink 8 with a cross in the middle. The port box looking the same in both
-// panels means finding a port without counting.
+// What IS here is what only this screen means by a port: whether DeviceMap
+// defines a device on it, whether it is a target of the assignment run,
+// whether it is the port the computer is plugged into or the link to the
+// other switch. The Switch screen colours the same ports by live PoE state
+// instead — one drawing, two readings.
 
 import { el } from '../../core/dom.js';
+import { connectorSvg, portGrid } from '../../components/front_panel.js';
 import { state } from '../../core/store.js';
 import { credentialDialog } from '../../components/locked.js';
 import { notify } from '../../components/toast.js';
 import { local, live } from './state.js';
 import { usesPhysicalPortDiscovery } from './software.js';
 import { t } from '../../core/i18n.js';
-
-function pinRing(count, radius) {
-  return Array.from({ length: count }, (_, i) => {
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    return [20 + radius * Math.cos(angle), 20 + radius * Math.sin(angle)];
-  });
-}
-
-function connectorSvg(poe) {
-  const pins = pinRing(poe ? 4 : 8, poe ? 6.6 : 7.2);
-  const radius = poe ? 2.5 : 1.9;
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 40 40');
-  svg.setAttribute('aria-hidden', 'true');
-  const add = (tag, attributes) => {
-    const node = document.createElementNS(ns, tag);
-    for (const [key, value] of Object.entries(attributes)) {
-      node.setAttribute(key, String(value));
-    }
-    svg.append(node);
-  };
-  add('circle', { class: 'shell', cx: 20, cy: 20, r: 18.4 });
-  add('circle', { class: 'inner', cx: 20, cy: 20, r: 12.2 });
-  if (!poe) add('path', { class: 'cross', d: 'M13 13 L27 27 M27 13 L13 27' });
-  add('rect', { class: 'key', x: 18.6, y: 1.6, width: 2.8, height: 4.2 });
-  for (const [x, y] of pins) {
-    add('circle', { class: 'pin', cx: x.toFixed(2), cy: y.toFixed(2), r: radius });
-  }
-  return svg;
-}
-
-function emptyCell(className) {
-  return el('div', { class: className || 'pm-empty' });
-}
 
 // A port's LIVE state — the connector's colour. The classes and the
 // distinctions match the sibling panel's own state function: whoever looks at
@@ -177,25 +146,17 @@ export function panelCard(panel, plan, handlers) {
   for (const port of panel.ports) byNumber[port.number] = port;
   const poeCount = panel.poeCount || 24;
   const uplinkCount = panel.uplinkCount || 4;
-  const columns = Math.max(1, Math.ceil(poeCount / 4));
 
-  const grid = el('div', {
-    class: 'pm-grid',
-    style: `--pm-columns:${columns}`,
+  // The physical layout is the shared component's; this screen only says
+  // what goes in each hole.
+  const grid = portGrid({
+    poeCount,
+    uplinkCount,
+    cell: (number) => {
+      const port = byNumber[number];
+      return port ? portButton(port, context) : null;
+    },
   });
-  // Physical layout: 4 rows, PoE columns numbered bottom to top, the uplink
-  // column on the far right (top to bottom).
-  for (let row = 4; row >= 1; row -= 1) {
-    for (let column = 0; column < columns; column += 1) {
-      const port = byNumber[row + column * 4];
-      grid.append(port ? portButton(port, context) : emptyCell());
-    }
-    grid.append(emptyCell('pm-divider'));
-    // The uplink column is numbered top to bottom (28…25) — the same
-    // arrangement as the sibling panel.
-    const uplink = row <= uplinkCount ? byNumber[poeCount + row] : null;
-    grid.append(uplink ? portButton(uplink, context) : emptyCell());
-  }
 
   const guidance = t(context.physicalPortMode
     ? 'ippanel.clickPhysicalPoePort'

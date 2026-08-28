@@ -229,6 +229,47 @@ jobs:
           fi
           echo "refused with exit code $CODE, as it must be."
 
+      # ── the ADB tools ───────────────────────────────────────────────────
+      # WITHOUT THIS STEP EVERY RELEASE SHIPS WITHOUT adb. The panel carries
+      # its own copy because a commissioning laptop has no reason to have
+      # Android Studio on it (panel/adb/binary.py); the source tree does not
+      # carry the executables, because they are a third-party download with
+      # their own licence. So the archive is fetched here, per runner.
+      #
+      # The spec REFUSES to build without it (DAP_ALLOW_NO_ADB is not set
+      # below), and `--self-test` on the packaged application checks it
+      # again — a silently adb-less package is the exact failure this whole
+      # arrangement exists to prevent, and it is invisible until a display
+      # in the field reports itself unreadable.
+      #
+      # Unzipped with Python rather than `unzip`: Python is already set up on
+      # every runner and `unzip` is not on the Windows one.
+      - name: Fetch the ADB tools
+        shell: bash
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          case "${{ runner.os }}" in
+            Windows) ARCHIVE=windows ;;
+            Linux)   ARCHIVE=linux ;;
+            macOS)   ARCHIVE=darwin ;;
+            *) echo "::error::unknown runner ${{ runner.os }}"; exit 1 ;;
+          esac
+          URL="https://dl.google.com/android/repository/platform-tools-latest-$ARCHIVE.zip"
+          echo "downloading $URL"
+          curl -fsSL --retry 3 --retry-delay 5 -o platform-tools.zip "$URL"
+          python -c "import zipfile; zipfile.ZipFile('platform-tools.zip').extractall('.')"
+          rm -f platform-tools.zip
+          # The executable bit does not survive a ZIP on POSIX. The panel
+          # restores it at run time too (binary.py:_make_runnable), but a
+          # build that can run the tool is a build that can be checked here.
+          if [ "${{ runner.os }}" != "Windows" ]; then
+            chmod +x platform-tools/adb
+            ./platform-tools/adb version
+          else
+            ./platform-tools/adb.exe version
+          fi
+
       - name: Clean PyInstaller build
         shell: bash
         working-directory: ${{ env.APP_DIR }}

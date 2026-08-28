@@ -58,10 +58,11 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from .. import i18n, settings
-from ..errors import user_message
+from ..errors import UnreachableError, user_message
 from . import apps, autostart, client
 
 # Row states. The same words the job queue uses for its rows, so the screen's
@@ -71,6 +72,18 @@ RUNNING = "running"
 DONE = "done"
 FAILED = "failed"
 CANCELLED = "cancelled"
+
+# States a row does not leave. A row reaching one of these is what writes a
+# line in the log below.
+FINISHED = (DONE, FAILED, CANCELLED)
+
+# How many finished rows are kept. THE RUN TABLE SHOWS THE RUN; this is the
+# afternoon behind it — the five runs before this one, which is what the
+# operator is actually asked about ("did that display ever come back?"). The
+# screen scrolls it and shows twenty at a time, so the number here only has
+# to be larger than a bench session's worth of work, and small enough that
+# every one-second poll can carry it without thinking about it.
+LOG_LIMIT = 120
 
 
 class AdbRunner:
@@ -89,6 +102,8 @@ class AdbRunner:
         self._started_at = 0.0
         self._finished_at = 0.0
         self._generation = 0
+        # Finished rows, oldest first. See LOG_LIMIT.
+        self._log: deque[dict] = deque(maxlen=LOG_LIMIT)
 
     # ── what the screen reads ────────────────────────────────────────────
     def busy(self) -> bool:
@@ -106,6 +121,9 @@ class AdbRunner:
                 "startedAt": self._started_at or None,
                 "finishedAt": self._finished_at or None,
                 "rows": [dict(self._rows[key]) for key in self._order],
+                # Oldest first here, newest first on the screen — the
+                # order is the screen's decision, not this module's.
+                "log": [dict(entry) for entry in self._log],
             }
 
     # ── starting ─────────────────────────────────────────────────────────
@@ -122,7 +140,7 @@ class AdbRunner:
             raise ValueError(i18n.t("error.adbUnknownOperation",
                                     operation=name or "?"))
         params = dict(params or {})
-        pairs = _pairs(targets, params)
+        pairs = _pairs(targets, params, name)
         if not pairs:
             raise ValueError(i18n.t("error.adbNoDeviceSelected"))
 
@@ -171,23 +189,57 @@ class AdbRunner:
             self._order = []
             self._running = False
             self._started_at = self._finished_at = 0.0
+            self._log.clear()
             self._generation += 1
 
     # ── the run itself ───────────────────────────────────────────────────
     def _run(self) -> None:
         try:
-            targets = list(self._order)
-            pool = ThreadPoolExecutor(
-                max_workers=max(1, min(settings.ADB_WORKERS, len(targets))))
-            try:
-                list(pool.map(self._one, targets))
-            finally:
-                pool.shutdown(wait=True)
+            self._sweep(list(self._order))
+            # THE SERVER, NOT THE BENCH. Every row failing to connect is not
+            # twelve dead displays; it is the daemon on this computer, and it
+            # gets stuck often enough to be worth one automatic attempt (see
+            # panel/adb/client.py). One retry, and only when EVERY row failed
+            # that way — a run where three of four worked has three healthy
+            # transports that a restart would drop for nothing.
+            #
+            # BETWEEN ROUNDS, never inside one. `_sweep` has returned, so its
+            # pool is shut down and no command is in flight; restarting the
+            # server here cannot pull a socket out from under a thread.
+            if self._should_recover() and self._recover_server():
+                self._sweep(list(self._order))
         finally:
             with self._lock:
                 self._running = False
                 self._finished_at = time.time()
                 self._generation += 1
+
+    def _sweep(self, targets: list[str]) -> None:
+        """One pass over these rows, in parallel."""
+        if not targets:
+            return
+        pool = ThreadPoolExecutor(
+            max_workers=max(1, min(settings.ADB_WORKERS, len(targets))))
+        try:
+            list(pool.map(self._one, targets))
+        finally:
+            pool.shutdown(wait=True)
+
+    def _should_recover(self) -> bool:
+        """Did this run fail in the shape a wedged ADB server makes?"""
+        if self._operation in apps.HOST_OPERATIONS or self._cancel.is_set():
+            return False
+        with self._lock:
+            rows = list(self._rows.values())
+        return bool(rows) and all(
+            row.get("state") == FAILED and row.get("connection") for row in rows)
+
+    def _recover_server(self) -> bool:
+        """Restart the ADB server once, and say whether it came back."""
+        try:
+            return bool(client.restart_server().get("ok"))
+        except Exception:
+            return False
 
     def _one(self, key: str) -> None:
         with self._lock:
@@ -202,7 +254,12 @@ class AdbRunner:
         except Exception as exc:
             # One pair's failure is one row. The pool carries on; see the
             # module docstring.
-            self._write(key, FAILED, user_message(exc))
+            #
+            # WHY the failure is recorded and not only its words: "could not
+            # be reached" is the one shape that may be the ADB server rather
+            # than the device, and `_should_recover` above reads it.
+            self._write(key, FAILED, user_message(exc),
+                        connection=isinstance(exc, UnreachableError))
         else:
             self._write(key, DONE, self._detail(result), result)
         finally:
@@ -210,7 +267,12 @@ class AdbRunner:
             # connected is a serial the next operation may reach by
             # accident. Two pairs can share one address, so this runs once
             # per pair and disconnecting twice is harmless.
-            client.disconnect(ip)
+            #
+            # `connect` is the exception and the whole point of it: it exists
+            # to leave the display attached so `adb devices` lists it (see
+            # apps.KEEP_CONNECTED).
+            if self._operation not in apps.KEEP_CONNECTED:
+                client.disconnect(ip)
 
     def _perform(self, target: dict):
         operation = self._operation
@@ -218,6 +280,10 @@ class AdbRunner:
         ip = target.get("ip", "")
         package = target.get("package") or params.get("package") or ""
         activity = target.get("activity") or params.get("activity") or ""
+        if operation == "restart_server":
+            return apps.restart_server()
+        if operation == "connect":
+            return apps.connect(ip)
         if operation == "start":
             return apps.start(ip, package, activity)
         if operation == "stop":
@@ -228,6 +294,8 @@ class AdbRunner:
             return apps.uninstall(ip, package)
         if operation == "install":
             return apps.install(ip, params.get("path"))
+        if operation == "reboot":
+            return apps.reboot(ip)
         if operation == "autostart_install":
             return autostart.install(ip, package, activity)
         if operation == "autostart_remove":
@@ -247,9 +315,20 @@ class AdbRunner:
         if result.get("action") == "autostart_install":
             return i18n.t("adb.rowAutostartVia",
                           route=str(result.get("route") or ""))
+        if result.get("action") == "restart_server":
+            return i18n.t("adb.rowServerRestarted")
+        if result.get("action") == "connect":
+            return i18n.t("adb.rowConnected",
+                          serial=str(result.get("serial") or ""))
+        if result.get("action") == "reboot":
+            # How long it took to answer again, because that is the number
+            # an operator compares displays by when one of them is sick.
+            return i18n.t("adb.rowRebooted",
+                          seconds=result.get("seconds", 0))
         return i18n.t("adb.rowDone")
 
-    def _write(self, key: str, state: str, detail: str, result=None) -> None:
+    def _write(self, key: str, state: str, detail: str, result=None, *,
+               connection: bool = False) -> None:
         with self._lock:
             row = self._rows.get(key)
             if row is None:
@@ -258,8 +337,23 @@ class AdbRunner:
                        or result is not None)
             row["state"] = state
             row["detail"] = detail
+            # Not shown anywhere; read by `_should_recover`.
+            row["connection"] = connection
             if result is not None:
                 row["result"] = result
+            # A row that has finished writes a line, once. `_write` is
+            # called with `running` first and can be called twice with the
+            # same result when the server is restarted between rounds (see
+            # `_run`), so the guard is both the state and the change.
+            if changed and state in FINISHED:
+                self._log.append({
+                    "at": time.time(),
+                    "operation": self._operation,
+                    "ip": row["ip"],
+                    "package": row["package"],
+                    "state": state,
+                    "detail": detail,
+                })
             # Only a real change moves the counter — a one-second poll must
             # not cost a redraw when nothing has happened.
             if changed:
@@ -275,14 +369,26 @@ def _key(pair: dict) -> str:
     return f"{pair['ip']}\u0000{pair['package']}"
 
 
-def _pairs(targets, params: dict) -> list[dict]:
+def _pairs(targets, params: dict, operation: str = "") -> list[dict]:
     """(device, bundle) pairs, in the order given and without duplicates.
 
     A plain address is accepted and takes its package from `params` — the
     right shape for installing an APK, whose package is inside the file
     rather than chosen on screen.
+
+    FOR A DEVICE-LEVEL OPERATION THE BUNDLE IS DROPPED FIRST, and that is
+    what collapses the pairs back to one row per address. Rebooting is the
+    case that makes it necessary: a display carrying two of the selected
+    bundles produces two pairs, and two pairs would send that machine the
+    reboot command twice — once while it is already on its way down.
     """
-    fallback = str(params.get("package") or "")
+    # The host operation reaches no device, so it is ONE row whatever was
+    # selected — and it must produce a row even with nothing selected at all,
+    # which is exactly when an operator reaches for it.
+    if operation in apps.HOST_OPERATIONS:
+        return [{"ip": "", "package": "", "activity": ""}]
+    per_device = operation in apps.DEVICE_OPERATIONS
+    fallback = "" if per_device else str(params.get("package") or "")
     pairs, seen = [], set()
     for target in (targets or []):
         if isinstance(target, dict):
@@ -293,6 +399,8 @@ def _pairs(targets, params: dict) -> list[dict]:
             ip, package, activity = str(target or "").strip(), fallback, ""
         if not ip:
             continue
+        if per_device:
+            package, activity = "", ""
         pair = {"ip": ip, "package": package, "activity": activity}
         key = _key(pair)
         if key in seen:

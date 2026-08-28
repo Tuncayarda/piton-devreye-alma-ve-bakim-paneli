@@ -86,6 +86,171 @@ def _import_targets(path):
     return targets
 
 
+# ── the class-name gate ─────────────────────────────────────────────────
+# A class in the JS with no rule in the CSS is invisible: the element renders,
+# unstyled, and nothing anywhere says so. That is how the switch screen's link
+# dots came to be grey whatever the port was doing — the sibling application
+# defined `.dot.up`, `.dot.data` and friends in its own stylesheet, the
+# JavaScript was carried over and the stylesheet was not.
+#
+# WHAT THIS SEES: class names written as literals inside the class expression,
+# including the branches of a ternary and the fixed parts of a template
+# string. WHAT IT DOES NOT SEE: a name computed into a variable first
+# (`class: `dot ${kind}`` tells us only about "dot"). The second test below
+# closes that particular gap for the one vocabulary that uses it.
+
+# Two kinds of site, checked differently. A `class:` shows the element's WHOLE
+# class list, so a modifier can be checked against the compound selector it
+# needs (`.pill.ok` is a rule; a lone `.ok` is not). The others show one name
+# at a time — `classList.add('view-enter')` cannot reveal the `.view` that
+# `.view.view-enter` also requires — so those get the weaker check: the name
+# must be styled somewhere.
+_CLASS_ATTRIBUTE = re.compile(r"\bclass:")
+_CLASS_FRAGMENT = re.compile(
+    r"\bclassName\s*\+?=|\bclassList\.(?:add|remove|toggle)\(")
+_STRING = re.compile(r"'([^'\\\n]*)'|\"([^\"\\\n]*)\"|`([^`\\]*)`", re.DOTALL)
+# `port.link === 'up'` sits inside a class expression but is a comparison, not
+# a class. Dropped before the literals are read, or every screen that colours
+# by a data value reports its data values as missing rules.
+_COMPARISON = re.compile(r"(?:===|!==|==|!=)\s*(['\"])[^'\"]*\1")
+_CLASS_TOKEN = re.compile(r"-?[A-Za-z_][\w-]*")
+
+
+def _class_expression(text: str, start: int) -> str:
+    """The class value: from `start` to the comma or line that ends it.
+
+    A balanced walk rather than a regex, because the value may carry a call
+    (`.trim()`), a ternary or a template string, and stopping at the first
+    comma would cut `t('a', {b: 1})` in half.
+    """
+    depth, index, out = 0, start, []
+    while index < len(text):
+        char = text[index]
+        if char in "'\"`":
+            end = index + 1
+            while end < len(text) and text[end] != char:
+                end += 2 if text[end] == "\\" else 1
+            out.append(text[index:end + 1])
+            index = end + 1
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and (char == ","
+                             or (char == "\n" and text[index - 1] not in "?:+")):
+            break
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+def _string_tokens(raw: str) -> list[str]:
+    """Class names inside one string, interpolations included.
+
+    A `${...}` hole is read rather than skipped, because that is where the
+    interesting half usually lives: `poe ${mode === '0' ? 'off' : 'on'}` names
+    two classes and neither is outside the braces. Anything in there that is
+    not a plain name — `${roles.join(' ')}`, `${t('switch.x')}` — yields
+    nothing and is meant to.
+    """
+    tokens: list[str] = []
+    for part in re.split(r"(\$\{[^}]*\})", raw):
+        if part.startswith("${"):
+            for found in _STRING.finditer(part):
+                inner = next(one for one in found.groups() if one is not None)
+                tokens.extend(_string_tokens(inner))
+        else:
+            tokens.extend(part.split())
+    return tokens
+
+
+def _class_sets() -> tuple[dict, dict]:
+    """What the JS writes: whole class lists, and lone fragments.
+
+    Returns ({frozenset(names): {file}}, {name: {file}}) — the first from
+    `class:` attributes, the second from `classList`/`className` writes.
+    """
+    whole: dict[frozenset, set[str]] = {}
+    fragments: dict[str, set[str]] = {}
+
+    def names(text: str, at: int) -> list[str]:
+        value = _COMPARISON.sub(" ", _class_expression(text, at))
+        found = []
+        for string in _STRING.finditer(value):
+            raw = next(one for one in string.groups() if one is not None)
+            found += [token for token in _string_tokens(raw)
+                      if _CLASS_TOKEN.fullmatch(token)]
+        return found
+
+    for path in _js_files():
+        text = _code(path)
+        for match in _CLASS_ATTRIBUTE.finditer(text):
+            written = names(text, match.end())
+            if written:
+                whole.setdefault(frozenset(written), set()).add(path.name)
+        for match in _CLASS_FRAGMENT.finditer(text):
+            for name in names(text, match.end()):
+                fragments.setdefault(name, set()).add(path.name)
+    return whole, fragments
+
+
+def _css_compounds() -> set[frozenset]:
+    """Every class combination the stylesheets have a rule for.
+
+    `.pm-port.feed .shell` contributes two: {pm-port, feed} and {shell}. The
+    combination is the point — `.ok` on its own styles nothing, and an element
+    that writes only `ok` gets nothing, however many `.something.ok` rules
+    exist.
+    """
+    text = "\n".join(path.read_text(encoding="utf-8")
+                     for path in sorted(CSS_DIR.glob("*.css")))
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    compounds = set()
+    for block in re.finditer(r"(^|[};])\s*([^{};@]+?)\s*\{", text, re.MULTILINE):
+        for selector in block.group(2).split(","):
+            # `:not(.x)` and `[data-state="ok"]` are conditions on the element,
+            # not classes it must carry.
+            pruned = re.sub(r":[a-z-]+\([^)]*\)", " ", selector)
+            pruned = re.sub(r"\[[^\]]*\]", " ", pruned)
+            for sequence in re.split(r"[\s>+~]+", pruned):
+                found = frozenset(
+                    re.findall(r"\.(-?[A-Za-z_][\w-]*)", sequence))
+                if found:
+                    compounds.add(found)
+    return compounds
+
+
+def _uncovered(written: frozenset, compounds: set[frozenset]) -> list[str]:
+    """Names in `written` that no applicable rule mentions."""
+    return sorted(name for name in written
+                  if not any(name in rule and rule <= written
+                             for rule in compounds))
+
+
+# Classes that predate this gate and style nothing. Each is a modifier written
+# beside a class that does carry the styling, so nothing is broken today —
+# they are listed rather than deleted because removing them means touching six
+# screens this gate was not written to change. Adding to this list is a way of
+# saying "on purpose"; the default is to give the class a rule or drop it.
+CLASSES_WITHOUT_RULES: dict[str, str] = {
+    "adb-op-note": "modifier beside .info, which carries the styling",
+    "device-category-bar": "modifier beside .chip-bar",
+    "ip-lcd-settings": "modifier beside .setting-section",
+    "job-row-box": "wrapper the queue styles through its parent",
+    "legend-plain": "modifier beside .legend",
+    "payload": "the MQTT payload cell, styled through .table-row",
+}
+
+# The closed vocabulary of `[data-state]`. `dotState` in the switch port table
+# picks from it, and a name it invented instead would paint nothing.
+_STATE_DECLARED = re.compile(r'\[data-state="([a-z]+)"\]')
+_DOT_STATE_BODY = re.compile(
+    r"function dotState\(port\) \{(.*?)\n\}", re.DOTALL)
+
+
 def _code(path) -> str:
     """Strips comments and returns the code only.
 
@@ -235,6 +400,126 @@ class Frontend(unittest.TestCase):
         self.assertIn('lang="en"', html)
         self.assertIn('<script type="module"', html)
 
+    def test_every_view_has_a_container_and_a_render_function(self):
+        """A route with no container renders into nothing, silently.
+
+        `VIEWS` in app.js maps a view id to a selector plus a render call. A
+        selector naming an element that is not in index.html produces no
+        error — the screen simply stays blank — so the two are checked
+        against each other here.
+        """
+        html = (settings.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        app = (JS_DIR / "app.js").read_text(encoding="utf-8")
+        table = app.split("const VIEWS = {")[1].split("\n};")[0]
+        views = re.findall(r"^\s*(\w+): \['#([\w-]+)'", table, re.MULTILINE)
+        self.assertGreaterEqual(len(views), 12)
+        for name, container in views:
+            self.assertIn(f'id="{container}"', html, name)
+        # The two screens this test was written for, named so the check
+        # cannot pass by finding nothing.
+        self.assertIn(("adb", "v-adb"), views)
+        self.assertIn(("switch", "v-switch"), views)
+
+    def test_every_stylesheet_the_shell_links_is_bundled(self):
+        """A stylesheet linked but not listed in the bundler is lost.
+
+        The desktop build inlines the files in its own CSS_FILES list; one
+        that is only in index.html loads in `--browser` mode and is simply
+        absent from the packaged application, which is the harder bug to
+        notice.
+        """
+        html = (settings.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+        builder = (settings.ROOT / "tools" / "build_desktop_bundle.py"
+                   ).read_text(encoding="utf-8")
+        linked = re.findall(r'<link rel="stylesheet" href="/css/([\w.-]+)"',
+                            html)
+        self.assertIn("switch.css", linked)
+        listed = set(re.findall(r'"css" / "([\w.-]+)"', builder))
+        self.assertEqual(sorted(set(linked) - listed), [],
+                         "linked in index.html but not bundled")
+
+    def test_every_class_the_js_writes_has_a_css_rule(self):
+        """A class with no rule renders nothing and says nothing.
+
+        The switch screen asked for `.poe on` and the ADB screen for
+        `.pill ok`; the stylesheets have `.pill.on` and `.pill.off` and
+        nothing else, so both came out with the plain look and no error
+        anywhere. Checked as COMBINATIONS: `ok` exists in the CSS — inside
+        `.pill.ok` — and a check that only asked "is this name styled
+        somewhere" would have passed both of them.
+        """
+        whole, fragments = _class_sets()
+        compounds = _css_compounds()
+        # Named so the check cannot pass by finding nothing.
+        self.assertGreater(len(whole), 300)
+        self.assertIn(frozenset({"pm-case"}), whole)
+
+        broken = {}
+        for written, files in whole.items():
+            for name in _uncovered(written, compounds):
+                if name not in CLASSES_WITHOUT_RULES:
+                    broken[f"{name} (written as {sorted(written)})"] = files
+        # A `classList.add` never shows the rest of the element's classes, so
+        # those get the weaker question: is this name styled at all?
+        styled = {name for rule in compounds for name in rule}
+        for name, files in fragments.items():
+            if name not in styled and name not in CLASSES_WITHOUT_RULES:
+                broken[name] = files
+        self.assertEqual(broken, {}, "class written by the JS with no CSS rule")
+
+        # The allowlist is not allowed to go stale either: an entry that has
+        # since been given a rule, or is no longer written anywhere, is a line
+        # nobody would think to delete.
+        every = {name for written in whole for name in written} | set(fragments)
+        for name, reason in CLASSES_WITHOUT_RULES.items():
+            self.assertIn(name, every, f"{name}: no longer written ({reason})")
+            self.assertNotIn(name, styled, f"{name}: has a rule now ({reason})")
+
+    def test_the_port_table_paints_dots_with_declared_states(self):
+        """`dotState` picks from the panel's vocabulary, not one of its own.
+
+        The gate above sees only literal class names, so `dot ${kind}` told it
+        nothing about what `kind` could be. This reads the four answers
+        `dotState` actually returns and checks each has a `[data-state]` rule.
+        """
+        components = (CSS_DIR / "components.css").read_text(encoding="utf-8")
+        declared = set(_STATE_DECLARED.findall(components))
+        self.assertIn("link", declared)   # added for the switch port table
+
+        body = _DOT_STATE_BODY.search(_code(JS_DIR / "views" / "switch"
+                                            / "ports.js"))
+        self.assertIsNotNone(body, "dotState is gone or has been renamed")
+        # `=== 'up'` is the port's data, not a state name.
+        source = _COMPARISON.sub(" ", body.group(1))
+        returned = set(re.findall(r"'([a-z]+)'", source))
+        self.assertEqual(returned, {"failed", "ok", "link", "unknown"})
+        self.assertEqual(sorted(returned - declared), [])
+
+    def test_one_front_panel_drawing_serves_both_screens(self):
+        """The faceplate must not be drawn in two places again.
+
+        The IP assignment screen and the Switch screen show the front of the
+        same switch. They each had their own copy of the connector SVG and the
+        grid arithmetic, which is how two panels end up disagreeing about
+        where port 7 is. Both now import the one component; this fails if
+        either grows its own again.
+        """
+        component = JS_DIR / "components" / "front_panel.js"
+        self.assertTrue(component.is_file())
+        users = (JS_DIR / "views" / "ip" / "panel.js",
+                 JS_DIR / "views" / "switch" / "front_panel.js")
+        for path in users:
+            code = _code(path)
+            self.assertIn("components/front_panel.js", code, path.name)
+            # The two things the component owns. A screen defining either
+            # again is a screen that has started drawing its own faceplate.
+            self.assertNotIn("'shell'", code, path.name)
+            self.assertNotIn("pm-grid", code, path.name)
+        # And the component is the only place they live.
+        source = _code(component)
+        self.assertIn("'shell'", source)
+        self.assertIn("pm-grid", source)
+
     def test_the_shell_carries_its_navigation_landmarks(self):
         """What a screen reader and a keyboard need to move around at all.
 
@@ -252,7 +537,8 @@ class Frontend(unittest.TestCase):
         self.assertNotIn('id="route-status" ', html.split('id="toast"')[0])
 
     def test_css_files_exist_and_are_not_empty(self):
-        for name in ("base.css", "components.css", "views.css", "ip.css"):
+        for name in ("base.css", "components.css", "views.css", "ip.css",
+                     "switch.css"):
             path = CSS_DIR / name
             self.assertTrue(path.is_file(), name)
             self.assertGreater(len(path.read_text(encoding="utf-8")), 500, name)

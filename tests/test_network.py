@@ -35,6 +35,7 @@ import json
 import os
 import threading
 import unittest
+from contextlib import ExitStack
 from unittest import mock
 
 from .support import fakes
@@ -1428,3 +1429,99 @@ class ServiceRoutes(AllowsWrites, PanelTest):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ────────────────────────────────────── an address for a named network ─────
+class EnsureNamedNetwork(AllowsWrites, PanelTest):
+    """`ensure_network` — the switch screen's own network preparation.
+
+    `ensure()` reads what the PROJECT needs out of the DeviceMap. The switch
+    screen has no project: it sweeps a network the operator typed, which may
+    be one nothing in the inventory mentions. Without an address on it the
+    sweep finds nothing at all, and the empty result is indistinguishable from
+    "there are no switches here" — no packet ever left the machine.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.allow_writes()
+        self.added = []
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(mock.patch.object(
+            aliases, "add",
+            side_effect=lambda handle, ip, prefix, adapter_name="", **k: (
+                self.added.append((handle, ip, prefix)) or
+                {"ip": ip, "prefix": prefix, "adapter": adapter_name})))
+        self.stack.enter_context(mock.patch.object(
+            aliases, "active", return_value=[]))
+
+    def with_adapters(self, found):
+        self.stack.enter_context(mock.patch.object(
+            adapters, "list_adapters", return_value=found))
+
+    def choose_adapter(self, name):
+        """Stand in for the choice made on the Network screen."""
+        self.stack.enter_context(mock.patch.object(
+            prepare, "preferences",
+            return_value={"adapter": name, "search": [], "factoryIp": ""}))
+
+    def test_an_address_is_added_on_the_chosen_adapter(self):
+        """With an interface chosen, the panel puts itself on the network.
+
+        The choice is what makes this possible at all: `adapters.choose` picks
+        an interface that is ALREADY on the target network, and for a network
+        the machine is not on there is by definition no such interface. So
+        this path needs the operator's answer, and the next test is what
+        happens without it.
+        """
+        self.with_adapters([adapters.Adapter(
+            name="Ethernet", handle="en5", addresses=[("10.1.1.4", 24)],
+            up=True)])
+        self.choose_adapter("en5")
+        result = prepare.ensure_network(ipaddress.IPv4Network("10.9.9.0/24"))
+        self.assertEqual(len(result["added"]), 1)
+        self.assertEqual(self.added[0][0], "en5")
+        self.assertTrue(self.added[0][1].startswith("10.9.9."))
+        self.assertEqual(self.added[0][2], 24)
+
+    def test_nothing_is_added_when_it_is_already_reachable(self):
+        """An address the computer holds is a route it has, whoever put it
+        there. Adding a second would be noise on the interface."""
+        self.with_adapters([adapters.Adapter(
+            name="Ethernet", handle="en5", addresses=[("10.1.1.4", 24)])])
+        result = prepare.ensure_network(ipaddress.IPv4Network("10.1.1.0/24"))
+        self.assertEqual(result["added"], [])
+        self.assertEqual(self.added, [])
+
+    def test_it_declines_to_guess_which_cable_reaches_the_switches(self):
+        """No adapter already on the target network and none chosen.
+
+        The panel does not rank interfaces — a laptop tethered to a phone had
+        the address put on the phone. `needsAdapter` sends the question to the
+        Network screen instead.
+        """
+        self.with_adapters([adapters.Adapter(
+            name="Wi-Fi", handle="en0", addresses=[("192.168.1.20", 24)],
+            up=True)])
+        result = prepare.ensure_network(ipaddress.IPv4Network("10.9.9.0/24"))
+        self.assertEqual(result["added"], [])
+        self.assertTrue(result["needsAdapter"])
+
+    def test_no_network_is_not_an_error(self):
+        """`target_network` returns None for an expression it cannot read."""
+        self.assertEqual(prepare.ensure_network(None)["added"], [])
+
+    def test_a_failed_write_is_reported_not_raised(self):
+        """The sweep still runs: the computer may have a route this cannot
+        see, and the empty result says more than a guess here."""
+        self.with_adapters([adapters.Adapter(
+            name="Ethernet", handle="en5", addresses=[("10.1.1.4", 24)],
+            up=True)])
+        self.choose_adapter("en5")
+        self.stack.enter_context(mock.patch.object(
+            aliases, "add", side_effect=RuntimeError("ifconfig refused")))
+        result = prepare.ensure_network(ipaddress.IPv4Network("10.9.9.0/24"))
+        self.assertEqual(result["added"], [])
+        self.assertEqual(len(result["failed"]), 1)
+        self.assertIn("ifconfig", result["failed"][0]["error"])

@@ -78,6 +78,75 @@ def normalise_ip(value) -> str:
     return str(parsed)
 
 
+# ── one box, several addresses ──────────────────────────────────────────
+# What an operator actually types when they have twelve displays in front of
+# them. Adding those one at a time is twelve rounds of type-tab-type-Enter,
+# and the addresses are consecutive, which is the whole point of a range.
+#
+#     10.1.1.45                one
+#     10.1.1.45, 10.1.1.51     a list, comma or semicolon or whitespace
+#     10.1.1.45-47             .45 .46 .47 — the short form, LAST OCTET only
+#     10.1.1.45-10.1.1.47      the long form, written out
+#
+# BOTH ENDS ARE INCLUDED. "45-47" means three displays to the person holding
+# them, and a range that quietly dropped .47 would be found by the operator
+# rather than by anyone reading this.
+#
+# The short form is deliberately limited to the last octet. `10.1.1.45-10.2.1.5`
+# is arithmetic nobody typed on purpose, and a range that crosses a network is
+# far more likely to be a typo than an intention — see MAX_RANGE.
+MAX_RANGE = 256
+_SEPARATORS = (";", "\n", "\t")
+
+
+def _range(text: str) -> list[str] | None:
+    """`10.1.1.45-47` or `10.1.1.45-10.1.1.47` -> every address in it."""
+    if "-" not in text:
+        return None
+    first, _, last = text.partition("-")
+    start = normalise_ip(first)
+    tail = last.strip()
+    if not tail:
+        raise PoolError(i18n.t("error.adbRangeInvalid", range=text))
+    # The short form: only the final octet was written out.
+    end = (normalise_ip(tail) if "." in tail
+           else normalise_ip(start.rsplit(".", 1)[0] + "." + tail))
+    low, high = int(ipaddress.IPv4Address(start)), int(ipaddress.IPv4Address(end))
+    if high < low:
+        raise PoolError(i18n.t("error.adbRangeBackwards", range=text))
+    if high - low + 1 > MAX_RANGE:
+        raise PoolError(i18n.t("error.adbRangeTooLarge", range=text,
+                               maximum=MAX_RANGE))
+    return [str(ipaddress.IPv4Address(value)) for value in range(low, high + 1)]
+
+
+def parse_addresses(value) -> list[str]:
+    """Every address one box asked for, in order, without duplicates.
+
+    ONE BAD PIECE FAILS THE WHOLE BOX, unlike the file import, and the two
+    differ on purpose. A file is somebody else's and arrives with whatever is
+    in it, so the readable rows are kept and the rest counted. This is what
+    the operator just typed: a silently dropped piece is an address they
+    believe they added and will look for later.
+    """
+    text = str(value or "")
+    for separator in _SEPARATORS:
+        text = text.replace(separator, ",")
+    pieces = [piece.strip() for piece in text.replace(" ", ",").split(",")]
+    pieces = [piece for piece in pieces if piece]
+    if not pieces:
+        raise PoolError(i18n.t("error.adbAddressRequired"))
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for piece in pieces:
+        for ip in (_range(piece) or [normalise_ip(piece)]):
+            if ip not in seen:
+                seen.add(ip)
+                found.append(ip)
+    return found
+
+
 def normalise_label(value) -> str:
     return " ".join(str(value or "").split())[:MAX_LABEL]
 
@@ -185,6 +254,29 @@ def add(ip, label="") -> list[dict]:
         return replace_all([*devices, entry])
 
 
+def add_many(value, label="") -> tuple[list[dict], int]:
+    """Add everything one box asked for. Returns (devices, how many were new).
+
+    The label goes on every address the box produced. That is right for a
+    range — "cabin 3" for .45 to .47 is a shelf, not three names — and it is
+    what the operator gets to correct afterwards by re-adding one of them.
+    """
+    with _LOCK:
+        wanted = parse_addresses(value)
+        text = normalise_label(label)
+        devices = load()
+        known = {entry["ip"] for entry in devices}
+        fresh = [ip for ip in wanted if ip not in known]
+        if len(devices) + len(fresh) > MAX_DEVICES:
+            raise PoolError(i18n.t("error.adbPoolFull", limit=MAX_DEVICES))
+        for entry in devices:
+            if entry["ip"] in wanted and text:
+                # Re-adding is how a label is corrected; it is not an error.
+                entry["label"] = text
+        devices.extend({"ip": ip, "label": text} for ip in fresh)
+        return replace_all(devices), len(fresh)
+
+
 def remove(ip) -> list[dict]:
     """Drop one address. Removing one that is not there is not an error."""
     with _LOCK:
@@ -208,6 +300,40 @@ def contains(ip) -> bool:
 
 def addresses() -> list[str]:
     return [entry["ip"] for entry in load()]
+
+
+# ── handing the list to somebody else ───────────────────────────────────
+# The file name is fixed rather than stamped with the time. This is an address
+# book, not a record: an operator who exports twice in an afternoon wants the
+# second file, and a Documents folder filling up with
+# `adb-devices-2026-08-28T14-03-11.json` is how a convenience becomes a chore.
+EXPORT_NAME = "adb-devices.json"
+
+
+def write_export(path=None) -> Path:
+    """Write the list where somebody can pick it up. Returns the path.
+
+    `path` is what the operator named in the OS save dialog (see
+    `panel/system/files.pick_save_path` — the route opens it, never this
+    module). Without one it falls back to the OS Documents folder, which is
+    where this panel puts everything it produces for a person to carry away
+    (the checklist workbook is the other one — `panel/checklist/workbook.py`).
+
+    The SAME SHAPE THE IMPORT READS, format number included, so a list
+    exported here goes back in through `read_import` above without anybody
+    editing it. `tests/test_adb.py` holds the round trip.
+    """
+    target = Path(path) if path else (settings.OUTPUT_DIR / EXPORT_NAME)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Written whole rather than atomically, unlike `_write` above: this is a
+    # copy for somebody else, and a half-written one is noticed at once by the
+    # person opening it. The address book itself is the file that must never
+    # be left empty.
+    target.write_text(
+        json.dumps({"format": FORMAT, "devices": load()},
+                   ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    return target
 
 
 # ── importing a list somebody sent ──────────────────────────────────────

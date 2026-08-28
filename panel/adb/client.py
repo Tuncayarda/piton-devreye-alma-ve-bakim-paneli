@@ -116,6 +116,74 @@ def connect(ip: str, cancelled=None, attempts: int = CONNECT_ATTEMPTS) -> bool:
     return False
 
 
+def listed(timeout: float | None = None) -> set[str]:
+    """The serials `adb devices` reports as ready, right now.
+
+    THE ONE PLACE THIS IS ASKED, and only for the screen that shows it. Every
+    operation still proves its own transport with `connect_once` rather than
+    trusting a row here — the note at the top of this file says why: an
+    `adb devices` row survives the display being unplugged, so believing one
+    means sending a command into a socket that is not there.
+
+    What the list IS good for is answering "which of my addresses is actually
+    attached", which is a question about the ADB server rather than about any
+    one device.
+    """
+    result = run("devices", timeout=timeout)
+    ready = set()
+    for line in str(getattr(result, "stdout", "") or "").splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            ready.add(parts[0])
+    return ready
+
+
+# ── the ADB server itself ───────────────────────────────────────────────
+# Everything above talks to a DEVICE. These two talk to the daemon on this
+# computer that all of it goes through, and it is a thing that gets stuck: a
+# display that changed address, a laptop that slept with transports open, a
+# second `adb` from Android Studio claiming the port. The symptom is always
+# the same and always misleading — every device on the bench "cannot be
+# reached", so the operator goes looking at cables.
+#
+# `kill-server` + `start-server` is the fix, and it is safe in the sense that
+# matters here: it drops every transport, which is exactly what is wanted, and
+# no device is touched. WHAT IT IS NOT SAFE FOR is running while commands are
+# in flight — see `panel.adb.runner`, which only ever does this between
+# rounds, never inside one.
+
+
+def server_ok(timeout: float | None = None) -> bool:
+    """Is the local ADB server answering at all?
+
+    `adb devices` is the cheapest question that reaches it. An empty list is
+    a fine answer — "no displays attached" is not "the server is wedged".
+    """
+    try:
+        result = run("devices", timeout=timeout if timeout is not None else 5)
+    except AdbUnavailable:
+        raise
+    except Exception:
+        return False
+    return getattr(result, "returncode", 1) == 0
+
+
+def restart_server(timeout: float | None = None) -> dict:
+    """Stop the local ADB server and start it again.
+
+    Both halves, and the second one explicitly: `kill-server` alone leaves the
+    next command to start the daemon implicitly, which it does — while the
+    caller is timing it. Starting it here means the cost is paid once, now,
+    by the operator who asked for it.
+    """
+    limit = timeout if timeout is not None else 15
+    killed = run("kill-server", timeout=limit)
+    started = run("start-server", timeout=limit)
+    return {"action": "restart_server",
+            "ok": getattr(started, "returncode", 1) == 0,
+            "detail": output(started) or output(killed)}
+
+
 def shell_result(ip: str, *command: str, timeout: float | None = None):
     """The raw result of a shell command on one named transport.
 
@@ -135,6 +203,45 @@ def shell(ip: str, *command: str, timeout: float | None = None) -> str:
                   or str(getattr(result, "stdout", "") or "").strip())
         raise RuntimeError(detail[:160] or "adb shell failed")
     return str(getattr(result, "stdout", "") or "").strip()
+
+
+def restart_as_root(ip: str, *, timeout: float | None = None) -> bool:
+    """Ask adbd to restart as root. True once it really is root.
+
+    On a userdebug image this is what makes /system writable at all — the
+    unprivileged `su` route cannot do it on a device whose /system sits on a
+    verity-backed device-mapper volume, because the kernel there accepts the
+    file's metadata and silently drops its contents.
+
+    adbd DIES AND COMES BACK, so the transport has to be rebuilt afterwards;
+    `connect` is what proves it is really up rather than the command's own
+    cheerful answer.
+    """
+    result = run("-s", target(ip), "root",
+                 timeout=timeout if timeout is not None else 30)
+    answer = output(result).lower()
+    if "cannot run as root" in answer or "not permitted" in answer:
+        return False                      # a user build: nothing to retry
+    disconnect(ip)
+    if not connect(ip, attempts=6):
+        return False
+    return "uid=0" in output(shell_result(ip, "id"))
+
+
+def overlay_remount(ip: str, *, timeout: float | None = None) -> bool:
+    """Make /system writable, by overlay if the image needs one.
+
+    `adb remount` is the only thing that arranges this correctly on Android
+    10 and later: it mounts an overlayfs whose upper layer lives on
+    /mnt/scratch, so a write lands somewhere that is actually written.
+    Remounting the read-only volume by hand looks like it worked and is not
+    the same thing at all.
+    """
+    result = run("-s", target(ip), "remount",
+                 timeout=timeout if timeout is not None else 60)
+    answer = output(result).lower()
+    return ("remount succeeded" in answer or "overlayfs" in answer
+            or "now reboot" in answer)
 
 
 def output(result) -> str:

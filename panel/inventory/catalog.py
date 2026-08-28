@@ -73,11 +73,16 @@ def read_method_for(device_type: str, subtype: str | None) -> str:
     if device_type in ("Camera", "NVR"):
         return "isapi"
     if device_type == "Announcement" and (subtype or "") in (
-            "Amplifier", "Handset", "Intercom", "UIC"):
+            "Amplifier", "Handset", "Intercom", "Swanneck", "UIC"):
         return "http"
     if device_type in ("PISCU", "HMI"):
         return "app"
-    if device_type == "LCD" and (subtype or "") == "Compartment":
+    # The two Android displays. Both are reached the same way and neither has
+    # a settings API — the address is written over ADB (see
+    # panel/config_sync/adb_network.py) and the application arrives as an APK.
+    # LCD/Landing is deliberately not here: it is a passive display the panel
+    # only knows from DeviceMap.
+    if device_type == "LCD" and (subtype or "") in ("Compartment", "Twin"):
         return "adb"
     return "mqtt"
 
@@ -96,6 +101,12 @@ GROUPS = [
      "ops": "cfg fw check"},
     {"name": "Amplifier", "type": "Announcement", "subtype": "Amplifier",
      "ops": "cfg fw check"},
+    # The gooseneck microphone. Same Piton announcement firmware as the
+    # Intercom — same endpoints, same field set — so it is configured and
+    # updated the same way. Not addressed by the panel: like the Handset it
+    # is set up by hand and then only configured.
+    {"name": "Swanneck", "type": "Announcement", "subtype": "Swanneck",
+     "ops": "cfg fw check"},
     {"name": "UIC", "type": "Announcement", "subtype": "UIC",
      "ops": "cfg fw check"},
     # The Compartment LCD is commissioned and receives its APK over adb.
@@ -107,6 +118,15 @@ GROUPS = [
      "ops": "ip cfg fw check"},
     {"name": "Landing LCD", "type": "LCD",
      "subtype": "Landing", "ops": "check"},
+    # The twin display, on the exhibition rack. Android like the Compartment
+    # LCD: its address is written over ADB and its application arrives as an
+    # APK. NO `ip` — the port-by-port commissioning run behind that operation
+    # is written for the Compartment LCD alone (panel/ip_assign/lcd_runner.py
+    # filters on the SubType, and the IP screen has its own bench mode for
+    # it). On a map with literal addresses it would have nothing to do
+    # anyway: source and target set resolve to the same address.
+    {"name": "Twin LCD", "type": "LCD", "subtype": "Twin",
+     "ops": "cfg fw check"},
     {"name": "LED", "type": "LED", "subtype": "Front", "ops": "check"},
     {"name": "ICU", "type": "ICU", "subtype": "", "ops": "check"},
     # Video equipment is configured, not addressed: the camera and NVR

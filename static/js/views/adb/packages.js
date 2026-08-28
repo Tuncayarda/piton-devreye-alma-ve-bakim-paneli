@@ -28,6 +28,7 @@
 import { el } from '../../core/dom.js';
 import { t } from '../../core/i18n.js';
 import { local, running, selectedIps } from './state.js';
+import { tagged } from './fields.js';
 
 export function packagesCard(actions) {
   const answer = local.found;
@@ -35,8 +36,7 @@ export function packagesCard(actions) {
 
   const keywordField = el('input', {
     class: 'field adb-keyword', type: 'text', autocomplete: 'off',
-    spellcheck: 'false', 'aria-label': t('adb.keyword'),
-    placeholder: t('adb.keywordPlaceholder'), value: local.keyword,
+    spellcheck: 'false', value: local.keyword,
     oninput: (event) => { local.keyword = event.target.value; },
   });
 
@@ -55,7 +55,7 @@ export function packagesCard(actions) {
         actions.search(keywordField.value);
       },
     }, [
-      keywordField,
+      tagged('adb.keyword', keywordField),
       el('button', {
         type: 'submit', class: 'btn btn-primary',
         text: local.searching ? t('adb.searching') : t('adb.search'),
@@ -93,8 +93,14 @@ function results(answer, actions) {
   return parts;
 }
 
+// THE ADDRESSES IT IS ON, not the ones it is not. Naming the gaps was the
+// first attempt and it reads backwards: the operator is choosing what to work
+// on, so the useful list is the one the run will actually reach. When some
+// devices are missing it, the line still says so — as a count, which is the
+// part that matters — and the row keeps its warning colour.
 function packageRow(entry, actions) {
   const on = local.packages.has(entry.name);
+  const present = entry.present || [];
   const missing = entry.missing || [];
   return el('button', {
     type: 'button', class: 'checkbox adb-package',
@@ -108,11 +114,9 @@ function packageRow(entry, actions) {
         class: missing.length ? 'adb-package-warn' : 'adb-package-note',
         text: missing.length
           ? t('adb.presentOnSomeDevices', {
-            count: (entry.present || []).length,
-            missing: missing.join(', '),
+            list: present.join(', '), missing: missing.length,
           })
-          : t('adb.presentOnAllDevices',
-              { count: (entry.present || []).length }),
+          : t('adb.presentOnAllDevices', { list: present.join(', ') }),
       }),
     ]),
   ]);

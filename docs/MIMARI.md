@@ -323,25 +323,25 @@ reddedilirse devretme de reddediliyor.
 
 ## 3. Çalışan kodu yeniden yazmama
 
-Panel üç betiği **çalışma anında içe aktarır** (`panel/script_loader.py`),
+Panel iki betiği **çalışma anında içe aktarır** (`panel/script_loader.py`),
 kopyalamaz:
 
 | Betik | Ne için |
 |---|---|
-| `field_scripts/switch_api.py` | Switch erişiminin tamamı |
 | `field_scripts/device_verify.py` | Excel şeması ve alan tabloları |
 | `field_scripts/intercom_ip_assign.py` | IP atama koşusu |
 
-Switch okuması `switch_api.sw_get(ip, "stat/basicInfo", kimlik=(k, p))`
-çağrısına iner. URL, HTTP Basic kimlik doğrulama biçimi, port, zaman aşımı,
-HTTP başlıkları ve
-"JSON gelmiyorsa oturum açılması gerekiyor" kuralı iki panelde birebir
-aynıdır — bu yüzden Switch Yönetim Paneli'nde çalışan hesap burada da
-çalışır. `tests/test_switch.py::test_1` bunu iddia etmekle kalmaz, aynı
-sahte switch cihazına iki panelin yolundan sorup sonuçları karşılaştırır.
+Switch erişimi üçüncü bir betikti; artık paketin içinde, `panel/switch/`
+altında ve **panelin tek switch istemcisi**. IP atama ekranının ön paneli,
+factory-reset doğrulaması ve Switch ekranı aynı `switch.CLIENT`'tan geçer:
+URL, HTTP Basic kimlik doğrulama biçimi, port, zaman aşımı, HTTP başlıkları
+ve "JSON gelmiyorsa oturum açılması gerekiyor" kuralı tek yerde tanımlıdır.
+İki istemci, timeout'un ne olduğu ve bir yanıtın ne zaman "giriş gerekli"
+sayılacağı konusunda ayrışır — o gün bir ekranda çalışan hesap diğerinde
+"doğrulanamadı" demeye başlar.
 
-`kimlik` her çağrıda açıkça verilir; verildiği sürece `switch_api` kendi
-modül içi kimlik deposuna hiç bakmaz.
+`kimlik` her çağrıda açıkça verilir; istemci hiçbir parola tutmaz ve hiçbir
+depoya bakmaz (`panel/credentials.py`).
 
 ---
 

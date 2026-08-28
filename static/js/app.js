@@ -48,6 +48,7 @@ import * as devicesView from './views/devices.js';
 import * as ipView from './views/ip/index.js';
 import * as networkView from './views/network.js';
 import * as adbView from './views/adb/index.js';
+import * as switchView from './views/switch/index.js';
 import * as configView from './views/config.js';
 import * as firmwareView from './views/firmware.js';
 import * as checklistView from './views/checklist.js';
@@ -244,6 +245,7 @@ const VIEWS = {
   ip: ['#v-ip', (root) => ipView.render(root)],
   network: ['#v-network', (root) => networkView.render(root)],
   adb: ['#v-adb', (root) => adbView.render(root)],
+  switch: ['#v-switch', (root) => switchView.render(root)],
   config: ['#v-config', (root) => configView.render(root)],
   firmware: ['#v-firmware', (root) => firmwareView.render(root)],
   checklist: ['#v-checklist', (root) => checklistView.render(root, refreshNow)],
@@ -419,6 +421,7 @@ const VIEW_NAME = {
   firmware: 'tabs.firmware',
   network: 'nav.network',
   adb: 'nav.adb',
+  switch: 'nav.switch',
   checklist: 'nav.verification',
   history: 'nav.history',
   piscu: 'nav.piscu',
@@ -445,8 +448,30 @@ function announceView() {
 // None of them fire while somebody is typing: a field or a dropdown with
 // focus owns every key, or "/" in a search box would open a dialog instead
 // of being typed. Modifier combinations are left to the browser.
-const SHORTCUT_VIEWS = ['overview', 'devices', 'ip', 'network', 'checklist',
-                        'history'];
+// IN THE ORDER OF THE RAIL (components/sidebar.js), because the digit is
+// only useful if it is the position the operator can see. The switch screen
+// was appended to the end of this list, so the help dialog offered "7" for a
+// screen sitting sixth; the ADB screen beside it had no digit at all, which
+// is what pushed everything below the two of them out of step.
+const SHORTCUT_VIEWS = ['overview', 'devices', 'ip', 'network', 'adb',
+                        'switch', 'checklist', 'history'];
+
+// AND FILTERED BY WHAT THIS PACKAGE SHOWS, the same question the rail asks.
+// Two of these screens are behind the service key now, and a fixed list would
+// have handed a field user a digit that opened one — drawn, empty, and with
+// every request on it refused by the server (panel/api/guard.py). Before
+// `/api/edition` answers there is nothing to filter against, so the whole
+// list stands, exactly as the rail does.
+function shortcutViews() {
+  const allowed = state.views || [];
+  if (!allowed.length) return SHORTCUT_VIEWS;
+  return SHORTCUT_VIEWS.filter(view => allowed.includes(view));
+}
+
+// Derived, not written out. The digit range used to be a literal `[1-6]`
+// beside a list of six, and the next screen added to the list got a line in
+// the help dialog and a key that did nothing.
+const shortcutKeys = (views) => views.map((_, index) => String(index + 1));
 
 function shortcut(event) {
   if (dialog.isOpen() || event.metaKey || event.ctrlKey || event.altKey) {
@@ -458,8 +483,9 @@ function shortcut(event) {
     return;
   }
 
-  if (/^[1-6]$/.test(event.key)) {
-    const wanted = SHORTCUT_VIEWS[Number(event.key) - 1];
+  const views = shortcutViews();
+  if (shortcutKeys(views).includes(event.key)) {
+    const wanted = views[Number(event.key) - 1];
     if (wanted && wanted !== state.view) patch({ view: wanted });
     event.preventDefault();
     return;
@@ -480,7 +506,7 @@ function shortcut(event) {
 }
 
 function shortcutHelp() {
-  const rows = SHORTCUT_VIEWS.map((view, position) => [
+  const rows = shortcutViews().map((view, position) => [
     String(position + 1), t(VIEW_NAME[view]),
   ]);
   rows.push(['/', t('shortcuts.search')]);
@@ -539,6 +565,7 @@ function onViewEntered(name) {
   else if (name === 'ip') ipView.refresh();
   else if (name === 'network') networkView.refresh();
   else if (name === 'adb') adbView.refresh();
+  else if (name === 'switch') switchView.refresh();
   else if (name === 'config') configView.refresh();
   else if (name === 'firmware') firmwareView.refresh();
   else if (name === 'piscu') piscuView.refresh();

@@ -22,6 +22,7 @@ import struct
 import threading
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 BASIC_INFO = {
     "basicInfo": {
@@ -34,13 +35,47 @@ BASIC_INFO = {
     }
 }
 
-PORT_MODE = {"portMode": [
-    {"pid": i, "type": "GE", "adminStat": 1, "linkStat": "up" if i < 3 else "down"}
+# Realistic portMode rows. The extra fields are not decoration: every write
+# to this endpoint rewrites the WHOLE table from what was read (see
+# panel.switch.ports), so a row missing `linkType` or `maxLength` would let a
+# test pass while the real switch had those columns reset.
+def _port_mode_row(pid: int, kind: str = "GE") -> dict:
+    return {"pid": pid, "type": kind, "adminStat": 1,
+            "linkStat": "up" if pid < 3 else "down", "linktext": "1000M",
+            "linkType": "0", "autoNego": 1, "speed": "1000",
+            "duplex": 1, "flowCtrl": 0, "maxLength": "1522"}
+
+
+PORT_MODE = {"portMode": [_port_mode_row(i) for i in range(1, 25)]}
+
+# The PoE tables. `poeStatus` is the one that may be absent by model, so the
+# fake can be built without it (see `kyland(poe_status=False)`).
+POE_PORT = {"poePort": [
+    {"pid": i, "poeMode": "1", "priority": "0", "maxPower": "154"}
     for i in range(1, 25)
 ]}
+POE_STATUS = {"poeStatus": [
+    # Ten times the real figure, exactly as the hardware reports it: 123 here
+    # must reach the panel as 12.3 W.
+    {"pid": i, "portStatus": "on" if i < 3 else "off",
+     "powerUsed": "123" if i < 3 else "0"}
+    for i in range(1, 25)
+]}
+VLAN_INTF_IP = {"vlanIntfIp": {"method": "manual", "addr": "10.1.1.2",
+                               "netmaskLen": "24", "mtu": "1500"}}
+SUCCESS = {"retCode": ["success"]}
 
 LOGIN_HTML = (b"<!DOCTYPE html><html><head><title>Login</title></head>"
               b"<body><form>Username<input name=user></form></body></html>")
+
+# NOT a switch: a web interface that answers every path with its own page
+# rather than a 404. The PISCU is one, and it shares the network and the port
+# with the switches, so a discovery sweep meets it. It has to be told apart
+# from LOGIN_HTML above — both are 200 text/html — and the thing that tells
+# them apart is that this one has nothing to sign in with.
+WEB_UI_HTML = (b"<!DOCTYPE html><html><head><title>PISCU</title></head>"
+               b"<body><div id=root><h1>PISCU</h1>"
+               b"<p>Loading the interface.</p></div></body></html>")
 
 DEVICE_INFO_XML = (
     b'<?xml version="1.0" encoding="UTF-8"?>'
@@ -80,6 +115,9 @@ class _Server:
         self.history: list[tuple[str, str]] = []
         # Content-Type only; never retain Authorization or request bodies here.
         self.request_content_types: list[tuple[str, str, str]] = []
+        # (endpoint, parsed form) for the fakes that record writes. Form
+        # fields only — an Authorization header never reaches this list.
+        self.posts: list[tuple[str, dict]] = []
         handler_class.fake = self
         # POLL FAST, so closing is quick. `serve_forever` defaults to a
         # half-second poll and `shutdown()` blocks until the loop next comes
@@ -169,7 +207,7 @@ def _digest_check(username: str, password: str):
 
 # ─────────────────────────────────────────────────────── KYLAND switch ────
 def kyland(username="admin", password="123", login_page=False,
-           mac_table=None, mac=None):
+           mac_table=None, mac=None, poe_status=True, uplinks=0):
     """A KYLAND switch imitation that demands Basic Auth.
 
     With `login_page=True` it answers 200 with the login HTML instead of JSON
@@ -181,6 +219,19 @@ def kyland(username="admin", password="123", login_page=False,
     `mac` overrides the switch's OWN MAC: looking that up in a neighbour's
     table yields the inter-switch link port, so two fake switches must not
     carry the same MAC.
+
+    `poe_status=False` drops `stat/poeStatus`, which genuinely does not exist
+    on every model — the port list must still come back, without live power.
+
+    `uplinks` adds that many ports to portMode that are NOT in the PoE table.
+    The real SICOM3028GPT is 24 PoE + 4 uplink, and the uplinks are what the
+    front panel draws with the eight-pin connector — a fake without them
+    leaves half the faceplate untested.
+
+    EVERY POST BODY IS KEPT, parsed, in `server.posts` as
+    (endpoint, {field: value}). The switch rewrites whole tables, so what a
+    test needs to check is not "did a write happen" but "did all 24 ports go
+    out with only the intended one changed".
     """
     expected = "Basic " + base64.b64encode(
         f"{username}:{password}".encode()).decode()
@@ -194,6 +245,18 @@ def kyland(username="admin", password="123", login_page=False,
         if login_page:
             return self.write(200, LOGIN_HTML, "text/html")
         path = self.path.split("?")[0]
+        if self.command == "POST":
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length).decode() if length else ""
+            self.fake.posts.append(
+                (path.lstrip("/"),
+                 {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True)
+                  .items()}))
+            if path in ("/stat/poePort", "/stat/portMode", "/stat/vlanIntfIp",
+                        "/stat/configSave", "/stat/reboot", "/stat/reset"):
+                return self.write(200, json.dumps(SUCCESS).encode(),
+                                  "application/json")
+            return self.write(404, b'{"error":"missing"}', "application/json")
         if path == "/stat/basicInfo":
             body = BASIC_INFO
             if mac:
@@ -202,7 +265,21 @@ def kyland(username="admin", password="123", login_page=False,
             return self.write(200, json.dumps(body).encode(),
                               "application/json")
         if path == "/stat/portMode":
-            return self.write(200, json.dumps(PORT_MODE).encode(),
+            body = PORT_MODE
+            if uplinks:
+                body = {"portMode": PORT_MODE["portMode"] + [
+                    _port_mode_row(24 + n, "XGE")
+                    for n in range(1, uplinks + 1)]}
+            return self.write(200, json.dumps(body).encode(),
+                              "application/json")
+        if path == "/stat/poePort":
+            return self.write(200, json.dumps(POE_PORT).encode(),
+                              "application/json")
+        if path == "/stat/poeStatus" and poe_status:
+            return self.write(200, json.dumps(POE_STATUS).encode(),
+                              "application/json")
+        if path == "/stat/vlanIntfIp":
+            return self.write(200, json.dumps(VLAN_INTF_IP).encode(),
                               "application/json")
         if path == "/stat/macQuery" and mac_table:
             # Field shape: the port sits inside portList, not at top level.
@@ -223,6 +300,20 @@ def empty_json_switch():
                    "application/json")
 
     return _Server(_base_handler("EmptyJsonHandler", send))
+
+
+def web_ui():
+    """A web interface that answers EVERY path with 200 and its own page.
+
+    Not a switch and not asking to be signed in to — but it shares the network
+    and port 80 with the switches, so a discovery sweep knocks on it. See
+    WEB_UI_HTML and `panel.switch.client.looks_like_login_page`.
+    """
+    def send(self):
+        self.fake.request_count += 1
+        self.write(200, WEB_UI_HTML, "text/html; charset=utf-8")
+
+    return _Server(_base_handler("WebUiHandler", send))
 
 
 # ───────────────────────────────────────────────────────── ISAPI camera ───

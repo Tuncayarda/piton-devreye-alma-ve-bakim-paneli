@@ -12,6 +12,7 @@ name: Build · Commissioning Panel
 #
 # Tag examples:
 #   dap-vip-yatakli-v0.9.8   dap-gdm-v0.9.8   dap-gaziray-v0.9.8
+#   dap-fuar-v0.9.8
 #
 # The version after "-v" must match APP_VERSION in panel/settings.py.
 # Pre-release tags (-dev, -alpha, -beta, -rc) are marked "pre-release".
@@ -27,12 +28,13 @@ on:
         description: Which package to build
         required: true
         type: choice
-        options: [vip-yatakli, gdm, gaziray]
+        options: [vip-yatakli, gdm, gaziray, fuar]
   push:
     tags:
       - "dap-vip-yatakli-v*"
       - "dap-gdm-v*"
       - "dap-gaziray-v*"
+      - "dap-fuar-v*"
 
 concurrency:
   group: build-commissioning-panel-${{ github.ref }}

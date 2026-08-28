@@ -26,7 +26,8 @@ from .adapters import Adapter, choose, list_adapters, local_networks
 from .aliases import active, add, release, release_all, sweep_stale
 from .planning import (DEFAULT_HOST_OCTET, DEFAULT_PREFIX, Requirement,
                        choose_host, network_of, occupied, required_networks)
-from .prepare import (ensure, preferences, readiness, save_preferences,
+from .prepare import (ensure, ensure_network, preferences, readiness,
+                      save_preferences,
                       select_adapter, state)
 from .routes import broken_networks
 
@@ -41,6 +42,7 @@ __all__ = [
                        "choose",
                        "choose_host",
                        "ensure",
+                       "ensure_network",
                        "list_adapters",
                        "local_networks",
                        "network_of",

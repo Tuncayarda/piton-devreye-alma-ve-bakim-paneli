@@ -2,7 +2,7 @@
 
 from . import (adb_routes, admin_routes, checklist_routes, config_routes,
                edition_routes, firmware_routes, general_routes,
-               ip_routes, network_routes, session_routes,
+               ip_routes, network_routes, session_routes, switch_routes,
                telemetry_routes)
 
 # BOTH LISTS, ALWAYS. The import above is what makes the module load; this
@@ -10,7 +10,7 @@ from . import (adb_routes, admin_routes, checklist_routes, config_routes,
 # other fails silently — the paths simply 404 — which is a long afternoon.
 _MODULES = (general_routes, edition_routes, admin_routes, session_routes,
             ip_routes, network_routes, config_routes, firmware_routes,
-            checklist_routes, telemetry_routes, adb_routes)
+            checklist_routes, telemetry_routes, adb_routes, switch_routes)
 
 GET_ROUTES: dict = {}
 POST_ROUTES: dict = {}

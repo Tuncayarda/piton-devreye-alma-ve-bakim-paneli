@@ -13,10 +13,12 @@ import json
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from typing import ClassVar
 
-from panel import checklist, ip_assign, jobs, script_loader, settings, status
+from panel import (checklist, editions, ip_assign, jobs, script_loader,
+                   settings, status)
 from panel.checklist import columns as cols
 from panel.inventory import catalog, device_map
 from panel.probe import android, reader
@@ -466,6 +468,63 @@ class CompartmentLcd(PanelTest):
         self.assertEqual(result.fields, {})
         self.assertIn("Could not read", result.detail)
 
+    def test_a_display_without_the_app_is_green_on_a_stand(self):
+        """The demonstration case, and THE PROJECT is what decides it.
+
+        A stand carries borrowed hardware running whatever each unit happens
+        to have on it. Demanding one named application turned the whole board
+        red and hid the units that genuinely could not be reached. Relaxed,
+        the display still has to ANSWER — what is dropped is only the demand
+        for that application.
+        """
+        device = self.build_lcd()
+        self.patch(FakeAdb(dumpsys="Unable to find package: com.piton.x"))
+        with mock.patch.object(editions, "on_a_stand", return_value=True):
+            result = reader.read_device(device)
+        self.assertEqual(result.state, status.OK)
+        # The connection's own findings are real and are kept.
+        self.assertEqual(result.fields["serial"], "rk3568r0001")
+        self.assertEqual(result.fields["uptime"], "01:01:01")
+        # ...and the version is honestly empty rather than invented.
+        self.assertEqual(result.fields["version"], "")
+        # The row does not claim to have read an application it did not find.
+        self.assertNotIn("0.0.5", result.detail)
+        self.assertIn("rk3568r0001", result.detail)
+
+    def test_a_silent_display_is_still_red_on_a_stand(self):
+        """Relaxing the check must not turn "unreachable" into "fine"."""
+        device = self.build_lcd()
+        self.patch(FakeAdb(serial=""))
+        with mock.patch.object(editions, "on_a_stand", return_value=True):
+            result = reader.read_device(device)
+        self.assertEqual(result.state, status.FAILED)
+
+    def test_a_train_still_demands_the_app(self):
+        """The default, and it is not a setting anybody has to remember."""
+        device = self.build_lcd()
+        self.patch(FakeAdb(dumpsys="Unable to find package: com.piton.x"))
+        with mock.patch.object(editions, "on_a_stand", return_value=False):
+            result = reader.read_device(device)
+        self.assertEqual(result.state, status.FAILED)
+
+    def test_only_the_stand_project_carries_the_flag(self):
+        """It is on the FUAR project and on nothing else."""
+        from panel.editions import catalogue
+
+        stands = [p.key for p in catalogue.ALL_PROJECTS if p.stand]
+        self.assertEqual(stands, ["fuar"])
+
+    def test_the_setting_overrides_the_project_in_both_directions(self):
+        """For a bench that is neither a train nor a stand."""
+        device = self.build_lcd()
+        self.patch(FakeAdb(dumpsys="Unable to find package: com.piton.x"))
+        with mock.patch.object(editions, "on_a_stand", return_value=False), \
+                mock.patch.object(settings, "ADB_REQUIRE_PACKAGE", "0"):
+            self.assertEqual(reader.read_device(device).state, status.OK)
+        with mock.patch.object(editions, "on_a_stand", return_value=True), \
+                mock.patch.object(settings, "ADB_REQUIRE_PACKAGE", "1"):
+            self.assertEqual(reader.read_device(device).state, status.FAILED)
+
     def test_an_unreachable_lcd_is_red(self):
         device = self.build_lcd()
         self.patch(FakeAdb(serial=""))
@@ -856,6 +915,71 @@ class ExcelExport(ServiceTest):
                     f"a made-up version was written for {template}")
 
 
+class EveryShippedDeviceMapIsUnderstood(unittest.TestCase):
+    """A device kind in a delivered map that no table knows is a silent hole.
+
+    The fuar (exhibition) map arrived with three kinds this panel had never
+    been shown — a Swanneck microphone, a Twin LCD, and cameras called Front
+    and Cabin — and every one of them would have loaded, drawn a row in the
+    device list, and then been reachable from nowhere. Nothing would have
+    said so: `read_method_for` answers "mqtt" for anything it does not
+    recognise, which means "described by DeviceMap, asked nothing", and that
+    is indistinguishable on screen from a device that is genuinely passive.
+    """
+
+    def maps(self):
+        found = [settings.ROOT / "DeviceMap.json",
+                 *sorted((settings.ROOT / "devicemaps").glob("DeviceMap*.json"))]
+        here = [path for path in found if path.is_file()]
+        # Named, so a checkout that has lost the maps fails loudly instead of
+        # passing both checks below with nothing to check.
+        self.assertTrue(here, "no DeviceMap in this checkout")
+        return here
+
+    def test_every_device_is_reached_or_deliberately_passive(self):
+        # The kinds that really are DeviceMap-only, each with its reason.
+        # NOT a place to park a device nobody has wired up yet.
+        passive = {
+            ("LED", "Front"): "a display driven by the PISCU, not addressed",
+            ("LCD", "Landing"): "a passive display; nothing to ask it",
+            ("ICU", None): "reports through the PISCU",
+            ("AP", None): "the access point is commissioned by hand",
+        }
+        unreached = []
+        for path in self.maps():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for switch in data.get("Switches") or []:
+                for device in switch.get("Devices") or []:
+                    pair = (device.get("Type"), device.get("SubType") or None)
+                    if catalog.read_method_for(*pair) != "mqtt":
+                        continue
+                    if pair in passive:
+                        continue
+                    unreached.append(f"{path.name}: {pair[0]}/{pair[1] or '-'}")
+        self.assertEqual(sorted(set(unreached)), [],
+                         "a device kind no table knows — give it a read "
+                         "method in panel/inventory/catalog.py, or a line in "
+                         "`passive` above saying why it has none")
+
+    def test_every_reachable_device_belongs_to_a_group(self):
+        """A read method alone reaches nothing: the screens work on GROUPS,
+        and a device in no group cannot be selected on any of them."""
+        orphans = []
+        for path in self.maps():
+            inventory = device_map.load(1, path, cache=False)
+            for device in inventory.devices:
+                if device.type == "Switch" or device.read_method == "mqtt":
+                    continue
+                if any(catalog.device_supports(device, op)
+                       for op in ("ip", "cfg", "fw", "check")):
+                    continue
+                orphans.append(f"{path.name}: {device.type}/"
+                               f"{device.subtype or '-'}")
+        self.assertEqual(sorted(set(orphans)), [],
+                         "reachable, but in no group — add one to "
+                         "catalog.GROUPS")
+
+
 class ReadMethodsMatchTheFieldScript(unittest.TestCase):
     """`read_method_for` and device_verify's COLLECTORS must not drift apart.
 
@@ -899,7 +1023,14 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
     FED_FROM_DEVICEMAP = "mqtt"
 
     def setUp(self):
-        self.collectors = script_loader.device_verify().COLLECTORS
+        script = script_loader.device_verify()
+        self.collectors = script.COLLECTORS
+        # The same lookup the export itself makes — a key with None for the
+        # subtype answers for every subtype of that type (see the table's own
+        # note). Asking the dict directly here would fail a project whose
+        # cameras are called Front and Cabin while the export reads them
+        # perfectly well.
+        self.collector_for = script.collector_for
 
     def device_pairs(self):
         """Every (type, subtype) in the DeviceMaps this checkout carries.
@@ -941,7 +1072,7 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
             method = catalog.read_method_for(kind, subtype)
             if method == self.FED_FROM_DEVICEMAP:
                 continue
-            if (kind, subtype) in self.collectors:
+            if self.collector_for(kind, subtype):
                 continue
             if (kind, subtype) in self.NO_COLLECTOR_ON_PURPOSE:
                 continue
@@ -957,7 +1088,7 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
         """A stale exemption hides the next disagreement."""
         stale = []
         for kind, subtype in self.NO_COLLECTOR_ON_PURPOSE:
-            if (kind, subtype) in self.collectors:
+            if self.collector_for(kind, subtype):
                 stale.append(f"{kind}/{subtype}: device_verify collects it "
                              "now, so the exemption is wrong")
             elif catalog.read_method_for(kind, subtype) == (
