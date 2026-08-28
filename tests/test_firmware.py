@@ -336,7 +336,9 @@ class FilePicker(PanelTest):
                                          stderr="", returncode=0)
             chosen = files.pick_save_path("Save", "adb-devices.json",
                                           ("json",))
-        self.assertEqual(chosen, "/Users/op/benches.json")
+        # str(Path(...)) not a literal: the picker returns the host's
+        # separators, and on Windows that is a backslash.
+        self.assertEqual(chosen, str(Path("/Users/op/benches.json")))
 
     def test_a_cancelled_save_dialog_returns_nothing(self):
         """Cancel is not a failure: the caller writes nothing and says
