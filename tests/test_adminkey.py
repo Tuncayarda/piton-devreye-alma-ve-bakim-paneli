@@ -787,13 +787,18 @@ class KeyBesideTheApplication(unittest.TestCase):
 
     def test_the_folder_is_searched_after_the_sticks(self):
         """A key in hand beats one left in the folder: somebody just pushed
-        that one in, and it is the one they meant."""
-        with mock.patch.object(volumes, "removable",
-                               return_value=[Path("/Volumes/KEY")]), \
+        that one in, and it is the one they meant.
+
+        Compared as PATHS rather than as strings. What is asserted here is
+        the order, and `str(Path("/opt/dabp"))` is a backslash on Windows —
+        a comparison against a written-out POSIX string tests the separator
+        instead of the rule.
+        """
+        stick, folder = Path("/Volumes/KEY"), Path("/opt/dabp")
+        with mock.patch.object(volumes, "removable", return_value=[stick]), \
                 mock.patch.object(volumes, "beside_the_application",
-                                  return_value=[Path("/opt/dabp")]):
-            self.assertEqual([str(p) for p in volumes.searched()],
-                             ["/Volumes/KEY", "/opt/dabp"])
+                                  return_value=[folder]):
+            self.assertEqual(volumes.searched(), [stick, folder])
 
     def test_from_source_it_is_the_checkout(self):
         with mock.patch.object(settings, "FROZEN", False):
