@@ -5,6 +5,156 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.3 — 28 Ağustos 2026
+
+Ayrı bir uygulama olan Switch Yönetim Paneli panelin bir ekranı oldu, ADB
+ekranı yeniden başlatma ve geçmiş kazandı, fuar standı için kendi paketi
+çıktı. Bu iki ekran artık servis anahtarı istiyor.
+
+### Switch ekranı panelin içinde
+
+Switch'lere bugüne kadar ikinci bir uygulamadan bakılıyordu. O uygulama
+kalktı; yaptığı her şey panelin **Switch Yönetim** ekranında. Kazanılan şey
+tek ekran değil: burada girilen hesap IP atama ekranının switch okumalarını
+da açıyor, çünkü ikisi parolayı artık aynı yerden soruyor. Eskiden aynı
+switch için aynı parola iki kez giriliyordu.
+
+- **Ağı tarayarak switch bulma.** Adres aralığı `10.1.1.0-255/24` gibi bir
+  ağ ya da `10.1.1.20-40` gibi bir aralık olarak yazılır — switch'ler .100
+  ile .110 arasındaysa kalan 244 adresi taramanın bedeli boşa geçen
+  zamandır. Bir taramada en çok 1024 adrese bakılır; daha genişi kaç adres
+  ettiğini söyleyerek reddedilir, sessizce yarıda bırakılmaz.
+- **Cihazın ön yüzü ekranda.** Portlar gerçek yerleşimiyle çizilir; renkler
+  besliyor / bağlı / kapalı / bağlı ama beslemesiz ayrımını yapar. Aynı
+  çizim IP atama ekranında da kullanılıyor, yani iki ekran aynı switch'i
+  aynı gösteriyor — birinde 7. port başka yerde duruyorsa hangisine
+  inanılacağı sorusu ortaya çıkıyordu.
+- **Port ve PoE tabloları.** Portlar tıklanarak seçilir, sağ tık menüsü
+  seçili portların tamamına birden yazar: PoE kipi, port açma/kapama, uplink
+  türü. Menü uyguladığınız anda switch'e yazar ve bunu söyler.
+- **Yönetim adresi, kaydetme, yeniden başlatma ve fabrika ayarları.** Adres
+  değiştirmek, ayarları kalıcı kaydetmek, switch'i yeniden başlatmak ve
+  fabrika ayarlarına döndürmek — dördü de ne kaybedileceğini yazan bir onay
+  kutusunun arkasında. Fabrika ayarı için switch'in adresi elle yazılıyor.
+- **Yazılamayacak bir adres yazılmadan reddediliyor.** Loopback, multicast
+  ya da desteklenmeyen bir maske girildiğinde switch oraya taşınmıyor; bu
+  hatanın karşılığı konsol kablosuyla kurtarma olurdu.
+- Adres değişikliği, yeniden başlatma ve fabrika ayarı, switch'in cevabı
+  gönderemeden gittiği işlemler. Bağlantının kopması **beklenen sonuç**
+  olarak, yani başarı olarak okunuyor; eskiden bu "işlem başarısız" diye
+  görünüyordu — switch çoktan sıfırlanırken.
+
+### ADB ekranı: yeniden başlatma, sunucu ve geçmiş
+
+- **Ekranları yeniden başlatma.** Uygulamayı değil ekranı. Komut
+  gönderilmekle kalmıyor, cihazın geri gelmesi bekleniyor: önce bağlantıyı
+  düşürmesi (25 sn), sonra yeniden cevap vermesi (120 sn). İki ayrı hata
+  cümlesi var — "komut kabul edildi ama cihaz hiç kapanmadı" ile "yeniden
+  başladı ama süresi içinde dönmedi" — çünkü operatörün öğrenmek istediği
+  şey komutun gittiği değil, ekranın geri geldiği.
+- **Hepsini bağla / sunucuyu sıfırla.** İkisi de seçimden bağımsız, bu
+  bilgisayarın ADB sunucusuyla ilgili işler: listedeki bütün adresleri
+  bağlar, ya da takılan sunucuyu durdurup başlatır.
+- **Durum kartı ve geçmiş.** Üstte o an koşan işin satırları, altında biten
+  işlemlerin kaydı — en yenisi üstte, yirmi satırlık kaydırılabilir bir
+  kutuda. Tezgâhta bir öğleden sonra bir düzine koşu demek ve sonradan
+  sorulan soru hep önceki koşularla ilgili oluyor: "46 geri geldi mi?",
+  "bunu hangilerine kurmuştum?".
+- **Listeyi dışa aktarma.** Adres listesi JSON olarak kaydedilebiliyor;
+  nereye kaydedileceği soruluyor. İçe aktarma zaten vardı.
+- **Adres alanı aralık kabul ediyor:** `10.1.1.45-47`, ya da virgülle
+  ayrılmış birkaç adres.
+
+### ADB ve Switch ekranları servis anahtarı istiyor
+
+İki ekran da temel ekranlardan alınıp admin ekranlarının yanına konuldu.
+Sebep, ne yaptıkları: panelin diğer bütün saha ekranları projenin cihaz
+listesi üzerinden çalışır ve yalnızca o listedekine dokunabilir. Bu ikisi
+**elle yazılan bir adrese** gidip cevap veren neyse ona işlem yapar — paylaşılan
+bir ağda bu, herhangi bir cihaz demektir: kapatılan bir switch portu,
+kesilen bir PoE beslemesi, kurulan bir uygulama, yeniden başlatılan bir
+ekran. Anahtar, bunu yapan kişinin yapması gereken kişi olduğunu söylüyor.
+
+Sunucu da aynı kuralı uyguluyor; arayüzden gizlemek tek başına bir kapı
+değil.
+
+### Fuar paketi
+
+Dördüncü bir müşteri paketi çıktı: **`fuar`**. Fuardaki stant bir tren
+değil, tek bir raf — bir KYLAND switch ve yanındaki on iki cihaz. Cihaz
+haritasındaki adresler de bu yüzden düz yazılmış (`10.1.1.x`), trenlerdeki
+gibi set numarasına göre şablonlanmamış: tek bir set var ve yeri
+değişmiyor.
+
+Paketin ayrı olmasının sebebi diğerleriyle aynı: salondaki dizüstü
+bilgisayarda, müşteri olmayan insanlara gösterilen bir makinede, her
+müşterinin cihaz listesini taşıyan bir build bulunmamalı. Fuar haritasındaki
+kullanıcı adları, parolalar ve dahili numara parolaları da boşaltıldı.
+
+- **Stant kipi.** Kompartıman LCD okuması normalde ekranda panel
+  uygulamasını arar ve bulamazsa cihazı kırmızı işaretler; trende doğru
+  davranış budur, çünkü ekran zaten o uygulama için oradadır. Stantta
+  donanım ödünç alınmıştır ve her ünitede başka bir şey çalışır — o zaman
+  bütün pano kırmızıya döner ve gerçekten erişilemeyen üniteler bu gürültüde
+  kaybolur. Fuar paketinde ADB'nin **bağlanabilmesi** yetiyor; ekran yine
+  seri numarasını, saat dilimini ve çalışma süresini vermek zorunda, düşen
+  tek şart adı belli bir uygulamanın aranması. Satır da bunu yazıyor:
+  "ekran yanıt verdi (seri no) — üzerinde panel uygulaması yok".
+- Bu, ortam değişkeni değil **projenin özelliği**: standı kuran kişinin bir
+  bayrağı hatırlaması gerekmiyor, trene giden paket de gevşemeyi miras
+  almıyor. İkisi de olmayan bir tezgâh için `ADB_REQUIRE_PACKAGE` her iki
+  yöne de zorlayabiliyor.
+- **Kendi kontrol listesi şablonu.** Excel şablonu satırlarını cihazlara IP
+  şablonuna göre eşler; ortak dosyada olmayan cihazlar için hiçbir satır
+  dolmaz ve ekranda bunun sebebini söyleyen bir şey olmaz. Fuarın kendi
+  şablonu var, ve şablonu artık açık olan proje belirliyor.
+
+### İki yeni cihaz türü
+
+- **Anons / Swanneck** (kaz boynu mikrofon). Intercom ile aynı Piton anons
+  yazılımını çalıştırıyor — aynı uçlar, aynı alanlar — o yüzden aynı şekilde
+  yapılandırılıyor ve güncelleniyor. Adresi panel vermiyor; Handset gibi
+  elle kuruluyor, sonra yalnızca yapılandırılıyor.
+- **LCD / Twin.** Kompartıman LCD gibi Android: adresi ADB üzerinden
+  yazılıyor, uygulaması APK olarak gidiyor. IP atama koşusu **yok** — o
+  koşu port port ilerleyen haliyle Kompartıman LCD için yazılmış.
+
+### Kullanıcı ve geliştirici kılavuzları
+
+`docs/` altında iki kılavuz var artık: ekran ekran anlatan bir **kullanıcı
+kılavuzu** ve mimariyi, veri akışını ve karar gerekçelerini anlatan bir
+**geliştirici kılavuzu** — ikisi de ekran görüntüleri ve şemalarla.
+
+### Kapak altında
+
+Kullanıcıya dönük bir karşılığı yok, ama bu sürümde yapılanlar:
+
+- **Switch erişimi artık panelin kendi parçası** (`panel/switch/`).
+  Eskiden `field_scripts/switch_api.py` ödünç alınan salt-okunur bir
+  betikti ve iki depoda iki kopyası elle eşitleniyordu — ayrışmanın
+  beklendiği yer tam olarak orasıydı. Switch ekranının **yazması**
+  gerekiyordu; bunu ikinci bir istemciye dönüşmeden büyütmenin yolu yoktu.
+  Panelin tek switch istemcisi var: Switch ekranı, IP atama ekranının ön
+  paneli ve fabrika ayarı doğrulaması aynı yerden geçiyor.
+- **Switch ön yüzü tek bir çizim.** İki ekran ayrı ayrı çiziyordu; ortak olan
+  şey — konnektör grafiği ve hangi portun nerede durduğu — paylaşıldı,
+  gerçekten farklı olan şey — portların neye göre renklendiği — paylaşılmadı.
+- **API kapısı yol öneki ile eşleşiyor.** Kısıtlı ekranların uçları tek tek
+  yazılıydı; iki uçlu bir ekranda bu tutuyordu, ama yeni ekranların on bir ve
+  on dört ucu var. O uzunlukta bir liste, içinde sessiz bir boşluk olan
+  listedir: kapının arkasındaki ekrana eklenen yeni bir uç, biri bu dosyayı
+  hatırlayana kadar açık kalırdı.
+- **Paket adb'siz derlenemiyor.** `platform-tools/` yoksa `dabp.spec`
+  derlemeyi durduruyor (bilerek atlamak için `DAP_ALLOW_NO_ADB=1`), paketlenmiş
+  `--self-test` adb'yi tekrar arıyor ve CI arşivi kendi indiriyor. Sebebi:
+  adb'siz bir paket derlenir, açılır, çalışır — ve sahada sağlam bir ekran
+  "okunamıyor" der. Bu, arızayı sahadan derlemeye taşıyor.
+- **Saha doğrulama betiği panelin adb'sini kullanıyor**, tek başına
+  çalıştırıldığında da `adb` adını. Kamera toplayıcısı da artık alt türleri
+  tek tek saymıyor: her yeni projede bu dosya düzenlenmeden kameralar
+  raporda görünmüyordu ve eksiklik hata olarak değil, boş bir sütun olarak
+  çıkıyordu.
+
 ## v1.0.2 — 27 Ağustos 2026
 
 Panele gömülü bir ADB aracı eklendi; otomatik tarama artık duraklatılmış
