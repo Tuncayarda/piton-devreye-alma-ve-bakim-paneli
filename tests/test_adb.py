@@ -1748,7 +1748,7 @@ class Runner(AdbTest):
         afternoon of lines would be sent sixty times a minute."""
         self.assertEqual(RUNNER.state()["log"], [])
         self.assertEqual(runner_module.LOG_LIMIT,
-                         RUNNER._log.maxlen)         # noqa: SLF001
+                         RUNNER._log.maxlen)
 
     def test_a_pending_row_writes_nothing(self):
         """Only a row that has FINISHED is a line. A run in flight would
