@@ -3,7 +3,7 @@
 Tren setlerini sahada devreye almak için geliştirilmiş bir masaüstü
 panelidir. DeviceMap topolojisini yükler, cihazları okur, kimlik isteyen
 cihazları kilit menüsünde toplar ve kontrol listesini Excel'e döker.
-Her müşteriye kendi paketi derlenir (§2.1) ve mühendis ekranları yalnız USB
+Her müşteriye kendi paketi derlenir (§2.1) ve mühendis ekranları yalnız
 servis anahtarıyla açılır (§2.2).
 
 ---
@@ -160,7 +160,7 @@ kutusudur ve akış ona ulaşmadan bitmelidir.
 ---
 
 Admin moda geçişin bir parolası **yoktur** — eskiden vardı ve kaldırıldı;
-tek kapı USB servis anahtarıdır (§2.2). Normal masaüstü kipinde dinleyen bir
+tek kapı servis anahtarıdır (§2.2). Normal masaüstü kipinde dinleyen bir
 sunucu yoktur ve köprü yalnız paket içindeki WebView'a açılır. İsteğe bağlı
 tarayıcı kipi ise yalnız geri döngü arayüzünde (`127.0.0.1`) dinler.
 
@@ -181,7 +181,7 @@ panel/
   api/            ortak servis katmanı, yol tabloları, yetki süzgeci,
                   isteğe bağlı HTTP adaptörü
   editions/       paket tablosu: hangi paket hangi projeyi/ekranı taşır (§2.1)
-  adminkey/       USB servis anahtarı ve admin mod (§2.2)
+  adminkey/       servis anahtarı ve admin mod (§2.2)
   elevation/      yükseltilmiş yetki kapısı ve yeniden başlatma (§1)
   inventory/      DeviceMap envanteri, IP şablonu çözümü, kategoriler
   probe/          okuma dağıtıcısı: switch (KYLAND), anons, kamera/NVR
@@ -267,15 +267,20 @@ GDM için girilen bir hedef değer Gaziray'da o yuvadaki donanıma yazılırdı.
 
 ### 2.2 Servis anahtarı — admin moda tek kapı
 
-Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT) admin modda açılır.
-Admin moda geçişin parolası, gizli tıkı ve komut satırı seçeneği **yoktur**;
-tek yol, panelin tanıdığı bir USB belleğidir (`panel/adminkey/`).
+Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT, ADB, Switch) admin
+modda açılır. Admin moda geçişin parolası, gizli tıkı ve komut satırı
+seçeneği **yoktur**; tek yol, panelin tanıdığı bir anahtar dosyasıdır
+(`panel/adminkey/`). Dosya iki yerde aranır: takılı bir USB bellekte —
+normal kullanım, anahtar taşınan fiziksel bir şeydir — ve uygulamanın kendi
+klasöründe, çünkü uzaktan bağlanılan bir makinede belleği takacak kimse
+yoktur. İkisinde de aynı doğrulamadan geçer; klasördeki kopyanın vazgeçtiği
+tek şey fizikselliktir.
 
 Bunun için iki değer ve aralarında tek yönlü bir işlev vardır:
 
 ```
 S = build sırrı              yalnız derlemeyi kesen kişide
-K = pbkdf2(S, tuz, 600k)     USB'ye YAZILAN değer
+K = pbkdf2(S, tuz, 600k)     ANAHTAR DOSYASINA yazılan değer
 D = sha256(K)                PAKETE gömülen değer
 ```
 

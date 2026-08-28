@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import platform
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -772,6 +773,78 @@ class Volumes(unittest.TestCase):
         self.assertEqual(volumes._under([here]), [])
 
 
+class KeyBesideTheApplication(unittest.TestCase):
+    """A key file may sit in the application's own folder, not only on a stick.
+
+    Added for remote work: a panel reached over a remote session has nobody
+    at the keyboard to push a stick in, and the screens behind admin mode are
+    the ones an engineer needs precisely when they are not in the room.
+
+    What that trades away is the physical part and NOTHING ELSE — the file
+    still carries a proof rather than the secret, and it is still checked
+    against this build's stamped digests.
+    """
+
+    def test_the_folder_is_searched_after_the_sticks(self):
+        """A key in hand beats one left in the folder: somebody just pushed
+        that one in, and it is the one they meant."""
+        with mock.patch.object(volumes, "removable",
+                               return_value=[Path("/Volumes/KEY")]), \
+                mock.patch.object(volumes, "beside_the_application",
+                                  return_value=[Path("/opt/dabp")]):
+            self.assertEqual([str(p) for p in volumes.searched()],
+                             ["/Volumes/KEY", "/opt/dabp"])
+
+    def test_from_source_it_is_the_checkout(self):
+        with mock.patch.object(settings, "FROZEN", False):
+            self.assertEqual(volumes.beside_the_application(),
+                             [Path(settings.ROOT)])
+
+    def test_frozen_it_is_the_folder_holding_the_executable(self):
+        """Beside the .exe, which is where somebody would put it.
+
+        NOT the settings directory: the panel restarts itself elevated and
+        that directory hangs off HOME, which the elevation changes.
+        """
+        exe = Path(__file__).resolve()
+        with mock.patch.object(settings, "FROZEN", True), \
+                mock.patch.object(volumes.sys, "executable", str(exe)):
+            self.assertEqual(volumes.beside_the_application(), [exe.parent])
+
+    def test_an_unreadable_location_is_no_location(self):
+        """Never raises: this runs on the watcher's thread, and an exception
+        there leaves the panel believing no key was ever inserted."""
+        with mock.patch.object(volumes, "Path", side_effect=OSError("gone")):
+            self.assertEqual(volumes.beside_the_application(), [])
+
+    def test_a_file_in_the_folder_is_still_checked_against_the_digests(self):
+        """THE PART THAT WAS NOT TRADED AWAY.
+
+        Being in the right folder is not what makes a key valid; carrying a
+        proof this build recognises is. A file somebody else put there is
+        refused exactly as a wrong stick is.
+        """
+        folder = Path(tempfile.mkdtemp())
+        (folder / keyfile.FILENAME).write_text(json.dumps({
+            "format": keyfile.FORMAT, "version": keyfile.VERSION,
+            "proof": base64.b64encode(b"not a real proof").decode(),
+        }), encoding="utf-8")
+        with mock.patch.object(secret, "accepted_digests",
+                               return_value=("00" * 32,)):
+            entry = keyfile.read(folder)
+        self.assertIsNotNone(entry)
+        self.assertFalse(entry.recognised)
+        self.assertEqual(entry.reason, "unrecognised")
+
+    def test_the_watcher_looks_in_both_places(self):
+        """The change detector still watches sticks only — the folder does
+        not appear or disappear — but the read covers both."""
+        source = (settings.ROOT / "panel" / "adminkey"
+                  / "watcher.py").read_text(encoding="utf-8")
+        self.assertIn("for volume in volumes.searched():", source)
+        self.assertIn("volumes.removable())", source)
+
+
 class RemovableMedia(unittest.TestCase):
     """Erasing a drive is the one thing the panel does that destroys data
     outside its own files. What these tests hold in place is the rule that
@@ -1122,7 +1195,9 @@ class Revocation(PanelTest):
         watch = watcher.KeyWatch()
         self.addCleanup(watch.stop)
         with mock.patch.object(volumes, "removable",
-                               side_effect=lambda: list(mounted)), \
+                               side_effect=lambda system=None: list(mounted)), \
+                mock.patch.object(volumes, "beside_the_application",
+                                  return_value=[]), \
                 mock.patch.object(keyfile, "read", return_value=keyfile.KeyFile(
                     Path("/Volumes/X/key"), False, reason="unrecognised")):
             watch.start()

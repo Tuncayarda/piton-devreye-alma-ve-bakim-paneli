@@ -5,15 +5,29 @@ The stick has to be recognised wherever it is plugged in, and the three
 platforms disagree about what "plugged in" even looks like. The per-OS
 branching follows the shape already used in `panel/elevation/privileges.py`.
 
-Scope is deliberately narrowed to removable media rather than "any path that
-holds the file". The key is meant to be a physical thing somebody carries; a
-copy of the file on the system drive would make it a password again.
+Removable media is where a key is EXPECTED, and for a long time it was the
+only place looked at: the key is meant to be a physical thing somebody
+carries, and a copy on the system drive makes it a password again.
+
+THE APPLICATION'S OWN FOLDER IS NOW LOOKED AT TOO, and the reason is remote
+work. A panel reached over a remote session has nobody at the keyboard to
+push a stick in, and the alternative was worse than the trade: the screens
+behind admin mode are the ones an engineer needs precisely when they are not
+in the room.
+
+What this does NOT give away: the file carries a `proof`, never the secret
+(`keyfile.py`), and it is still checked against the digests stamped into this
+build — a file put there by anybody else is refused exactly as a wrong stick
+is, and nothing in it can mint a key for another package. What it DOES give
+away is the physical part: the file can be copied, and a copy in the right
+folder opens admin mode on that installation.
 """
 from __future__ import annotations
 
 import ctypes
 import os
 import platform
+import sys
 from pathlib import Path
 
 # Windows GetDriveTypeW
@@ -29,6 +43,38 @@ def removable(system: str | None = None) -> list[Path]:
     if system == "Darwin":
         return _macos()
     return _linux()
+
+
+def beside_the_application() -> list[Path]:
+    """Where a key file may sit instead of on a stick.
+
+    The folder the application was started from — beside the .exe on Windows,
+    beside the binary elsewhere, and the checkout when running from source.
+    Deliberately NOT the settings directory: the panel restarts itself
+    elevated and that directory hangs off HOME, which the elevation changes
+    (the same reasoning as `panel/adminkey/secret.py:_dev_dir`).
+
+    Its own function rather than folded into `removable()`, so "this came off
+    a stick" and "this was left in the folder" stay separable for anything
+    that later needs to tell them apart.
+    """
+    from .. import settings                               # noqa: PLC0415
+
+    try:
+        place = (Path(sys.executable).resolve().parent if settings.FROZEN
+                 else Path(settings.ROOT))
+    except Exception:
+        return []
+    return [place] if place.is_dir() else []
+
+
+def searched(system: str | None = None) -> list[Path]:
+    """Everywhere a key file is looked for, sticks first.
+
+    Sticks first on purpose: with a key in the folder AND one in hand, the
+    one somebody has just pushed in is the one they meant.
+    """
+    return removable(system) + beside_the_application()
 
 
 # ── Windows ──────────────────────────────────────────────────────────────

@@ -6,8 +6,8 @@ işlemlerini yönetmek için geliştirilmiş masaüstü uygulamasıdır. Panel, 
 ekipmanlarında yapılandırma, uygun cihazlarda yazılım yükleme ve Excel
 kontrol listesi üretme işlemlerini yürütür.
 
-> **Proje durumu:** Kaynak kod `1.0.3` sürümünü bildirir. Yayın için paket
-> başına etiket atılır (`dap-vip-yatakli-v1.0.3` gibi); ayrıntılar
+> **Proje durumu:** Kaynak kod `1.0.4` sürümünü bildirir. Yayın için paket
+> başına etiket atılır (`dap-vip-yatakli-v1.0.4` gibi); ayrıntılar
 > [derleme ve yayınlama](docs/BUILD_RELEASE.md) belgesindedir. Hazırlanan
 > değişiklikler [değişiklik günlüğündedir](docs/DEGISIKLIKLER.md).
 
@@ -27,11 +27,27 @@ anında yapılır (`panel/editions/catalogue.py`).
 Kaynaktan çalıştırırken hangi paket olduğu **söylenmelidir**; çıplak
 `python app.py` geçerli adları yazıp durur.
 
-Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT) yalnız **admin
-modda** görünür. Admin moda tek kapı, panelin tanıdığı bir **USB servis
-anahtarıdır**: parola yok, gizli tık yok, komut satırı seçeneği yok. Bellek
-çıkarılınca mod kapanır — cihazlara yazan bir iş sürüyorsa iş bitene kadar
-bekletilerek. Ayrıntılar: `panel/adminkey/`.
+Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT, ADB, Switch) yalnız
+**admin modda** görünür. Admin moda giriş, panelin tanıdığı bir **servis
+anahtarı** ister: parola yok, gizli tık yok, komut satırı seçeneği yok.
+Anahtar kaybolunca mod kapanır — cihazlara yazan bir iş sürüyorsa iş bitene
+kadar bekletilerek.
+
+Anahtar iki yerden okunur:
+
+| Yer | Ne zaman |
+|---|---|
+| Takılı USB bellek | Normal kullanım; anahtar taşınan fiziksel bir şeydir |
+| **Uygulamanın kendi klasörü** (`.exe`'nin yanı) | Uzaktan erişim: klavyenin başında bellek takacak kimse yoktur |
+
+İkisinde de aranan dosya aynı: `dabp-admin-key.json`. Dosya **sırrı değil,
+doğrulanabilir bir kanıt** taşır ve pakete damgalanmış özete karşı sınanır —
+başkasının koyduğu bir dosya, yanlış bellek gibi reddedilir ve içindeki
+hiçbir şey başka bir paket için anahtar üretemez. Klasördeki kopyanın
+vazgeçtiği tek şey fizikselliktir: kopyalanabilir, ve doğru klasördeki bir
+kopya o kurulumda admin modu açar.
+
+Ayrıntılar: `panel/adminkey/`.
 
 ## Öne çıkan özellikler
 

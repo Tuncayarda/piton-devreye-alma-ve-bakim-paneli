@@ -5,6 +5,44 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.4 — 28 Ağustos 2026
+
+Servis anahtarı artık uzaktan bağlanılan bir makinede de çalışıyor.
+
+### Admin mod uzaktan da açılabiliyor
+
+Admin moda giriş bugüne kadar **takılı bir USB belleğe** bağlıydı, ve bu
+bilerek böyleydi: anahtar taşınan fiziksel bir şey olsun, kopyalanabilir bir
+parolaya dönmesin diye.
+
+Uzaktan bağlanılan bir makinede bu, çalışmayan bir kural. Klavyenin başında
+belleği takacak kimse yok — ve admin modun arkasındaki ekranlara mühendisin
+ihtiyaç duyduğu an tam olarak odada olmadığı an. Anahtar dosyası artık
+**uygulamanın kendi klasöründen** de okunuyor: bir belleğe yazılmış anahtar
+oraya kopyalanınca o kurulumda admin mod açılıyor.
+
+**Vazgeçilen tek şey fizikselliktir.** Doğrulama hiç gevşemedi:
+
+- Dosya **sırrı taşımıyor**, doğrulanabilir bir kanıt taşıyor — bir
+  kopyasından yeni anahtar üretilemiyor, başka bir paket için anahtar
+  üretilemiyor.
+- Kanıt, pakete derleme anında damgalanmış özete karşı sınanıyor. Doğru
+  klasörde durmak bir dosyayı geçerli yapmıyor; başkasının koyduğu bir dosya
+  **yanlış bellek gibi reddediliyor**.
+- Ayarlar dizini değil, uygulamanın klasörü. Panel kendini yükseltilmiş
+  olarak yeniden başlatıyor ve ayarlar dizini `HOME`'a bağlı — yükselen
+  süreç başka bir kullanıcının dizinine bakardı.
+
+**Bellek elde varsa o kazanıyor.** Hem klasörde hem elde anahtar varken
+panel az önce takılanı okuyor: takan kişinin kastettiği odur.
+
+### Kapak altında
+
+- Bellek gözcüsü hâlâ **yalnızca çıkarılabilir sürücüleri** izliyor.
+  Uygulamanın klasörü belirip kaybolmaz; onu da karşılaştırmaya katmak
+  hiçbir şey tespit etmeyen sabit bir terim eklemek olurdu. O klasördeki bir
+  anahtar zaten her turda ve pencerenin sorduğu her soruda okunuyor.
+
 ## v1.0.3 — 28 Ağustos 2026
 
 Ayrı bir uygulama olan Switch Yönetim Paneli panelin bir ekranı oldu, ADB

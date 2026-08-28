@@ -108,6 +108,12 @@ class KeyWatch:
         while not self._stop.is_set():
             now = time.monotonic()
             try:
+                # REMOVABLE ONLY, and not `searched()`. This is the cheap
+                # "has something appeared" test, and the application's own
+                # folder never appears or disappears — including it would
+                # add a constant to a comparison and detect nothing. A key
+                # left in that folder is still found by `observe()` below,
+                # on the beat and on the next question the window asks.
                 seen = tuple(str(volume) for volume in volumes.removable())
             except Exception:
                 seen = mounted
@@ -142,7 +148,7 @@ class KeyWatch:
         """
         found = None
         rejected = None
-        for volume in volumes.removable():
+        for volume in volumes.searched():
             entry = keyfile.read(volume)
             if entry is None:
                 continue
