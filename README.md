@@ -6,8 +6,8 @@ işlemlerini yönetmek için geliştirilmiş masaüstü uygulamasıdır. Panel, 
 ekipmanlarında yapılandırma, uygun cihazlarda yazılım yükleme ve Excel
 kontrol listesi üretme işlemlerini yürütür.
 
-> **Proje durumu:** Kaynak kod `1.0.2` sürümünü bildirir. Yayın için paket
-> başına etiket atılır (`dap-vip-yatakli-v1.0.2` gibi); ayrıntılar
+> **Proje durumu:** Kaynak kod `1.0.3` sürümünü bildirir. Yayın için paket
+> başına etiket atılır (`dap-vip-yatakli-v1.0.3` gibi); ayrıntılar
 > [derleme ve yayınlama](docs/BUILD_RELEASE.md) belgesindedir. Hazırlanan
 > değişiklikler [değişiklik günlüğündedir](docs/DEGISIKLIKLER.md).
 
