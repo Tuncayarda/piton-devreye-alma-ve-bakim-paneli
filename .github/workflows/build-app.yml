@@ -82,6 +82,18 @@ env:
   # included — it reads these at start-up.
   PYTHONIOENCODING: "utf-8"
   PYTHONUTF8: "1"
+  # NO BUILD MACHINE'S NETWORK IS RECONFIGURED BY A BUILD. `--self-test`
+  # calls the same `api.start()` the product does, and that reaches
+  # `network.ensure()`, which really writes IP aliases to the runner's
+  # adapter (see panel/api/lifecycle.py). The mask it writes is the
+  # project's own width, so an edition declaring `prefix: 16` had the
+  # packaged .exe put a /16 on the runner's NIC — over the hosted runner's
+  # own private subnet, for the 10.x projects. Every /16 edition's Windows
+  # job then hung in the packaged self-test with nothing in the log, while
+  # the /24 edition next to it passed in three seconds. The self-test has
+  # nothing to prove by touching the adapter; the switch that says so is
+  # this one (see panel/network/aliases.py).
+  PANEL_NETWORK_WRITES: "0"
   # Expected sha256 of appimagetool. While empty nothing is verified and the
   # digest of the downloaded file is written to the log; paste it here after
   # the first run to pin it.
@@ -304,6 +316,7 @@ jobs:
       # and printed to the log.
       - name: Self-test (packaged) — Windows
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         working-directory: ${{ env.APP_DIR }}
         run: |
@@ -314,8 +327,23 @@ jobs:
           $errFile = Join-Path $env:RUNNER_TEMP "selftest-err.txt"
 
           $proc = Start-Process -FilePath $fullPath -ArgumentList '--self-test' `
-                    -Wait -PassThru -NoNewWindow `
+                    -PassThru -NoNewWindow `
                     -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+
+          # WAITED FOR WITH A DEADLINE, not with -Wait. The application is a
+          # GUI-subsystem binary: one that never exits — a modal error box
+          # nobody can click, a background thread that will not end — holds
+          # -Wait until the job's own timeout, and because the output is in a
+          # file rather than on the console the log says nothing at all for
+          # forty-five minutes. A build that hung this way is what put this
+          # deadline here; two minutes is forty times what a passing run
+          # takes.
+          if (-not $proc.WaitForExit(120000)) {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+            if (Test-Path $outFile) { Get-Content $outFile }
+            if (Test-Path $errFile) { Get-Content $errFile }
+            throw "the packaged self-test did not finish within 120 s"
+          }
 
           if (Test-Path $outFile) { Get-Content $outFile }
           if ((Test-Path $errFile) -and (Get-Item $errFile).Length -gt 0) {
@@ -328,6 +356,7 @@ jobs:
           Write-Host "packaged self-test passed (exit code 0)"
 
       - name: Self-test (packaged) — macOS
+        timeout-minutes: 5
         if: runner.os == 'macOS'
         working-directory: ${{ env.APP_DIR }}
         run: |
@@ -337,6 +366,7 @@ jobs:
           "$BIN" --self-test
 
       - name: Self-test (packaged) — Linux
+        timeout-minutes: 5
         if: runner.os == 'Linux'
         working-directory: ${{ env.APP_DIR }}
         env:

@@ -64,6 +64,18 @@ env:
   # included — it reads these at start-up.
   PYTHONIOENCODING: "utf-8"
   PYTHONUTF8: "1"
+  # NO BUILD MACHINE'S NETWORK IS RECONFIGURED BY A BUILD. `--self-test`
+  # calls the same `api.start()` the product does, and that reaches
+  # `network.ensure()`, which really writes IP aliases to the runner's
+  # adapter (see panel/api/lifecycle.py). The mask it writes is the
+  # project's own width, so an edition declaring `prefix: 16` had the
+  # packaged .exe put a /16 on the runner's NIC — over the hosted runner's
+  # own private subnet, for the 10.x projects. Every /16 edition's Windows
+  # job then hung in the packaged self-test with nothing in the log, while
+  # the /24 edition next to it passed in three seconds. The self-test has
+  # nothing to prove by touching the adapter; the switch that says so is
+  # this one (see panel/network/aliases.py).
+  PANEL_NETWORK_WRITES: "0"
 
 jobs:
   # The fastest thing that can say "no", so it says it first.
