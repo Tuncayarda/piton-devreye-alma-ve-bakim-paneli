@@ -5,6 +5,55 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.5 — 29 Ağustos 2026
+
+Gaziray ve GDM kendi paketleriyle geldi, cihaz listesi çoklu seçim kazandı.
+
+### İki yeni müşteri paketi
+
+Gaziray ve GDM artık kendi kurulum paketleri: her biri yalnız kendi cihaz
+listesini ve kendi kontrol listesini taşıyor. Paketler `devicemaps/` altında
+proje başına bir klasörde duruyor — cihaz haritası ve ondan üretilen kontrol
+listesi yan yana, böylece yarım teslimat gözle görülür bir yarım klasör
+oluyor.
+
+Bu iki projede **broker, saat kaynağı ve santral PISCU değil**, kendi
+makineleri. Panel bu adresleri artık "PISCU'dur" varsayımıyla değil, paket
+tablosundan okuyor:
+
+- **Gaziray**: dört vagon dört ayrı /24'te, broker beşinci bir ağda
+  (10.n.0.1). Panel kendine verdiği adresi ve cihazlara yazdığı maskeyi buna
+  göre genişletiyor; dar bir maske vagonu kendi başına bırakıyordu.
+- **GDM**: 125 cihazın tamamı tek /24'te, kayıt kameraların kendi
+  kartlarında — depolama denetimi bu pakette gerçekten çalışıyor.
+
+### Cihaz listesinde çoklu seçim ve sağ tık
+
+Switch ekranındaki tıklama kuralları cihaz listesine de geldi: tek tık,
+**Shift** ile aralık, **Ctrl/Cmd** ile tek tek ekleme. Seçim varken başlıkta
+kaç cihazın seçili olduğu yazıyor ve tek düğmeyle temizleniyor.
+
+Sağ tık menüsü seçimin tamamına işliyor — örneğin bir yazılım yüklemesi
+başlatılırken onay kutusu kaç cihaza yükleneceğini söylüyor. Tek satıra
+özgü işlemler (ayrıntıları aç gibi) yalnız tek satır seçiliyken çıkıyor.
+
+- **Satır yoğunluğu düğmesi.** Üst çubuktaki yeni düğme tabloları sık ve
+  seyrek arasında değiştiriyor; seçim uygulama ayarlarında kalıcı.
+
+### Maske denetimi artık oktet sınırında
+
+Kameranın maskesi "projenin tamamına erişiyor mu" diye sınanıyor ve
+projenin genişliği cihaz haritasından hesaplanıyor. Bu hesap bugüne kadar
+adreslerin kendisine bakıyordu ve **kimsenin çizmediği bir sınır**
+uydurabiliyordu: Yataklı'nın adresleri .1 ile .101 arasında olduğu için bir
+/25 çıkıyor, trenin gerçekte kurulu olduğu /24'e ayarlı bir kamera hatalı
+görünüyordu. Genişlik artık /24, /16, /8 dışında bir değere yuvarlanmıyor.
+
+- **Fuar'ın ağ genişliği düzeltildi.** Standın adresleri 10.1.1.x ile
+  10.1.4.x arasında, yani dört ayrı /24 — ama pakette bir genişlik yazmadığı
+  için IP atama /24 yazıyordu. Panel kendi ayarladığı cihazın maskesini sonra
+  "dar" diye raporluyordu. Fuar da Gaziray gibi /16 yazıyor.
+
 ## v1.0.4 — 28 Ağustos 2026
 
 Servis anahtarı artık uzaktan bağlanılan bir makinede de çalışıyor.
