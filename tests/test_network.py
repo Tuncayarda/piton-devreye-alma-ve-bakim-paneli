@@ -41,7 +41,7 @@ from unittest import mock
 from .support import fakes
 from .support.base import ROOT, PanelTest  # noqa: F401  (sys.path + temp data)
 
-from panel import editions, errors, i18n, settings
+from panel import editions, errors, i18n, ip_assign, settings
 from panel.inventory import device_map
 from panel.probe import camera as camera_probe
 from panel.network import (adapters, aliases, commands, planning, prepare,
@@ -523,19 +523,20 @@ class ProjectWidth(PanelTest):
         self.assertEqual([str(entry.network) for entry in with_broker],
                          ["10.9.0.0/24"])
 
-    def test_the_span_is_what_the_devicemap_actually_covers(self):
-        """The project's reach, computed rather than declared.
+    def test_the_span_lands_on_an_octet_boundary(self):
+        """A project is laid out as a /24 or a /16, never as a /21.
 
-        These are the numbers that make an exact-match mask check impossible:
-        two projects fit in a /25 and one needs a /21, so no single constant
-        is right for all of them.
+        The addresses alone would give something tighter — Yatakli's run .1 to
+        .101 and fit in a /25 — but that is an accident of which addresses are
+        in use, not a boundary anybody drew, and answering it would fail a
+        camera set to the /24 the train is actually built on.
         """
         for edition, project, expected in (
-                ("vip-yatakli", "yatakli", "10.7.1.0/25"),
-                ("vip-yatakli", "vip", "10.7.2.0/25"),
+                ("vip-yatakli", "yatakli", "10.7.1.0/24"),
+                ("vip-yatakli", "vip", "10.7.2.0/24"),
                 ("gdm", "gdm", "192.168.201.0/24"),
-                ("gaziray", "gaziray", "10.7.0.0/21"),
-                ("fuar", "fuar", "10.1.0.0/21")):
+                ("gaziray", "gaziray", "10.7.0.0/16"),
+                ("fuar", "fuar", "10.1.0.0/16")):
             editions.activate(edition)
             editions.use_project(project)
             inventory = device_map.load(
@@ -543,24 +544,53 @@ class ProjectWidth(PanelTest):
             span = inventory.span(editions.broker_ip(inventory))
             self.assertEqual(str(span), expected, project)
 
+    def test_the_mask_a_run_writes_reaches_the_whole_project(self):
+        """The two halves of a project's width have to give one answer.
+
+        `effective_prefix` is the mask an IP run WRITES to a device;
+        `Inventory.span` is what the camera scan then DEMANDS of it. Nothing
+        holds the two together — one is stated on the project, the other is
+        computed from the map — so a project can be delivered with addresses
+        across four /24s and still fall through to the /24 default, and the
+        panel reports a mask fault on the very device it configured itself.
+        Fuar was exactly that until it was given a prefix, and this is the
+        check that would have said so.
+        """
+        for edition, project in (("vip-yatakli", "yatakli"),
+                                 ("vip-yatakli", "vip"),
+                                 ("gdm", "gdm"),
+                                 ("gaziray", "gaziray"),
+                                 ("fuar", "fuar")):
+            editions.activate(edition)
+            editions.use_project(project)
+            inventory = device_map.load(
+                7, editions.map_path(editions.current_project()), cache=False)
+            span = str(inventory.span(editions.broker_ip(inventory)) or "")
+            written = ip_assign.netmask_for(ip_assign.effective_prefix())
+            self.assertEqual(
+                [d.ip for d in inventory.devices if d.ip
+                 and not camera_probe._mask_reaches(d.ip, written, span)], [],
+                f"{project}: the run writes {written}, which does not reach "
+                f"{span} — state a prefix on the project")
+
     def test_a_camera_mask_is_judged_on_reach_not_on_equality(self):
         """The CCTV scripts write /8 to the 10.x trains and /24 to GDM.
 
-        Both are correct, and so is the /25 Yatakli would strictly need. What
-        is NOT correct is a Gaziray camera on a /24 — it cannot see the other
-        cars, the broker, or the panel — and that is the one this catches.
+        Both are correct. What is NOT correct is a Gaziray camera on a /24 —
+        it cannot see the other cars, the broker, or the panel — and that is
+        the one this catches.
         """
         reaches = camera_probe._mask_reaches
-        # Yatakli needs 10.7.1.0/25. Everything at least that wide passes.
-        for mask in ("255.0.0.0", "255.255.0.0", "255.255.255.0",
-                     "255.255.255.128"):
-            self.assertTrue(reaches("10.7.1.24", mask, "10.7.1.0/25"), mask)
-        self.assertFalse(reaches("10.7.1.24", "255.255.255.192",
-                                 "10.7.1.0/25"))
+        # Yatakli is one /24. Everything at least that wide passes.
+        for mask in ("255.0.0.0", "255.255.0.0", "255.255.255.0"):
+            self.assertTrue(reaches("10.7.1.24", mask, "10.7.1.0/24"), mask)
+        # Half a /24 does not reach the other half of the train.
+        self.assertFalse(reaches("10.7.1.24", "255.255.255.128",
+                                 "10.7.1.0/24"))
 
-        # Gaziray needs 10.7.0.0/21: a /24 leaves the camera on its own car.
-        self.assertTrue(reaches("10.7.2.21", "255.0.0.0", "10.7.0.0/21"))
-        self.assertFalse(reaches("10.7.2.21", "255.255.255.0", "10.7.0.0/21"))
+        # Gaziray is a /16: a /24 leaves the camera on its own car.
+        self.assertTrue(reaches("10.7.2.21", "255.0.0.0", "10.7.0.0/16"))
+        self.assertFalse(reaches("10.7.2.21", "255.255.255.0", "10.7.0.0/16"))
 
         # GDM: the /24 the scripts write is exactly enough.
         self.assertTrue(reaches("192.168.201.21", "255.255.255.0",
@@ -568,7 +598,7 @@ class ProjectWidth(PanelTest):
 
         # A question that cannot be asked is not a fault.
         self.assertTrue(reaches("10.7.1.24", "255.255.255.0", ""))
-        self.assertTrue(reaches("10.7.1.24", "not-a-mask", "10.7.1.0/25"))
+        self.assertTrue(reaches("10.7.1.24", "not-a-mask", "10.7.1.0/24"))
 
 
 class NoLocalAddress(unittest.TestCase):

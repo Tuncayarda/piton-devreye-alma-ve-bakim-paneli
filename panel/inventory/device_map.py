@@ -132,8 +132,14 @@ class Inventory:
         found = self.by_type("PISCU")
         return found[0].ip if found else None
 
+    # The prefixes a network is described with here — the octet boundaries,
+    # and nothing between them. A project is laid out as "a /24" or "a /16",
+    # never as "a /21", and reporting the tighter number would invent a
+    # boundary nobody drew.
+    OCTET_PREFIXES = (24, 16, 8)
+
     def span(self, *extra: str):
-        """The narrowest network holding every address this project uses.
+        """The network this project occupies, on an octet boundary.
 
         THE PROJECT'S REACH, computed rather than declared. A device has to be
         able to talk to everything in here — the other devices, the switches,
@@ -141,12 +147,25 @@ class Inventory:
         device) — so a device whose own mask does not cover this network
         cannot do its job, and that is a fault worth reporting.
 
-        Asked instead of comparing against a fixed mask, because no fixed mask
-        is right: Yatakli's devices fit in a /25 and Gaziray's need a /21, and
-        the CCTV commissioning scripts write a /8 to both. All three are
-        correct — "wide enough" is the only question with one answer.
+        Computed instead of compared against a fixed mask, because no fixed
+        mask is right for every project: Yatakli sits inside one /24 and
+        Gaziray needs a /16, while the CCTV commissioning scripts write a /8
+        to both. All three are correct — "wide enough" is the only question
+        with one answer.
 
-        None when there is nothing to span (an empty or unresolved map).
+        WIDENED TO AN OCTET BOUNDARY, and that is the point of the constant
+        above. The addresses themselves would give something tighter —
+        Yatakli's run .1 to .101 and fit in a /25, Gaziray's fit in a /21 —
+        but those are accidents of which addresses happen to be in use today,
+        not decisions anybody made. Answering /25 would fail a camera set to
+        the /24 the train is actually built on. Narrowing past /24 has to be
+        SAID, and the place to say it is the DeviceMap (`subnetMask` is
+        already a field it may carry, see panel/config_sync/fields.py); no map
+        says it today.
+
+        None when there is nothing to span, or when the addresses do not fit
+        in a /8 at all — a project spread across unrelated ranges has no one
+        network, and claiming one would be worse than saying nothing.
         """
         import ipaddress                                    # noqa: PLC0415
 
@@ -159,8 +178,7 @@ class Inventory:
         if not numbers:
             return None
         low, high = min(numbers), max(numbers)
-        # Widen from the longest prefix down until one net holds both ends.
-        for length in range(32, -1, -1):
+        for length in self.OCTET_PREFIXES:                  # 24, then 16, then 8
             network = ipaddress.ip_network((low, length), strict=False)
             if ipaddress.IPv4Address(high) in network:
                 return network

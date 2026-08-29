@@ -133,10 +133,10 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
 def _mask_reaches(ip: str, mask: str, project_span: str) -> bool:
     """Is this device's own network wide enough for the project?
 
-    NOT "does it equal a constant". No constant is right: Yatakli's devices
-    fit in a /25 and Gaziray's need a /21, while the CCTV commissioning
-    scripts write a /8 to both — all three masks work, and a check demanding
-    one exact value calls two of them a fault.
+    NOT "does it equal a constant". No constant is right: Yatakli is one /24
+    and Gaziray a /16, while the CCTV commissioning scripts write a /8 to
+    both — all three masks work, and a check demanding one exact value calls
+    two of them a fault.
 
     What matters is whether the device can reach the rest of the project, so
     the span comes from the DeviceMap (`Inventory.span`) and the question is

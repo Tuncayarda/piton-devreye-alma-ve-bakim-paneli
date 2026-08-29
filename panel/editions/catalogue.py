@@ -216,7 +216,7 @@ class Project:
     #
     # THERE IS NO `expected_mask` BESIDE THIS, and there was briefly. The mask
     # a camera is VERIFIED against is not a constant anybody can write down:
-    # Yatakli's devices fit in a /25, Gaziray's need a /21, and the CCTV
+    # Yatakli sits inside one /24, Gaziray needs a /16, and the CCTV
     # commissioning scripts write a /8 to both. Every one of those is correct,
     # and a check demanding one exact value called two of them a fault. The
     # question with a single answer is "is the device's own network wide
@@ -330,7 +330,15 @@ GAZIRAY = project("gaziray", "Gaziray", broker="10.n.0.1", storage=True,
 # (10.1.1.x) where a train's are templates (10.n.1.x), because there is one
 # set and it does not move. Everything downstream still works: the set number
 # substitutes nothing and every screen reads the same list.
-FUAR = project("fuar", "Fuar", stand=True, fixed_addressing=True)
+#
+# IT STATES A PREFIX for the same reason Gaziray does, and stating nothing was
+# a live fault: the rack's addresses run 10.1.1.x through 10.1.4.x — four /24s,
+# like Gaziray's cars — while an unstated prefix left the run writing the /24
+# default. The panel therefore configured a device and then reported that same
+# device's mask as too narrow to reach the rest of the rack. Both halves of a
+# project's width are now the same answer (tests/test_network.py).
+FUAR = project("fuar", "Fuar", stand=True, fixed_addressing=True,
+               prefix=16)
 
 ALL_PROJECTS = (YATAKLI, VIP, GDM, GAZIRAY, FUAR)
 
