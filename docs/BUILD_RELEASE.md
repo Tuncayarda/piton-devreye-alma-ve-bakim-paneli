@@ -550,10 +550,15 @@ PAKET=gdm
 
 ### `ci.yml` — yayın öncesi doğrulama
 
-`main` dalındaki bu iş akışının gerçek tetikleyicileri şunlardır:
+`main` dalındaki bu iş akışının tetikleyicileri şunlardır:
 
+- **`main` dalına gönderim ve çekme isteği:** Değişikliği indiği anda doğrular.
 - **`dap-*-v*` etiketi gönderimi:** Etikete alınan kaynak kodu doğrular.
 - **Elle çalıştırma (`workflow_dispatch`):** Seçilen `main` sürümünü doğrular.
+
+Bir zamanlar yalnız etikette çalışıyordu ("maliyet"); depo herkese açık
+olduğundan Actions dakikaları ücretsiz ve ilk kez yayın anında konuşan bir
+kapı, kapı değildir.
 
 Testler ve `--self-test` `vip-yatakli` paketi olarak koşar; suite build
 sırrını dışa aktardığı için admin modunda çalışır ve mühendis ekranları da
@@ -561,15 +566,20 @@ sınanır (bkz. `tests/support/base.py`).
 Üçüncü bir denetim, çıplak `python app.py` çağrısının **sıfırdan farklı**
 çıktığını doğrular.
 
-Dal gönderimleri ve çekme istekleri (`pull_request`) bu iş akışını otomatik
-başlatmaz. Maliyet nedeniyle **her değişiklik kaydında çalıştırılmaz**. `v*`
-ve `syp-v*` etiketleri de `main` dalındaki `ci.yml` dosyasının kapsamında
-değildir.
+`v*` ve `syp-v*` etiketleri `main` dalındaki `ci.yml` dosyasının kapsamında
+değildir; onlar Switch Yönetim Paneli'nin `syp` dalına aittir.
 
-`self-test` işi yalnız Devreye Alma Paneli'ni Windows, Ubuntu ve macOS
-üzerinde doğrular. Her hedefte Python 3.12 ve işletim sistemine özgü
-bağımlılıklar kurulur; `compileall`, birim testler, kaynak koddan
-`--self-test` ve `--version` çalıştırılır.
+`self-test` işi Devreye Alma Paneli'ni **her koşuda üç platformda birden**
+doğrular: Windows, Ubuntu ve macOS. Her hedefte Python 3.12 ve işletim
+sistemine özgü bağımlılıklar kurulur; `compileall`, birim testler, kaynak
+koddan `--self-test` ve `--version` çalıştırılır.
+
+Üçü paralel koştuğu için duvar saati maliyeti tek platformunki kadardır.
+Bir süre gündelik gönderimlerde yalnız Ubuntu koşuyordu; bu ağaçtaki
+hataların bir kısmı tam olarak o boşlukta yaşıyor (yol ayracı, cp1252
+çıktısı, WSL başlatıcısı olan `bash.exe`) ve hiçbiri Ubuntu'da düşmez.
+`fail-fast` kapalı: bir platform düştüğünde diğer ikisi yine rapor veriyor,
+çünkü değişikliğin hangi platformu bozduğu cevabın işe yarayan yarısıdır.
 
 Etiket gönderimlerinde `version-check` işi, `dap-v*` etiketindeki değer ile
 `panel/settings.py` içindeki `APP_VERSION` değerini karşılaştırır. `repo-checks`

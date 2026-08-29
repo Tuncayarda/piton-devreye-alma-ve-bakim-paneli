@@ -11,15 +11,18 @@ name: CI
 # WHAT RUNS WHEN. This used to fire only on a tag, "for cost" — a reason
 # that stopped being true when the repository was made public, because
 # Actions is free for public repositories. A gate that first speaks at
-# release time is not a gate, so:
+# release time is not a gate, so every push to main, every pull request,
+# every tag and every manual run gets lint plus ALL THREE PLATFORMS.
 #
-#   push to main, pull request  ->  lint + Ubuntu (about four minutes)
-#   tag push, manual run        ->  the above, plus Windows and macOS
+# It was Ubuntu alone on an everyday push for a while, with the other two
+# held back for the tag. That is the same "a gate that first speaks at
+# release time" mistake one level down, and this tree is full of the bugs
+# that live in the gap: a path separator, a cp1252 stdout, a `bash.exe` that
+# is only a WSL launcher. None of them can fail on Ubuntu. Finding one at
+# release time means unpicking a tag instead of amending a push.
 #
-# The three-platform matrix is what a release must pass; one platform is
-# enough to catch a regression the moment it lands. The platform list is
-# decided by the `matrix` job below rather than duplicated into two copies
-# of the same twelve steps.
+# The three run in parallel, so the wall-clock cost is one platform's; on a
+# public repository the minutes are free either way.
 #
 # For day-to-day development, run locally:
 #   python3 app.py --self-test
@@ -87,43 +90,31 @@ jobs:
       - name: Lint
         run: ruff check --output-format github .
 
-  # WHICH PLATFORMS. `with:` and `strategy:` are evaluated before any shell
-  # runs, so the row list cannot be filtered inline — this job computes it,
-  # the same way build-commissioning-panel.yml resolves its edition. One
-  # platform for everyday pushes, all three for a tag or a manual run.
-  matrix:
-    name: Which platforms
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
-    outputs:
-      rows: ${{ steps.pick.outputs.rows }}
-    steps:
-      - id: pick
-        shell: bash
-        run: |
-          set -euo pipefail
-          UBUNTU='{"name":"Ubuntu","os":"ubuntu-22.04","req":"requirements-linux.txt"}'
-          WINDOWS='{"name":"Windows","os":"windows-2025","req":"requirements-windows.txt"}'
-          MACOS='{"name":"macOS","os":"macos-15","req":"requirements-macos.txt"}'
-          if [ "${{ github.ref_type }}" = "tag" ] \
-             || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ROWS="[$UBUNTU,$WINDOWS,$MACOS]"
-            echo "A tag or a manual run: all three platforms."
-          else
-            ROWS="[$UBUNTU]"
-            echo "An everyday push: Ubuntu only. A tag runs all three."
-          fi
-          echo "rows=$ROWS" >> "$GITHUB_OUTPUT"
-
   self-test:
     name: Commissioning Panel · ${{ matrix.name }}
-    needs: matrix
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:
+      # THE ROW LIST IS WRITTEN HERE, not computed by a job that hands it
+      # over as JSON. It was computed while the list depended on the event;
+      # it no longer does, and the indirection cost a job, a `needs:` and a
+      # `fromJSON` to say what three literal lines say.
+      #
+      # `fail-fast: false` so one platform's failure still lets the other
+      # two report. Which platform a change breaks is the useful half of the
+      # answer, and cancelling the siblings throws it away.
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.matrix.outputs.rows) }}
+        include:
+          - name: Ubuntu
+            os: ubuntu-22.04
+            req: requirements-linux.txt
+          - name: Windows
+            os: windows-2025
+            req: requirements-windows.txt
+          - name: macOS
+            os: macos-15
+            req: requirements-macos.txt
 
     steps:
       - name: Check out the repository
