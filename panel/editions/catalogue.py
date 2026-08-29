@@ -125,17 +125,104 @@ class Project:
     # stand up should not have to remember a flag, and the same package used
     # on a train must not inherit the relaxation.
     stand: bool = False
-    # This project's checklist workbook, when it is not the shared one.
+    # This project's checklist workbook. Same two names as the DeviceMap
+    # above: flat at the bundle root, relative in the source tree.
     #
-    # The workbook matches its rows to devices BY IP TEMPLATE
-    # (`panel/checklist/workbook.py`), so a project whose devices are not in
-    # the shared file gets no rows filled at all — an empty report, with
-    # nothing on screen to say why. Same two names as the DeviceMap above:
-    # flat at the bundle root, relative in the source tree.
+    # EVERY PROJECT IN THE TABLE CARRIES ITS OWN. The workbook matches its
+    # rows to devices BY IP TEMPLATE (`panel/checklist/workbook.py`), so a
+    # project filled from another's file gets no rows at all — an empty
+    # report, with nothing on screen to say why. One shared workbook only
+    # ever fitted the trains built to the same drawing, and stopped being
+    # true the moment GDM and Gaziray arrived with device kinds and
+    # addresses of their own.
+    #
+    # Empty for a project delivered on the service key and nowhere else
+    # (`panel.adminkey.pack`): no workbook was generated for a map that
+    # arrived on a stick, so `runtime.checklist_path` falls back to the
+    # shared template for it.
     #
     # Built by `tools/make_checklist_template.py`, never by hand.
     checklist_name: str = ""
     checklist_source: tuple[str, ...] = ()
+
+    # ── the three addresses that are a ROLE, not a device ────────────────
+    #
+    # The MQTT broker, the clock source and the PBX. On a train with one
+    # PISCU all three ARE that PISCU, which is why the panel derived them
+    # from `Inventory.piscu_ip()` and was right for three projects out of
+    # five. Gaziray and GDM broke the assumption: both carry a Master and a
+    # Slave PISCU, and neither is the broker (Gaziray answers on 10.n.0.1,
+    # GDM on 192.168.201.210 — the PISCUs are .211 and .212).
+    #
+    # The failure was silent and expensive. MQTT connected to a host that
+    # was not the broker, so no live DeviceMap ever arrived; and because the
+    # same value was handed out as the expected NTP server and the expected
+    # PBX, every device's clock and SIP verification read "does not match"
+    # with nothing on screen to say why.
+    #
+    # IP TEMPLATES, not addresses: `n` is the train set and is substituted
+    # where the set is known (`runtime.broker_ip` and friends, through
+    # `inventory.device_map.resolve_template`). This module may not import
+    # that — see the note at the top about `dabp.spec` loading it bare — so
+    # it holds the template and resolves nothing.
+    #
+    # EMPTY MEANS "THE PISCU", which is the honest default and keeps the
+    # three projects it is true for from repeating themselves. `pbx` and
+    # `ntp` fall back to `broker` rather than to the PISCU: where they have
+    # ever differed from the broker they have differed together.
+    broker: str = ""
+    pbx: str = ""
+    ntp: str = ""
+    # Does this project's video equipment have storage to ask about?
+    #
+    # `video_config.health` asks every camera for its SD card and every NVR
+    # for its disk. On Gaziray and GDM that is a real check; on the others
+    # the cameras record to the NVR and have no card in them by design, so
+    # the question comes back "no SD" for every camera on the train and the
+    # checklist fills with a fault nobody can fix. The NVR's buzzer is NOT
+    # behind this flag — a buzzer left armed is a fault on any project.
+    storage: bool = False
+    # Addresses written out rather than templated: GDM's 192.168.201.x and
+    # the exhibition rack's 10.1.1.x. The train-set box in the top bar
+    # substitutes nothing on such a project, so it is not shown — a control
+    # that changes nothing is worse than no control, because the operator
+    # believes it worked.
+    #
+    # DECLARED, NOT DERIVED. "This map happens to contain no `n` today" and
+    # "this project is addressed in fixed form" are different claims, and
+    # only the second one should hide a control.
+    fixed_addressing: bool = False
+
+    # ── the two masks ────────────────────────────────────────────────────
+    #
+    # `prefix` is HOW WIDE THIS PROJECT'S NETWORK IS, and it settles two
+    # things at once: the mask written with a new address
+    # (`panel.ip_assign`), and the width of the alias the panel gives itself
+    # so it can reach the devices at all (`panel.network.planning`). One
+    # number, because they are one fact — a computer whose alias is narrower
+    # than the devices' network cannot see half the train.
+    #
+    # Most projects put every device on one /24, which is the system default
+    # and is why this is normally unset. Gaziray does not: the third octet is
+    # the CAR (10.n.1.x through 10.n.4.x) and the broker sits on a fifth
+    # network at 10.n.0.1, so nothing narrower than a /16 spans the train.
+    #
+    # ZERO MEANS UNSTATED, and that is not the same as 24. An unstated prefix
+    # leaves the device's own mask alone — the long-standing behaviour of the
+    # intercom run (`panel.ip_assign.runner`) — while a project that states
+    # one is making a claim the run should enforce. It is also what keeps
+    # Yatakli and VIP bit-for-bit on the behaviour they have today.
+    prefix: int = 0
+    #
+    # THERE IS NO `expected_mask` BESIDE THIS, and there was briefly. The mask
+    # a camera is VERIFIED against is not a constant anybody can write down:
+    # Yatakli's devices fit in a /25, Gaziray's need a /21, and the CCTV
+    # commissioning scripts write a /8 to both. Every one of those is correct,
+    # and a check demanding one exact value called two of them a fault. The
+    # question with a single answer is "is the device's own network wide
+    # enough to reach the rest of the project", and the project's reach is
+    # computed from the DeviceMap (`Inventory.span`) rather than declared
+    # here — see `panel.probe.camera._mask_reaches`.
 
 
 @dataclass(frozen=True)
@@ -159,29 +246,91 @@ class Edition:
     views: tuple[str, ...]
 
 
+# ── the naming rule ──────────────────────────────────────────────────────
+# A PROJECT'S FILES ARE NAMED FROM ITS KEY, and from nothing else:
+#
+#     folder     devicemaps/<key>/
+#     DeviceMap  DeviceMap_<Key>.json
+#     workbook   Field_Device_Verification_<Key>.xlsx
+#
+# `<Key>` is the key with its first letter capitalised. The key is already
+# lowercase ASCII — it addresses the project over the API — so the rule needs
+# no transliteration table and the code stays free of the label's Turkish
+# spelling.
+#
+# THE CAPITAL IS NOT DECORATION. `Inventory.project` takes the project's name
+# from the map's stem (`panel/inventory/device_map.py`), so the file name is
+# what the top bar shows and what `panel/video_config/nvr.py` branches on.
+# `Project.label` has to agree with it, which `tests/test_editions.py` holds.
+#
+# DERIVED RATHER THAN WRITTEN OUT, because a rule three of five rows follow
+# is not a rule. That is exactly how the maps arrived — `DeviceMap_gdm.json`
+# next to `DeviceMap_Fuar.json`, and a bare `DeviceMap.json` for Yatakli —
+# and a case-insensitive filesystem hides the mismatch completely: macOS and
+# Windows open the file, Linux does not, so the package builds there without
+# the device list it was supposed to carry.
+MAPS_DIR = "devicemaps"
+# The checklist template every generated workbook is built from. Not a
+# project, and named without a key on purpose: it belongs to no one project
+# and is the one file `tools/make_checklist_template.py` reads rather than
+# writes.
+BASE_DIR = "_base"
+BASE_CHECKLIST = "Field_Device_Verification.xlsx"
+
+
+def map_file_name(key: str) -> str:
+    """What this project's DeviceMap is called, everywhere it appears."""
+    return f"DeviceMap_{str(key).capitalize()}.json"
+
+
+def checklist_file_name(key: str) -> str:
+    """What this project's checklist workbook is called."""
+    return f"Field_Device_Verification_{str(key).capitalize()}.xlsx"
+
+
+def project(key: str, label: str, **rest) -> Project:
+    """One project, with every path filled in by the rule above.
+
+    The only way a row in the table below is written. Passing a path by hand
+    is what the rule exists to prevent.
+    """
+    folder = (MAPS_DIR, key)
+    return Project(key=key, label=label,
+                   map_name=map_file_name(key),
+                   source_path=(*folder, map_file_name(key)),
+                   checklist_name=checklist_file_name(key),
+                   checklist_source=(*folder, checklist_file_name(key)),
+                   **rest)
+
+
 # ── the projects ─────────────────────────────────────────────────────────
-# YATAKLI keeps the unqualified name "DeviceMap.json" at the repository root.
-# It is the map the panel was built against, the one the field scripts and
-# `tests/` load, and `Inventory.project` derives the string "YATAKLI" from
-# that stem. Renaming it would be a rename of a value, not of a file.
-YATAKLI = Project("yatakli", "Yataklı", "DeviceMap.json",
-                  ("DeviceMap.json",))
-VIP = Project("vip", "VIP", "DeviceMap_Vip.json",
-              ("devicemaps", "DeviceMap_Vip.json"))
-GDM = Project("gdm", "GDM", "DeviceMap_Gdm.json",
-              ("devicemaps", "DeviceMap_Gdm.json"))
-GAZIRAY = Project("gaziray", "Gaziray", "DeviceMap_Gaziray.json",
-                  ("devicemaps", "DeviceMap_Gaziray.json"))
+# One folder per project under `devicemaps/`, holding the two files that have
+# to agree: its DeviceMap, and the workbook generated from that DeviceMap.
+# Kept together rather than sorted by file kind into two folders, so half a
+# delivery is visibly half a folder and a workbook cannot be left behind next
+# to another project's.
+# One PISCU, and it is the broker, the clock and the PBX. Nothing to state.
+YATAKLI = project("yatakli", "Yataklı")
+VIP = project("vip", "VIP")
+# Four cars, two PISCUs, and a broker that is NEITHER of them. The cameras
+# here record to their own cards, so the storage check is real.
+# One network holds all 125 devices, but the alias is widened to a /16
+# anyway: the panel then reaches the whole 192.168 range while its own
+# address still sits inside the devices' /24 (see
+# `panel.network.planning.choose_host`), which is what lets a camera on
+# a /24 answer it.
+GDM = project("gdm", "GDM",
+              broker="192.168.201.210", storage=True,
+              fixed_addressing=True,
+              prefix=16)
+GAZIRAY = project("gaziray", "Gaziray", broker="10.n.0.1", storage=True,
+                  prefix=16)
 # The exhibition rack: one KYLAND switch and the twelve devices shown beside
 # it. Not a train, and its map says so — the addresses are literal
 # (10.1.1.x) where a train's are templates (10.n.1.x), because there is one
 # set and it does not move. Everything downstream still works: the set number
 # substitutes nothing and every screen reads the same list.
-FUAR = Project("fuar", "Fuar", "DeviceMap_Fuar.json",
-               ("devicemaps", "DeviceMap_Fuar.json"), stand=True,
-               checklist_name="Field_Device_Verification_Fuar.xlsx",
-               checklist_source=("devicemaps",
-                                 "Field_Device_Verification_Fuar.xlsx"))
+FUAR = project("fuar", "Fuar", stand=True, fixed_addressing=True)
 
 ALL_PROJECTS = (YATAKLI, VIP, GDM, GAZIRAY, FUAR)
 

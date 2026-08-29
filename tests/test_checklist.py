@@ -9,21 +9,23 @@ else in the file.
 from __future__ import annotations
 
 import unittest
+from typing import ClassVar
 
 from panel import checklist, jobs, script_loader, settings
+from panel.editions import catalogue
 from panel.checklist import columns as cols
 from panel.inventory import device_map
 from panel.probe import result as probe_result
 from panel import status
 
 from .support import fakes
-from .support.base import ServiceTest
+from .support.base import YATAKLI_MAP, ServiceTest
 
 
 class ChecklistPreview(ServiceTest):
 
     def inventory(self):
-        return device_map.load(1, settings.ROOT / "DeviceMap.json")
+        return device_map.load(1, YATAKLI_MAP)
 
     def test_template_layout_comes_from_the_file(self):
         layout = checklist.template_layout()
@@ -205,6 +207,60 @@ class LiveJob(ServiceTest):
         # Progress is computed from device rows only
         job.update_row("d1", "done", "finished")
         self.assertEqual(job.progress(), 1.0)
+
+
+class EveryShippedWorkbookStatesAVersion(unittest.TestCase):
+    """Column G is what the commissioning record is signed against.
+
+    The panel never computes it — `EXPECTED_VERSION` is a manual column
+    (`panel.checklist.columns.MANUAL_COLUMNS`), read out of the workbook and
+    passed through. All five workbooks shipped with it EMPTY, so the sheet
+    handed over at the end of a commissioning had a "version read" column
+    and nothing to read it against.
+
+    Filled by `tools/make_checklist_template.py`; this is what stops a
+    regenerated workbook from silently losing it again.
+    """
+
+    # The kinds that genuinely state no version, each with its reason. NOT a
+    # place to park a device whose version nobody has looked up yet.
+    VERSIONLESS: ClassVar[dict] = {
+        ("AP", ""): "commissioned by hand; it reports nothing to the panel",
+        ("Announcement", "Induction Loop"):
+            "a hearing-loop amplifier with no API to ask",
+    }
+
+    def test_every_device_row_states_the_version_it_expects(self):
+        import openpyxl                                    # noqa: PLC0415
+
+        missing = []
+        for project in catalogue.ALL_PROJECTS:
+            book = settings.ROOT.joinpath(*project.checklist_source)
+            source = settings.ROOT.joinpath(*project.source_path)
+            if not (book.is_file() and source.is_file()):
+                continue
+            # Matched to devices the way the panel matches them: by IP
+            # template. Reading the kind off the sheet would not work — the
+            # first column carries the PROJECT, and the kind is only on the
+            # banner above the section.
+            inventory = device_map.load(1, path=source, cache=False)
+            by_template = {d.ip_template: d for d in inventory.devices}
+            sheet = openpyxl.load_workbook(book)["Checklist"]
+            for row in range(5, sheet.max_row + 1):
+                template = sheet.cell(row, 5).value
+                if not template or sheet.cell(row, 7).value:
+                    continue          # a banner row, or one already stated
+                device = by_template.get(str(template))
+                kind = ((device.type, device.subtype or "") if device
+                        else ("?", "?"))
+                if kind in self.VERSIONLESS:
+                    continue
+                missing.append(f"{book.name}: {kind[0]}/{kind[1] or '-'}")
+        self.assertEqual(sorted(set(missing)), [],
+                         "no expected version — add a row to "
+                         "VERSIONS_BY_PROJECT in "
+                         "tools/make_checklist_template.py, or a reason to "
+                         "VERSIONLESS above")
 
 
 if __name__ == "__main__":

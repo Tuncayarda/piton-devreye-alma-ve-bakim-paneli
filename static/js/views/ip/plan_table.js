@@ -75,11 +75,6 @@ export function planTable(plan, check) {
       el('div', { class: 'ip-section-title' }, [
         el('div', {}, [
           el('h3', { text: t('ipplan.assignmentPlan') }),
-          el('p', {
-            text: t(usesPhysicalPortDiscovery(plan)
-              ? 'ipplan.physicalPortDiscoveryNote'
-              : 'ipplan.reviewTheCurrentAndTarget'),
-          }),
         ]),
       ]),
       el('div', { class: 'ip-plan-metrics' }, [

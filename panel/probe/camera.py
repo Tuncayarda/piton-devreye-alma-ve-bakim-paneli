@@ -16,6 +16,7 @@ side of those settings lives too. A device that records nothing is not
 """
 from __future__ import annotations
 
+import ipaddress
 import xml.etree.ElementTree as ET
 
 import requests
@@ -65,7 +66,8 @@ def _xml(response):
 def read(ip: str, credentials: tuple[str, str] | None = None,
          timeout: float | None = None,
          expected_ntp: str | None = None,
-         is_nvr: bool = False) -> dict:
+         is_nvr: bool = False,
+         project_span: str = "") -> dict:
     """Device identity plus the verification checks.
 
     A missing identity raises. The checks are extras: if one cannot be read
@@ -104,14 +106,16 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
             problems.append(i18n.t(label))
 
     mask = _subnet_mask(ip, credentials, limit)
-    if mask and mask != settings.EXPECTED_SUBNET_MASK:
+    if mask and not _mask_reaches(ip, mask, project_span):
         problems.append(i18n.t("video.checkMask"))
 
     # The recording-side checks. Imported here rather than at module level:
     # video_config reaches back into the inventory and the credential store,
     # and this module is imported by the probe dispatcher.
     from ..video_config import health
+    from ..editions import runtime as editions
     problems.extend(health.problems(ip, credentials, is_nvr=is_nvr,
+                                    storage=editions.storage_checked(),
                                     timeout=limit))
 
     return {
@@ -124,6 +128,32 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
         "raw": {"firmwareVersion": version, "serialNumber": serial,
                 "model": model},
     }
+
+
+def _mask_reaches(ip: str, mask: str, project_span: str) -> bool:
+    """Is this device's own network wide enough for the project?
+
+    NOT "does it equal a constant". No constant is right: Yatakli's devices
+    fit in a /25 and Gaziray's need a /21, while the CCTV commissioning
+    scripts write a /8 to both — all three masks work, and a check demanding
+    one exact value calls two of them a fault.
+
+    What matters is whether the device can reach the rest of the project, so
+    the span comes from the DeviceMap (`Inventory.span`) and the question is
+    containment. A Gaziray camera left on a /24 fails this and should: it
+    cannot see the other cars, the broker, or the panel.
+
+    Unanswerable questions pass. An empty span means the caller had no
+    inventory to compute one from, and a device is not marked faulty for a
+    check that was never made.
+    """
+    if not project_span:
+        return True
+    try:
+        held = ipaddress.ip_network(f"{ip}/{mask}", strict=False)
+        return ipaddress.ip_network(project_span).subnet_of(held)
+    except ValueError:
+        return True
 
 
 def _subnet_mask(ip: str, credentials, timeout: float) -> str:

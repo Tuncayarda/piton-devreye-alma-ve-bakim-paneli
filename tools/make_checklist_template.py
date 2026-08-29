@@ -36,7 +36,8 @@ import openpyxl                                        # noqa: E402
 from panel.editions import catalogue                   # noqa: E402
 from panel.inventory import catalog, device_map        # noqa: E402
 
-BASE = ROOT / "Field_Device_Verification.xlsx"
+BASE = (ROOT / catalogue.MAPS_DIR / catalogue.BASE_DIR
+        / catalogue.BASE_CHECKLIST)
 SHEET = "Checklist"
 HEADER_ROWS = 4                     # set-no, title, groups, column headings
 BANNER_FILL = "FFBDD7EE"
@@ -76,6 +77,91 @@ def donors(worksheet) -> list[tuple[str, str, int]]:
         if cell.value and section and not known:
             found.append((section[0], section[1], row))
     return found
+
+
+# ── the version each device kind is expected to be running ───────────────
+#
+# Column G. It is a MANUAL column (`panel/checklist/columns.py`): the panel
+# reads it out of this workbook and never computes it, so an empty cell means
+# the commissioning record ships with nothing to compare the reading against.
+# All five workbooks shipped that way until this table was written.
+#
+# The values are the ones `field_scripts/device_verify.py` has been checking
+# against on the trains. They are written HERE rather than in `panel/` because
+# nothing at run time uses them: they are baked into a generated file, and a
+# firmware release is a re-run of this tool rather than a code change.
+#
+# There is no verification FORMULA to write. The old field script's workbook
+# carried a "version check" column beside this one; the panel's does not —
+# it records what was expected and what was read, side by side, and leaves
+# the judgement to the person signing the sheet.
+VERSIONS_EVERYWHERE = {
+    # The two long-range cameras run a different firmware from the rest, so
+    # they are named; every other camera falls to the ("Camera", "") row.
+    ("Camera", "Rear"): "V4.3.1build260109 736311",
+    ("Camera", "Panto"): "V4.3.1build260109 736311",
+    ("Camera", ""): "V1.4.1build260128 741107",
+    # The Android displays report the PACKAGE and its version, not a build
+    # id — all four of them, because they are the same hardware running the
+    # same application (see `panel/inventory/catalog.py`). Listed one by one
+    # rather than falling back to ("LCD", ""), which is the passive panel's
+    # own firmware and would be the wrong thing to expect of an app.
+    ("LCD", "Compartment"): "com.piton.train_lcd_panel 0.0.5",
+    ("LCD", "Twin"): "com.piton.train_lcd_panel 0.0.5",
+    ("LCD", "LINE"): "com.piton.train_lcd_panel 0.0.5",
+    ("LCD", "PIS"): "com.piton.train_lcd_panel 0.0.5",
+    ("LCD", "Landing"): "com.piton.train_lcd_panel 0.0.5",
+    ("LCD", ""): "1.0.0",
+    ("NVR", ""): "V5.4.1.630386build250318",
+    # Two that are not a single version. The sheet is read by a person, so
+    # they are written the way the answer is actually given.
+    ("LED", ""): "7 or newer",
+    ("Switch", ""): "R2008 or R1002",
+    ("Router", ""): "8.2.0 build 4901",
+}
+
+# What each project runs on top of that. The announcement equipment is the
+# real split: Gaziray and GDM run a version per subtype, while the other
+# three run one build across the whole family.
+VERSIONS_BY_PROJECT = {
+    "yatakli": {("Announcement", ""): "1.2.8",
+                ("PISCU", ""): "1.2.7", ("HMI", ""): "1.2.7",
+                ("ICU", ""): "1.2.7"},
+    "vip": {("Announcement", ""): "1.2.8",
+            ("PISCU", ""): "1.2.7", ("HMI", ""): "1.2.7",
+            ("ICU", ""): "1.2.7"},
+    "gaziray": {("Announcement", "Intercom"): "5.0.9.2",
+                ("Announcement", "Swanneck"): "5.0.9",
+                ("Announcement", "Amplifier"): "5.0.8",
+                ("Announcement", "UIC"): "1.2.7",
+                ("PISCU", ""): "1.6.1", ("HMI", ""): "1.6.1"},
+    "gdm": {("Announcement", "Intercom"): "5.0.9.2",
+            ("Announcement", "Swanneck"): "5.0.9",
+            ("Announcement", "Amplifier"): "5.0.8",
+            ("Announcement", "UIC"): "1.2.7",
+            ("PISCU", ""): "2.0.4", ("HMI", ""): "2.0.4"},
+    "fuar": {("Announcement", ""): "1.2.8",
+             ("PISCU", ""): "1.0.0", ("HMI", ""): "1.0.0"},
+}
+
+
+def expected_version(project_key: str, device) -> str:
+    """The version this device should be running, or "" when none is stated.
+
+    Exact subtype first, then the type's own row. NOT a read-method fallback,
+    which is right for the donor row above and wrong here: an LCD·LINE and an
+    LCD·Compartment share a read method AND a version, but a Camera·Corridor
+    and a Camera·Rear share the method and run different firmware.
+
+    Blank is a real answer. GDM's induction loop has no API and reports
+    nothing; a version expected of it would be a cell nobody could fill.
+    """
+    table = {**VERSIONS_EVERYWHERE,
+             **VERSIONS_BY_PROJECT.get(project_key, {})}
+    subtype = device.subtype or ""
+    if (device.type, subtype) in table:
+        return table[(device.type, subtype)]
+    return table.get((device.type, ""), "")
 
 
 # Decided by hand, with the reason, where the rules below cannot tell.
@@ -145,8 +231,14 @@ def build(project_key: str) -> Path:
     # which is not an error until the file is opened. Editing one workbook
     # keeps every index valid, and the header rows, column widths, frozen
     # pane and print setup come along untouched.
-    name = f"Field_Device_Verification_{project.label}.xlsx"
-    out_path = ROOT / "devicemaps" / name
+    #
+    # Beside the DeviceMap it was built from, in that project's folder, and
+    # the table is what says where: the naming rule lives in one place
+    # (`panel/editions/catalogue.py`) and this tool applies it rather than
+    # spelling a second name out. The two disagreeing is a package that
+    # builds and then cannot find its own workbook.
+    out_path = ROOT.joinpath(*project.checklist_source)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(BASE, out_path)
     book = openpyxl.load_workbook(out_path)
     sheet = book[SHEET]
@@ -159,12 +251,32 @@ def build(project_key: str) -> Path:
     for device in inventory.devices:
         groups.setdefault(_key(device), []).append(device)
 
+    def row_style(row_number: int) -> list:
+        """One row's formatting, lifted out of the sheet.
+
+        TAKEN BEFORE A SINGLE CELL IS WRITTEN, and that is the whole point.
+        The body is rewritten IN PLACE from the top down, so by the time the
+        fifth section is written the rows it wanted to copy from have already
+        been overwritten by the first four — a donor at row 38 is not the
+        Amplifier any more, it is whatever section landed there.
+
+        Nothing said so. The rows came out with a banner's fill on a device
+        and a device's fill on a banner, which reads as a cosmetic slip and
+        is not one: the grey N/A cells ARE the record of which fields a type
+        has (`panel/checklist/preview.py` reads them), so a shifted row tells
+        the panel an Intercom has no speaker volume. The Fuar workbook in the
+        field has carried exactly that since it was generated.
+        """
+        return [copy(sheet.cell(row_number, column)._style)
+                for column in range(1, columns + 1)]
+
     plan, notes = [], []
     for key, devices in groups.items():
         donor, note = pick_donor(devices[0], table, sheet)
         if note:
             notes.append(note)
-        plan.append((key, devices, donor, sheet.cell(donor - 1, 1).row))
+        # The banner is the row above the section's first data row.
+        plan.append((key, devices, row_style(donor), row_style(donor - 1)))
 
     # Every body merge goes before anything is written: the banners are
     # full-width merges and a leftover one would swallow a device row.
@@ -172,21 +284,21 @@ def build(project_key: str) -> Path:
         if merged.min_row > HEADER_ROWS:
             sheet.unmerge_cells(str(merged))
 
-    def copy_row(donor_row: int, into: int) -> None:
-        for column in range(1, columns + 1):
-            src, dst = sheet.cell(donor_row, column), sheet.cell(into, column)
-            dst._style = copy(src._style)
-            dst.value = None
+    def paste_row(styles: list, into: int) -> None:
+        for column, style in enumerate(styles, start=1):
+            cell = sheet.cell(into, column)
+            cell._style = copy(style)
+            cell.value = None
 
     row = HEADER_ROWS + 1
     banners = []
-    for key, devices, donor, banner_row in plan:
-        copy_row(banner_row, row)
+    for key, devices, donor, banner in plan:
+        paste_row(banner, row)
         sheet.cell(row, 1).value = f"  {_label(*key)}   ·   {len(devices)} records"
         banners.append(row)
         row += 1
         for device in devices:
-            copy_row(donor, row)
+            paste_row(donor, row)
             sheet.cell(row, 1).value = project.label
             sheet.cell(row, 2).value = device.switch_name
             sheet.cell(row, 3).value = device.port
@@ -194,6 +306,8 @@ def build(project_key: str) -> Path:
             sheet.cell(row, 5).value = device.ip_template
             sheet.cell(row, 6).value = (
                 f'=IF($B$1="","",SUBSTITUTE(E{row},"n",$B$1))')
+            sheet.cell(row, 7).value = (
+                expected_version(project.key, device) or None)
             row += 1
 
     if sheet.max_row >= row:

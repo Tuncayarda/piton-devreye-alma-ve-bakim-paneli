@@ -132,9 +132,11 @@ def get_plan(query):
         # The search area can also be given as a range; the UI should know
         # the limit too (see ip_assign.SEARCH_LIMIT).
         "searchLimit": ip_assign.SEARCH_LIMIT,
-        # The mask the run writes with the new address. The default is the
-        # project's /24; the bounds are what the server will accept.
-        "defaultTargetPrefix": ip_assign.DEFAULT_TARGET_PREFIX,
+        # The mask the run writes with the new address. The project's own
+        # when it states one (Gaziray spans five /24s and needs a /16),
+        # otherwise the system default; the bounds are what the server will
+        # accept.
+        "defaultTargetPrefix": ip_assign.effective_prefix(),
         "minTargetPrefix": ip_assign.MIN_TARGET_PREFIX,
         "maxTargetPrefix": ip_assign.MAX_TARGET_PREFIX,
         # The image queued for "flash before assigning", if any. Name and

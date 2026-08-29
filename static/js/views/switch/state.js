@@ -23,6 +23,10 @@
 // those keys anyway, and this object must not become the way around that.
 
 import { state } from '../../core/store.js';
+import { clickSelect, pruneSelection as prune, selectionModifier }
+  from '../../core/selection.js';
+
+export { selectionModifier };
 
 // How often a running scan is asked about. The same beat as the queue panel
 // and the ADB screen — the answer changes once a scan finishes, not sixty
@@ -125,43 +129,16 @@ export function portById(id) {
 // ── selection ───────────────────────────────────────────────────────────
 // Click, ctrl/cmd-click and shift-click, the same three the sibling panel
 // had: an operator turning PoE off on ports 5 to 12 should drag once, not
-// click eight times.
-
-const usesCommandKey = /Mac|iPhone|iPad|iPod/.test(
-  (typeof navigator !== 'undefined'
-    && (navigator.platform || navigator.userAgent)) || '');
-
-export const selectionModifier = usesCommandKey ? '⌘' : 'Ctrl';
-
-export function isSelectionModifier(event) {
-  return usesCommandKey ? event.metaKey : event.ctrlKey || event.metaKey;
-}
+// click eight times. The rules themselves are core/selection.js — the device
+// list picks rows the same way and the two must not drift apart.
 
 export function clickPort(id, event) {
-  const order = orderedPortIds();
-  const chosen = new Set(local.selected);
-  if (event.shiftKey && local.anchor !== null
-      && order.includes(local.anchor)) {
-    const from = order.indexOf(local.anchor);
-    const to = order.indexOf(id);
-    if (to >= 0) {
-      if (!isSelectionModifier(event)) chosen.clear();
-      order.slice(Math.min(from, to), Math.max(from, to) + 1)
-        .forEach(each => chosen.add(each));
-    }
-  } else if (isSelectionModifier(event)) {
-    if (chosen.has(id)) chosen.delete(id);
-    else chosen.add(id);
-    local.anchor = id;
-  } else {
-    // Clicking the only selected port clears it, so a stray click is undone
-    // by repeating it rather than by hunting for a "clear" button.
-    const onlyThis = chosen.size === 1 && chosen.has(id);
-    chosen.clear();
-    if (!onlyThis) chosen.add(id);
-    local.anchor = onlyThis ? null : id;
-  }
-  local.selected = chosen;
+  const result = clickSelect({
+    id, event, order: orderedPortIds(),
+    selected: local.selected, anchor: local.anchor,
+  });
+  local.selected = result.selected;
+  local.anchor = result.anchor;
 }
 
 export function clearSelection() {
@@ -177,10 +154,7 @@ export function selectAllPorts() {
 // A port that is no longer on the switch cannot stay selected — it would be
 // an invisible target for the next thing the operator does to the selection.
 export function pruneSelection() {
-  const known = new Set(orderedPortIds());
-  for (const id of [...local.selected]) {
-    if (!known.has(id)) local.selected.delete(id);
-  }
+  local.selected = prune(local.selected, orderedPortIds());
 }
 
 // A compact "1–4, 9, 20–24" for the selection bar. A list of twenty numbers

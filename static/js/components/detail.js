@@ -52,47 +52,72 @@ function block(title, source, rows) {
   ]);
 }
 
-function render(device) {
+/**
+ * What can be done to one device, as data rather than as buttons.
+ *
+ * The drawer draws these as a row of buttons; the device list draws the same
+ * three in its right-click menu, which is what makes right-clicking a row an
+ * alternative to opening the drawer rather than a second, thinner set of
+ * actions that drifts away from this one.
+ *
+ * `device` is the DTO either screen already holds — `device_dto` carries
+ * `credentialGroup` and `hasCredentials` into the list too, so neither
+ * caller has to fetch anything first. `afterwards` runs once the write is
+ * accepted: the drawer reopens itself, the list refreshes its rows.
+ */
+export function deviceActions(device, afterwards) {
   const result = device.result || {};
-  const fields = result.fields || {};
-  const method = device.readMethodInfo || {};
-  const colour = STATE_COLOUR[result.state] || null;
-
-  const actions = [
-    el('button', {
-      type: 'button', class: 'btn btn-primary', text: t('detail.readNow'),
-      onclick: async () => {
-        try {
-          await api.refresh(state.setNo, [device.id]);
-          await open(device.id);
-        } catch (e) { showError(e.message); }
-      },
-    }),
-  ];
+  const actions = [{
+    label: t('detail.readNow'),
+    primary: true,
+    run: async () => {
+      try {
+        await api.refresh(state.setNo, [device.id]);
+        await afterwards();
+      } catch (e) { showError(e.message); }
+    },
+  }];
   if (result.verification === 'auth_required') {
-    actions.push(el('button', {
-      type: 'button', class: 'btn', text: t('detail.enterCredentials'),
-      onclick: () => credentialDialog({
+    actions.push({
+      label: t('detail.enterCredentials'),
+      run: () => credentialDialog({
         ...device, detail: result.detail,
         credentialGroup: device.credentialGroup,
       }),
-    }));
+    });
   }
   if (device.hasCredentials) {
-    actions.push(el('button', {
-      type: 'button', class: 'btn', text: t('detail.deleteCredentials'),
-      onclick: () => confirmWrite({
+    actions.push({
+      label: t('detail.deleteCredentials'),
+      danger: true,
+      run: () => confirmWrite({
         title: t('detail.deleteCredentials'),
         lead: t('confirm.forgetOneLead', { device: device.name }),
         danger: true,
         confirmLabel: t('detail.deleteCredentials'),
         run: async () => {
           await api.forgetCredentials(state.setNo, device.id);
-          await open(device.id);
+          await afterwards();
         },
       }),
-    }));
+    });
   }
+  return actions;
+}
+
+function render(device) {
+  const result = device.result || {};
+  const fields = result.fields || {};
+  const method = device.readMethodInfo || {};
+  const colour = STATE_COLOUR[result.state] || null;
+
+  const actions = deviceActions(device, () => open(device.id)).map(
+    action => el('button', {
+      type: 'button',
+      class: `btn${action.primary ? ' btn-primary' : ''}`,
+      text: action.label,
+      onclick: action.run,
+    }));
 
   // On the Compartment LCD the version is not the Android build id but the
   // panel app's version (dumpsys package … versionName). Without the package
@@ -135,7 +160,7 @@ function render(device) {
     ]);
 
   const sipRows = device.pbxExtension ? [
-    [t('detail.projectPbxIp'), device.piscuIp],
+    [t('detail.projectPbxIp'), device.pbxIp],
     [t('detail.expectedSipExtension'), device.pbxExtension],
     [t('detail.readSipExtension'), fields.sipExtension,
       fields.sipExtension

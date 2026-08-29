@@ -267,15 +267,10 @@ function renderWindow() {
   const focusLabel = previousFocus && win.body.contains(previousFocus)
     ? previousFocus.getAttribute('aria-label') : null;
   fill(win.body, [
-    el('p', {
-      class: 'cfg-window-note',
-      text: t('config.windowNote', { ip: win.device.ip }),
-    }),
+    el('p', { class: 'cfg-window-note mono', text: win.device.ip }),
     local.errorText ? el('p', {
       class: local.needsCredentials ? 'info' : 'warning',
-      text: local.errorText
-        + (local.needsCredentials
-          ? ` ${t('config.enterCredentialsHint')}` : ''),
+      text: local.errorText,
     }) : null,
     dataTable({
       template: COLUMNS, minWidth: 660, label: t('tabs.deviceSettings'),

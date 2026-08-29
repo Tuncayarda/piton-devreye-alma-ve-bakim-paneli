@@ -9,7 +9,7 @@ const KEYS = new Set([
   'setNo', 'project', 'view', 'category', 'subtype', 'filter',
   'devices', 'counts', 'locked', 'jobs', 'openJob', 'queueOpen',
   'lockedOpen', 'detailId', 'targetGroup', 'version', 'lastScan',
-  'scanRunning', 'sidebarOpen', 'piscuIp', 'loading', 'ipState',
+  'scanRunning', 'sidebarOpen', 'density', 'loading', 'ipState',
   'configState', 'firmwareState', 'mqttState', 'piscuState', 'meta',
   'checklistState', 'checklistCategory', 'historyFilter', 'networkState',
   'autoRefresh', 'deviceSearch', 'deviceSort', 'deviceSortDesc',
@@ -53,7 +53,16 @@ export const state = {
   // is a memory tax for anyone who uses the panel now and then. Whoever
   // wants the room back collapses it, and the choice sticks.
   sidebarOpen: true,
-  piscuIp: null,
+  // How tightly the tables are packed. Comfortable by default: the panel is
+  // read standing up in a depot and the roomier row is the safer one to hand
+  // somebody. Whoever is at a desk with forty devices to get through turns it
+  // down from the top bar, and the choice lasts the session — like
+  // `sidebarOpen`, and for the same reason there is no browser storage here.
+  //
+  // Only the PADDING changes. The type scale does not: base.css puts the
+  // floor at 11px because below it this stops being a tool you can use at
+  // arm's length, and a density control is not a reason to go under it.
+  density: 'comfortable',
   loading: false,
   ipState: null,
   configState: null,

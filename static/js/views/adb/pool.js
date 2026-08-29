@@ -47,7 +47,6 @@ export function poolCard(actions) {
         type: 'button', class: 'btn btn-small',
         text: local.importing ? t('adb.importing') : t('adb.importList'),
         disabled: local.importing,
-        title: t('adb.importHint'),
         onclick: () => actions.importList(),
       }),
       // Beside the import and disabled on an empty list: a button that
@@ -58,14 +57,13 @@ export function poolCard(actions) {
         type: 'button', class: 'btn btn-small btn-danger',
         text: t('adb.rebootSelected'),
         disabled: running() || !chosen.size,
-        title: t('adb.rebootHint'),
         onclick: () => confirmReboot([...chosen], actions),
       }),
       el('button', {
         type: 'button', class: 'btn btn-small',
         text: local.exporting ? t('adb.exporting') : t('adb.exportList'),
         disabled: local.exporting || !list.length,
-        title: list.length ? t('adb.exportHint') : t('adb.exportEmpty'),
+        title: list.length ? '' : t('adb.exportEmpty'),
         onclick: () => actions.exportList(),
       }),
     ]),
@@ -102,7 +100,6 @@ function deviceRow(entry, chosen, actions) {
         type: 'button', class: 'btn btn-small btn-danger',
         text: t('adb.reboot'),
         disabled: running(),
-        title: t('adb.rebootHint'),
         onclick: () => confirmReboot([entry.ip], actions),
       }),
       el('button', {
@@ -141,7 +138,6 @@ function removeDevice(entry, actions) {
   confirmWrite({
     title: t('adb.removeDeviceTitle'),
     lead: t('adb.removeDeviceLead', { ip: entry.ip }),
-    notes: [{ text: t('adb.removeDeviceNote'), tone: 'info' }],
     items: [{ name: entry.ip, detail: entry.label || '' }],
     confirmLabel: t('adb.remove'),
     run: () => actions.removeDevice(entry.ip),
@@ -152,7 +148,7 @@ function addForm(actions) {
   const ipField = el('input', {
     class: 'field adb-ip-field', type: 'text', inputmode: 'decimal',
     autocomplete: 'off', spellcheck: 'false',
-    title: t('adb.addressHint'), value: local.newIp,
+    value: local.newIp,
     oninput: (event) => { local.newIp = event.target.value; },
   });
   const labelField = el('input', {

@@ -4,12 +4,17 @@
 // in the job queue. The list always shows a device's last known state.
 
 import { el, fill } from '../core/dom.js';
+import { api } from '../core/api.js';
 import { dataTable } from '../components/table.js';
 import { state, patch, visibleDevices } from '../core/store.js';
 import {
   value, stateLabel, versionOf, uptimeOf, typeLabel,
 } from '../core/format.js';
 import * as detail from '../components/detail.js';
+import * as menu from '../components/context_menu.js';
+import { clickSelect, isSelectionModifier, pruneSelection }
+  from '../core/selection.js';
+import { showError, showSuccess } from '../components/toast.js';
 import { t } from '../core/i18n.js';
 
 // The "Switch · port" column carries the switch's full name (Yataklı_1 · p11);
@@ -37,6 +42,88 @@ const STATE_ORDER = ['failed', 'auth', 'unknown', 'ok'];
 function ipOrder(text) {
   return String(text || '').split('.')
     .reduce((total, part) => (total * 256) + (Number(part) || 0), 0);
+}
+
+// ── the selection ───────────────────────────────────────────────────────
+//
+// A plain click still opens the drawer: that is what the list has always done
+// and it is the common case. Ctrl/⌘ and Shift build a selection instead, and
+// the right-click menu then works on all of it — reading twelve devices was
+// twelve trips through the drawer before this.
+//
+// Module memory rather than `core/store.js`, the same call the switch screen
+// made (views/switch/state.js): it is one screen's working set, it means
+// nothing on any other screen, and nothing is written anywhere from it.
+let selected = new Set();
+let anchor = null;
+
+// A device the filter, the search or a new scan took off the list cannot stay
+// selected — it would be an invisible target for the next menu.
+function prune(order) {
+  const kept = pruneSelection(selected, order);
+  if (kept.size !== selected.size) selected = kept;
+  if (anchor !== null && !order.includes(anchor)) anchor = null;
+}
+
+function clearSelection() {
+  selected = new Set();
+  anchor = null;
+}
+
+// Read one device or twelve. The endpoint takes a list either way, and it
+// reads on the request's own thread — so a scan or a write already running
+// answers 409 and the message it sends is what the operator sees.
+async function readDevices(ids, root) {
+  try {
+    await api.refresh(state.setNo, ids);
+    if (ids.length > 1) showSuccess(t('devices.readCount', { count: ids.length }));
+    render(root);
+  } catch (e) { showError(e.message); }
+}
+
+// What the menu acts on: the whole selection when the click landed inside it,
+// otherwise just the row under the cursor. Right-clicking outside a selection
+// does not throw it away — the same rule every file manager has.
+function menuTargets(device) {
+  return selected.has(device.id) && selected.size > 1
+    ? [...selected]
+    : [device.id];
+}
+
+function openRowMenu(device, event, root) {
+  event.preventDefault();
+  const targets = menuTargets(device);
+  const many = targets.length > 1;
+  menu.openMenu(event, () => {
+    const rows = [menu.menuItem(
+      many ? t('devices.readCount', { count: targets.length })
+        : t('detail.readNow'),
+      { onPick: () => { menu.close(); readDevices(targets, root); } })];
+
+    // Credentials are one device's business: which device the dialog would
+    // be for is not answerable for a selection of twelve, so those two rows
+    // appear only on a single-row menu. `deviceActions` decides which of
+    // them apply from the same DTO the drawer uses.
+    if (!many) {
+      for (const action of detail.deviceActions(device, () => render(root))) {
+        if (action.label === t('detail.readNow')) continue;   // already above
+        rows.push(menu.menuItem(action.label, {
+          onPick: () => { menu.close(); action.run(); },
+        }));
+      }
+      rows.push(menu.menuItem(t('devices.openDetails'), {
+        onPick: () => { menu.close(); detail.open(device.id); },
+      }));
+    }
+
+    return [
+      menu.menuHead(
+        many ? t('devices.selectedCount', { count: targets.length })
+          : device.name,
+        many ? '' : `${device.ip} · ${device.portLabel}`),
+      ...rows,
+    ];
+  });
 }
 
 // Keys, not text — see action_tabs.js: the module loads before the
@@ -69,6 +156,17 @@ export function render(root) {
       }),
     ]),
     el('div', { class: 'device-head-actions' }, [
+      // Only there when there is a selection to say something about. A
+      // permanent "0 selected" would be one more thing to read on every
+      // visit for the sake of the minority of visits that select anything.
+      selected.size ? el('div', { class: 'device-selection' }, [
+        el('span', { text: t('devices.selectedCount', { count: selected.size }) }),
+        el('button', {
+          type: 'button', class: 'btn btn-small',
+          text: t('devices.clearSelection'),
+          onclick: () => { clearSelection(); render(root); },
+        }),
+      ]) : null,
       searchBox(root),
       el('div', {
         class: 'local-tabs',
@@ -107,14 +205,36 @@ export function render(root) {
   const headings = ['col.device', 'col.typeSubtypeLower', 'col.switchPort',
     'col.ip', 'col.version', 'col.accessState', 'col.uptime'];
 
-  const rows = sorted(devices).map(device => {
+  const order = sorted(devices);
+  prune(order.map(device => device.id));
+
+  const rows = order.map(device => {
     const result = device.result || {};
     return el('button', {
       type: 'button', class: 'table-row',
       style: `--table-columns:${COLUMNS}`,
-      'aria-selected': String(state.detailId === device.id),
+      // Selected, or the drawer is open on it: both mean "this is the row
+      // being worked on", and the list never shows the two at once.
+      'aria-selected': String(selected.has(device.id)
+        || (!selected.size && state.detailId === device.id)),
       title: result.detail || '',
-      onclick: () => detail.open(device.id),
+      // A plain click opens the drawer, as it always has. The modifiers build
+      // a selection instead — nothing is opened, so a mis-modified click
+      // costs a click rather than a screen.
+      onclick: (event) => {
+        if (!event.shiftKey && !isSelectionModifier(event)) {
+          detail.open(device.id);
+          return;
+        }
+        const result_ = clickSelect({
+          id: device.id, event, order: order.map(each => each.id),
+          selected, anchor,
+        });
+        selected = result_.selected;
+        anchor = result_.anchor;
+        render(root);
+      },
+      oncontextmenu: (event) => openRowMenu(device, event, root),
     }, [
       el('span', {
         style: 'display:flex;align-items:center;gap:8px;min-width:0',

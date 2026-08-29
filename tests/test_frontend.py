@@ -380,6 +380,7 @@ class Frontend(unittest.TestCase):
         html = (settings.STATIC_DIR / "index.html").read_text(encoding="utf-8")
         for element_id in ("app", "mode-badge", "leave-admin-btn",
                            "locked-btn", "queue-btn", "refresh-btn",
+                           "density-btn",
                            "locked-panel", "queue-panel", "toast",
                            "set-picker"):
             self.assertIn(f'id="{element_id}"', html, element_id)
@@ -393,8 +394,14 @@ class Frontend(unittest.TestCase):
             self.assertNotIn(f'id="{gone}"', html, gone)
         self.assertNotIn('type="password"', html)
         # The application is the first thing on screen; nothing stands in
-        # front of it waiting to be dismissed.
-        self.assertIn('<div id="app">', html)
+        # front of it waiting to be dismissed. Matched without the closing
+        # bracket: the shell carries attributes now (the density the tables
+        # read through the cascade), and what this asserts is that the
+        # application opens here, not what is written on the tag.
+        body = html.split("<body>", 1)[1]
+        opening = re.match(r"\s*(?:<!--[\s\S]*?-->\s*)*(<div id=\"app\"[ >])",
+                           body)
+        self.assertIsNotNone(opening, "#app is not the first thing in the body")
         # Accessibility: icon buttons must not be left without a label
         self.assertIn('aria-label="Job queue"', html)
         self.assertIn('lang="en"', html)

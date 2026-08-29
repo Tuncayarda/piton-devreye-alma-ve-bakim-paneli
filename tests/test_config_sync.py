@@ -17,7 +17,7 @@ from panel.config_sync import fields as field_table
 from panel.errors import VerificationError
 
 from .support import fakes
-from .support.base import PanelTest, ServiceTest
+from .support.base import YATAKLI_MAP, PanelTest, ServiceTest
 
 # The UIC's extra fields as seen on the main endpoint (tc/tl gain, thresholds,
 # targets).
@@ -281,7 +281,7 @@ class ConfigWrite(PanelTest):
 
     def test_the_project_audio_defaults(self):
         """The supported announcement types share the required audio base."""
-        data = json.loads((settings.ROOT / "DeviceMap.json").read_text(
+        data = json.loads(YATAKLI_MAP.read_text(
             encoding="utf-8"))["Config"]
         amp = data["Announcement/Amplifier"]
         intercom = data["Announcement/Intercom"]

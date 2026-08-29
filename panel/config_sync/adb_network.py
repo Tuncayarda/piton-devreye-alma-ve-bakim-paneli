@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from ..errors import UnreachableError, VerificationError
 from ..inventory.device_map import Device
+from .. import ip_assign
 from ..ip_assign import lcd_runner
 from ..probe import android
 from .. import i18n
@@ -37,7 +38,7 @@ def _split(cidr: str) -> tuple[str, int]:
     try:
         return address, int(prefix)
     except ValueError:
-        return address, lcd_runner.TARGET_PREFIX
+        return address, ip_assign.effective_prefix()
 
 
 def current_address(ip: str) -> tuple[str, int]:

@@ -5,6 +5,7 @@ Precedence: device-specific > group > the project value in DeviceMap.
 """
 from __future__ import annotations
 
+from ..editions import runtime as editions
 from ..inventory.device_map import Device, Inventory
 from ..video_config import defaults as video_defaults
 from .fields import FIELDS, config_scope, writable_for_scope
@@ -121,9 +122,10 @@ def _project_target(device: Device, inventory: Inventory, name: str,
     else:
         raw = inventory.project_settings(device).get(field.write_name.lower())
     if raw in (None, "") and name == "sipPbx":
-        # With no PBX address in DeviceMap it is the set's PISCU; there is no
-        # other registrar in the set.
-        raw = inventory.piscu_ip() or ""
+        # With no PBX address in DeviceMap it is the project's registrar —
+        # the PISCU on most trains, and a machine of its own on Gaziray and
+        # GDM (see `panel.editions.catalogue.Project.broker`).
+        raw = editions.pbx_ip(inventory) or ""
     if raw in (None, "") and device.read_method == "isapi":
         # Video equipment is configured to project settings that DeviceMap
         # does not carry today (IR mode, third stream, the camera's audio).

@@ -203,8 +203,8 @@ testleri ayrıca `deno test --allow-read tests/js/` ile koşar.
 | `tests/` | Birim ve arayüz testleri ile sahte cihaz sunucuları |
 | `docs/` | Mimari, cihaz, paketleme ve sürüm belgeleri |
 | `dabp.spec`, `packaging/` | PyInstaller tanımı, Windows kurulumu ve AppImage |
-| `DeviceMap.json`, `devicemaps/` | Projelerin envanterleri |
-| `Field_Device_Verification.xlsx` | Kontrol listesi şablonu |
+| `devicemaps/<proje>/` | Projenin envanteri ve kontrol listesi: `DeviceMap_<Proje>.json` + `Field_Device_Verification_<Proje>.xlsx` (adlandırma standardı: bkz. `docs/BUILD_RELEASE.md`) |
+| `devicemaps/_base/` | Çalışma kitaplarının üretildiği şablon; bir projeye ait değildir |
 
 ### DeviceMap kimlik bilgisi taşımaz
 

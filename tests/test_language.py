@@ -112,7 +112,7 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     # The panel matches the switch inventory against the customer's live
     # DeviceMap over MQTT. These names are the ones the field devices
     # publish; translating them would stop the match.
-    "DeviceMap.json": (
+    "devicemaps/yatakli/DeviceMap_Yatakli.json": (
         ("Yataklı", "switch names published by the customer's DeviceMap"),
     ),
     "static/js/views/devices.js": (
@@ -286,8 +286,14 @@ SCREEN_TEXT_ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     "static/js/views/switch/front_panel.js": (
         (" unpowered", "CSS class appended to the port's class list"),
     ),
-    "static/js/views/switch/context_menu.js": (
+    # The menu shell moved out of the switch screen and is shared now; the
+    # drawer's action buttons are built from a list rather than written out,
+    # so their class is assembled the same way.
+    "static/js/components/context_menu.js": (
         (" is-selected", "CSS class appended to the menu row's class list"),
+    ),
+    "static/js/components/detail.js": (
+        (" btn-primary", "CSS class appended to the action button's class"),
     ),
 }
 

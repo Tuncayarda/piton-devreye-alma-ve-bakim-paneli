@@ -240,13 +240,6 @@
   font-size: var(--fs-xs);
   line-height: 1.55;
 }
-.ip-summary-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
 .ip-ready-badge {
   border-color: var(--ok-soft);
   color: var(--ok);

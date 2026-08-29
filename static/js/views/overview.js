@@ -21,11 +21,12 @@ import {
 import { t } from '../core/i18n.js';
 
 // The tiles: a big number, what it sits within, and a fill bar. There is no
-// caption under the bar; the number and the bar already said the same thing
-// and the extra line was only noise.
-function kpi(name, amount, unit, colour, ratio, go, hint) {
+// caption under the bar and no tooltip on the tile; the name, the number and
+// the bar already said it, and a title that reworded the name was one more
+// thing to read.
+function kpi(name, amount, unit, colour, ratio, go) {
   return el('button', {
-    type: 'button', class: 'kpi corner', title: hint || '', onclick: go,
+    type: 'button', class: 'kpi corner', onclick: go,
   }, [
     el('div', { class: 'name', text: name }),
     el('div', { class: 'value-wrap' }, [
@@ -91,20 +92,19 @@ export function render(root, refreshNow) {
   parts.push(el('div', { class: 'kpi-grid' }, [
     kpi(t('overview.totalDevices'), total, t('overview.records'),
       'accent', '100%',
-      () => goToList('all'), t('overview.listEveryDevice')),
+      () => goToList('all')),
     kpi(t('devices.reachable'), scanned ? counts.ok : NONE,
       t('overview.outOfTotal', { total }), 'ok',
       percent(counts.ok, total),
-      () => goToList('active'), t('overview.listReachable')),
+      () => goToList('active')),
     kpi(t('state.auth'), scanned ? counts.auth : NONE,
       t('overview.outOfTotal', { total }),
       'auth', percent(counts.auth, total),
-      () => patch({ lockedOpen: true, queueOpen: false }),
-      t('overview.openLockedDevices')),
+      () => patch({ lockedOpen: true, queueOpen: false })),
     kpi(t('devices.needsReview'), scanned ? counts.failed : NONE,
       t('overview.outOfTotal', { total }), 'failed',
       percent(counts.failed, total),
-      () => goToList('problem'), t('overview.listUnfinished')),
+      () => goToList('problem')),
   ]));
 
   // ── category status + the right-hand column ──
@@ -151,7 +151,7 @@ export function render(root, refreshNow) {
   // ── check summary ──
   // The card only shows a row when there is work to do; each row leads to
   // where that work is done.
-  const stepRow = (colour, name, note, actionLabel, action) => el('div', {
+  const stepRow = (colour, name, actionLabel, action) => el('div', {
     class: 'step-row',
   }, [
     el('span', {
@@ -160,7 +160,6 @@ export function render(root, refreshNow) {
     }),
     el('span', { class: 'text' }, [
       el('span', { class: 'name', text: name }),
-      note ? el('span', { class: 'note', text: note }) : null,
     ]),
     el('button', {
       type: 'button', class: 'btn btn-small', text: actionLabel,
@@ -184,10 +183,10 @@ export function render(root, refreshNow) {
       class: 'dot', style: 'background:var(--accent)', 'aria-hidden': 'true',
     }),
     el('span', { class: 'text' }, [
-      // What to expect leads the row. It is the one sentence here that the
-      // page subtitle does not already carry, and a row whose first line is
-      // a bar has nothing to hang on.
-      el('span', { class: 'name', text: t('overview.scanRunningNote') }),
+      // A row whose first line is a bar has nothing to hang on, so the bar
+      // keeps a label — one word, not the sentence the page subtitle above
+      // already carries.
+      el('span', { class: 'name', text: t('topbar.scanning') }),
       el('span', { class: 'scan-progress' }, [
         el('span', {
           class: 'bar', role: 'progressbar',
@@ -215,26 +214,22 @@ export function render(root, refreshNow) {
   if (!scanned) {
     if (!state.scanRunning) {
       steps.push(stepRow('accent', t('overview.noScanYet'),
-        t('overview.noScanYetNote'),
         t('overview.scanNow'), () => refreshNow && refreshNow()));
     }
   } else {
     if (counts.auth) {
       steps.push(stepRow('auth',
         t('overview.needCredentials', { count: counts.auth }),
-        t('overview.credentialsNote'),
         t('overview.enterCredentials'),
         () => patch({ lockedOpen: true, queueOpen: false })));
     }
     if (counts.failed) {
       steps.push(stepRow('failed',
         t('overview.checkUnfinished', { count: counts.failed }),
-        t('overview.checkUnfinishedNote'),
         t('overview.openTheList'), () => goToList('problem')));
     }
     if (!steps.length) {
       steps.push(stepRow('ok', t('overview.scanFinished'),
-        t('overview.scanFinishedNote'),
         t('overview.openTheResults'), () => patch({ view: 'checklist' })));
     }
   }

@@ -45,6 +45,21 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HERE = Path(__file__).resolve().parent
 
+
+def shipped(name: str, *source_path: str) -> Path:
+    """A data file this script is run beside, or where the repository keeps it.
+
+    Packaged, the panel's data files are copied to the bundle root next to
+    this script (`dabp.spec`), so "beside me" is the answer in the field. In
+    a source checkout they live under `devicemaps/`, one folder per project
+    (`panel/editions/catalogue.py`), and the fallback is what makes a bare
+    run from the tree work at all — the flat name looked for before was never
+    there. Any project but the default is named on the command line.
+    """
+    beside = HERE / name
+    return beside if beside.exists() else HERE.parent.joinpath(*source_path)
+
+
 # ── column contract ──────────────────────────────────────────────────────
 # id -> the heading that id carries in the shipped template (read from row 4).
 # The panel keeps the same table in panel/checklist/columns.py; the two must
@@ -629,6 +644,8 @@ COLLECTORS = {
     ("NVR", None):                 fetch_isapi,
     ("LCD", "Compartment"):        fetch_compartment_lcd,
     ("LCD", "Twin"):               fetch_compartment_lcd,
+    ("LCD", "LINE"):               fetch_compartment_lcd,
+    ("LCD", "PIS"):                fetch_compartment_lcd,
 }
 
 
@@ -642,11 +659,12 @@ def collector_for(kind, subtype):
     return COLLECTORS.get((kind, subtype)) or COLLECTORS.get((kind, None))
 
 
-# Fed from DeviceMap only, with no extra query: ICU, AP, LED, LCD/Landing,
-# and Announcement/UIC. (The two Android displays — Compartment and Twin —
-# are asked the same three properties over ADB; the collector is named after
-# the first of them and is not specific to it.) (PISCU and HMI are NOT in that list — they are
-# collected above, over MQTT AppStatus.)
+# Fed from DeviceMap only, with no extra query: ICU, AP, LED, Router,
+# LCD/Landing, Announcement/Induction Loop and Announcement/UIC. (The four
+# Android displays — Compartment, Twin, and GDM's LINE and PIS — are asked
+# the same three properties over ADB; the collector is named after the first
+# of them and is not specific to it.) (PISCU and HMI are NOT in that list —
+# they are collected above, over MQTT AppStatus.)
 #
 # The UIC is the one the panel and this table see differently: the panel
 # WRITES its SIP and threshold settings over HTTP, so it carries an `http`
@@ -751,13 +769,17 @@ def parse_args(env: dict):
 
     g = p.add_argument_group("files")
     g.add_argument("--template", type=Path,
-                   default=HERE / "Field_Device_Verification.xlsx",
+                   default=shipped("Field_Device_Verification.xlsx",
+                                   "devicemaps", "_base",
+                                   "Field_Device_Verification.xlsx"),
                    help="template Excel (never written over)")
     g.add_argument("--output", type=Path, default=None,
                    help="output file (default: template_set<N>.xlsx, "
                         "overwritten if it exists)")
     g.add_argument("--device-map", type=Path,
-                   default=Path(env.get("DEVICE_MAP_FILE") or HERE / "DeviceMap.json"),
+                   default=Path(env.get("DEVICE_MAP_FILE")
+                                or shipped("DeviceMap.json", "devicemaps",
+                                           "yatakli", "DeviceMap.json")),
                    help="local DeviceMap.json")
     g.add_argument("--sheet", default="Checklist")
 

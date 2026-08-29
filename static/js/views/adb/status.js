@@ -91,7 +91,6 @@ export function statusCard(actions) {
           type: 'button', class: 'btn btn-small',
           text: current.cancelling ? t('adb.cancelling') : t('adb.cancel'),
           disabled: !!current.cancelling,
-          title: t('adb.cancelHint'),
           onclick: () => actions.cancel(),
         })
         : null,

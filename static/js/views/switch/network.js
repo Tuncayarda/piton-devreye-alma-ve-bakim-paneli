@@ -44,7 +44,6 @@ export function networkCard(actions) {
     el('div', { class: 'card-head' }, [
       el('h3', { text: t('switch.networkTitle') }),
     ]),
-    el('p', { class: 'description', text: t('switch.networkNote') }),
     el('div', { class: 'switch-network-current' }, [
       field(t('switch.networkCurrentAddress'),
             `${network.address || '—'}/${network.prefix || '—'}`),
@@ -137,7 +136,6 @@ function confirmSave(actions) {
   confirmWrite({
     title: t('switch.confirmSaveTitle'),
     lead: t('switch.confirmSaveLead', { ip: local.info.ip }),
-    notes: [{ text: t('switch.confirmSaveNote'), tone: 'info' }],
     items: [{ name: local.info.ip, detail: local.info.model || '' }],
     confirmLabel: t('switch.buttonSaveConfiguration'),
     run: () => actions.saveConfiguration(),

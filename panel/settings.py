@@ -44,9 +44,23 @@ def data_file(name: str, *source_path: str) -> Path:
 
 
 STATIC_DIR = resource_dir() / "static"
+# Under `devicemaps/`: a folder per project for the maps, and `_base/` for the
+# checklist template the trains share (see panel/editions/catalogue.py for the
+# layout and why a project's files travel together). Both are still flat at
+# the bundle root once frozen, which is what the tree-relative arguments to
+# `data_file` exist for.
+#
+# These two are the DEFAULTS ONLY. `panel.editions.activate()` points
+# DEVICE_MAP at the project the running edition opens with, and
+# `editions.checklist_path()` answers with a project's own workbook when it
+# carries one; the values here are what a bare import sees before either has
+# run.
 DEVICE_MAP = Path(os.environ.get("DEVICE_MAP_FILE")
-                  or data_file("DeviceMap.json"))
-EXCEL_TEMPLATE = data_file("Field_Device_Verification.xlsx")
+                  or data_file("DeviceMap_Yatakli.json", "devicemaps",
+                               "yatakli", "DeviceMap_Yatakli.json"))
+EXCEL_TEMPLATE = data_file("Field_Device_Verification.xlsx",
+                           "devicemaps", "_base",
+                           "Field_Device_Verification.xlsx")
 
 
 def documents_dir() -> Path:

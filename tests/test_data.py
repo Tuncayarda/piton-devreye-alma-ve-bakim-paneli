@@ -26,7 +26,7 @@ from panel.probe import result as probe_result
 from panel.telemetry import TelemetrySnapshot
 
 from .support import fakes
-from .support.base import PanelTest, ServiceTest
+from .support.base import YATAKLI_MAP, PanelTest, ServiceTest
 
 
 class Inventory(PanelTest):
@@ -43,7 +43,7 @@ class Inventory(PanelTest):
 
     def test_the_real_devicemap_resolves_for_every_set(self):
         for n in (1, 2, 9, 16):
-            inventory = device_map.load(n, settings.ROOT / "DeviceMap.json")
+            inventory = device_map.load(n, YATAKLI_MAP)
             self.assertEqual(inventory.set_no, n)
             self.assertGreater(len(inventory.devices), 30)
             for device in inventory.devices:
@@ -52,7 +52,7 @@ class Inventory(PanelTest):
                 self.assertTrue(device.ip.startswith(f"10.{n}."), device.ip)
 
     def test_the_dto_carries_no_credential_fields(self):
-        inventory = device_map.load(1, settings.ROOT / "DeviceMap.json")
+        inventory = device_map.load(1, YATAKLI_MAP)
         for device in inventory.devices:
             data = device.dto()
             self.assertNotIn("Password", str(data))
@@ -65,8 +65,8 @@ class Inventory(PanelTest):
             self.assertNotIn("Username", device.extra)
 
     def test_device_ids_are_unique_and_stable(self):
-        a = device_map.load(1, settings.ROOT / "DeviceMap.json")
-        b = device_map.load(4, settings.ROOT / "DeviceMap.json")
+        a = device_map.load(1, YATAKLI_MAP)
+        b = device_map.load(4, YATAKLI_MAP)
         ids = [device.id for device in a.devices]
         self.assertEqual(len(ids), len(set(ids)))
         # The id is independent of the set number; the IP changes
@@ -756,6 +756,37 @@ class IpPlan(PanelTest):
         self.assertEqual(argv[argv.index("--netmask") + 1], "255.0.0.0")
         self.assertIn("--force-netmask", argv)
 
+    def test_a_project_that_states_a_mask_has_it_written(self):
+        """Gaziray puts four cars on four /24s and the broker on a fifth.
+
+        A device written with the system default /24 there can reach neither
+        the broker at 10.n.0.1 nor the next car, so the project states /16 and
+        the run must enforce it — the operator is not asked, and on the other
+        projects nothing changes because they state nothing.
+        """
+        from panel.editions import runtime as editions
+        from panel.ip_assign import runner
+
+        inventory, switch, captured = self._intercom_run_capture()
+        with mock.patch.object(editions, "prefix", return_value=16):
+            runner._run_intercom(inventory, switch, [11], ("admin", "x"),
+                                 lambda _line: None, {})
+        argv = captured["argv"]
+        self.assertEqual(argv[argv.index("--netmask") + 1], "255.255.0.0")
+        self.assertIn("--force-netmask", argv)
+
+    def test_the_operator_outranks_the_projects_mask(self):
+        """A mask typed on the run form is the last word."""
+        from panel.editions import runtime as editions
+        from panel.ip_assign import runner
+
+        inventory, switch, captured = self._intercom_run_capture()
+        with mock.patch.object(editions, "prefix", return_value=16):
+            runner._run_intercom(inventory, switch, [11], ("admin", "x"),
+                                 lambda _line: None, {"targetPrefix": 8})
+        argv = captured["argv"]
+        self.assertEqual(argv[argv.index("--netmask") + 1], "255.0.0.0")
+
     def _intercom_run_capture(self):
         """One intercom, and `_execute` replaced by a recorder."""
         from panel.ip_assign import runner
@@ -860,7 +891,7 @@ class ExcelExport(ServiceTest):
     def test_excel_writes_only_the_values_that_were_read(self):
         """The template is copied; an unread cell stays empty and the template
         is untouched."""
-        inventory = device_map.load(1, settings.ROOT / "DeviceMap.json")
+        inventory = device_map.load(1, YATAKLI_MAP)
         view = jobs.view_for(1)
 
         device = next(d for d in inventory.devices if d.read_method == "http")
@@ -928,8 +959,7 @@ class EveryShippedDeviceMapIsUnderstood(unittest.TestCase):
     """
 
     def maps(self):
-        found = [settings.ROOT / "DeviceMap.json",
-                 *sorted((settings.ROOT / "devicemaps").glob("DeviceMap*.json"))]
+        found = sorted((settings.ROOT / "devicemaps").rglob("DeviceMap*.json"))
         here = [path for path in found if path.is_file()]
         # Named, so a checkout that has lost the maps fails loudly instead of
         # passing both checks below with nothing to check.
@@ -941,9 +971,16 @@ class EveryShippedDeviceMapIsUnderstood(unittest.TestCase):
         # NOT a place to park a device nobody has wired up yet.
         passive = {
             ("LED", "Front"): "a display driven by the PISCU, not addressed",
+            ("LED", "Side"): "the side destination display, driven by the "
+                             "PISCU like the front one",
             ("LCD", "Landing"): "a passive display; nothing to ask it",
             ("ICU", None): "reports through the PISCU",
             ("AP", None): "the access point is commissioned by hand",
+            ("Router", "Twin"): "commissioned by hand, like the access "
+                                "point; the panel neither reads nor writes it",
+            ("Announcement", "Induction Loop"):
+                "a hearing-loop amplifier with no API to ask — it carries a "
+                "PBX extension but answers nothing the panel can query",
         }
         unreached = []
         for path in self.maps():
@@ -1039,8 +1076,7 @@ class ReadMethodsMatchTheFieldScript(unittest.TestCase):
         device the customer really has and the tables really disagree on.
         """
         pairs = set()
-        maps = ([settings.ROOT / "DeviceMap.json"]
-                + sorted((settings.ROOT / "devicemaps").glob("DeviceMap*.json")))
+        maps = sorted((settings.ROOT / "devicemaps").rglob("DeviceMap*.json"))
         found = 0
         for path in maps:
             if not path.is_file():

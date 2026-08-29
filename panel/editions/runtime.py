@@ -247,6 +247,70 @@ def available(project: Project) -> bool:
         return False
 
 
+# ── the three service addresses ──────────────────────────────────────────
+#
+# The broker, the clock source and the PBX. See `Project.broker` for why they
+# are not simply "the PISCU" and what went wrong while they were.
+#
+# THE FALLBACK IS THE PISCU, and it stays: three of the five projects have one
+# PISCU that really is all three, and making them repeat their own address in
+# the table would be one more thing to keep in step with the map.
+#
+# `inventory` is passed rather than looked up, because these are asked from
+# inside a scan that already holds one and re-resolving it there would read
+# the map again on every round.
+def _service_address(inventory, template: str) -> str:
+    """A project template resolved for this inventory's set, or the PISCU."""
+    if template:
+        # Imported here, not at module scope: `catalogue` may import nothing
+        # but the standard library and this module is its only reader that
+        # can. A top-level import would also make `editions` and `inventory`
+        # import each other.
+        from ..inventory.device_map import resolve_template  # noqa: PLC0415
+        return resolve_template(template, inventory.set_no)
+    return inventory.piscu_ip() or ""
+
+
+def broker_ip(inventory) -> str:
+    """Where the retained DeviceMap and the AppStatus messages are published."""
+    return _service_address(inventory, current_project().broker)
+
+
+def pbx_ip(inventory) -> str:
+    """The PBX every SIP device is expected to report."""
+    project = current_project()
+    return _service_address(inventory, project.pbx or project.broker)
+
+
+def ntp_ip(inventory) -> str:
+    """The clock source written to devices and expected back from them."""
+    project = current_project()
+    return _service_address(inventory, project.ntp or project.broker)
+
+
+def storage_checked() -> bool:
+    """Does the open project's video equipment have storage worth asking about?"""
+    return bool(current_project().storage)
+
+
+def fixed_addressing() -> bool:
+    """Is this project addressed in fixed form, with no train set to pick?"""
+    return bool(current_project().fixed_addressing)
+
+
+def prefix() -> int:
+    """How wide this project's network is, or 0 when it states nothing.
+
+    Settles both the mask written to a device and the width of the alias the
+    panel gives itself — see `panel.editions.catalogue.Project.prefix`.
+
+    ZERO IS NOT 24. Unstated means the run leaves whatever mask the device
+    already has, which is what the intercom run has always done; a project
+    that states one is making a claim the run should enforce.
+    """
+    return int(current_project().prefix or 0)
+
+
 def add_extra(project: Project) -> None:
     """Register a project delivered on the service key (admin mode only)."""
     with _LOCK:

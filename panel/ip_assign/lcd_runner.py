@@ -36,7 +36,7 @@ from .. import clock, firmware, i18n, script_loader, settings
 from ..adb import client
 from ..adb.client import CONNECT_ATTEMPTS, AdbTimeout, AdbUnavailable
 from ..inventory.device_map import Device, Inventory, resolve_template
-from .addressing import DEFAULT_TARGET_PREFIX
+from .addressing import DEFAULT_TARGET_PREFIX, effective_prefix
 
 ETHERNET_INTERFACE = "eth0"
 # Kept as the module's own name for the default; the run takes the mask it
@@ -357,7 +357,7 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
     new address.
     """
     options = options or {}
-    prefix = int(options.get("targetPrefix") or TARGET_PREFIX)
+    prefix = effective_prefix(options.get("targetPrefix"))
     source_set = int(options.get("sourceSet") or 1)
     target_set = int(options.get("targetSet") or inventory.set_no)
     module = script_loader.intercom_ip_assign()
@@ -578,7 +578,7 @@ def run_manual(inventory: Inventory, switch, port: int, account, emit,
     the wrong display.
     """
     options = options or {}
-    prefix = int(options.get("targetPrefix") or TARGET_PREFIX)
+    prefix = effective_prefix(options.get("targetPrefix"))
     target_ip = str(options.get("targetIp") or "").strip()
     if not _valid_ip(target_ip):
         raise ValueError(i18n.t("error.lcdManualTargetInvalid"))

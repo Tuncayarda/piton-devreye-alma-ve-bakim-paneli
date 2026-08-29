@@ -48,6 +48,10 @@ class Requirement:
     network: ipaddress.IPv4Network
     reason: str          # a message key, rendered where the language is known
     target: str = ""     # the address that made it necessary
+    # The /24 the address that made this necessary lives in. Only interesting
+    # when `network` is WIDER than that — see `choose_host`, which puts the
+    # panel's own address here rather than at the base of the wide network.
+    anchor: ipaddress.IPv4Network | None = None
 
     def dto(self) -> dict:
         return {"network": str(self.network),
@@ -67,7 +71,8 @@ def network_of(address: str, prefix: int = DEFAULT_PREFIX):
 
 def required_networks(inventory: Inventory, factory_ip: str = "",
                       extra=(), prefix: int = DEFAULT_PREFIX,
-                      known: list | None = None) -> list[Requirement]:
+                      known: list | None = None,
+                      broker: str = "") -> list[Requirement]:
     """The networks a run needs but the computer is not in.
 
     `known` is the computer's current networks (see
@@ -93,7 +98,11 @@ def required_networks(inventory: Inventory, factory_ip: str = "",
             return
         if any(entry.network == network for entry in wanted):
             return
-        wanted.append(Requirement(network, reason, str(address)))
+        # The /24 this address is actually in, kept beside the (possibly
+        # wider) network so the panel's own address can be placed next to the
+        # devices rather than at the base of the range (see `choose_host`).
+        wanted.append(Requirement(network, reason, str(address),
+                                  anchor=network_of(address, 24)))
 
     # The factory address. This is the one that broke in the field: devices
     # leave the factory on 10.1.1.12 whatever set they end up in, so it is
@@ -109,6 +118,14 @@ def required_networks(inventory: Inventory, factory_ip: str = "",
     for device in inventory.devices:
         if device.type != "Switch" and device.ip:
             want(device.ip, "net.reasonDevices")
+
+    # The broker, which is a ROLE and not a device, so nothing above finds
+    # it. On most projects it is the PISCU and already inside a device
+    # network, and this line changes nothing; on Gaziray it sits on a network
+    # of its own (10.n.0.1, while the cars are 10.n.1-4.x) and asking for it
+    # is the difference between the panel reaching MQTT and not. Stated
+    # rather than left to a wide enough prefix covering it by accident.
+    want(broker or "", "net.reasonBroker")
 
     # Anything the caller is going to scan on top: the search range on the IP
     # screen can point anywhere.
@@ -132,12 +149,26 @@ def occupied(inventory: Inventory, factory_ip: str = "") -> set[str]:
 
 def choose_host(network: ipaddress.IPv4Network, taken: set[str],
                 octet: int = DEFAULT_HOST_OCTET,
-                limit: int = HOST_OCTET_LIMIT) -> str:
+                limit: int = HOST_OCTET_LIMIT,
+                anchor: ipaddress.IPv4Network | None = None) -> str:
     """The address the panel gives itself inside `network`.
 
     Starts at `octet` (225 by default) and walks up. Rejected: anything in
     `taken` (DeviceMap addresses, the factory address, addresses the computer
     already holds) and the network and broadcast addresses.
+
+    `anchor` IS WHERE THE DEVICES ARE, and it matters as soon as a project
+    widens its network. GDM's 125 devices sit in 192.168.201.0/24 but the
+    project runs a /16, and counting from the base of that /16 gives the
+    panel 192.168.0.225 — an address a camera on a /24 cannot answer, because
+    replying to it means leaving its own subnet through a gateway it has no
+    reason to have. Counted from the anchor instead, the panel takes
+    192.168.201.225 and keeps the /16: it reaches the whole range, and every
+    device can still reply to it directly.
+
+    Without an anchor, or with one the network does not contain, this is the
+    plain walk it always was — which is what a project stating no prefix
+    gets, since there the anchor and the network are the same /24.
 
     KNOWN LIMIT: this checks what is WRITTEN DOWN, not what is on the wire.
     A third-party host squatting on the chosen address cannot be detected
@@ -145,20 +176,28 @@ def choose_host(network: ipaddress.IPv4Network, taken: set[str],
     and having the route is what is being set up. A collision therefore shows
     up as the run failing to reach devices, not as an error here.
     """
+    # The band to count from; the MASK still comes from `network`.
+    start = network
+    if anchor is not None and anchor.subnet_of(network):
+        start = anchor
+
     def is_host(address) -> bool:
         # `hosts()` is not materialised: on a wide prefix that is 65 000
         # strings built to answer one question.
-        return (address in network
+        return (address in start
+                and address != start.network_address
+                and address != start.broadcast_address
                 and address != network.network_address
                 and address != network.broadcast_address)
 
     for value in range(int(octet), int(limit) + 1):
-        candidate = network.network_address + value
+        candidate = start.network_address + value
         if is_host(candidate) and str(candidate) not in taken:
             return str(candidate)
     # The preferred band is full; fall back to any free host address rather
-    # than giving up on the run.
-    for host in network.hosts():
+    # than giving up on the run. Still inside the anchor when there is one:
+    # an address the devices cannot answer is not a useful fallback.
+    for host in start.hosts():
         if str(host) not in taken:
             return str(host)
     raise ValueError(i18n.t("error.networkNoFreeAddress",

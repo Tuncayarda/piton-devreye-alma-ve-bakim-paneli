@@ -93,8 +93,8 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
         # with the same two sets and mask the run will actually use.
         plan = ip_assign.build_plan(
             inventory, groups, ports, switch_id,
-            target_prefix=int(options.get("targetPrefix")
-                              or ip_assign.DEFAULT_TARGET_PREFIX),
+            target_prefix=ip_assign.effective_prefix(
+                options.get("targetPrefix")),
             source_set=int(options.get("sourceSet") or 0),
             target_set=int(options.get("targetSet") or 0))
         log_file = files.log_path(f"ip-assign-set{inventory.set_no}")

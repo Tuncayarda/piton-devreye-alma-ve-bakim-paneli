@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ... import i18n, jobs, settings, status
+from ...editions import runtime as editions
 from ...inventory import catalog
 from ...probe import reader
 from ...system import files
@@ -66,7 +67,7 @@ def get_project(query):
                                              or entry["name"])}
                    for entry in catalog.GROUPS],
         "readMethods": catalog.READ_METHODS,
-        "piscuIp": inventory.piscu_ip(),
+        "brokerIp": editions.broker_ip(inventory),
     })
 
 
@@ -112,7 +113,7 @@ def get_device(query):
     return respond(200, {
         **device_dto(device, result),
         "readMethodInfo": catalog.READ_METHODS.get(device.read_method, {}),
-        "piscuIp": inventory.piscu_ip(),
+        "pbxIp": editions.pbx_ip(inventory),
     })
 
 

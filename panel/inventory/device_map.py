@@ -132,6 +132,40 @@ class Inventory:
         found = self.by_type("PISCU")
         return found[0].ip if found else None
 
+    def span(self, *extra: str):
+        """The narrowest network holding every address this project uses.
+
+        THE PROJECT'S REACH, computed rather than declared. A device has to be
+        able to talk to everything in here — the other devices, the switches,
+        and whatever `extra` names (the broker, which is a role and not a
+        device) — so a device whose own mask does not cover this network
+        cannot do its job, and that is a fault worth reporting.
+
+        Asked instead of comparing against a fixed mask, because no fixed mask
+        is right: Yatakli's devices fit in a /25 and Gaziray's need a /21, and
+        the CCTV commissioning scripts write a /8 to both. All three are
+        correct — "wide enough" is the only question with one answer.
+
+        None when there is nothing to span (an empty or unresolved map).
+        """
+        import ipaddress                                    # noqa: PLC0415
+
+        numbers = []
+        for address in [d.ip for d in self.devices] + list(extra):
+            try:
+                numbers.append(int(ipaddress.IPv4Address(str(address).strip())))
+            except (ipaddress.AddressValueError, ValueError):
+                continue          # a template that never resolved, or ""
+        if not numbers:
+            return None
+        low, high = min(numbers), max(numbers)
+        # Widen from the longest prefix down until one net holds both ends.
+        for length in range(32, -1, -1):
+            network = ipaddress.ip_network((low, length), strict=False)
+            if ipaddress.IPv4Address(high) in network:
+                return network
+        return None
+
     def project_settings(self, device: Device) -> dict:
         """DeviceMap-defined settings for a device — {lowercasefield: value}.
 

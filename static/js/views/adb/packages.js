@@ -44,7 +44,6 @@ export function packagesCard(actions) {
     el('div', { class: 'card-head' }, [
       el('h3', { text: t('adb.application') }),
     ]),
-    el('p', { class: 'description', text: t('adb.applicationNote') }),
     el('form', {
       class: 'adb-search',
       onsubmit: (event) => {

@@ -41,8 +41,9 @@ from unittest import mock
 from .support import fakes
 from .support.base import ROOT, PanelTest  # noqa: F401  (sys.path + temp data)
 
-from panel import errors, i18n, settings
+from panel import editions, errors, i18n, settings
 from panel.inventory import device_map
+from panel.probe import camera as camera_probe
 from panel.network import (adapters, aliases, commands, planning, prepare,
                            routes)
 
@@ -437,6 +438,139 @@ class HostAddress(PanelTest):
 
 
 # ─────────────────────────────────────────────────────── the registry ──────
+class ProjectWidth(PanelTest):
+    """A project states how wide its network is, and everything follows.
+
+    Three things used to be one global number each: the mask written to a
+    device, the width of the alias the panel gives itself, and the mask
+    verified on a camera. Gaziray is where that broke — the third octet is the
+    CAR, so its four cars sit on four /24s and the broker on a fifth, and a
+    /24 alias left five addresses on the adapter with still no route to MQTT.
+
+    YATAKLI AND VIP STATE NOTHING, and these tests are the lock on that: they
+    fall through to the same globals they always did and must come out of
+    every change here bit for bit.
+    """
+
+    FOREIGN = ipaddress.ip_network("192.168.1.0/24")
+
+    def plan(self, edition: str, project: str):
+        """The addresses the panel would give itself, from a foreign network."""
+        editions.activate(edition)
+        editions.use_project(project)
+        found = editions.map_path(editions.current_project())
+        inventory = device_map.load(7, found, cache=False)
+        required = planning.required_networks(
+            inventory, factory_ip="10.1.1.12", prefix=prepare._prefix(),
+            broker=editions.broker_ip(inventory), known=[self.FOREIGN])
+        taken = planning.occupied(inventory, "10.1.1.12")
+        return [f"{planning.choose_host(entry.network, taken, anchor=entry.anchor)}"
+                f"/{entry.network.prefixlen}" for entry in required]
+
+    def tearDown(self):
+        editions.activate(os.environ["DAP_EDITION"])
+        super().tearDown()
+
+    def test_yatakli_and_vip_are_untouched(self):
+        """The regression lock. These two work; they must not move."""
+        self.assertEqual(self.plan("vip-yatakli", "yatakli"),
+                         ["10.1.1.225/24", "10.7.1.225/24"])
+        self.assertEqual(self.plan("vip-yatakli", "vip"),
+                         ["10.1.1.225/24", "10.7.2.225/24"])
+
+    def test_a_project_prefix_widens_the_alias(self):
+        """Gaziray: five narrow addresses become two wide ones.
+
+        And the wide one COVERS THE BROKER, which the five did not: 10.n.0.1
+        is on a network of its own and no device in the map is near it.
+        """
+        addresses = self.plan("gaziray", "gaziray")
+        self.assertEqual(addresses, ["10.1.1.225/16", "10.7.1.225/16"])
+        held = ipaddress.ip_network("10.7.1.225/16", strict=False)
+        self.assertIn(ipaddress.ip_address("10.7.0.1"), held)
+
+    def test_the_host_sits_where_the_devices_are(self):
+        """GDM's cameras are on a /24 and the project runs a /16.
+
+        Counted from the base of that /16 the panel would take 192.168.0.225,
+        which a camera cannot answer: replying means leaving its own subnet
+        through a gateway it has no reason to have. The address has to land
+        inside the devices' own /24 and keep the wide mask.
+        """
+        addresses = self.plan("gdm", "gdm")
+        self.assertIn("192.168.201.225/16", addresses)
+        self.assertNotIn("192.168.0.225/16", addresses)
+        # Both directions, spelled out.
+        panel = ipaddress.ip_network("192.168.201.225/16", strict=False)
+        camera = ipaddress.ip_address("192.168.201.21")
+        self.assertIn(camera, panel)
+        camera_side = ipaddress.ip_network("192.168.201.21/24", strict=False)
+        self.assertIn(ipaddress.ip_address("192.168.201.225"), camera_side)
+
+    def test_the_broker_is_a_required_network(self):
+        """The broker is a role, not a device, so nothing else asks for it."""
+        inventory = self.build_map(fakes.device_map(
+            [{"Name": "Intercom_1", "Type": "Announcement",
+              "SubType": "Intercom", "IP": "10.1.1.10", "Port": 11,
+              "IsActive": True}], switch_ip="10.1.1.100"))
+        without = planning.required_networks(
+            inventory, factory_ip="10.1.1.12",
+            known=[ipaddress.ip_network("10.1.1.0/24")])
+        self.assertEqual([str(entry.network) for entry in without], [])
+        with_broker = planning.required_networks(
+            inventory, factory_ip="10.1.1.12", broker="10.9.0.1",
+            known=[ipaddress.ip_network("10.1.1.0/24")])
+        self.assertEqual([str(entry.network) for entry in with_broker],
+                         ["10.9.0.0/24"])
+
+    def test_the_span_is_what_the_devicemap_actually_covers(self):
+        """The project's reach, computed rather than declared.
+
+        These are the numbers that make an exact-match mask check impossible:
+        two projects fit in a /25 and one needs a /21, so no single constant
+        is right for all of them.
+        """
+        for edition, project, expected in (
+                ("vip-yatakli", "yatakli", "10.7.1.0/25"),
+                ("vip-yatakli", "vip", "10.7.2.0/25"),
+                ("gdm", "gdm", "192.168.201.0/24"),
+                ("gaziray", "gaziray", "10.7.0.0/21"),
+                ("fuar", "fuar", "10.1.0.0/21")):
+            editions.activate(edition)
+            editions.use_project(project)
+            inventory = device_map.load(
+                7, editions.map_path(editions.current_project()), cache=False)
+            span = inventory.span(editions.broker_ip(inventory))
+            self.assertEqual(str(span), expected, project)
+
+    def test_a_camera_mask_is_judged_on_reach_not_on_equality(self):
+        """The CCTV scripts write /8 to the 10.x trains and /24 to GDM.
+
+        Both are correct, and so is the /25 Yatakli would strictly need. What
+        is NOT correct is a Gaziray camera on a /24 — it cannot see the other
+        cars, the broker, or the panel — and that is the one this catches.
+        """
+        reaches = camera_probe._mask_reaches
+        # Yatakli needs 10.7.1.0/25. Everything at least that wide passes.
+        for mask in ("255.0.0.0", "255.255.0.0", "255.255.255.0",
+                     "255.255.255.128"):
+            self.assertTrue(reaches("10.7.1.24", mask, "10.7.1.0/25"), mask)
+        self.assertFalse(reaches("10.7.1.24", "255.255.255.192",
+                                 "10.7.1.0/25"))
+
+        # Gaziray needs 10.7.0.0/21: a /24 leaves the camera on its own car.
+        self.assertTrue(reaches("10.7.2.21", "255.0.0.0", "10.7.0.0/21"))
+        self.assertFalse(reaches("10.7.2.21", "255.255.255.0", "10.7.0.0/21"))
+
+        # GDM: the /24 the scripts write is exactly enough.
+        self.assertTrue(reaches("192.168.201.21", "255.255.255.0",
+                                "192.168.201.0/24"))
+
+        # A question that cannot be asked is not a fault.
+        self.assertTrue(reaches("10.7.1.24", "255.255.255.0", ""))
+        self.assertTrue(reaches("10.7.1.24", "not-a-mask", "10.7.1.0/25"))
+
+
 class NoLocalAddress(unittest.TestCase):
     """EADDRNOTAVAIL is the computer's fault, and has to read like it.
 

@@ -159,10 +159,6 @@
 .step-row > .dot { margin-top: 5px; }
 .step-row .text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .step-row .name { font-size: var(--fs-base); color: var(--text-bright); line-height: 1.4; }
-.step-row .note {
-  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
-  line-height: 1.5;
-}
 /* The running scan's progress, inside a check-summary row. A bar rather
    than a sentence: the page subtitle above already says how far the sweep
    has got, and the same words twice on an otherwise empty screen read as a
@@ -384,6 +380,18 @@
 }
 .device-search { width: min(280px, 42vw); }
 
+/* How many rows are selected, and the way out of the selection. Only drawn
+   when there IS one, so it does not compete with the search box on the
+   ordinary visit; it reads like the switch screen's selection strip because
+   it is the same act. */
+.device-selection {
+  display: flex; align-items: center; gap: 8px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+  color: var(--accent);
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+}
+
 /* A sortable column heading. The heading text and the arrow are one button,
    and the arrow only appears on the column actually in use — an arrow on
    every heading reads as decoration rather than as state. */
@@ -409,14 +417,6 @@
 .net-readiness[data-state="ok"] { border-color: var(--ok-soft); }
 .net-readiness[data-state="auth"] { border-color: var(--auth-soft); }
 .net-readiness[data-state="failed"] { border-color: var(--failed-soft); }
-
-/* How the panel prepares the network — worth reading once, not every time. */
-.net-explainer { margin-top: 14px; }
-.net-explainer > summary {
-  cursor: pointer; font-size: var(--fs-sm); color: var(--text-mid);
-}
-.net-explainer > summary:hover { color: var(--text-bright); }
-.net-explainer .net-note:first-of-type { margin-top: 10px; }
 
 /* ─────────────────────────────────────────────────────── checklist ─── */
 /* Every column of the template sits side by side; the table scrolls
@@ -546,28 +546,21 @@
 
 /* ──────────────────────────────────── verification and reports ──── */
 .report-tabs { margin-top: 2px; }
-.check-criteria {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 14px 0 10px;
-  color: var(--text-bright);
-  font-size: var(--fs-base);
-}
-.check-criteria .label {
-  padding-right: 10px;
-  border-right: 1px solid var(--line-strong);
-}
 .check-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(155px, 1fr));
   gap: 10px;
 }
+/* Two rows, not three: the explanation under each number is gone, and the
+   108px this used to reserve for it left the cards standing on dead space.
+   The one card that still carries a line (how many devices are in scope —
+   a count, not an explanation) puts it in an implicit third row. */
 .check-summary-card {
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto;
+  align-content: start;
   gap: 5px;
-  min-height: 108px;
+  min-height: 84px;
   padding: 13px 15px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -607,7 +600,6 @@
    checked" is visible; it is not the row anyone is looking for, so it does
    not read as loudly as a finding. */
 .deviation-text[data-passed="1"] { color: var(--ok-text); }
-.check-excel-note { margin: 14px 0 0; }
 
 @media (max-width: 900px) {
   .check-summary-grid { grid-template-columns: repeat(2, minmax(155px, 1fr)); }

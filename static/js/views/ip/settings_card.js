@@ -16,10 +16,8 @@ import { state, patch } from '../../core/store.js';
 import { showError } from '../../components/toast.js';
 import { value } from '../../core/format.js';
 import { local } from './state.js';
-import { SEARCH_LIMIT } from './ports.js';
 import { apkFields } from './apk.js';
-import { isCompartmentPlan, softwareRows, usesPhysicalPortDiscovery }
-  from './software.js';
+import { isCompartmentPlan, softwareRows } from './software.js';
 import { maskField, validateRun } from './validation.js';
 import { t } from '../../core/i18n.js';
 
@@ -57,16 +55,10 @@ export function lcdAddressingArea(data, check, showActionState) {
         el('span', { text: t('ip.lcdSourceRange') }),
         el('b', { class: 'mono', text: sourceRange }),
       ]),
-      el('p', {
-        class: 'ip-field-help',
-        text: t(usesPhysicalPortDiscovery(plan)
-          ? 'ip.lcdPhysicalSourcePolicy' : 'ip.lcdSourcePolicy'),
-      }),
     ]),
     ...maskField(data, check, showActionState),
     optionToggle(
-      local.installApk, t('ip.installApkBeforeAssignment'),
-      t('ip.installApkNote'),
+      local.installApk, t('ip.installApkBeforeAssignment'), '',
       () => { local.installApk = !local.installApk; },
       !(plan.software && plan.software.supported)),
     ...(local.installApk ? [apkFields(plan, check)] : []),
@@ -179,7 +171,7 @@ export function addressingArea(data, check, showActionState) {
     // Flash before assigning. Old intercoms report their version and identity
     // wrongly, and the run is the only moment one of them is reachable alone
     // and still on the factory address.
-    optionToggle(local.preflash, t('ip.preflash'), t('ip.preflashNote'),
+    optionToggle(local.preflash, t('ip.preflash'), '',
                  () => { local.preflash = !local.preflash; }),
     ...(local.preflash ? preflashFields(plan) : []),
     ...(local.searchOpen ? [
@@ -193,10 +185,6 @@ export function addressingArea(data, check, showActionState) {
       searchField('searchFirst', 'ip-search-first', t('ip.rangeStart')),
       searchField('searchLast', 'ip-search-last', t('ip.rangeEnd')),
       searchWarning,
-      el('p', {
-        class: 'ip-field-help',
-        text: t('ip.ifARangeIsGiven', { limit: SEARCH_LIMIT }),
-      }),
     ] : []),
   ]);
 }
@@ -217,9 +205,6 @@ export function settingsCard(data, check, header, areas) {
 
     // ── summary: what happens on which switch ──
     el('div', { class: 'setting-summary' }, [
-      el('div', { class: 'ip-summary-head' }, [
-        el('span', { class: 'eyebrow', text: t('ip.jobSummary') }),
-      ]),
       el('div', { class: 'row' }, [
         el('span', { text: t('ip.target') }),
         el('b', {

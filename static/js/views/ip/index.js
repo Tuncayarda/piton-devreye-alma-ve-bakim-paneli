@@ -331,7 +331,6 @@ function switchArea(plan) {
       // Both values come straight from DeviceMap; never translate either.
       text: [entry.name, entry.ip].filter(Boolean).join(' · '),
     }))),
-    el('p', { class: 'ip-field-help', text: t('ip.assignmentSwitchHelp') }),
   ]);
 }
 
@@ -432,9 +431,6 @@ function panelSection(panels) {
       el('div', { class: 'ip-section-title' }, [
         el('div', {}, [
           el('h3', { text: t('ip.switchAndPorts') }),
-          el('p', {
-            text: t('ip.reviewTheLivePortStates'),
-          }),
         ]),
       ]),
       el('span', {

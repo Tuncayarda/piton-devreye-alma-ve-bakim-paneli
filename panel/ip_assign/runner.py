@@ -14,7 +14,8 @@ from .. import i18n, script_loader, settings
 from ..errors import AuthError
 from ..inventory.device_map import Inventory, resolve_template
 from . import lcd_runner, preflash
-from .addressing import (DEFAULT_TARGET_PREFIX, factory_ip,
+from ..editions import runtime as editions
+from .addressing import (factory_ip,
                          netmask_for, search_candidates)
 from .plan import device_switch_for, devices_by_port, resolve_groups
 from .ports import assert_not_protected, format_ports
@@ -143,10 +144,21 @@ def _run_intercom(inventory: Inventory, switch, ports: list[int], account,
     factory = str(options.get("factoryIp") or "").strip() or factory_ip()
     argv += ["--factory-ip", factory]
 
-    # The mask written with the new address. Normally the device keeps its
-    # own; the operator can override it, and then that choice wins.
-    prefix = int(options.get("targetPrefix") or DEFAULT_TARGET_PREFIX)
-    if prefix != DEFAULT_TARGET_PREFIX:
+    # The mask written with the new address.
+    #
+    # STATED OR NOT, rather than "is it the default". The device keeps its own
+    # mask unless somebody actually asked for one — the operator on the run
+    # form, or the project itself (Gaziray puts its four cars on four /24s
+    # and its broker on a fifth, so a device written with a /24 can reach
+    # neither the broker nor the next car).
+    #
+    # The old test was `prefix != DEFAULT_TARGET_PREFIX`, which could not see
+    # a project stating a mask and also discarded an operator who typed 24
+    # deliberately. Both are "asked for" now.
+    asked = options.get("targetPrefix")
+    stated = int(asked or 0) or editions.prefix()
+    if stated:
+        prefix = int(stated)
         argv += ["--netmask", netmask_for(prefix), "--force-netmask"]
         emit(f"[Intercom] Netmask to write: {netmask_for(prefix)} "
              f"(/{prefix})")

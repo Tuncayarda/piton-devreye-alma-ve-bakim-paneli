@@ -5,6 +5,10 @@
 // panel and wants their PoE off. Right-click puts that one decision under the
 // cursor.
 //
+// The menu SHELL — placing it, dismissing it, redrawing it while open — is
+// components/context_menu.js and is shared with the device list. What is here
+// is only what a port menu MEANS.
+//
 // TWO INDEPENDENT CHOICES, and neither is preselected. PoE mode and port
 // on/off are separate rows, each starting at "leave unchanged", so opening
 // the menu and pressing Apply without choosing anything is impossible —
@@ -18,35 +22,21 @@
 // are already in the state being chosen, and its Apply button is one deliberate
 // click away from the right-click that opened it.
 
-import { el, fill } from '../../core/dom.js';
+import { el } from '../../core/dom.js';
 import { t } from '../../core/i18n.js';
+import * as menu from '../../components/context_menu.js';
 import { compactRange, local, portById } from './state.js';
 
 const POE_KEEP = null;
-let open = null;
 
-export function isOpen() {
-  return open !== null;
-}
+export const isOpen = menu.isOpen;
+export const close = menu.close;
 
-export function close() {
-  if (!open) return;
-  open.node.remove();
-  document.removeEventListener('mousedown', open.onOutside, true);
-  document.removeEventListener('keydown', open.onKey, true);
-  open = null;
-}
-
-function row(label, selected, onPick, note) {
-  return el('button', {
-    type: 'button',
-    class: `pm-menu-item${selected ? ' is-selected' : ''}`,
-    onclick: onPick,
-  }, [
-    el('i', { class: 'pm-menu-mark', 'aria-hidden': 'true' }),
-    el('span', { class: 'pm-menu-label', text: label }),
-    note ? el('span', { class: 'pm-menu-state', text: note }) : null,
-  ]);
+// The menu shows live port state, so a poll that lands while it is open has
+// to redraw it — otherwise it reports the switch as it was a minute ago.
+export function refresh() {
+  if (!local.ports.length) menu.close();
+  else menu.refresh();
 }
 
 // "3/8" when only some of the chosen ports are already in that state, and the
@@ -63,85 +53,75 @@ function currentNote(ports, matches) {
 }
 
 export function openMenu(portIds, event, actions, poeModes) {
-  close();
   const ids = portIds.filter(id => portById(id));
   if (!ids.length) return;
 
   let poeChoice = POE_KEEP;
   let portChoice = POE_KEEP;
-  const node = el('div', { class: 'pm-menu', role: 'menu' });
 
-  const draw = () => {
+  menu.openMenu(event, (redraw) => {
     const ports = ids.map(id => portById(id)).filter(Boolean);
-    if (!ports.length) { close(); return; }
+    if (!ports.length) return null;            // the selection went away
     const many = ports.length > 1;
     const poePorts = ports.filter(port => port.supportsPoe);
     const linked = ports.filter(port => port.linkState === 'up').length;
 
-    const parts = [];
+    const rows = [];
     if (poePorts.length) {
-      parts.push(el('div', {
-        class: 'pm-menu-heading', text: t('switch.contextMenuPoeHeading'),
+      rows.push(menu.menuHeading(t('switch.contextMenuPoeHeading')));
+      rows.push(menu.menuItem(t('switch.contextMenuLeaveUnchanged'), {
+        selected: poeChoice === POE_KEEP,
+        onPick: () => { poeChoice = POE_KEEP; redraw(); },
       }));
-      parts.push(row(t('switch.contextMenuLeaveUnchanged'),
-                     poeChoice === POE_KEEP,
-                     () => { poeChoice = POE_KEEP; draw(); }));
       for (const mode of poeModes) {
-        parts.push(row(
-          t(mode.labelKey), poeChoice === mode.value,
-          () => { poeChoice = mode.value; draw(); },
-          currentNote(
+        rows.push(menu.menuItem(t(mode.labelKey), {
+          selected: poeChoice === mode.value,
+          onPick: () => { poeChoice = mode.value; redraw(); },
+          note: currentNote(
             ports.map(port => ({ ...port, applies: port.supportsPoe })),
-            port => String(port.poeMode) === String(mode.value))));
+            port => String(port.poeMode) === String(mode.value)),
+        }));
       }
     }
-    parts.push(el('div', {
-      class: 'pm-menu-heading', text: t('switch.contextMenuPortHeading'),
+    rows.push(menu.menuHeading(t('switch.contextMenuPortHeading')));
+    rows.push(menu.menuItem(t('switch.contextMenuLeaveUnchanged'), {
+      selected: portChoice === POE_KEEP,
+      onPick: () => { portChoice = POE_KEEP; redraw(); },
     }));
-    parts.push(row(t('switch.contextMenuLeaveUnchanged'),
-                   portChoice === POE_KEEP,
-                   () => { portChoice = POE_KEEP; draw(); }));
-    parts.push(row(
-      t('switch.portTableEnabled'), portChoice === true,
-      () => { portChoice = true; draw(); },
-      currentNote(ports.map(port => ({ ...port, applies: true })),
-                  port => !!port.enabled)));
-    parts.push(row(
-      t('switch.portTableDisabled'), portChoice === false,
-      () => { portChoice = false; draw(); },
-      currentNote(ports.map(port => ({ ...port, applies: true })),
-                  port => !port.enabled)));
+    rows.push(menu.menuItem(t('switch.portTableEnabled'), {
+      selected: portChoice === true,
+      onPick: () => { portChoice = true; redraw(); },
+      note: currentNote(ports.map(port => ({ ...port, applies: true })),
+                        port => !!port.enabled),
+    }));
+    rows.push(menu.menuItem(t('switch.portTableDisabled'), {
+      selected: portChoice === false,
+      onPick: () => { portChoice = false; redraw(); },
+      note: currentNote(ports.map(port => ({ ...port, applies: true })),
+                        port => !port.enabled),
+    }));
 
     const nothingChosen = poeChoice === POE_KEEP && portChoice === POE_KEEP;
-    fill(node, [
-      el('div', { class: 'pm-menu-head' }, [
-        el('div', {
-          class: 'pm-menu-title',
-          text: many
-            ? t('switch.contextMenuManyTitle', { count: ports.length })
-            : t('switch.contextMenuOneTitle', { port: ports[0].id }),
-        }),
-        el('div', {
-          class: 'pm-menu-subtitle',
-          text: many
-            ? t('switch.contextMenuManySummary', {
-                ports: compactRange(ids), poe: poePorts.length,
-                uplink: ports.length - poePorts.length, linked,
-              })
-            : t('switch.contextMenuOneSummary', {
-                kind: t(ports[0].supportsPoe ? 'switch.contextMenuPoeType'
-                  : 'switch.contextMenuUplinkType'),
-                state: ports[0].linkState === 'up'
-                  ? t('switch.stateLinked') : t('switch.stateEmpty'),
-              }),
-        }),
-      ]),
-      ...parts,
-      el('p', { class: 'pm-menu-note', text: t('switch.contextMenuNote') }),
-      el('div', { class: 'pm-menu-foot' }, [
+    return [
+      menu.menuHead(
+        many ? t('switch.contextMenuManyTitle', { count: ports.length })
+          : t('switch.contextMenuOneTitle', { port: ports[0].id }),
+        many
+          ? t('switch.contextMenuManySummary', {
+            ports: compactRange(ids), poe: poePorts.length,
+            uplink: ports.length - poePorts.length, linked,
+          })
+          : t('switch.contextMenuOneSummary', {
+            kind: t(ports[0].supportsPoe ? 'switch.contextMenuPoeType'
+              : 'switch.contextMenuUplinkType'),
+            state: ports[0].linkState === 'up'
+              ? t('switch.stateLinked') : t('switch.stateEmpty'),
+          })),
+      ...rows,
+      menu.menuFoot([
         el('button', {
           type: 'button', class: 'btn btn-small',
-          text: t('switch.cancel'), onclick: () => close(),
+          text: t('switch.cancel'), onclick: () => menu.close(),
         }),
         el('button', {
           type: 'button', class: 'btn btn-primary btn-small',
@@ -151,47 +131,11 @@ export function openMenu(portIds, event, actions, poeModes) {
             : t('switch.contextMenuApply'),
           onclick: () => {
             const targets = [...ids];
-            close();
+            menu.close();
             actions.applyFromMenu(targets, poeChoice, portChoice);
           },
         }),
       ]),
-    ]);
-  };
-
-  draw();
-  document.body.append(node);
-
-  // Kept on screen: a menu opened near the right edge or the bottom would
-  // otherwise hang off it, and the Apply button is the part that goes first.
-  const box = node.getBoundingClientRect();
-  const left = Math.max(8, Math.min(event.clientX,
-                                    globalThis.innerWidth - box.width - 8));
-  const top = Math.max(8, Math.min(event.clientY,
-                                   globalThis.innerHeight - box.height - 8));
-  node.style.left = `${left}px`;
-  node.style.top = `${top}px`;
-
-  const onOutside = (e) => { if (!node.contains(e.target)) close(); };
-  const onKey = (e) => {
-    if (e.key !== 'Escape') return;
-    // Stopped here, or Escape would also close whatever is behind the menu.
-    e.stopPropagation();
-    close();
-  };
-  open = { node, onOutside, onKey };
-  // Registered on the next tick: the mousedown that opened this menu is
-  // still travelling, and it would close it again immediately.
-  globalThis.setTimeout(() => {
-    document.addEventListener('mousedown', onOutside, true);
-    document.addEventListener('keydown', onKey, true);
+    ];
   });
-}
-
-// The menu shows live port state, so a poll that lands while it is open has
-// to redraw it — otherwise it reports the switch as it was a minute ago.
-export function refresh() {
-  if (!open) return;
-  const stillThere = local.ports.length > 0;
-  if (!stillThere) close();
 }

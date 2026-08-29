@@ -63,7 +63,15 @@ from panel import adminkey  # noqa: E402
 # points `settings.DEVICE_MAP` at a project and gives the settings directory
 # its per-edition sub-folder.
 editions.activate(os.environ["DAP_EDITION"])
+from panel.editions import catalogue  # noqa: E402
 from panel.inventory import device_map  # noqa: E402
+
+# The Yatakli map, where this checkout keeps it. Several tests read the
+# DELIVERED map rather than a topology they built themselves — the real
+# device kinds are the point — and they ask the edition table where it is
+# instead of each spelling out a path, so a project folder that moves moves
+# in one place.
+YATAKLI_MAP = ROOT.joinpath(*catalogue.YATAKLI.source_path)
 from panel import switch  # noqa: E402
 
 from . import clock as fake_clock  # noqa: E402

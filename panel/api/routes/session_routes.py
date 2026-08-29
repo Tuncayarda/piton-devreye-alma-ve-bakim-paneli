@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from ... import credentials as credential_store
 from ... import jobs, settings, status
 from ...adb.runner import RUNNER as ADB_RUNNER
+from ...editions import runtime as editions
 from ...probe import reader
 from ..presenters import (WRITING_JOB_KINDS, cached_telemetry,
                           collect_telemetry, credentials_for, device_dto,
@@ -85,7 +86,11 @@ def post_refresh(body):
             except Exception:
                 snapshot = None
 
-    piscu_ip = inventory.piscu_ip()
+    # The clock source and the PBX every device is checked against. Roles,
+    # not the PISCU device — see `panel.editions.catalogue.Project.broker`.
+    expected_ntp = editions.ntp_ip(inventory)
+    pbx = editions.pbx_ip(inventory)
+    span = str(inventory.span(editions.broker_ip(inventory)) or "")
 
     # Read in parallel. Serially, the round ITSELF grew with the device count
     # (~7 s for 17 devices); the UI refreshing every two seconds then meant
@@ -97,7 +102,7 @@ def post_refresh(body):
         result = reader.read_device(
             device, credentials=credentials_for(device), telemetry=snapshot,
             timeout=min(settings.PROBE_TIMEOUT, 3.0),
-            expected_ntp=piscu_ip, pbx_ip=piscu_ip)
+            expected_ntp=expected_ntp, pbx_ip=pbx, project_span=span)
         result.generation = generation
         view.write(device.id, result)
 
@@ -137,7 +142,9 @@ def post_credentials(body):
     result = reader.read_device(
         device, credentials=(username, password), telemetry=None,
         timeout=settings.AUTH_TIMEOUT,
-        expected_ntp=inventory.piscu_ip(), pbx_ip=inventory.piscu_ip())
+        expected_ntp=editions.ntp_ip(inventory),
+        pbx_ip=editions.pbx_ip(inventory),
+        project_span=str(inventory.span(editions.broker_ip(inventory)) or ""))
     result.generation = generation
     view = jobs.view_for(inventory.set_no)
 

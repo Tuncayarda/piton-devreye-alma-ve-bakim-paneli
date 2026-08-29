@@ -32,7 +32,7 @@ saha ortamınıza göre değiştirin:
 ```bash
 cd /tam/yol/DevreyeAlmaPaneli
 
-export DEVICE_MAP_FILE="${DEVICE_MAP_FILE:-$PWD/DeviceMap.json}"
+export DEVICE_MAP_FILE="${DEVICE_MAP_FILE:-$PWD/devicemaps/yatakli/DeviceMap.json}"
 export TRAIN_SET_NO="${TRAIN_SET_NO:-1}"
 
 export ARDUINO_HTTP_PORT="${ARDUINO_HTTP_PORT:-80}"

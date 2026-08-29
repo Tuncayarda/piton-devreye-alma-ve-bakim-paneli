@@ -9,6 +9,8 @@ and is checked so it cannot drift away from it.
 """
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import importlib
 import os
 import sys
@@ -20,6 +22,33 @@ from .support.base import PanelTest
 from panel import api, editions, jobs, settings
 from panel.editions import catalogue
 from panel.inventory import device_map
+
+
+@contextlib.contextmanager
+def undelivered(edition_id: str, project_key: str):
+    """Make one project's DeviceMap look as though it has not arrived.
+
+    THE STATE IS BUILT RATHER THAN BORROWED, and it has to be now. These
+    tests used to point at whichever project was still a placeholder — VIP,
+    then GDM — and the day that project's map was delivered they stopped
+    testing anything at all while still passing: `available()` answered yes,
+    the panel opened, and the assertions that a missing map is reported went
+    green for the wrong reason.
+
+    `Project.path` is the seam, and it is not one invented here: it is how a
+    map delivered on the service key names itself (`panel.adminkey.pack`),
+    and `runtime.map_path` returns it untouched. Pointed at a file that is
+    not there, the project is exactly as undelivered as an empty folder.
+    """
+    edition = catalogue.find(edition_id)
+    missing = dataclasses.replace(
+        next(p for p in edition.projects if p.key == project_key),
+        path="/nonexistent/not-delivered/DeviceMap_Nowhere.json")
+    patched = dataclasses.replace(
+        edition, projects=tuple(missing if p.key == project_key else p
+                                for p in edition.projects))
+    with mock.patch.dict(catalogue.BY_ID, {edition_id: patched}):
+        yield
 
 
 class Table(unittest.TestCase):
@@ -105,6 +134,42 @@ class Table(unittest.TestCase):
             with self.subTest(project.key):
                 self.assertEqual(project.map_name, project.source_path[-1])
 
+    def test_every_project_file_is_named_by_the_rule(self):
+        """One standard, applied by the table itself.
+
+        `catalogue.project()` derives all four names from the key, so this
+        cannot fail while the rows are written that way — which is the
+        point. It fails the moment somebody adds a row by calling `Project`
+        directly and spells a path by hand, and that is exactly how the
+        delivered maps arrived misnamed: `DeviceMap_gdm.json` beside
+        `DeviceMap_Fuar.json`. A case-insensitive filesystem opens both;
+        Linux opens one, and the package builds there without its map.
+        """
+        for project in catalogue.ALL_PROJECTS:
+            with self.subTest(project.key):
+                self.assertEqual(project.key, project.key.lower())
+                self.assertEqual(project.map_name,
+                                 f"DeviceMap_{project.key.capitalize()}.json")
+                self.assertEqual(
+                    project.checklist_name,
+                    f"Field_Device_Verification_"
+                    f"{project.key.capitalize()}.xlsx")
+                folder = (catalogue.MAPS_DIR, project.key)
+                self.assertEqual(project.source_path,
+                                 (*folder, project.map_name))
+                self.assertEqual(project.checklist_source,
+                                 (*folder, project.checklist_name))
+
+    def test_every_project_carries_its_own_checklist_workbook(self):
+        """The workbook fills rows BY IP TEMPLATE (`panel/checklist/`), so a
+        project filled from another project's file gets an empty report and
+        nothing on screen says why. There is no shared workbook any more —
+        `devicemaps/_base/` holds the template they are generated FROM."""
+        for project in catalogue.ALL_PROJECTS:
+            with self.subTest(project.key):
+                self.assertTrue(project.checklist_name)
+                self.assertTrue(project.checklist_source)
+
     def test_a_project_label_matches_the_name_taken_from_the_file(self):
         """`Inventory.project` is derived from the file stem, and
         `panel/video_config/nvr.py` branches on that derived string. The
@@ -178,8 +243,8 @@ class Activation(PanelTest):
     def test_activation_points_the_panel_at_the_project(self):
         editions.activate("vip-yatakli")
         self.assertEqual(editions.current_project().key, "yatakli")
-        self.assertEqual(settings.DEVICE_MAP.name, "DeviceMap.json")
-        self.assertEqual(device_map.load(1).project, "YATAKLI")
+        self.assertEqual(settings.DEVICE_MAP.name, "DeviceMap_Yatakli.json")
+        self.assertEqual(device_map.load(1).project, "Yatakli")
 
     def test_each_edition_keeps_its_own_settings_folder(self):
         """Configuration targets are keyed by (train set, device id), and
@@ -196,16 +261,18 @@ class Activation(PanelTest):
         """A package whose own map has not arrived yet must start and say so,
         not refuse to run: a window explaining the gap is a far better report
         than an executable that exits."""
-        editions.activate("gdm")
-        self.assertEqual(editions.current_project().key, "gdm")
-        self.assertFalse(editions.available(editions.current_project()))
+        with undelivered("gdm", "gdm"):
+            editions.activate("gdm")
+            self.assertEqual(editions.current_project().key, "gdm")
+            self.assertFalse(editions.available(editions.current_project()))
 
     def test_switching_to_an_undelivered_project_is_refused(self):
-        """The VIP placeholder. Activation tolerates a missing map; asking
-        for one on purpose does not."""
-        editions.activate("vip-yatakli")
-        with self.assertRaises(editions.EditionError):
-            editions.use_project("vip")
+        """Activation tolerates a missing map; asking for one on purpose
+        does not."""
+        with undelivered("vip-yatakli", "vip"):
+            editions.activate("vip-yatakli")
+            with self.assertRaises(editions.EditionError):
+                editions.use_project("vip")
 
     def test_the_device_map_environment_override_still_wins(self):
         """How a field engineer points the panel at a hand-edited map."""
@@ -309,10 +376,11 @@ class Guard(PanelTest):
     def test_an_undelivered_device_list_reads_as_missing_not_as_a_fault(self):
         """A package whose own map has not arrived yet is a real state. The
         screen has to say what is wrong, not "an unexpected problem"."""
-        editions.activate("gdm")
-        response = api.call("GET", "/api/state")
-        self.assertEqual(response.status, 404)
-        self.assertIn("DeviceMap", response.body["error"])
+        with undelivered("gdm", "gdm"):
+            editions.activate("gdm")
+            response = api.call("GET", "/api/state")
+            self.assertEqual(response.status, 404)
+            self.assertIn("DeviceMap", response.body["error"])
 
     def test_forgetting_every_credential_at_once_is_an_admin_act(self):
         """The single-device form is how a technician clears a password they
@@ -413,10 +481,12 @@ class ProjectSwitching(PanelTest):
         super().tearDown()
 
     def test_an_undelivered_project_is_refused_with_a_reason(self):
-        editions.activate("vip-yatakli")
-        response = api.call("POST", "/api/project/select", body={"key": "vip"})
-        self.assertEqual(response.status, 409)
-        self.assertIn("VIP", response.body["error"])
+        with undelivered("vip-yatakli", "vip"):
+            editions.activate("vip-yatakli")
+            response = api.call("POST", "/api/project/select",
+                                body={"key": "vip"})
+            self.assertEqual(response.status, 409)
+            self.assertIn("VIP", response.body["error"])
 
     def test_an_unknown_project_is_not_found(self):
         editions.activate("gaziray")

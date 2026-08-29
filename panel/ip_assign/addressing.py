@@ -31,6 +31,22 @@ MIN_TARGET_PREFIX = 8
 MAX_TARGET_PREFIX = 30
 
 
+def effective_prefix(requested=None) -> int:
+    """The mask a run writes: the operator's, then the project's, then /24.
+
+    ONE ANSWER, in one place. The plan the screen draws, the run that writes
+    and the address the device-settings screen sends all have to agree; three
+    of them working it out separately is how a screen comes to promise a /24
+    and a run to write a /16.
+
+    See `panel.editions.catalogue.Project.prefix` for why a project states
+    one at all.
+    """
+    from ..editions import runtime as editions              # noqa: PLC0415
+    return (int(requested or 0) or editions.prefix()
+            or DEFAULT_TARGET_PREFIX)
+
+
 def netmask_for(prefix: int) -> str:
     """24 -> '255.255.255.0'. The dotted form the HTTP devices want."""
     return str(ipaddress.IPv4Network(("0.0.0.0", int(prefix))).netmask)

@@ -9,7 +9,7 @@ from ..errors import AuthError
 from ..inventory.catalog import find_group, group_matches
 from ..inventory.device_map import Inventory, resolve_template
 from ..probe import switch as switch_probe
-from .addressing import DEFAULT_TARGET_PREFIX, factory_ip, netmask_for
+from .addressing import effective_prefix, factory_ip, netmask_for
 from .ports import format_ports
 
 _COMPARTMENT_LCD = "Compartment LCD"
@@ -91,7 +91,7 @@ def device_switch_for(inventory: Inventory, groups,
 def build_plan(inventory: Inventory, group_names, ports: list[int],
                switch_id: str | None = None,
                device_switch_id: str | None = None, *,
-               target_prefix: int = DEFAULT_TARGET_PREFIX,
+               target_prefix: int = 0,
                source_set: int = 0, target_set: int = 0) -> dict:
     """The run plan — from DeviceMap only, without touching the network.
 
@@ -118,10 +118,14 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
     a number means the addresses are written for that set instead. A factory
     reset is exactly `target_set=1`.
 
-    `target_prefix` is the mask written with the new address.
+    `target_prefix` is the mask written with the new address; 0 means "the
+    project's, or the system default" (see `addressing.effective_prefix`).
     """
     from .runner import RUNNERS
 
+    # Resolved once, at the top: every row below and the summary at the
+    # bottom quote this number, and the run itself resolves it the same way.
+    target_prefix = effective_prefix(target_prefix)
     if isinstance(group_names, str):
         group_names = [group_names]
     groups = resolve_groups(group_names)

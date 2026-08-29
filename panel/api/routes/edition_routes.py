@@ -52,6 +52,11 @@ def edition_body() -> dict:
         # Minting a key needs the secret itself rather than a digest of it,
         # which no shipped package carries.
         "canWriteKey": _can_write_key(),
+        # GDM and the exhibition rack are addressed in fixed form: there is
+        # no `n` in their maps for a train set to substitute, so the set box
+        # in the top bar changes nothing. A control that changes nothing is
+        # worse than none, because the operator believes it worked.
+        "fixedAddressing": editions.fixed_addressing(),
         "projects": [project_dto(project, current.key)
                      for project in editions.projects()],
     }

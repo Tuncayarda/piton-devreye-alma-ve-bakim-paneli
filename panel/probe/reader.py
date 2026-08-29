@@ -25,14 +25,16 @@ def credential_group(device: Device) -> str | None:
 def read_device(device: Device, credentials=None, telemetry=None,
                 timeout: float | None = None,
                 expected_ntp: str | None = None,
-                pbx_ip: str | None = None) -> result.ProbeResult:
+                pbx_ip: str | None = None,
+                project_span: str = "") -> result.ProbeResult:
     """Read one device and return a coloured result. Never raises."""
     method = device.read_method
     try:
         if method == "kyland":
             return _read_switch(device, credentials, telemetry, timeout)
         if method == "isapi":
-            return _read_camera(device, credentials, timeout, expected_ntp)
+            return _read_camera(device, credentials, timeout, expected_ntp,
+                                project_span)
         if method == "http":
             return _read_announcement(device, credentials, timeout)
         if method == "adb":
@@ -59,13 +61,15 @@ def _read_switch(device, credentials, telemetry, timeout):
     }, "kyland")
 
 
-def _read_camera(device, credentials, timeout, expected_ntp):
+def _read_camera(device, credentials, timeout, expected_ntp,
+                 project_span=""):
     # An NVR and a camera answer the same protocol but are not checked for
     # the same things: a recorder has a disk and a buzzer, a camera has a
     # card, an IR lamp and a third stream.
     data = camera.read(device.ip, credentials, timeout,
                        expected_ntp=expected_ntp,
-                       is_nvr=device.type == "NVR")
+                       is_nvr=device.type == "NVR",
+                       project_span=project_span)
     return result.success({
         "version": data["version"], "serial": data["serial"],
         "model": data["model"], "networkTime": data["networkTime"],

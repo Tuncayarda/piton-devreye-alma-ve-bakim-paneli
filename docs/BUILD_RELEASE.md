@@ -38,8 +38,10 @@ Switch Yönetim Paneli `syp` dalındadır.
 │   └── intercom_ip_assign.py           IP atama betiği
 ├── platform-tools/                     adb (depoda YOK — bkz. ADB araçları)
 ├── dabp.spec                           PyInstaller yapılandırması
-├── DeviceMap.json                      topoloji envanteri (pakete girer)
-├── Field_Device_Verification.xlsx      Excel şablonu (pakete girer)
+├── devicemaps/                         proje başına klasör (pakete girer)
+│   ├── _base/                          çalışma kitaplarının üretildiği şablon
+│   └── <proje>/                        DeviceMap_<Proje>.json +
+│                                       Field_Device_Verification_<Proje>.xlsx
 ├── static/                             kaynak arayüz + üretilmiş desktop.html
 ├── tools/build_desktop_bundle.py       Deno 2.9.4 paketleme/doğrulama aracı
 ├── tests/                              birim testler (pakete GİRMEZ)
@@ -65,8 +67,29 @@ yerlerinde durur, **paketlenirken paketin köküne kopyalanır**:
 |---|---|---|
 | `device_verify.py` | `field_scripts/` | alan ayıklama, Excel şeması |
 | `intercom_ip_assign.py` | `field_scripts/` | IP atama koşusu |
-| `DeviceMap.json` | uygulama kökü | cihaz envanteri |
-| `Field_Device_Verification.xlsx` | uygulama kökü | kontrol listesi şablonu |
+| `DeviceMap_<Proje>.json` | `devicemaps/<proje>/` | cihaz envanteri |
+| `Field_Device_Verification_<Proje>.xlsx` | `devicemaps/<proje>/` | projenin kontrol listesi |
+
+### Dosya adlandırma standardı
+
+Bir projenin bütün dosya adları **anahtarından** türetilir; tablo bunu elle
+yazmaz, `panel/editions/catalogue.py` içindeki `project()` üretir:
+
+| | |
+|---|---|
+| klasör | `devicemaps/<anahtar>/` |
+| envanter | `DeviceMap_<Anahtar>.json` |
+| çalışma kitabı | `Field_Device_Verification_<Anahtar>.xlsx` |
+
+`<Anahtar>` anahtarın ilk harfi büyütülmüş hâlidir (`gdm` → `Gdm`). Baş harf
+süs değil: `Inventory.project` proje adını dosyanın kökünden okur, üst çubukta
+görünen ad odur ve `panel/video_config/nvr.py` ona bakarak dallanır.
+`tests/test_editions.py` standardı yerinde tutar.
+
+`devicemaps/_base/Field_Device_Verification.xlsx` bu standardın dışındadır:
+bir projeye ait değil, çalışma kitaplarının **üretildiği** şablondur
+(`tools/make_checklist_template.py`). Pakete o değil, projenin kendi kitabı
+girer.
 
 > Switch erişimi üçüncü bir betikti (`switch_api.py`); emekliye ayrıldı.
 > Yerini paketin içindeki `panel/switch/` aldı — Switch ekranının **yazması**

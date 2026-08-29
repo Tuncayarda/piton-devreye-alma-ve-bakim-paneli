@@ -28,11 +28,29 @@ from . import aliases, commands, planning
 _LOCK = threading.RLock()
 
 # The operator only chooses the physical adapter.  The address shape is part of
-# the commissioning protocol, not a preference: every alias is a /24 and uses
-# the existing high host-octet default.  Keep the fixed values in the DTO for
-# older frontends which still read them, but never load overrides from disk.
+# the commissioning protocol, not a preference: the alias uses the project's
+# own network width and the existing high host-octet default.  Keep the values
+# in the DTO for older frontends which still read them, but never load
+# overrides from disk.
 DEFAULTS = {"adapter": "", "octet": planning.DEFAULT_HOST_OCTET,
             "prefix": planning.DEFAULT_PREFIX, "enabled": True}
+
+
+def _prefix() -> int:
+    """How wide the alias this project needs is.
+
+    The SAME answer the IP run uses to decide what mask to write to a device
+    (`panel.ip_assign.effective_prefix`), and deliberately so: an alias
+    narrower than the devices' own network cannot see past its own slice of
+    the train. Gaziray is the case that forced it — four cars on four /24s
+    with the broker on a fifth, where a /24 alias left five addresses on the
+    adapter and still no route to MQTT.
+
+    Imported here rather than at module scope: `ip_assign` reaches back into
+    this package to prepare the network before a run.
+    """
+    from .. import ip_assign                                # noqa: PLC0415
+    return ip_assign.effective_prefix()
 
 
 def preferences() -> dict:
@@ -43,6 +61,8 @@ def preferences() -> dict:
     except (OSError, ValueError):
         raw = {}
     values = dict(DEFAULTS)
+    # The screen must not say /24 while the run builds a /16.
+    values["prefix"] = _prefix()
     if isinstance(raw, dict) and isinstance(raw.get("adapter"), str):
         values["adapter"] = raw["adapter"]
     return values
@@ -103,6 +123,17 @@ def _search_addresses(options: dict | None) -> list[str]:
     return list(dict.fromkeys(named + extra))
 
 
+def _broker(inventory: Inventory) -> str:
+    """Where this project's MQTT broker is, for the network plan.
+
+    A ROLE rather than a device (see
+    `panel.editions.catalogue.Project.broker`), so nothing in the DeviceMap
+    names it and the plan would otherwise never ask for a route to it.
+    """
+    from ..editions import runtime as editions              # noqa: PLC0415
+    return editions.broker_ip(inventory)
+
+
 def _factory_ip(options: dict | None) -> str:
     return (str((options or {}).get("factoryIp") or "").strip()
             or settings.FACTORY_IP)
@@ -133,9 +164,9 @@ def state(inventory: Inventory, options: dict | None = None) -> dict:
                                    override=values["adapter"])
     required = planning.required_networks(
         inventory, factory_ip=factory, extra=_search_addresses(options),
-        prefix=planning.DEFAULT_PREFIX,
+        prefix=_prefix(), broker=_broker(inventory),
         known=_known_networks(found, chosen, values["adapter"]))
-    base = planning.network_of(factory, planning.DEFAULT_PREFIX)
+    base = planning.network_of(factory, _prefix())
     return {
         "supported": commands.supported(),
         "system": platform.system(),
@@ -147,7 +178,7 @@ def state(inventory: Inventory, options: dict | None = None) -> dict:
         # 10.1.1.225/24 the user should be able to read off the screen rather
         # than work out from an octet field.
         "baseAddress": (f"{base.network_address + values['octet']}"
-                        f"/{planning.DEFAULT_PREFIX}" if base else ""),
+                        f"/{_prefix()}" if base else ""),
         "setNo": inventory.set_no,
         "adapters": [adapter.dto() for adapter in found],
         "adapter": chosen.dto() if chosen else None,
@@ -185,7 +216,7 @@ def readiness(inventory: Inventory, options: dict | None = None) -> dict:
                                    override=values["adapter"])
     required = planning.required_networks(
         inventory, factory_ip=factory, extra=_search_addresses(options),
-        prefix=planning.DEFAULT_PREFIX,
+        prefix=_prefix(), broker=_broker(inventory),
         known=_known_networks(found, chosen, values["adapter"]))
     needs_adapter = chosen is None and bool(adapter_module.usable(found))
     return {
@@ -232,7 +263,7 @@ def _ensure_locked(inventory: Inventory, options: dict | None = None,
                                         override=values["adapter"])
         required = planning.required_networks(
             inventory, factory_ip=factory, extra=_search_addresses(options),
-            prefix=planning.DEFAULT_PREFIX,
+            prefix=_prefix(), broker=_broker(inventory),
             known=_known_networks(found, adapter, values["adapter"]))
     except Exception as exc:
         result["failed"].append({"network": "", "error": _short(exc)})
@@ -260,7 +291,8 @@ def _ensure_locked(inventory: Inventory, options: dict | None = None,
     for entry in required:
         try:
             address = planning.choose_host(entry.network, taken,
-                                           octet=planning.DEFAULT_HOST_OCTET)
+                                           octet=planning.DEFAULT_HOST_OCTET,
+                                           anchor=entry.anchor)
             record = aliases.add(adapter.handle, address,
                                  entry.network.prefixlen,
                                  adapter_name=adapter.name)
@@ -386,7 +418,7 @@ def select_adapter(inventory: Inventory, name: str,
                     released.append(record)
                     continue
                 network = planning.network_of(
-                    str(record.get("ip") or ""), planning.DEFAULT_PREFIX)
+                    str(record.get("ip") or ""), _prefix())
                 migration_failures.append({
                     "network": str(network or ""), "error": detail})
 

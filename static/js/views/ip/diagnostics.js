@@ -369,7 +369,6 @@ export function factoryResetCard(data, check) {
     el('div', { class: 'ip-factory-reset-head' }, [
       el('div', {}, [
         el('h3', { text: t('ipmap.factoryResetSection') }),
-        el('p', { text: t('ipmap.factoryResetSectionNote') }),
       ]),
       el('span', { class: 'mono ip-factory-reset-address',
         text: check.factoryIp }),
@@ -389,7 +388,6 @@ export function factoryResetCard(data, check) {
       isExternal ? warning : null,
     ]),
     el('div', { class: 'ip-factory-reset-actions' }, [
-      el('p', { text: t('ipmap.factoryResetSelectionNote') }),
       resetButton,
     ]),
   ]);
@@ -443,7 +441,6 @@ export function lcdFactoryResetCard(data, check) {
     el('div', { class: 'ip-factory-reset-head' }, [
       el('div', {}, [
         el('h3', { text: t('ipmap.lcdFactoryResetSection') }),
-        el('p', { text: t('ipmap.lcdFactoryResetNote') }),
       ]),
       el('span', { class: 'mono ip-factory-reset-address',
         text: t('ipmap.setOneAddresses') }),

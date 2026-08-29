@@ -15,7 +15,7 @@ import { connectorSvg, portGrid } from '../../components/front_panel.js';
 import { t } from '../../core/i18n.js';
 import {
   clearSelection, local, poePorts, portById, selectAllPorts,
-  selectionModifier, compactRange, uplinkPorts,
+  compactRange, uplinkPorts,
 } from './state.js';
 
 // A port's live state, as the class that colours its connector. Same
@@ -171,11 +171,9 @@ function selectionBar(actions) {
   }, [
     el('span', {
       class: 'switch-selection-info',
-      text: count === 0
-        ? t('switch.selectionHint', { modifier: selectionModifier })
-        : t('switch.selectionSummary', {
-            count, ports: compactRange(local.selected),
-          }),
+      text: count === 0 ? '' : t('switch.selectionSummary', {
+        count, ports: compactRange(local.selected),
+      }),
     }),
     el('span', { class: 'spacer' }),
     el('button', {

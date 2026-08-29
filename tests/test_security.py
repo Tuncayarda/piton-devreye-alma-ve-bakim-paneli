@@ -210,7 +210,7 @@ class Security(ServiceTest):
         self.build_map(_topology())
         base = self.start_service()
         for path in ("/css/../../app.py",
-                     "/js/../../DeviceMap.json",
+                     "/js/../../devicemaps/yatakli/DeviceMap_Yatakli.json",
                      "/css/%2e%2e%2f%2e%2e%2fapp.py",
                      "/js/....//....//app.py"):
             code, _ = self.call(base, path)

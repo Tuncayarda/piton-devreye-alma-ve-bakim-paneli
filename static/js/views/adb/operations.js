@@ -84,7 +84,6 @@ export function applicationCard(actions) {
       el('span', { class: 'spacer' }),
       el('span', { class: 'eyebrow', text: summary(chosen, targets) }),
     ]),
-    el('p', { class: 'description', text: t('adb.appActionsNote') }),
     el('div', { class: 'adb-op-bar' }, [
       opButton(t('adb.startApp'), withPackage,
                () => actions.run('start', {}, targets)),
@@ -113,7 +112,6 @@ export function installCard(actions) {
     el('div', { class: 'card-head' }, [
       el('h3', { text: t('adb.installSection') }),
     ]),
-    el('p', { class: 'description', text: t('adb.installSectionNote') }),
     apkRow(chosen, ready, actions),
     autostartRow(targets, ready, actions),
     autostartLog(),
@@ -131,7 +129,6 @@ export function serverCard(actions) {
     el('div', { class: 'card-head' }, [
       el('h3', { text: t('adb.adbServer') }),
     ]),
-    el('p', { class: 'description', text: t('adb.serverNote') }),
     connectRow(list, actions),
   ]);
 }
@@ -185,7 +182,6 @@ function connectRow(list, actions) {
       type: 'button', class: 'btn btn-small',
       text: t('adb.connectAll'),
       disabled: running() || list.length === 0,
-      title: t('adb.connectAllHint'),
       onclick: () => actions.run(
         'connect', {}, list.map(entry => ({ ip: entry.ip }))),
     }),
@@ -199,7 +195,6 @@ function connectRow(list, actions) {
       type: 'button', class: 'btn btn-small',
       text: t('adb.resetServer'),
       disabled: running(),
-      title: t('adb.resetServerHint'),
       onclick: () => actions.run('restart_server', {}, []),
     }),
   ]);
@@ -221,7 +216,6 @@ function apkRow(chosen, ready, actions) {
       type: 'button', class: 'btn btn-small',
       text: local.pickerOpen ? t('adb.choosing') : t('adb.chooseFile'),
       disabled: local.pickerOpen || running(),
-      title: t('adb.chooseFileHint'),
       onclick: () => actions.pickApk(),
     }),
     el('button', {
@@ -259,7 +253,6 @@ function autostartRow(targets, ready, actions) {
       type: 'button', class: 'btn btn-small',
       text: local.checkingAutostart ? t('adb.checking') : t('adb.check'),
       disabled: !enabled || local.checkingAutostart,
-      title: t('adb.checkAutostartHint'),
       onclick: () => actions.checkAutostart(),
     }),
     el('button', {
@@ -321,7 +314,6 @@ function confirmInstall(chosen, file, actions) {
   confirmWrite({
     title: t('adb.installTitle'),
     lead: t('adb.installLead', { count: chosen.length, name: file.name }),
-    notes: [{ text: t('adb.installNote'), tone: 'info' }],
     items: items(chosen),
     confirmLabel: t('adb.install'),
     // No path travels. The server installs the file its own dialog chose.
@@ -346,10 +338,7 @@ async function confirmAutostart(targets, actions, on) {
     lead: on
       ? t('adb.autostartInstallLead', { count: targets.length })
       : t('adb.autostartRemoveLead', { count: targets.length }),
-    notes: [
-      { text: t('adb.autostartSystemWarning'), tone: 'warning' },
-      on && { text: t('adb.autostartFilesNote'), tone: 'info' },
-    ],
+    notes: [{ text: t('adb.autostartSystemWarning'), tone: 'warning' }],
     items: [
       ...paths.map(path => ({ name: path, detail: t('adb.systemFile') })),
       ...pairItems(targets),

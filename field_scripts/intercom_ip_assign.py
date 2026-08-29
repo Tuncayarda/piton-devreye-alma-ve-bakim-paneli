@@ -41,6 +41,21 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 HERE = Path(__file__).resolve().parent
 
+
+def shipped(name: str, *source_path: str) -> Path:
+    """A data file this script is run beside, or where the repository keeps it.
+
+    Packaged, the panel's data files are copied to the bundle root next to
+    this script (`dabp.spec`), so "beside me" is the answer in the field. In
+    a source checkout they live under `devicemaps/`, one folder per project
+    (`panel/editions/catalogue.py`), and the fallback is what makes a bare
+    run from the tree work at all — the flat name looked for before was never
+    there. Any project but the default is named on the command line.
+    """
+    beside = HERE / name
+    return beside if beside.exists() else HERE.parent.joinpath(*source_path)
+
+
 POE_ON, POE_OFF = "1", "0"
 
 # ───────────────────────────────────────────────── progress event protocol ──
@@ -767,7 +782,9 @@ def parse_args(env):
                         help="set number — the 'n' in the IP template")
     parser.add_argument("--device-map", type=Path,
                         default=Path(env.get("DEVICE_MAP_FILE")
-                                     or HERE / "DeviceMap.json"))
+                                     or shipped("DeviceMap.json",
+                                                "devicemaps", "yatakli",
+                                                "DeviceMap.json")))
     parser.add_argument("--switch-ip", default=None,
                         help="switch IP (default: the switch these ports are "
                              "attached to in DeviceMap)")

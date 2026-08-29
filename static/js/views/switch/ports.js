@@ -149,7 +149,6 @@ export function portsCard(actions, busy) {
         text: t('switch.portsCount', { count: local.ports.length }),
       }),
     ]),
-    el('p', { class: 'description', text: t('switch.portsNote') }),
     poe.length ? table(poe, actions, busy, 'switch.portsPoeSection') : null,
     uplink.length
       ? table(uplink, actions, busy, 'switch.portsUplinkSection')

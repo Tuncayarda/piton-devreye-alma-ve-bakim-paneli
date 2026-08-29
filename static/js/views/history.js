@@ -183,12 +183,11 @@ function jobRow(job) {
   ]);
 }
 
-function section(title, description, jobs, emptyText) {
+function section(title, jobs, emptyText) {
   return el('section', { style: 'margin-top:20px' }, [
     el('div', { class: 'card-head' }, [
       el('h3', { text: title }),
       el('span', { class: 'badge', text: String(jobs.length) }),
-      el('span', { class: 'page-sub', style: 'margin:0', text: description }),
     ]),
     dataTable({
       template: COLUMNS, minWidth: 1040, wrapStyle: 'margin-top:0',
@@ -246,7 +245,6 @@ export function render(root) {
   if (state.historyFilter !== 'finished') {
     parts.push(section(
       t('history.inProgressTitle'),
-      t('history.inProgressNote'),
       active,
       t('history.inProgressEmpty'),
     ));
@@ -254,7 +252,6 @@ export function render(root) {
   if (state.historyFilter !== 'active') {
     parts.push(section(
       t('history.finishedTitle'),
-      t('history.finishedNote'),
       finished,
       t('history.finishedEmpty'),
     ));

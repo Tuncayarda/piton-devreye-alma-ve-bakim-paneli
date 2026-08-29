@@ -115,11 +115,6 @@ function serviceKeyCard() {
 
   return el('div', { class: 'card corner' }, [
     el('h4', { text: t('admin.serviceKey') }),
-    el('p', {
-      class: 'mono text-mid t-xs',
-      style: 'margin-top:9px;line-height:1.7',
-      text: t('admin.serviceKeyNote'),
-    }),
     // One label for both actions: it is a note about the KEY, not about the
     // way it got onto the drive.
     el('label', {
@@ -228,7 +223,7 @@ export function render(root, changeSet) {
       }, [
         el('div', { text: meta.file }),
         el('div', {
-        text: t('admin.piscuBroker', { ip: value(meta.piscuIp) }),
+        text: t('admin.broker', { ip: value(meta.brokerIp) }),
       }),
       ]),
     ]),

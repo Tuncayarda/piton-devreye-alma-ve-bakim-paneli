@@ -127,11 +127,26 @@ def _third_stream_problem(ip: str, credentials, timeout):
 
 
 def problems(ip: str, credentials, *, is_nvr: bool,
+             storage: bool = True,
              timeout: float | None = None) -> list[str]:
-    """Everything worth reporting about this device, in reading order."""
-    found = [_storage_problem(ip, credentials,
-                              i18n.t("video.hdd") if is_nvr
-                              else i18n.t("video.sdCard"), timeout)]
+    """Everything worth reporting about this device, in reading order.
+
+    `storage` is the PROJECT's answer to "is there anything in these devices
+    to ask about" (see `panel.editions.catalogue.Project.storage`). On the
+    trains whose cameras record to the NVR there is no card in them by
+    design, and asking anyway filled the checklist with "no SD card" for
+    every camera on the train — a fault nobody could fix, on hardware that
+    was working exactly as specified.
+
+    The BUZZER is not behind that flag. An NVR left with its buzzer armed is
+    a fault on any project, and it has nothing to do with what is in the
+    slot.
+    """
+    found = []
+    if storage:
+        found.append(_storage_problem(ip, credentials,
+                                      i18n.t("video.hdd") if is_nvr
+                                      else i18n.t("video.sdCard"), timeout))
     if is_nvr:
         found.append(_buzzer_problem(ip, credentials, timeout))
     else:

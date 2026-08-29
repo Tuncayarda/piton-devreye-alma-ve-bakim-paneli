@@ -17,6 +17,7 @@ switches) are therefore rejected up front.
 """
 
 from .addressing import (DEFAULT_TARGET_PREFIX, MAX_TARGET_PREFIX,
+                         effective_prefix,
                          MIN_TARGET_PREFIX, SEARCH_LIMIT, can_flush_arp,
                          factory_ip, is_ipv4, netmask_for, parse_prefix,
                          parse_set, range_candidates, search_candidates)
@@ -36,15 +37,16 @@ from .lcd_runner import manual_candidates as lcd_manual_candidates
 from .lcd_runner import run_manual as run_lcd_manual
 from .runner import groups_without_runner, run
 
-__all__ = ["DEFAULT_TARGET_PREFIX", "MAX_TARGET_PREFIX", "MIN_TARGET_PREFIX",
-           "SEARCH_LIMIT", "RunProgress", "address_map", "allowed_ports",
-           "assert_not_protected", "audit_identities", "build_plan",
-           "can_flush_arp", "choose_preflash_file", "computer_port",
-           "device_switch_for", "devices_by_port", "extension_of",
-           "factory_ip", "forget_preflash_file", "format_ports", "front_panel",
-           "groups_without_runner", "is_ipv4", "lcd_manual_candidates",
-           "netmask_for", "parse_event", "parse_ports", "parse_prefix",
-           "parse_set", "port_key", "preflash_file", "preflash_options",
-           "protected_ports", "range_candidates", "reset_to_factory",
-           "resolve_groups", "run", "run_lcd_manual", "search_candidates",
-           "validate_preflash"]
+__all__ = ["DEFAULT_TARGET_PREFIX", "MAX_TARGET_PREFIX",
+           "MIN_TARGET_PREFIX", "SEARCH_LIMIT", "RunProgress",
+           "address_map", "allowed_ports", "assert_not_protected",
+           "audit_identities", "build_plan", "can_flush_arp",
+           "choose_preflash_file", "computer_port", "device_switch_for",
+           "devices_by_port", "effective_prefix", "extension_of",
+           "factory_ip", "forget_preflash_file", "format_ports",
+           "front_panel", "groups_without_runner", "is_ipv4",
+           "lcd_manual_candidates", "netmask_for", "parse_event",
+           "parse_ports", "parse_prefix", "parse_set", "port_key",
+           "preflash_file", "preflash_options", "protected_ports",
+           "range_candidates", "reset_to_factory", "resolve_groups", "run",
+           "run_lcd_manual", "search_candidates", "validate_preflash"]

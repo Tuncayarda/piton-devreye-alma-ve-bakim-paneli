@@ -22,11 +22,6 @@ import { showError, showSuccess } from '../components/toast.js';
 import { confirmWrite } from '../components/confirm.js';
 import { t } from '../core/i18n.js';
 
-// Shown in the explanation until the server answers. Fixed, not resolved per
-// set: a device leaves the factory without knowing which set it joins, so
-// they all arrive on the same address (see panel/settings.py FACTORY_IP).
-const FACTORY_FALLBACK = '10.1.1.12';
-
 // One request at a time. Every button here rewrites the machine's network
 // configuration and the answer carries the new state; two in flight would
 // race to patch it.
@@ -84,11 +79,10 @@ function addressText(adapter) {
   return adapter.addresses.join(', ');
 }
 
-function row(label, valueNode, hint = '') {
+function row(label, valueNode) {
   return el('div', { class: 'net-row' }, [
     el('span', { class: 'net-label' }, [
       el('span', { text: label }),
-      hint && el('span', { class: 'net-hint', text: hint }),
     ]),
     typeof valueNode === 'string'
       ? el('b', { class: 'mono', text: valueNode })
@@ -134,7 +128,6 @@ function adapterCard(data) {
   if (data.needsAdapter) {
     return el('div', { class: 'card corner net-card net-ask' }, [
       el('span', { class: 'eyebrow', text: t('net.pickAdapter') }),
-      el('p', { class: 'net-note', text: t('net.pickAdapterWhy') }),
       row(t('net.adapterPick'), picker),
     ]);
   }
@@ -150,11 +143,7 @@ function adapterCard(data) {
     // The actual address, spelled out. Working it back from a "last octet"
     // field is not something anyone should have to do to answer "what is this
     // computer's address on the device network".
-    data.baseAddress && row(t('net.baseAddress'), data.baseAddress,
-                            t('net.baseAddressHint', {
-                              set: data.setNo,
-                              octet: data.preferences.octet,
-                            })),
+    data.baseAddress && row(t('net.baseAddress'), data.baseAddress),
     row(t('net.adapterPick'), picker),
   ]);
 }
@@ -224,19 +213,6 @@ function requiredCard(data) {
         detail: failure.error }) }));
   }
 
-  // Three paragraphs explaining how this works, folded away. They are worth
-  // having — how the addresses appear, that they are session-only, what the
-  // conflict check does and does not cover — but they were unconditional and
-  // took up more of the screen than the addresses did. The one question
-  // somebody opens this screen to answer is at the top now (see
-  // `readinessLine`); the explanation is a click away for whoever wants it.
-  children.push(el('details', { class: 'net-explainer' }, [
-    el('summary', { text: t('net.howItWorks') }),
-    el('p', { class: 'net-note', text: t('net.automaticNote') }),
-    el('p', { class: 'net-note', text: t('net.sessionOnly') }),
-    el('p', { class: 'net-note', text: t('net.collisionNote') }),
-  ]));
-
   // Undo only. There is no "prepare" button: opening this screen, starting a
   // run, scanning or changing train set all prepare on their own, so a button
   // for it would only ever be pressed after something had already done it.
@@ -295,12 +271,7 @@ export function render(root) {
   const data = state.networkState;
   const parts = [
     el('div', { class: 'page-head' }, [
-      el('div', {}, [
-        el('h2', { text: t('net.title') }),
-        el('p', { class: 'net-note', text: t('net.intro', {
-          factory: (data && data.factoryIp) || FACTORY_FALLBACK,
-        }) }),
-      ]),
+      el('h2', { text: t('net.title') }),
       data ? readinessLine(data) : null,
     ]),
   ];

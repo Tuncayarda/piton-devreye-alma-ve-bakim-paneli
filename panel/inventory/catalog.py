@@ -16,8 +16,13 @@ CATEGORIES = [
      "types": "Camera · NVR", "matches": ["Camera", "NVR"]},
     {"id": "display", "nameKey": "category.display", "code": "DISPLAY",
      "types": "LCD · LED", "matches": ["LCD", "LED"]},
+    # The router sits here with the switch and the access point because that
+    # is what it is, and because the sidebar is the only place its two units
+    # would otherwise appear — `category_for` drops anything it does not
+    # recognise into "control", which is where Gaziray's routers were being
+    # listed, next to the PISCU.
     {"id": "network", "nameKey": "category.network", "code": "NET",
-     "types": "Switch · AP", "matches": ["Switch", "AP"]},
+     "types": "Switch · AP · Router", "matches": ["Switch", "AP", "Router"]},
     {"id": "control", "nameKey": "category.control", "code": "CONTROL",
      "types": "PISCU · HMI · ICU", "matches": ["PISCU", "HMI", "ICU"]},
 ]
@@ -77,12 +82,16 @@ def read_method_for(device_type: str, subtype: str | None) -> str:
         return "http"
     if device_type in ("PISCU", "HMI"):
         return "app"
-    # The two Android displays. Both are reached the same way and neither has
-    # a settings API — the address is written over ADB (see
+    # The Android displays. All four are reached the same way and none has a
+    # settings API — the address is written over ADB (see
     # panel/config_sync/adb_network.py) and the application arrives as an APK.
+    # LINE and PIS are GDM's, the passenger information and line-diagram
+    # screens; they are the same hardware as the Compartment display and are
+    # read the same way.
     # LCD/Landing is deliberately not here: it is a passive display the panel
     # only knows from DeviceMap.
-    if device_type == "LCD" and (subtype or "") in ("Compartment", "Twin"):
+    if device_type == "LCD" and (subtype or "") in (
+            "Compartment", "Twin", "LINE", "PIS"):
         return "adb"
     return "mqtt"
 
@@ -126,6 +135,28 @@ GROUPS = [
     # it). On a map with literal addresses it would have nothing to do
     # anyway: source and target set resolve to the same address.
     {"name": "Twin LCD", "type": "LCD", "subtype": "Twin",
+     "ops": "cfg fw check"},
+    # GDM's two screens: the passenger information display and the line
+    # diagram. The same Android hardware as the Compartment LCD, so the same
+    # three operations reach them — `cfg` and `fw` both branch on the
+    # device's READ METHOD rather than on the group (see
+    # `panel/config_sync/apply.py` and `panel/firmware/__init__.py`), and
+    # that method is `adb` for all four displays.
+    #
+    # NO `ip`, for the same reason the Twin LCD has none: the port-by-port
+    # commissioning run behind that operation is written for the Compartment
+    # LCD alone (`panel/ip_assign/lcd_runner.py` filters on the SubType, and
+    # `runner.RUNNERS` has one entry). Their addresses are written on the
+    # device settings screen instead, one at a time.
+    #
+    # No labelKey, like the LCDs above: "LINE" and "PIS" are the SubType
+    # values in DeviceMap and appear in every device name it publishes
+    # (Line_LCD_1_Mc1, Pis_LCD_1_Mc1). Translating the group heading while
+    # the rows under it keep the DeviceMap spelling makes them read as two
+    # different things.
+    {"name": "LINE LCD", "type": "LCD", "subtype": "LINE",
+     "ops": "cfg fw check"},
+    {"name": "PIS LCD", "type": "LCD", "subtype": "PIS",
      "ops": "cfg fw check"},
     {"name": "LED", "type": "LED", "subtype": "Front", "ops": "check"},
     {"name": "ICU", "type": "ICU", "subtype": "", "ops": "check"},

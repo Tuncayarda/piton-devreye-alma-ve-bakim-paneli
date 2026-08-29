@@ -122,8 +122,11 @@ VERSION_QUAD = tuple(int(x) for x in (_VERSION_NUMBERS + ["0"] * 4)[:4])
 # root; a missing one stops the build — quietly producing a half package
 # means an app that will not open in the field with "DeviceMap not found".
 FIELD_SCRIPTS_DIR = ROOT / "field_scripts"   # engines loaded at runtime
+# The shared checklist template. It sits in `devicemaps/_base/` rather than
+# with a project, because it belongs to no single one: every train not
+# carrying its own workbook is filled from this file.
 DATA_FILES = [
-    (ROOT / "Field_Device_Verification.xlsx",
+    (ROOT / "devicemaps" / "_base" / "Field_Device_Verification.xlsx",
      "Field_Device_Verification.xlsx"),
     (FIELD_SCRIPTS_DIR / "device_verify.py", "device_verify.py"),
     (FIELD_SCRIPTS_DIR / "intercom_ip_assign.py", "intercom_ip_assign.py"),

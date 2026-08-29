@@ -12,6 +12,7 @@ data, not code.
 from __future__ import annotations
 
 from .. import settings
+from ..editions import runtime as editions
 from . import channels, payloads
 
 # The IR illuminator is switched off: the cameras sit behind glass, where the
@@ -26,9 +27,10 @@ BUZZER = "0"
 def for_field(device, inventory, name: str) -> str:
     """The project default for one field, or "" when there is none."""
     if name == "ntpServer":
-        # The set's PISCU is the time source; there is no other one on the
-        # train (the same rule the SIP registrar follows).
-        return inventory.piscu_ip() or ""
+        # The project's clock source — the PISCU on most trains, and a
+        # machine of its own on Gaziray and GDM. Same rule as the SIP
+        # registrar (see `panel.editions.catalogue.Project.broker`).
+        return editions.ntp_ip(inventory) or ""
     if name == "timeZone":
         return settings.EXPECTED_TIMEZONE
     if name == "channelName":

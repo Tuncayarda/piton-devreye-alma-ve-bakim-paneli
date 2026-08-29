@@ -7,6 +7,7 @@ import time
 
 from .. import credentials as credential_store
 from .. import jobs, status
+from ..editions import runtime as editions
 from ..inventory import catalog
 from ..inventory import device_map as inventory_module
 from ..probe import reader, result as probe_result
@@ -49,7 +50,7 @@ def credentials_for(device):
 
 
 def collect_telemetry(inventory) -> TelemetrySnapshot:
-    return TelemetrySnapshot(inventory.piscu_ip()).collect(
+    return TelemetrySnapshot(editions.broker_ip(inventory)).collect(
         expected_set=inventory.set_no)
 
 
@@ -218,8 +219,9 @@ def piscu_body(inventory) -> dict:
         })
 
     return {
-        "brokerIp": inventory.piscu_ip(),
+        # The broker this screen's client list came from — not the PISCU's
+        # own address, which on Gaziray and GDM is a different machine.
+        "brokerIp": editions.broker_ip(inventory),
         "clients": clients,
         "extensions": extensions,
-        "note": i18n.t("sip.note"),
     }

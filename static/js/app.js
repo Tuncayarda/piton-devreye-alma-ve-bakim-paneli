@@ -328,6 +328,19 @@ function render(_state, changed) {
     $('#project-name').textContent = meta.project;
     setUpSetPicker();
   }
+  // GDM and the exhibition rack are addressed in fixed form — there is no
+  // `n` in their maps for the set number to replace, so this box substitutes
+  // nothing. Hidden rather than disabled: a greyed-out control still says
+  // "this exists here, something is stopping it", and nothing is.
+  //
+  // Marked on the BAR, not on the field: the "/" between the project name
+  // and the box is a separator for two things, and hiding one of them
+  // leaves it separating nothing.
+  const projectBar = $('.project-bar');
+  if (projectBar) {
+    projectBar.dataset.setPicker =
+      (state.edition && state.edition.fixedAddressing) ? '0' : '1';
+  }
   renderMode();
   $('#status-text').textContent = queue.summaryText(refreshTargets().length);
   $('#footer-version').textContent = `v${state.version}`;
@@ -346,8 +359,20 @@ function render(_state, changed) {
   autoButton.setAttribute('aria-pressed', state.autoRefresh ? 'false' : 'true');
   $('.label-live', autoButton).textContent = state.autoRefresh
     ? t('topbar.pause') : t('topbar.paused');
-  autoButton.title = t(state.autoRefresh
-    ? 'topbar.pauseHint' : 'topbar.resumeHint');
+
+  // ONE attribute on the shell, and every table on every screen follows it
+  // through the cascade. Fifteen `dataTable` calls would otherwise each have
+  // to be told, and the tables that are not built by `dataTable` — the port
+  // rows, the pick lists — would have been left behind.
+  const compact = state.density === 'compact';
+  $('#app').dataset.density = compact ? 'compact' : 'comfortable';
+  const densityButton = $('#density-btn');
+  densityButton.setAttribute('aria-pressed', String(compact));
+  // Four close lines when packed, three spaced ones when not: the icon is
+  // the state, so the button does not need a label beside it.
+  $('#density-icon').firstElementChild.setAttribute('d', compact
+    ? 'M4 5h12M4 8.3h12M4 11.6h12M4 14.9h12'
+    : 'M4 6h12M4 10h12M4 14h12');
   alignSidePanel();
 
   sidebar.render();
@@ -705,7 +730,7 @@ async function changeSet(value) {
 
 async function loadInitialData() {
   const meta = await api.project(state.setNo);
-  patch({ meta, piscuIp: meta.piscuIp, setNo: meta.setNo });
+  patch({ meta, setNo: meta.setNo });
   await fetchState();
   await fetchJobs();
 }
@@ -911,6 +936,9 @@ async function start() {
     // because they want current data now.
     if (resuming) scanLoop(0);
   });
+  $('#density-btn').addEventListener('click', () => patch({
+    density: state.density === 'compact' ? 'comfortable' : 'compact',
+  }));
   $('#queue-btn').addEventListener('click', queue.toggle);
   $('#locked-btn').addEventListener('click', locked.toggle);
   $('#leave-admin-btn').addEventListener('click', leaveAdmin);

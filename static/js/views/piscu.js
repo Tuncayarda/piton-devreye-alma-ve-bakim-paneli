@@ -40,7 +40,6 @@ export function render(root) {
     return;
   }
 
-  parts.push(el('p', { class: 'info', text: data.note }));
 
   const card = (title, rows, emptyText) => el('div', {
     class: 'card corner',

@@ -131,11 +131,11 @@ function evaluate(row, columns) {
   return { problems, values, passed: problems.length === 0 };
 }
 
-function summaryCard(name, amount, colour, note) {
+function summaryCard(name, amount, colour, note = '') {
   return el('div', { class: 'check-summary-card' }, [
     el('span', { class: 'name', text: name }),
     el('strong', { style: `color:var(--${colour})`, text: String(amount) }),
-    el('span', { class: 'note', text: note }),
+    note ? el('span', { class: 'note', text: note }) : null,
   ]);
 }
 
@@ -205,9 +205,6 @@ function excelPreview(rows, data) {
     + data.columns.length * 10;
 
   return [
-    el('div', {
-      class: 'info check-excel-note', text: t('checklist.excelNote'),
-    }),
     dataTable({
       template, minWidth: minimum, label: t('checklist.tabExcel'),
       columns: data.columns.map(column => el('span', {
@@ -382,20 +379,15 @@ export function render(root, refreshNow) {
   const sipIssues = results.filter(
     r => r.problems.some(p => p.code === 'sip')).length;
 
-  parts.push(el('div', { class: 'check-criteria' }, [
-    el('span', { class: 'label', text: t('checklist.basicCheckCriteria') }),
-    el('span', { text: t('checklist.accessIpSipExtension') }),
-  ]));
   parts.push(el('div', { class: 'check-summary-grid' }, [
     summaryCard(t('checklist.passedBasicChecks'), passed, 'ok',
       t('checklist.devicesInTotal', { count: rows.length })),
     summaryCard(t('checklist.accessProblems'), reachIssues,
-      reachIssues ? 'failed' : 'ok',
-      t('checklist.accessProblemsNote')),
+      reachIssues ? 'failed' : 'ok'),
     summaryCard(t('checklist.ipDeviations'), ipIssues,
-      ipIssues ? 'failed' : 'ok', t('checklist.ipDeviationsNote')),
+      ipIssues ? 'failed' : 'ok'),
     summaryCard(t('checklist.sipDeviations'), sipIssues,
-      sipIssues ? 'failed' : 'ok', t('checklist.sipDeviationsNote')),
+      sipIssues ? 'failed' : 'ok'),
   ]));
 
   if (reportTab === 'excel') {

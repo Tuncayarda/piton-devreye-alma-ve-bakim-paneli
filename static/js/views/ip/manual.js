@@ -77,7 +77,6 @@ export function manualAssignCard(data, check) {
     el('div', { class: 'ip-factory-reset-head' }, [
       el('div', {}, [
         el('h3', { text: t('ip.lcdManualSection') }),
-        el('p', { text: t('ip.lcdManualNote') }),
       ]),
     ]),
     field('ip-lcd-manual-port', 'manualPort', 'ip.lcdManualPort',

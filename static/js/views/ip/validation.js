@@ -167,8 +167,5 @@ export function maskField(data, check, showActionState, prefix = 'ip-target-mask
       input,
     ]),
     maskWarning,
-    el('p', {
-      class: 'ip-field-help', text: t('ip.targetMaskHelp', { mask: defaultMask }),
-    }),
   ];
 }

@@ -177,7 +177,7 @@ FIELDS: dict[str, Field] = {
     # preserved from the device (see config_sync.adb_network).
     "ipAddress": Field("field.ipAddress", "ip", SECTION_NETWORK, "ip",
                        read_names=("ipaddress", "ip", "eth0ip"),
-                       hint="field.ipAddressHint"),
+                       ),
     # ── SIP ──────────────────────────────────────────────────────────
     "sipPbx": Field("field.sipPbx", "pbxIp", SECTION_SIP, "ip",
                     read_names=probe_fields.PBX_KEYS),
@@ -186,7 +186,7 @@ FIELDS: dict[str, Field] = {
                           exclude=probe_fields.EXTENSION_EXCLUDE),
     "sipPassword": Field("field.sipPassword", "pbxPassword", SECTION_SIP, "text",
                          secret=True, read_names=("pbxPassword",),
-                         hint="field.sipPasswordHint"),
+                         ),
     "sipOutbound": Field("field.sipOutbound", "pbxOutExtension",
                          SECTION_SIP, "digits",
                          read_names=probe_fields.OUTBOUND_KEYS),
@@ -256,7 +256,7 @@ FIELDS: dict[str, Field] = {
     # therefore becomes the target with no table of its own; where the
     # project says nothing, panel.video_config.defaults answers.
     "ntpServer": Field("field.ntpServer", "NtpServer", SECTION_NETWORK, "ip",
-                       read_names=("ntpserver",), hint="field.ntpServerHint"),
+                       read_names=("ntpserver",)),
     "timeZone": Field("field.timeZone", "TimeZone", SECTION_NETWORK, "text",
                       read_names=("timezone",)),
     # READ ONLY, and the comment is the reason: writing a mask over ISAPI
@@ -270,24 +270,24 @@ FIELDS: dict[str, Field] = {
                         hint="field.subnetMaskHint"),
     "channelName": Field("field.channelName", "CameraName", SECTION_VIDEO,
                          "text", read_names=("channelname",),
-                         hint="field.channelNameHint"),
+                         ),
     "audioEnabled": Field("field.audioEnabled", "AudioEnabled", SECTION_VIDEO,
                           "choice", options=ON_OFF,
                           read_names=("audioenabled",),
-                          hint="field.audioEnabledHint"),
+                          ),
     "irLight": Field("field.irLight", "IrLight", SECTION_VIDEO, "choice",
                      options=IR_MODE, read_names=("irlight",),
-                     hint="field.irLightHint"),
+                     ),
     "thirdStream": Field("field.thirdStream", "ThirdStream", SECTION_VIDEO,
                          "choice", options=ON_OFF,
                          read_names=("thirdstream",),
-                         hint="field.thirdStreamHint"),
+                         ),
     "stream3Resolution": Field("field.stream3Resolution", "Stream3Resolution",
                                SECTION_VIDEO, "choice", options=STREAM3,
                                read_names=("stream3resolution",)),
     "buzzer": Field("field.buzzer", "Buzzer", SECTION_VIDEO, "choice",
                     options=ON_OFF, read_names=("buzzer",),
-                    hint="field.buzzerHint"),
+                    ),
     # ── read-only ────────────────────────────────────────────────────
     # SIP registration is what to check after writing extension/password:
     # the device may have accepted the setting yet failed to register with

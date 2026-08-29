@@ -27,6 +27,7 @@ import requests
 from panel import config_sync, credentials, i18n, settings
 from panel.config_sync import fields as field_table
 from panel.errors import AuthError, VerificationError
+from panel.editions import runtime as editions
 from panel.probe import camera as camera_probe
 from panel.video_config import health
 from panel.video_config import isapi as video_isapi
@@ -729,10 +730,21 @@ class VerificationChecks(VideoTest):
     always asked it: the disk, the buzzer, the IR lamp, the third stream.
     """
 
-    def read(self, fake, is_nvr):
+    def read(self, fake, is_nvr, storage=True):
+        """One verification pass.
+
+        `storage` is the PROJECT's answer to whether this equipment has a
+        card or a disk worth asking about (Gaziray and GDM yes, the rest no
+        — see `panel.editions.catalogue.Project.storage`). The tests below
+        state which project they are standing on rather than inheriting the
+        suite's, because both answers are correct behaviour and only one of
+        them is the suite's edition.
+        """
         settings.VIDEO_PORT = fake.port
-        return camera_probe.read("127.0.0.1", ACCOUNT,
-                                 expected_ntp="10.1.1.1", is_nvr=is_nvr)
+        with mock.patch.object(editions, "storage_checked",
+                               return_value=storage):
+            return camera_probe.read("127.0.0.1", ACCOUNT,
+                                     expected_ntp="10.1.1.1", is_nvr=is_nvr)
 
     def test_an_nvr_reports_its_disk_and_its_buzzer(self):
         with fakes.video_nvr(hdd={"1": "unformatted"}) as fake:
@@ -746,6 +758,32 @@ class VerificationChecks(VideoTest):
         # A camera's checks have no business on a recorder.
         self.assertNotIn("IR", answer)
         self.assertNotIn("third stream", answer)
+
+    def test_a_project_without_storage_is_not_asked_about_it(self):
+        """The cameras on most of these trains record to the NVR.
+
+        There is no card in them by design, so asking filled the checklist
+        with "no SD card" for every camera on the train — a fault nobody
+        could fix, on hardware working exactly as specified. The buzzer is
+        still asked: it is a fault wherever it is found.
+        """
+        with fakes.video_nvr(hdd={"1": "unformatted"}) as fake:
+            fake.state["timezone"] = settings.EXPECTED_TIMEZONE
+            fake.state["ntp"] = "10.1.1.1"
+            fake.state["mask"] = settings.EXPECTED_SUBNET_MASK
+            answer = self.read(fake, is_nvr=True, storage=False)["networkTime"]
+
+        self.assertNotIn("HDD", answer)
+        self.assertIn("buzzer on", answer)
+
+        with fakes.video_camera(hdd={}, ir="close",
+                                third_stream=True) as fake:
+            fake.state["timezone"] = settings.EXPECTED_TIMEZONE
+            fake.state["ntp"] = "10.1.1.1"
+            fake.state["mask"] = settings.EXPECTED_SUBNET_MASK
+            answer = self.read(fake, is_nvr=False, storage=False)["networkTime"]
+
+        self.assertEqual(answer, "OK")
 
     def test_a_healthy_nvr_is_simply_ok(self):
         with fakes.video_nvr(hdd={"1": "ok"}, triggers=0) as fake:
