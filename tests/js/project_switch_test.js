@@ -22,8 +22,12 @@ const ADMIN = new URL("../../static/js/views/admin.js", import.meta.url);
 const appText = await Deno.readTextFile(APP);
 const adminText = await Deno.readTextFile(ADMIN);
 
+// `\r?\n`, not `\n`: a Windows checkout converts this repository's line
+// endings, so the terminating `;` is followed by CR there and a pattern
+// anchored on the bare newline finds nothing — which reads as "the function
+// was renamed" on one platform out of three.
 const ownSource = appText.match(
-  /const ownProjects = \(\) =>\s*\n?([\s\S]*?);\n/);
+  /const ownProjects = \(\) =>\s*\r?\n?([\s\S]*?);\r?\n/);
 assert.ok(ownSource, "ownProjects was not found in app.js");
 // The captured text is the arrow function's BODY — an expression over
 // `state` — so it is evaluated, not called.

@@ -132,19 +132,26 @@ class TheOperatorsClipboard(unittest.TestCase):
     `panel.adminkey` does for files.
     """
 
+    # `create=True` on every geteuid patch: the attribute does not exist on
+    # Windows at all, and `patch.object` refuses to invent one without it.
+    # The production call is unreachable there — `_running_as_root` asks
+    # `platform.system() == "Darwin"` first and short-circuits — but the
+    # test still has to build the patch before it can assert that.
     def test_a_normal_run_does_not_touch_the_pasteboard(self):
         """Not root: the pasteboard here IS the operator's.
 
         Rewriting it would drop every flavour that is not plain text, and
         there is nothing to fix.
         """
-        with mock.patch.object(editmenu.os, "geteuid", return_value=501):
+        with mock.patch.object(editmenu.os, "geteuid", return_value=501,
+                               create=True):
             self.assertFalse(editmenu.handback_needed())
 
     def test_root_on_macos_needs_the_handback(self):
         with mock.patch.object(editmenu.platform, "system",
                                return_value="Darwin"), \
-             mock.patch.object(editmenu.os, "geteuid", return_value=0):
+             mock.patch.object(editmenu.os, "geteuid", return_value=0,
+                               create=True):
             self.assertTrue(editmenu.handback_needed())
 
     def test_root_elsewhere_does_not(self):
@@ -152,7 +159,8 @@ class TheOperatorsClipboard(unittest.TestCase):
         for system in ("Linux", "Windows"):
             with mock.patch.object(editmenu.platform, "system",
                                    return_value=system), \
-                 mock.patch.object(editmenu.os, "geteuid", return_value=0):
+                 mock.patch.object(editmenu.os, "geteuid", return_value=0,
+                               create=True):
                 self.assertFalse(editmenu.handback_needed(), system)
 
     def test_the_clipboard_is_read_through_the_operators_session(self):
