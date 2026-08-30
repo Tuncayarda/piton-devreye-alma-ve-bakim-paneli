@@ -372,5 +372,14 @@ def _build(AppKit, main) -> None:
 
 
 def reset() -> None:
-    """Forget that it was installed. Tests only."""
+    """Forget that it was installed. Tests only.
+
+    The bridge goes with it. It is built once and KEPT on purpose (see
+    `_paste_bridge`), which is right for a running application and wrong for
+    a test file: the first case to build one left it for every case after,
+    so a later assertion about the target was answered by an object an
+    earlier test had made.
+    """
+    global _BRIDGE
     _INSTALLED.clear()
+    _BRIDGE = None

@@ -9,11 +9,19 @@ is running, and that once it is, exactly one Edit menu appears.
 
 AppKit is faked. The real one needs a window server and a run loop, and the
 question here is not whether Cocoa works.
+
+SO IS FOUNDATION, and that one is not a convenience: `_paste_bridge` imports
+it to get `NSObject`, PyObjC ships on macOS only, and the CI matrix runs
+these tests on Ubuntu and Windows too. Faked rather than skipped — the order
+this file is about is the same order on every platform, and a test that only
+ever runs on one of the three is a test that stops being run.
 """
 from __future__ import annotations
 
 import json
 import subprocess
+import sys
+import types
 import unittest
 from unittest import mock
 
@@ -272,11 +280,32 @@ class PastingIntoThePage(unittest.TestCase):
             editmenu._paste(appkit)      # must not raise
 
 
+class FakeNSObject:
+    """Enough of the PyObjC base class for `DabpPasteBridge` to subclass it.
+
+    `alloc().init()` is Objective-C's two-step construction, which PyObjC
+    exposes as-is; here it is one Python object either way.
+    """
+
+    @classmethod
+    def alloc(cls):
+        return cls()
+
+    def init(self):
+        return self
+
+
 class TheEditMenu(unittest.TestCase):
 
     def setUp(self):
         editmenu.reset()
         self.addCleanup(editmenu.reset)
+        # Patched even on macOS, where the real Foundation would import:
+        # one object on all three platforms is what makes the identity
+        # assertion below mean the same thing everywhere.
+        self.addCleanup(sys.modules.pop, "Foundation", None)
+        sys.modules["Foundation"] = types.SimpleNamespace(
+            NSObject=FakeNSObject)
 
     def test_nothing_is_installed_before_the_application_runs(self):
         """The first of the two silent failures.
