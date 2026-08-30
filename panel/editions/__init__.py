@@ -25,8 +25,8 @@ from .runtime import (EditionError, activate, active, add_extra, admin,
                       ntp_ip, on_a_stand, pbx_ip, prefix, storage_checked,
                       find_project, is_active, is_extra, map_path, mode,
                       opens_as_admin, projects, reset, resolve,
-                      set_admin, stamp, stamped_edition, use_project,
-                      views)
+                      set_admin, stamp, stamped_edition, unlock_sealed,
+                      use_project, views)
 
 __all__ = [
                         "ADMIN_VIEWS",
@@ -65,6 +65,7 @@ __all__ = [
                         "stamp",
                         "stamped_edition",
                         "storage_checked",
+                        "unlock_sealed",
                         "use_project",
                         "views",
 ]

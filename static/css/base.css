@@ -8,6 +8,12 @@
   --panel: #151d24;
   --panel-2: #111a20;
   --deep: #0b1116;
+  /* OPAQUE LIFTS — a row's hover, and a table head that sits above its
+     rows. These cannot be a translucent `--raise-*`: the row already paints
+     a ground of its own, so a raise would replace it rather than sit on it.
+     Two steps, and there were five hand-mixed greys inside four of them. */
+  --lift-1: #17212a;
+  --lift-2: #1a232b;
 
   /* accent and text
      ────────────────
@@ -20,8 +26,8 @@
      secondary colour in the app — timestamps, hints, the footer, the "last
      scan" line — almost always at the smallest size. */
   --accent: #4294E0;
-  --accent-soft: rgba(66, 148, 224, .10);
-  --accent-line: rgba(66, 148, 224, .45);
+  /* The accent one step brighter, for the primary button under the pointer. */
+  --accent-hover: #59a3e8;
   --text: #e6edf3;
   --text-bright: #a9bacb;
   --text-mid: #7f93a6;
@@ -39,9 +45,10 @@
   --auth: #d29922;
   --failed: #da3633;
   --unknown: #3d4c5a;
-  --ok-soft: rgba(63, 185, 80, .45);
-  --auth-soft: rgba(210, 153, 34, .45);
-  --failed-soft: rgba(218, 54, 51, .45);
+  /* Darker than "unknown", and not a state at all: the ground of a cell that
+     does not apply to this device type, and the scrollbar thumb. Nothing to
+     find out here, as opposed to nothing found out yet. */
+  --inert: #2a3339;
 
   /* the same states, as text. Green and amber already pass, so they point at
      the fill value and stay one colour; red and grey do not. */
@@ -53,11 +60,94 @@
      paragraph in --failed-text reads as an alarm. */
   --danger-text: #e8817f;
 
-  /* lines */
+  /* THE SURFACE RAMP — one light, three jobs.
+     ─────────────────────────────────────────
+     Everything that is not a state colour is this one value at some alpha:
+     #d6ebff, the light the panel is lit by. There were fifteen alphas of it
+     loose in the stylesheets and three of them were tokens, so two cards
+     could carry different borders and nobody could say why. Fifteen became
+     nine, and the nine are grouped by WHAT THEY DO, because that is the
+     question somebody has when they come looking:
+
+       --raise-*  a ground lifted off the one behind it (hover, a card head)
+       --line-*   a border
+       --glyph-*  a stroke or a fill inside a drawing (the port faceplate)
+
+     Three steps each, and there is no fourth. `tests/test_frontend.py`
+     rejects a bare rgba() anywhere outside this file. */
+  --raise-1: rgba(214, 235, 255, .03);
+  --raise-2: rgba(214, 235, 255, .06);
+  --raise-3: rgba(214, 235, 255, .10);
+
+  --line-soft: rgba(214, 235, 255, .07);
   --line: rgba(214, 235, 255, .14);
   --line-strong: rgba(214, 235, 255, .22);
-  --line-soft: rgba(214, 235, 255, .07);
   --line-corner: #6b8299;
+
+  --glyph-soft: rgba(214, 235, 255, .28);
+  --glyph: rgba(214, 235, 255, .40);
+  --glyph-strong: rgba(214, 235, 255, .62);
+
+  /* PAPER — the one surface not lit by the panel's own light.
+     A QR code is drawn in black on white with a white margin around it, and
+     both are part of the code: a quiet zone tinted to match its surroundings
+     is a quiet zone a camera never finds. So this is white, in every theme,
+     and it is a token rather than a literal only so that the rule holds —
+     colours are chosen here (see components.css, .remote-qr). */
+  --paper: #ffffff;
+
+  /* THE STATE TINTS — the same ladder for every state colour.
+     ────────────────────────────────────────────────────────
+     A state colour is asked to do five things and they were being written
+     out at whatever alpha looked right at the time — the accent alone had
+     twelve. The steps here are the five jobs:
+
+       --*-sheen  a tint nobody is meant to notice (a gradient, a hover)
+       --*-wash   a ground behind words
+       --*-edge   a quiet border, or the fill of a legend sample
+       --*-line   a border that has to read as the colour
+       --*-glyph  a stroke in a drawing, or a pulse
+
+     Each colour declares only the steps it uses. */
+  --accent-sheen: rgba(66, 148, 224, .06);
+  --accent-wash: rgba(66, 148, 224, .10);
+  --accent-edge: rgba(66, 148, 224, .30);
+  --accent-line: rgba(66, 148, 224, .45);
+  --accent-glyph: rgba(66, 148, 224, .60);
+  /* The far end of a pulse. Written out rather than `transparent` so the
+     ring fades through its own colour instead of through grey. */
+  --accent-clear: rgba(66, 148, 224, 0);
+
+  --ok-sheen: rgba(63, 185, 80, .06);
+  --ok-wash: rgba(63, 185, 80, .10);
+  --ok-edge: rgba(63, 185, 80, .30);
+  --ok-line: rgba(63, 185, 80, .45);
+
+  --auth-wash: rgba(210, 153, 34, .10);
+  --auth-line: rgba(210, 153, 34, .45);
+
+  --failed-sheen: rgba(218, 54, 51, .06);
+  --failed-wash: rgba(218, 54, 51, .10);
+  --failed-edge: rgba(218, 54, 51, .30);
+  --failed-line: rgba(218, 54, 51, .45);
+  --failed-glyph: rgba(218, 54, 51, .60);
+
+  /* The pins of a port that is off, and of one that is up with no power.
+     The lighter red of `--failed-text`, because at this size the fill IS
+     the message (see switch.css). */
+  --pin-off: rgba(224, 92, 89, .55);
+  --pin-unpowered: rgba(224, 92, 89, .88);
+
+  /* DEPTH — what is behind something, and what falls below it.
+     `--sunk-*` are grounds pressed INTO a card; `--drop-*` are the shadows
+     things cast; `--scrim` is what covers the page behind a dialog. */
+  --sunk-1: rgba(11, 17, 22, .30);
+  --sunk-2: rgba(11, 17, 22, .42);
+  --sunk-3: rgba(17, 26, 32, .62);
+  --drop-soft: rgba(6, 10, 13, .24);
+  --drop: rgba(6, 10, 13, .45);
+  --drop-strong: rgba(6, 10, 13, .60);
+  --scrim: rgba(6, 10, 13, .55);
 
   /* typography — the design fonts when installed, otherwise the system */
   --font-heading: "Barlow Condensed", "Oswald", "Avenir Next Condensed",
@@ -88,10 +178,67 @@
   --fs-2xl: 1.75rem;     /* 28px — h2 */
   --fs-3xl: 2rem;        /* 32px — the big KPI figures */
 
-  /* The column a side panel takes on a wide window. Fixed, because there it
-     sets the content's width rather than the other way round (see app.js
-     alignSidePanel). */
-  --queue-width: 340px;
+  /* THE SPACING SCALE — the only place a margin, padding or gap is chosen.
+     ─────────────────────────────────────────────────────────────────────
+     The type scale above had a gate on it from the start; spacing did not,
+     and it showed: 23 distinct pixel values across the five stylesheets,
+     with 9, 10 and 11 all in use for the same job. Spacing sets a screen's
+     rhythm more than type size does, and every value picked by hand is one
+     more screen that agrees with nothing.
+
+     Seven steps and a hairline, each value in the old set folded into the
+     nearest one. In px, not rem, on purpose: this is the geometry of the
+     chassis — borders, faceplates, table rows — and it must not move when
+     the browser's text size does. Type scales, the frame does not.
+
+     `--sp-0` is the hairline rather than a step: the 1–2px nudge INSIDE a
+     badge or between a port graphic and its number, where 4px would read as
+     a gap. Nothing at page level should use it. There is no rung above
+     `--sp-7` because nothing on any screen needs one; the moment something
+     does, it is added here and not at the site.
+
+     `tests/test_frontend.py` rejects any positive px in a margin, padding or
+     gap outside this block. Negative values stay literal — a `-1px` clip or
+     a `-2px` optical nudge is a correction, not rhythm. */
+  --sp-0: 2px;
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+
+  /* THE TWO RAILS, AND THE THREE WIDTHS THE LAYOUT ANSWERS TO.
+     ─────────────────────────────────────────────────────────
+     Every screen that puts a column of controls beside its content used to
+     pick its own rail width and its own moment to give up on it: 1.35fr,
+     320px, 420px, 280px, collapsing at 900, 1080, 1081 and 1180. Narrowing
+     the window slowly, the application fell to one column four separate
+     times — which is what makes a layout feel accidental rather than laid
+     out.
+
+     Two rails. A screen takes the wide one if the rail carries a table or a
+     drawing, the narrow one if it carries a list of controls.
+
+     And three widths, because a rail collapses at the width ITS OWN KIND
+     collapses at:
+
+       1180 — a wide rail no longer fits beside the content
+        900 — a narrow rail no longer fits
+        620 — one column of anything, and the small-window rules
+
+     Media queries cannot read a custom property, so those three numbers are
+     written out at each site. They are the only three in the stylesheets;
+     `tests/test_frontend.py` checks that no fourth appears. */
+  --rail: 320px;
+  --rail-wide: 420px;
+  /* The side panel is a narrow rail that happens to be pinned to the window
+     rather than to a screen, so it collapses with the narrow ones. Fixed on
+     a wide window, because there it sets the content's width rather than the
+     other way round (see app.js alignSidePanel, whose OVERLAY_PANEL_MAX is
+     the 900 below). */
+  --queue-width: var(--rail);
   --top-height: 50px;
   /* The footer carries the main-menu button too; at 30px it did not fit. */
   --footer-height: 36px;
@@ -144,7 +291,7 @@ input, select { font: inherit; }
    and the whole menu rail on every screen. */
 .skip-link {
   position: absolute; left: 8px; top: -100px; z-index: 60;
-  padding: 8px 12px;
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--accent-line);
   background: var(--panel);
   color: var(--text);
@@ -153,15 +300,15 @@ input, select { font: inherit; }
 }
 .skip-link:focus-visible { top: 8px; }
 
-::selection { background: rgba(66, 148, 224, .35); }
+::selection { background: var(--accent-edge); }
 
 /* scrollbars — a light bar on a dark ground is not distracting */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a3339 transparent;
+  scrollbar-color: var(--inert) transparent;
 }
 *::-webkit-scrollbar { width: 9px; height: 9px; }
-*::-webkit-scrollbar-thumb { background: #2a3339; }
+*::-webkit-scrollbar-thumb { background: var(--inert); }
 *::-webkit-scrollbar-track { background: transparent; }
 
 /* screen reader text */
@@ -184,9 +331,9 @@ input, select { font: inherit; }
 }
 
 .top-bar {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: var(--sp-3);
   min-height: var(--top-height); flex: none;
-  padding: 0 14px;
+  padding: 0 var(--sp-4);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
@@ -198,11 +345,16 @@ input, select { font: inherit; }
   white-space: nowrap;
 }
 .top-bar .spacer { flex: 1; }
+/* ONE HEIGHT FOR EVERY CONTROL IN THE BAR. There were four in a fifty-pixel
+   row: 33px text buttons, 30px icon buttons, a 30px project frame and 26px
+   language buttons, which is what made a row of eight controls read as eight
+   unrelated objects rather than as one bar. */
+.top-bar .btn { height: 30px; padding-top: 0; padding-bottom: 0; }
 /* The mode badge is the same height as the icon buttons in the top bar; a
    small chip floated between the 30px buttons next to it. It is only ever
    shown in admin mode, so it is coloured like the thing it announces. */
 #mode-badge {
-  height: 30px; padding: 0 11px; flex: none;
+  height: 30px; padding: 0 var(--sp-4); flex: none;
   font-size: var(--fs-sm); color: var(--accent);
 }
 /* The key has been pulled out but a write is still running, so admin mode is
@@ -237,13 +389,13 @@ input, select { font: inherit; }
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 20px 24px 28px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
 }
 
 .footer-bar {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: var(--sp-4);
   height: var(--footer-height); flex: none;
-  padding: 0 18px;
+  padding: 0 var(--sp-5);
   background: var(--panel);
   border-top: 1px solid var(--line);
   font-family: var(--font-body); font-size: var(--fs-sm); color: var(--text-dim);
@@ -251,16 +403,16 @@ input, select { font: inherit; }
 .footer-bar .divider { width: 1px; height: 14px; background: var(--line); }
 
 /* ── narrow screen ─────────────────────────────────────────────────── */
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   /* The application name already appears in the window title. Hiding this
-     text at the minimum desktop width stops the active job type from being
+     text once the narrow rail has gone stops the active job type from being
      clipped and the top-bar actions from overflowing. */
   .top-bar .app-name,
   .top-bar img.logo + .divider { display: none; }
-  .content { padding: 16px 14px 24px; }
+  .content { padding: var(--sp-5) var(--sp-4) var(--sp-6); }
 }
 
-@media (max-width: 720px) {
-  .top-bar { flex-wrap: wrap; padding: 6px 10px; min-height: auto; }
+@media (max-width: 620px) {
+  .top-bar { flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); min-height: auto; }
   h2 { font-size: var(--fs-xl); }
 }

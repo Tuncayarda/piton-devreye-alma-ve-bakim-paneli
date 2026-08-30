@@ -28,6 +28,7 @@ import { confirmWrite } from '../components/confirm.js';
 import { showError, showSuccess, notify } from '../components/toast.js';
 import { value } from '../core/format.js';
 import { t } from '../core/i18n.js';
+import { loadFailed, loading } from '../components/placeholder.js';
 
 const COLUMNS = 'minmax(150px,1.05fr) minmax(120px,.95fr) minmax(150px,1fr) '
   + '86px 104px';
@@ -128,42 +129,44 @@ export function render(root) {
     dialog.close();
   }
 
-  parts.push(el('div', { class: 'page-head' }, [
-    // The heading is the same on all three operation screens: the tab bar
-    // below already says which screen this is.
-    el('h2', { text: t('nav.operations') }),
-    el('div', { class: 'actions' }, [
-      el('button', {
-        type: 'button', class: 'btn btn-primary',
-        text: devices.length
-          ? t('config.applyToCount', { count: devices.length })
-          : t('config.applyToDevices'),
-        disabled: !devices.length, onclick: applyToGroup,
-      }),
-    ]),
+  // The screen's scope and its one action ride on the tab row — see
+  // components/action_tabs.js for what came off the top of this screen.
+  parts.push(actionTabs.render([
+    groupBar.picker('cfg', () => {
+      // The open window belonged to the old group's device; it closes on a
+      // group change.
+      if (local.window) dialog.close();
+      local.deviceId = null;
+      refresh();
+    }),
+    el('button', {
+      type: 'button', class: 'btn btn-primary',
+      text: devices.length
+        ? t('config.applyToCount', { count: devices.length })
+        : t('config.applyToDevices'),
+      disabled: !devices.length, onclick: applyToGroup,
+    }),
   ]));
 
-  parts.push(actionTabs.render());
-  parts.push(groupBar.picker('cfg', () => {
-    // The open window belonged to the old group's device; it closes on a
-    // group change.
-    if (local.window) dialog.close();
-    local.deviceId = null;
-    refresh();
-  }));
-
   if (!devices.length) {
-    parts.push(el('p', {
-      class: 'info', style: 'margin-top:16px',
-      text: t('config.noDeviceInThisGroup'),
-    }));
+    fill(root, parts);
+    return;
+  }
+
+  // Before the first read there is nothing to draw and the screen used to
+  // draw it anyway: empty boxes with no values in them, which looks like a
+  // device that answered with nothing rather than one that has not been
+  // asked yet.
+  if (!data) {
+    parts.push(local.errorText
+      ? loadFailed(local.errorText)
+      : loading(t('config.readingSettings')));
     fill(root, parts);
     return;
   }
 
   const rows = (data && data.rows) || [];
   const groupTargets = (data && data.groupTargets) || {};
-  const groupSecrets = (data && data.groupSecrets) || [];
   // Values defined in DeviceMap that are the same on every device in the
   // group: pre-filled into the boxes so that pressing "apply to group"
   // without touching anything shows what will be written.
@@ -175,7 +178,7 @@ export function render(root) {
 
   parts.push(el('div', { class: 'cfg-grid' }, [
     groupCard(fields, rows, {
-      groupTargets, groupSecrets, projectShared, projectVarying,
+      groupTargets, projectShared, projectVarying,
       savedDefaults: (data && data.savedDefaults) || {},
     }),
     el('div', { class: 'cfg-device-area' }, [
@@ -208,8 +211,6 @@ function deviceItem(device) {
   return el('button', {
     type: 'button', class: 'cfg-device-item',
     dataset: { open: open ? '1' : '0' },
-    title: t('config.opensWindow',
-                 { device: device.name, ip: device.ip }),
     onclick: () => openDevice(device),
   }, [
     el('span', {
@@ -235,12 +236,10 @@ function openDevice(device) {
     actions: [
       el('button', {
         type: 'button', class: 'btn', text: t('config.readFromTheDevice'),
-        title: t('config.readThisDevicesCurrentSettings'),
         onclick: () => refresh(),
       }),
       el('button', {
         type: 'button', class: 'btn btn-primary', text: t('config.applyToThisDevice'),
-        title: t('config.appliesToOnly', { device: device.name }),
         onclick: () => applyToDevice(device),
       }),
       el('button', {
@@ -267,13 +266,17 @@ function renderWindow() {
   const focusLabel = previousFocus && win.body.contains(previousFocus)
     ? previousFocus.getAttribute('aria-label') : null;
   fill(win.body, [
-    el('p', { class: 'cfg-window-note mono', text: win.device.ip }),
+    el('p', { class: 'unit', text: win.device.ip }),
     local.errorText ? el('p', {
       class: local.needsCredentials ? 'info' : 'warning',
       text: local.errorText,
     }) : null,
     dataTable({
-      template: COLUMNS, minWidth: 660, label: t('tabs.deviceSettings'),
+      // The floor is the sum of the column minimums, the gaps between them
+      // and the row's own padding — below it the grid cannot shrink any
+      // further and spills past the row's right border instead. It was
+      // six pixels under it.
+      template: COLUMNS, minWidth: 680, label: t('tabs.deviceSettings'),
       columns: ['col.setting', 'col.current', 'col.deviceValue', 'col.source',
                 'col.state'].map(key => t(key)),
       rows: rows.map(renderRow),
@@ -290,26 +293,6 @@ function renderWindow() {
   }
 }
 
-// What a write costs, per kind of equipment. Announcement devices restart on
-// the SIP block; a camera restarts when the third stream or the IR lamp
-// changes, and the NVR restarts at the end so it reads its channels. The SD
-// card / disk is formatted only when it is unusable as it stands — that is
-// worth saying out loud before the button is pressed.
-function writeNotes(group) {
-  const type = group && group.type;
-  if (type === 'Camera' || type === 'NVR') {
-    return [
-      {
-        text: t(type === 'NVR' ? 'confirm.nvrRestart'
-          : 'confirm.cameraRestart'),
-        tone: 'warning',
-      },
-      { text: t('confirm.videoStorage'), tone: 'warning' },
-    ];
-  }
-  return [{ text: t('confirm.configRestart'), tone: 'warning' }];
-}
-
 // Writing settings sends the SIP block, and the device RESTARTS on it — the
 // same class of consequence as a firmware install, which has always asked.
 function applyToDevice(device) {
@@ -318,7 +301,6 @@ function applyToDevice(device) {
   confirmWrite({
     title: t('config.applyToThisDevice'),
     lead: t('confirm.configOneLead', { device: device.name }),
-    notes: writeNotes(group),
     items: [{ name: device.name, detail: device.ip || '' }],
     confirmLabel: t('config.applyToThisDevice'),
     run: async () => {
@@ -341,9 +323,9 @@ function applyToDevice(device) {
 function input(field, currentValue, onChange, extra = {}) {
   if (field.kind === 'choice') {
     return el('select', {
-      class: `field ${extra.class || ''}`, style: extra.style || null,
+      class: `field ${extra.class || ''}`,
       'aria-label': `${field.label} · ${extra.aria || ''}`,
-      title: extra.title || field.hint || null,
+      title: extra.title || null,
       onchange: (e) => onChange(e.target.value),
     }, [
       el('option', { value: '', text: extra.emptyLabel || '—' }),
@@ -356,15 +338,14 @@ function input(field, currentValue, onChange, extra = {}) {
   const numeric = field.kind === 'integer' || field.kind === 'decimal';
   return el('input', {
     type: field.secret ? 'password' : (numeric ? 'number' : 'text'),
-    class: `field ${extra.class || ''}`, style: extra.style || null,
+    class: `field ${extra.class || ''}`,
     value: currentValue || '',
     min: numeric && field.minimum !== null ? field.minimum : null,
     max: numeric && field.maximum !== null ? field.maximum : null,
     step: numeric ? (field.step || 1) : null,
-    placeholder: extra.placeholder || '—',
     autocomplete: field.secret ? 'new-password' : 'off', spellcheck: 'false',
     'aria-label': `${field.label} · ${extra.aria || ''}`,
-    title: extra.title || field.hint || null,
+    title: extra.title || null,
     onchange: (e) => onChange(e.target.value),
   });
 }
@@ -379,7 +360,7 @@ function input(field, currentValue, onChange, extra = {}) {
 // whole group.
 function groupCard(fields, rows, sources) {
   const {
-    groupTargets, groupSecrets, projectShared, projectVarying, savedDefaults,
+    groupTargets, projectShared, projectVarying, savedDefaults,
   } = sources;
   const rowFor = new Map(rows.map(row => [row.field, row]));
   const writable = fields.filter(f => f.editable)
@@ -402,7 +383,9 @@ function groupCard(fields, rows, sources) {
   }
 
   return el('section', { class: 'card corner cfg-group-card' }, [
-    el('h3', { text: t('config.sharedSettings') }),
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('config.sharedSettings') }),
+    ]),
     ...(sections.length
       ? sections.flatMap(section => [
         section.name ? el('h4', {
@@ -420,13 +403,9 @@ function groupCard(fields, rows, sources) {
               (v) => writeTarget(field.field, v, 'group'), {
                 class: `cfg-field${inherited ? ' cfg-inherited' : ''}`,
                 aria: t('config.valueToWriteToThe'),
-                placeholder: groupPlaceholder(
-                  field, groupSecrets, projectVarying),
                 emptyLabel: t(inherited ? 'config.default'
                   : 'config.leaveUnchanged'),
-                title: inherited
-                  ? t('config.inheritedTitle')
-                  : (field.warning || field.hint || ''),
+                title: field.warning || '',
               }),
           ]);
         }),
@@ -470,19 +449,6 @@ async function resetDefaults() {
   } catch (e) { showError(e.message); }
 }
 
-// A secret field's value never arrives, so the placeholder has to say what
-// state it is in: entered, or coming from DeviceMap.
-function groupPlaceholder(field, groupSecrets, projectVarying) {
-  if (field.secret) {
-    if (groupSecrets.includes(field.field)) return 'Entered';
-    return t(field.source === 'project' ? 'config.default' : 'config.empty');
-  }
-  // For a field that varies per device the box is deliberately empty: each
-  // device takes its own DeviceMap value.
-  if (projectVarying.includes(field.field)) return t('config.perDevice');
-  return '—';
-}
-
 async function writeTarget(field, newValue, scope) {
   try {
     const body = await api.configTarget(
@@ -517,19 +483,10 @@ function renderRow(row) {
       // to the inherited one.
       ? input(row, row.secret ? '' : (row.override || row.target || ''),
         (v) => writeTarget(row.field, v, 'device'), {
-          class: `t-base${!row.override && row.target ? ' cfg-inherited' : ''}`,
-          style: 'padding:5px 8px',
+          class: `t-base field-tight${
+            !row.override && row.target ? ' cfg-inherited' : ''}`,
           aria: t('config.valueSpecificToThisDevice'),
-          placeholder: row.secret
-            ? (row.hasOverride ? 'entered (hidden)'
-              : (row.hasTarget ? 'hidden' : '—'))
-            : '—',
-          title: row.warning || (!row.override && row.target
-            ? t('config.sourceValueApplied', {
-              source: SOURCE_LABEL[row.source]
-                ? t(SOURCE_LABEL[row.source][0]) : '',
-            })
-            : row.hint || ''),
+          title: row.warning || '',
           // The empty option means "no device-specific value"; the label says
           // where the target will fall back to.
           emptyLabel: t(row.source === 'project' ? 'config.default'
@@ -567,7 +524,6 @@ function applyToGroup() {
     lead: t('confirm.configGroupLead', {
       count: devices.length, group: group.label || group.name,
     }),
-    notes: writeNotes(group),
     items: devices.map(device => ({
       name: device.name, detail: device.ip || '',
     })),

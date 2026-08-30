@@ -3,8 +3,8 @@
 Tren setlerini sahada devreye almak için geliştirilmiş bir masaüstü
 panelidir. DeviceMap topolojisini yükler, cihazları okur, kimlik isteyen
 cihazları kilit menüsünde toplar ve kontrol listesini Excel'e döker.
-Her müşteriye kendi paketi derlenir (§2.1) ve mühendis ekranları yalnız
-servis anahtarıyla açılır (§2.2).
+Her müşteriye kendi paketi derlenir (§2.1); mühendis ekranları servis
+anahtarıyla (§2.2) ya da imzalı bir uzaktan oturumla (§2.3) açılır.
 
 ---
 
@@ -159,8 +159,9 @@ kutusudur ve akış ona ulaşmadan bitmelidir.
 
 ---
 
-Admin moda geçişin bir parolası **yoktur** — eskiden vardı ve kaldırıldı;
-tek kapı servis anahtarıdır (§2.2). Normal masaüstü kipinde dinleyen bir
+Admin moda geçişin bir parolası **yoktur** — eskiden vardı ve kaldırıldı.
+İki kapı var: takılı bir servis anahtarı (§2.2) ve imzası doğrulanmış bir
+uzaktan oturum (§2.3). İkisi de kanıtı sunucu tarafında denetlenir. Normal masaüstü kipinde dinleyen bir
 sunucu yoktur ve köprü yalnız paket içindeki WebView'a açılır. İsteğe bağlı
 tarayıcı kipi ise yalnız geri döngü arayüzünde (`127.0.0.1`) dinler.
 
@@ -181,7 +182,9 @@ panel/
   api/            ortak servis katmanı, yol tabloları, yetki süzgeci,
                   isteğe bağlı HTTP adaptörü
   editions/       paket tablosu: hangi paket hangi projeyi/ekranı taşır (§2.1)
-  adminkey/       servis anahtarı ve admin mod (§2.2)
+  adminkey/       servis anahtarı, mühürlü haritalar (§2.2)
+  remotekey/      imzalı uzaktan oturum: QR eşleşmesi ve hesapla giriş (§2.3)
+  authority.py    admin modu kim açık tutuyor — kimse kalmayınca kapanır
   elevation/      yükseltilmiş yetki kapısı ve yeniden başlatma (§1)
   inventory/      DeviceMap envanteri, IP şablonu çözümü, kategoriler
   probe/          okuma dağıtıcısı: switch (KYLAND), anons, kamera/NVR
@@ -265,12 +268,12 @@ sürerken proje değiştirilemez.
 Ayarlar da paket başına ayrı klasörde tutulur (`panel/settings.py:data_dir`):
 GDM için girilen bir hedef değer Gaziray'da o yuvadaki donanıma yazılırdı.
 
-### 2.2 Servis anahtarı — admin moda tek kapı
+### 2.2 Servis anahtarı — cepte taşınan kapı
 
 Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT, ADB, Switch) admin
 modda açılır. Admin moda geçişin parolası, gizli tıkı ve komut satırı
-seçeneği **yoktur**; tek yol, panelin tanıdığı bir anahtar dosyasıdır
-(`panel/adminkey/`). Dosya iki yerde aranır: takılı bir USB bellekte —
+seçeneği **yoktur**; iki yol var, bu birincisi: panelin tanıdığı bir anahtar
+dosyası (`panel/adminkey/`). İkincisi uzaktan oturum, §2.3. Dosya iki yerde aranır: takılı bir USB bellekte —
 normal kullanım, anahtar taşınan fiziksel bir şeydir — ve uygulamanın kendi
 klasöründe, çünkü uzaktan bağlanılan bir makinede belleği takacak kimse
 yoktur. İkisinde de aynı doğrulamadan geçer; klasördeki kopyanın vazgeçtiği
@@ -304,9 +307,23 @@ yazabilir. Paketlenmiş build ne ortam değişkenine ne o dosyaya bakar.
 | `handoff.py` | Sırrın yükseltme penceresini geçmesi (dosya yolu taşınır, değer taşınmaz) |
 | `media.py` | Belleği silip FAT32 kurma (panelin veri yok eden tek işlemi) |
 | `pack.py` | Bellekte taşınan ek proje cihaz listeleri |
-| `watcher.py` | Belleğin takılı olup olmadığı ve admin modun **bitmesi** |
+| `vault.py` | Bir dosyayı yalnız `K` açacak biçimde mühürleme (şifrele-sonra-MAC, yalnız stdlib) |
+| `sealed.py` | Pakete gömülü mühürlü haritaları admin modda açma |
+| `watcher.py` | Belleğin takılı olup olmadığını **bildirme** (§2.3, `authority.py`) |
 
 **Bellek çıkarılınca admin modu kapanır** — anahtarı anahtar yapan da budur.
+Ama artık iki kaynak var, o yüzden kapatma kararı `panel/authority.py`'ye
+taşındı: her izleyici yalnız kendi gördüğünü **bildiriyor** (`report("key",
+…)`, `report("remote", …)`) ve `settle()` hiçbirinin tek başına
+cevaplayamadığı soruyu cevaplıyor — kapıyı hâlâ tutan var mı? USB izleyicisi
+uzaktan oturumdan habersiz olduğu için, bu ayrım olmadan az önce açılan bir
+uzaktan oturumu iki saniye içinde kapatıyordu.
+
+`authority.py` **asla açmaz**, yalnız kapatır. Giriş, kanıtı denetleyebilen
+yerde hak edilir — birimin yeniden okunduğu `admin_routes.post_mode`,
+imzanın denetlendiği `remote_routes` — böylece bir bildirme hatası yetki
+yükseltmesine dönüşemez.
+
 Tek istisna, cihazlara yazan bir iştir: yarım kalmış bir IP ataması ya da
 yazılım yüklemesi, kapıyı birkaç dakika daha açık tutmaktan kötüdür; kapanma
 kuyruk boşalana kadar bekletilir ve rozet bunu söyler.
@@ -323,6 +340,56 @@ her dosya `EPERM` döner. Okuma bu yüzden klavyedeki kullanıcının oturumuna
 devredilir (`handback.py`). **Sıralama kritiktir**: ölçüldü, ilk soran taraf
 bütün süreç ağacı adına karar veriyor — önce panel kendi adına sorup
 reddedilirse devretme de reddediliyor.
+
+### 2.3 Uzaktan oturum — imzalı ikinci kapı
+
+Servis anahtarı "mühendis burada mı?" sorusunu bir bellekle cevaplıyor.
+Uzaktaki bir makinede belleği takacak kimse olmadığı için aynı soru ağ
+üzerinden de sorulabiliyor — geride yarın yine cevap verebilecek bir şey
+bırakmadan (`panel/remotekey/`).
+
+**Özel anahtar bu depoda yok.** Ayrı ve private bir depodaki Cloudflare
+Worker'da duruyor; panel yalnız **doğrulama** yapıyor (`ed25519.py`, RFC 8032,
+içeri alınmış, imza üretemez). Paket hangi açık anahtarlara güvendiğini
+`verify.py`'de taşıyor.
+
+İki yol var, ikisi de aynı yerde bitiyor:
+
+| Yol | Nasıl |
+|---|---|
+| **QR eşleşmesi** (`pairing.py`) | Panel servisten bir kare ister, ekrana koyar, birkaç saniyede bir "onaylandı mı" diye sorar. Onaylayan turu **admin moda geçiren tur** olur. |
+| **Hesapla giriş** (`account.py`) | Makinenin başındaki mühendis kendi e-postası ve parolasıyla girer; servis bu kuruluma bağlı bir oturum üretir. |
+
+Ortak nokta: **modu sunucu açar**, imzayı denetledikten sonra. İkisi de
+`WATCH.connect()` yoluna girer, dolayısıyla kanıtın denetlendiği tek bir yer
+vardır.
+
+```
+protocol.py   meydan okuma, ve bir cevabın reddedilme sebeplerinin tamamı
+session.py    bu kurulumun kendine verdiği rastgele ad
+client.py     panelin internete konuştuğu tek yer
+watcher.py    nabız, ve modu bitiren süre
+```
+
+Birkaç karar bilerek böyle:
+
+- **Kareyi servis çiziyor, panel değil.** Gelen SVG bir `<img>` içinde
+  base64 `data:` kaynağı olarak gösteriliyor — `<img>` içindeki SVG şartname
+  gereği durağandır, betik çalışmaz. Karşılığında panel karenin işaret ettiği
+  adresin **derlenmiş servis adresiyle harfi harfine aynı** olduğunu
+  doğruluyor: kare bir telefonu bir sayfaya gönderiyor.
+- **Yerel son kullanma yok.** Sürenin bittiğini servisin cevabı söylüyor;
+  panelin duvar saati bir ay şaşabilir.
+- **Parola tek bir alanda ve tek bir istek gövdesinde.** `state`'e girmiyor,
+  yeniden denemek için saklanmıyor, cevap gelir gelmez alan siliniyor —
+  hangi cevap gelirse gelsin.
+- **Oturum iade ediliyor.** Admin moddan çıkarken ya da uygulama kapanırken
+  servise haber veriliyor; oturum tek makineye bağlı olduğu için iade
+  edilmezse yuva boşa yanar.
+
+Ağ giderse ya da oturum telefondan kapatılırsa nabız bunu birkaç saniyede
+buluyor ve mod düşüyor — cihazlara yazma sürüyorsa §2.2'deki istisna burada
+da geçerli.
 
 ---
 

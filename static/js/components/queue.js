@@ -100,7 +100,7 @@ function jobCard(job) {
           class: 'dot', dataset: { state: colour },
           'aria-hidden': 'true',
         }),
-        el('span', { style: 'min-width:0;flex:1' }, [
+        el('span', { class: 'grow' }, [
           el('span', { class: 'name', text: job.title }),
           el('span', {
             class: 'sub', dataset: { state: colour },
@@ -140,7 +140,7 @@ function jobCard(job) {
           }, ['⏹'])
         : el('button', {
             type: 'button', class: 'btn btn-close',
-            title: t('queue.removeFromTheQueue'),
+            title: t('queue.removeJob', { job: job.title }),
             'aria-label': t('queue.removeJob', { job: job.title }),
             onclick: async () => {
               try {
@@ -155,9 +155,7 @@ function jobCard(job) {
       el('i', { style: `width:${percent}%`, dataset: { state: colour } }),
     ]) : null,
 
-    job.error ? el('div', {
-      class: 'warning', style: 'margin:8px 11px', text: job.error,
-    }) : null,
+    job.error ? el('div', { class: 'warning', text: job.error }) : null,
 
     expanded ? el('div', { class: 'job-rows' },
       (job.rows || []).map(row => renderRow(row, job.id))) : null,

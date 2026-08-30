@@ -74,7 +74,7 @@ export function networkCard(actions) {
 
 function field(label, value) {
   return el('div', { class: 'switch-field' }, [
-    el('span', { class: 'eyebrow', text: label }),
+    el('span', { class: 'label', text: label }),
     el('b', { class: 'mono', text: String(value) }),
   ]);
 }
@@ -83,7 +83,7 @@ function addressForm(actions) {
   const address = el('input', {
     class: 'field', type: 'text', autocomplete: 'off', spellcheck: 'false',
     inputmode: 'decimal', 'aria-label': t('switch.networkNewAddress'),
-    placeholder: '10.1.1.2', value: local.form.address,
+    value: local.form.address,
     oninput: (event) => { local.form.address = event.target.value; },
   });
   const prefix = el('select', {
@@ -94,7 +94,7 @@ function addressForm(actions) {
   })));
   const mtu = el('input', {
     class: 'field', type: 'text', autocomplete: 'off', inputmode: 'numeric',
-    'aria-label': t('switch.networkMtu'), placeholder: '1500',
+    'aria-label': t('switch.networkMtu'),
     value: local.form.mtu,
     oninput: (event) => { local.form.mtu = event.target.value; },
   });
@@ -124,7 +124,6 @@ function confirmAddress(actions, values) {
     lead: t('switch.confirmAddressLead', {
       ip: local.info.ip, address: values.address, prefix: values.prefix,
     }),
-    notes: [{ text: t('switch.confirmAddressNote'), tone: 'warning' }],
     items: [{ name: local.info.ip,
               detail: `${values.address}/${values.prefix}` }],
     confirmLabel: t('switch.buttonApplyAddress'),
@@ -146,7 +145,6 @@ function confirmReboot(actions) {
   confirmWrite({
     title: t('switch.confirmRebootTitle'),
     lead: t('switch.confirmRebootLead', { ip: local.info.ip }),
-    notes: [{ text: t('switch.confirmRebootNote'), tone: 'warning' }],
     items: [{ name: local.info.ip, detail: local.info.model || '' }],
     danger: true,
     confirmLabel: t('switch.buttonReboot'),
@@ -167,7 +165,6 @@ function confirmFactoryReset(actions) {
   const typed = el('input', {
     class: 'field', type: 'text', autocomplete: 'off', spellcheck: 'false',
     'aria-label': t('switch.confirmResetField'),
-    placeholder: ip,
     oninput: (event) => {
       confirmButton.disabled = event.target.value.trim() !== ip;
     },
@@ -179,7 +176,6 @@ function confirmFactoryReset(actions) {
     content: el('div', {}, [
       el('p', { class: 'description',
                 text: t('switch.confirmResetLead', { ip }) }),
-      el('p', { class: 'warning', text: t('switch.confirmResetNote') }),
       el('p', { class: 'description',
                 text: t('switch.confirmResetPrompt', { ip }) }),
       typed,

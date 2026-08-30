@@ -28,10 +28,16 @@ Kaynaktan çalıştırırken hangi paket olduğu **söylenmelidir**; çıplak
 `python app.py` geçerli adları yazıp durur.
 
 Mühendis ekranları (Proje & Cihaz Listesi, PISCU, MQTT, ADB, Switch) yalnız
-**admin modda** görünür. Admin moda giriş, panelin tanıdığı bir **servis
-anahtarı** ister: parola yok, gizli tık yok, komut satırı seçeneği yok.
-Anahtar kaybolunca mod kapanır — cihazlara yazan bir iş sürüyorsa iş bitene
-kadar bekletilerek.
+**admin modda** görünür. Parola yok, gizli tık yok, komut satırı seçeneği
+yok; iki kapı var ve ikisinde de kanıtı sunucu tarafı denetler:
+
+| Kapı | Ne ister |
+|---|---|
+| **Servis anahtarı** | Panelin tanıdığı bir anahtar dosyası |
+| **Uzaktan oturum** | Telefonla okutulan bir QR onayı, ya da mühendisin kendi hesabı |
+
+Kapıyı tutan kalmayınca mod kapanır — cihazlara yazan bir iş sürüyorsa iş
+bitene kadar bekletilerek.
 
 Anahtar iki yerden okunur:
 
@@ -47,7 +53,11 @@ hiçbir şey başka bir paket için anahtar üretemez. Klasördeki kopyanın
 vazgeçtiği tek şey fizikselliktir: kopyalanabilir, ve doğru klasördeki bir
 kopya o kurulumda admin modu açar.
 
-Ayrıntılar: `panel/adminkey/`.
+Uzaktan oturumu imzalayan servis **ayrı ve private bir depoda**; bu depoda
+özel anahtar yok, yalnız doğrulama var. Oturum kendiliğinden bitiyor,
+telefondan kapatılabiliyor ve ağ giderse birkaç saniyede düşüyor.
+
+Ayrıntılar: `panel/adminkey/`, `panel/remotekey/`.
 
 ## Öne çıkan özellikler
 
@@ -185,7 +195,8 @@ testleri ayrıca `deno test --allow-read tests/js/` ile koşar.
 | `panel/api/` | Ortak servis katmanı, yol tabloları, yetki süzgeci ve isteğe bağlı HTTP adaptörü |
 | `panel/desktop/` | Dar pywebview köprüsü ve tek HTML yükleyicisi |
 | `panel/editions/` | Paket tablosu: hangi paket hangi projeyi ve hangi ekranları taşır |
-| `panel/adminkey/` | USB servis anahtarı: okuma, yazma, izleme ve admin modun açılması |
+| `panel/adminkey/` | USB servis anahtarı: okuma, yazma, izleme; mühürlü proje haritaları |
+| `panel/remotekey/` | İmzalı uzaktan oturum: QR eşleşmesi, hesapla giriş, nabız |
 | `panel/elevation/` | Yükseltilmiş yetki kapısı ve platforma göre yeniden başlatma |
 | `panel/inventory/` | DeviceMap envanteri, IP şablonu çözümü, kategori tanımları |
 | `panel/probe/` | Cihaz okuma: switch, anons, kamera/NVR, ADB, MQTT |

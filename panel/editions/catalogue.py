@@ -144,6 +144,12 @@ class Project:
     # Built by `tools/make_checklist_template.py`, never by hand.
     checklist_name: str = ""
     checklist_source: tuple[str, ...] = ()
+    # Absolute path to the workbook, for a project whose files are not where
+    # the two names above would find them. Exactly the role `path` plays for
+    # the DeviceMap, and set in the same one place: a project decrypted out
+    # of the bundle into a session directory
+    # (`panel.adminkey.sealed`). Empty for every row in the table below.
+    checklist_file: str = ""
 
     # ── the three addresses that are a ROLE, not a device ────────────────
     #
@@ -341,6 +347,25 @@ FUAR = project("fuar", "Fuar", stand=True, fixed_addressing=True,
                prefix=16)
 
 ALL_PROJECTS = (YATAKLI, VIP, GDM, GAZIRAY, FUAR)
+
+
+def label_for(key: str) -> str:
+    """This project's own spelling of its name.
+
+    The file stem the key is derived from is ASCII by the naming rule above,
+    so it CANNOT carry the Turkish spelling: `DeviceMap_Yatakli.json` yields
+    "Yatakli" where the project is "Yataklı", and "Vip" where it is "VIP".
+    The stem stays what the code branches on; this is what the screen shows,
+    which is the split `Project.label` was always documented to be.
+
+    A map that belongs to no listed project — one delivered on a service key
+    — has no entry here, and its stem is the best name anyone has for it.
+    """
+    wanted = str(key or "").strip().lower()
+    for entry in ALL_PROJECTS:
+        if entry.key == wanted:
+            return entry.label
+    return str(key or "")
 
 
 # ── the editions ─────────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ import { api } from '../../core/api.js';
 import { state, patch } from '../../core/store.js';
 import { showError, showSuccess, notify } from '../../components/toast.js';
 import { t } from '../../core/i18n.js';
+import { loadFailed, loading } from '../../components/placeholder.js';
 import {
   POLL_INTERVAL, live, local, onScreen, operationTargets,
   pruneSelection, running, selectAll, selectedIps, stopPolling, toggle,
@@ -48,9 +49,13 @@ export async function refresh() {
   try {
     const body = await api.adb();
     if (token !== refreshToken) return;
+    live.readFailed = false;
     apply(body);
   } catch {
     if (token !== refreshToken) return;
+    // `adbState: null` is also the screen before the first round, so which
+    // of the two this is has to be remembered separately.
+    live.readFailed = true;
     patch({ adbState: null, adbBusy: false });
   }
 }
@@ -339,16 +344,46 @@ export function render(root) {
     busy
       ? el('p', { class: 'info', role: 'status', text: t('adb.roundsPaused') })
       : null,
-    // The order somebody works in: pick the displays, find the application,
-    // drive it, put things on it, and — only when the bench itself is the
-    // suspect — the daemon on this computer. The status card is last because
-    // it is read after a button was pressed, not before.
-    poolCard(actions),
-    packagesCard(actions),
-    applicationCard(actions),
-    installCard(actions),
-    serverCard(actions),
-    statusCard(actions),
+    // Before the first round the six cards drew themselves empty, which on
+    // this screen reads as "no devices, no packages, nothing installed"
+    // rather than "not asked yet".
+    state.adbState ? null : (live.readFailed
+      ? loadFailed(t('adb.benchCouldNotBeRead'))
+      : loading(t('adb.readingBench'))),
+    // TWO COLUMNS: WHAT IS BEING WORKED ON, AND WHAT IS BEING DONE TO IT.
+    //
+    // All six cards were one full-width column, and on a wide window that
+    // put the ADB daemon's two buttons across fourteen hundred pixels with
+    // the same weight as the device table. Everything looked equally
+    // important because everything was equally wide, and the screen ran to
+    // three times its own height for the amount of content on it.
+    //
+    // Nothing is merged. The cards are the ones `operations.js` argues for
+    // and they stay separate for the reason it gives — what a card TOUCHES
+    // is the division an operator can hold in their head. Only the shelf
+    // they sit on changed.
+    //
+    // Left is the subject and the record: the displays, and what the last
+    // run did to them. Both are tables and want the width. Right is the
+    // verbs, still in the order somebody works in — find the application,
+    // drive it, put things on it, and (only when the bench itself is the
+    // suspect) the daemon on this computer.
+    //
+    // The status card moving up beside the buttons rather than under all of
+    // them is the point of the arrangement: press on the right, watch on the
+    // left, without scrolling between the two.
+    el('div', { class: 'adb-grid' }, [
+      el('div', { class: 'adb-column' }, [
+        poolCard(actions),
+        statusCard(actions),
+      ]),
+      el('div', { class: 'adb-column' }, [
+        packagesCard(actions),
+        applicationCard(actions),
+        installCard(actions),
+        serverCard(actions),
+      ]),
+    ]),
   ]);
   // The poll owns its own timer and stops itself when the screen goes; it is
   // not rebuilt on every render (the IP screen's lesson: tearing the timers

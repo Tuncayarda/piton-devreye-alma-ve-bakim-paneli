@@ -6,7 +6,7 @@
 import { el, fill } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { dataTable } from '../components/table.js';
-import { state, patch, visibleDevices } from '../core/store.js';
+import { state, patch, visibleDevices, stateSpread } from '../core/store.js';
 import {
   value, stateLabel, versionOf, uptimeOf, typeLabel,
 } from '../core/format.js';
@@ -14,13 +14,17 @@ import * as detail from '../components/detail.js';
 import * as menu from '../components/context_menu.js';
 import { clickSelect, isSelectionModifier, pruneSelection }
   from '../core/selection.js';
+import { searchField } from '../components/search_field.js';
 import { showError, showSuccess } from '../components/toast.js';
 import { t } from '../core/i18n.js';
 
 // The "Switch · port" column carries the switch's full name (Yataklı_1 · p11);
-// left narrow, the text did not fit.
+// left narrow, the text did not fit. The access state gets 140 rather than
+// 120 because "Credentials needed" wrapped onto a second line at 120 — two
+// rows in fourteen were a third taller than the rest, which is the one thing
+// a list of forty must not do.
 const COLUMNS = 'minmax(180px,1.4fr) minmax(140px,1fr) minmax(150px,1fr) '
-  + '120px 100px 120px 96px';
+  + '120px 100px 140px 96px';
 
 // One entry per column, in the same order as `headings` below: what a click
 // on that heading sorts by. An address sorts by its octets, not as text —
@@ -126,12 +130,23 @@ function openRowMenu(device, event, root) {
   });
 }
 
-// Keys, not text — see action_tabs.js: the module loads before the
-// catalogue arrives.
+// ONE FILTER PER STATE, AND THE STATE'S OWN NAME ON IT.
+//
+// There were three buckets — all, "reachable", "needs review" — and the
+// middle one of those was two states at once (see core/store.js). The
+// overview's four figures link straight in here, so a bucket that holds two
+// of them means the number that was clicked and the number of rows that
+// arrive are different. Four states, four filters, four counts, and they are
+// the same four the overview's strip is drawn from.
+//
+// Keys, not text — see action_tabs.js: the module loads before the catalogue
+// arrives.
 const FILTERS = [
   { id: 'all', labelKey: 'group.all' },
-  { id: 'active', labelKey: 'devices.reachable' },
-  { id: 'problem', labelKey: 'devices.needsReview' },
+  { id: 'ok', labelKey: 'state.ok' },
+  { id: 'auth', labelKey: 'state.auth' },
+  { id: 'failed', labelKey: 'state.failed' },
+  { id: 'unknown', labelKey: 'state.unknown' },
 ];
 
 export function render(root) {
@@ -144,17 +159,28 @@ export function render(root) {
 
   const parts = [];
 
+  // The line under the heading counts the ROWS ON SCREEN, not the category.
+  // It said "All devices · 128 device(s)" while a search was showing twelve
+  // of them, so the one number on the screen that could have confirmed the
+  // search had worked was the one number that never moved.
+  const shown = devices.length;
+  const categoryName = category ? category.name : t('devices.allDevices');
   parts.push(el('div', { class: 'page-head' }, [
     el('div', {}, [
       el('h2', { text: t('nav.devices') }),
       el('div', {
         class: 'page-sub',
-        text: t('devices.categoryCount', {
-          category: category ? category.name : t('devices.allDevices'),
-          count: categoryTotal,
-        }),
+        text: shown === categoryTotal
+          ? t('devices.categoryCount',
+              { category: categoryName, count: categoryTotal })
+          : t('devices.shownOfTotal',
+              { category: categoryName, shown, total: categoryTotal }),
       }),
     ]),
+    // Nothing but the search box lives up here now. The state filter used to
+    // sit beside it as a tab strip, which put a full-width underline in the
+    // middle of the header and set two filters in two different shapes on
+    // one screen; both filters are chip bars below, in one language.
     el('div', { class: 'device-head-actions' }, [
       // Only there when there is a selection to say something about. A
       // permanent "0 selected" would be one more thing to read on every
@@ -168,39 +194,56 @@ export function render(root) {
         }),
       ]) : null,
       searchBox(root),
-      el('div', {
-        class: 'local-tabs',
-        role: 'group', 'aria-label': t('devices.stateFilter'),
-      }, FILTERS.map(filter => el('button', {
-        type: 'button',
-        class: 'local-tab',
-        'aria-pressed': String(state.filter === filter.id),
-        text: t(filter.labelKey),
-        onclick: () => patch({ filter: filter.id }),
-      }))),
     ]),
   ]));
 
-  // Categories are not top-level screens but a filter over the device list.
-  parts.push(el('div', {
-    class: 'chip-bar device-category-bar', role: 'group',
-    'aria-label': t('devices.deviceCategory'),
+  // TWO AXES, ONE SHAPE. A chip carries a name and how many are behind it,
+  // and that is what both of these rows are: what kind of device, and what
+  // the last scan found. The word in front of each row is what tells them
+  // apart — see `.chip-bar .label`.
+  const chipBar = (label, ariaKey, entries) => el('div', {
+    class: 'chip-bar', role: 'group', 'aria-label': t(ariaKey),
   }, [
-    el('span', { class: 'label', text: t('checklist.category') }),
-    ...categories.map(entry => {
-      const count = entry.id === 'all'
+    el('span', { class: 'label', text: label }),
+    ...entries.map(entry => el('button', {
+      type: 'button', class: 'chip', title: entry.title || null,
+      'aria-pressed': String(entry.on),
+      onclick: entry.go,
+    }, [
+      el('span', { text: entry.name }),
+      el('span', { class: 'count', text: String(entry.count) }),
+    ])),
+  ]);
+
+  // Categories are not top-level screens but a filter over the device list.
+  parts.push(chipBar(t('checklist.category'), 'devices.deviceCategory',
+    categories.map(entry => ({
+      name: entry.name,
+      title: entry.types,
+      count: entry.id === 'all'
         ? state.devices.length
-        : state.devices.filter(d => d.category === entry.id).length;
-      return el('button', {
-        type: 'button', class: 'chip', title: entry.types,
-        'aria-pressed': String(state.category === entry.id),
-        onclick: () => patch({ category: entry.id, subtype: null }),
-      }, [
-        el('span', { text: entry.name }),
-        el('span', { class: 'count', text: String(count) }),
-      ]);
-    }),
-  ]));
+        : state.devices.filter(d => d.category === entry.id).length,
+      on: state.category === entry.id,
+      go: () => patch({ category: entry.id, subtype: null }),
+    }))));
+
+  // The same four states the overview's strip is drawn from, with the same
+  // counts, so the figure that was clicked over there and the number of rows
+  // that arrive here are one number.
+  const spread = stateSpread();
+  // A choice read back from an older session may name a filter that no longer
+  // exists (the two buckets these five replaced). `visibleDevices` already
+  // shows everything in that case; the row has to agree, or the screen sits
+  // there with every chip unpressed and no way to tell why.
+  const chosen = FILTERS.some(entry => entry.id === state.filter)
+    ? state.filter : 'all';
+  parts.push(chipBar(t('devices.state'), 'devices.stateFilter',
+    FILTERS.map(filter => ({
+      name: t(filter.labelKey),
+      count: filter.id === 'all' ? state.devices.length : spread[filter.id],
+      on: chosen === filter.id,
+      go: () => patch({ filter: filter.id }),
+    }))));
 
   const headings = ['col.device', 'col.typeSubtypeLower', 'col.switchPort',
     'col.ip', 'col.version', 'col.accessState', 'col.uptime'];
@@ -213,6 +256,14 @@ export function render(root) {
     return el('button', {
       type: 'button', class: 'table-row',
       style: `--table-columns:${COLUMNS}`,
+      // THE ROW'S OWN LEFT EDGE CARRIES THE STATE. The same strip the
+      // verification list is read by (see views.css), and it is what makes a
+      // list of forty scannable: the pattern of what needs attention is in
+      // the gutter, so it is found without reading a word. It replaces the
+      // seven-pixel dot that used to sit in front of the name — a marker
+      // that small, halfway across the row, is not something an eye finds
+      // standing up in a depot.
+      dataset: { state: result.state },
       // Selected, or the drawer is open on it: both mean "this is the row
       // being worked on", and the list never shows the two at once.
       'aria-selected': String(selected.has(device.id)
@@ -236,18 +287,7 @@ export function render(root) {
       },
       oncontextmenu: (event) => openRowMenu(device, event, root),
     }, [
-      el('span', {
-        style: 'display:flex;align-items:center;gap:8px;min-width:0',
-      }, [
-        el('span', {
-          class: 'dot', dataset: { state: result.state },
-          'aria-hidden': 'true',
-        }),
-        el('span', {
-          class: 'mono truncate t-base',
-          text: device.name,
-        }),
-      ]),
+      el('span', { class: 'mono truncate t-base', text: device.name }),
       el('span', {
         class: 'text-bright truncate t-base',
         text: typeLabel(device.typeLabel),
@@ -264,19 +304,28 @@ export function render(root) {
           ? 'mono truncate t-sm version-read' : 'mono truncate t-sm text-dim',
         text: value(versionOf(device)),
       }),
+      // The word, quietly. It used to be set in the heading face, upper
+      // case and letter-spaced — the loudest thing on a screen full of
+      // device names, saying "REACHABLE" nine times down a column that the
+      // strip on the left already answers. The strip is what the list is
+      // scanned by; this is what confirms it, and what a colour on its own
+      // could never say to somebody who cannot tell the two greens apart.
       el('span', {
-        class: 'state-text state-label', dataset: { state: result.state },
+        class: 'state-text truncate t-sm', dataset: { state: result.state },
         text: stateLabel(result.state, ' '),
       }),
       el('span', {
-        class: 'mono text-mid t-sm',
+        // Same rule as the version beside it: a reading is worth seeing, the
+        // dash standing in for "not read yet" is not.
+        class: uptimeOf(device)
+          ? 'mono truncate t-sm text-mid' : 'mono truncate t-sm text-dim',
         text: value(uptimeOf(device)),
       }),
     ]);
   });
 
   parts.push(dataTable({
-    template: COLUMNS, minWidth: 960, label: t('nav.devices'),
+    template: COLUMNS, minWidth: 1000, label: t('nav.devices'),
     columns: headings.map((key, index) => sortHeader(root, key, index)),
     rows,
     empty: t('devices.noDeviceMatchesTheseCriteria'),
@@ -291,12 +340,11 @@ export function render(root) {
 // filter while the box has focus, so this screen redraws itself and puts the
 // caret back where it was.
 function searchBox(root) {
-  return el('input', {
-    type: 'search', id: 'device-search', class: 'field device-search',
+  return searchField({
+    id: 'device-search',
     value: state.deviceSearch || '',
-    placeholder: t('devices.searchPlaceholder'),
-    'aria-label': t('devices.searchPlaceholder'),
-    autocomplete: 'off', spellcheck: 'false',
+    title: t('devices.searchHint'),
+    'aria-label': t('devices.searchHint'),
     oninput: (event) => {
       const caret = event.target.selectionStart;
       patch({ deviceSearch: event.target.value });
@@ -306,7 +354,7 @@ function searchBox(root) {
       again.focus();
       again.setSelectionRange(caret, caret);
     },
-  });
+  }, 'device-search');
 }
 
 function sorted(devices) {

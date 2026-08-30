@@ -57,7 +57,7 @@ i18n.use("en", persist=False)
 
 from panel import (config_sync, credentials, editions,  # noqa: E402
                    firmware, jobs, settings)
-from panel import adminkey  # noqa: E402
+from panel import adminkey, authority, remotekey  # noqa: E402
 
 # Activated once, before any test touches a DeviceMap: `activate()` is what
 # points `settings.DEVICE_MAP` at a project and gives the settings directory
@@ -113,6 +113,12 @@ class PanelTest(unittest.TestCase):
         firmware.clear_all()
         jobs.view.clear_all()
         adminkey.WATCH.reset()
+        # And the other way in, and the arbiter that weighs the two: a
+        # remote session left live by one test would hold admin mode open
+        # through the next one's `settle()` and quietly hide a drop that
+        # should have happened.
+        remotekey.WATCH.reset()
+        authority.reset()
         # The mode a test starts in is the one this RUN implies, not the one
         # the previous test happened to leave behind. `editions.activate`
         # re-reads the build secret to decide it, and a test that hides the

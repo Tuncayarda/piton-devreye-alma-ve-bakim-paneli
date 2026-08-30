@@ -5,6 +5,7 @@
 // texts; merging them tells the user something untrue.
 
 import { t } from './i18n.js';
+import { state } from './store.js';
 
 export const NONE = '—';
 
@@ -163,6 +164,21 @@ export const verificationLabel = lookup(VERIFICATION_LABEL);
 export const jobStateLabel = lookup(JOB_STATE_LABEL);
 export const jobOutcomeLabel = lookup(JOB_OUTCOME_LABEL);
 export const rowStateLabel = lookup(ROW_STATE_LABEL);
+
+// HOW THE PANEL TALKS TO THIS DEVICE — KYLAND, ISAPI, HTTP, MQTT, ADB.
+//
+// The code is on the device DTO only once a read has happened; before that
+// it is resolved from the catalogue the meta call hands out
+// (`catalog.READ_METHODS`, keyed by the method the DeviceMap resolved for
+// the type). The credentials panel and the project's device ledger both ask,
+// and they were about to ask in two places.
+export function methodCode(device) {
+  if (device.readMethodCode) return device.readMethodCode;
+  const methods = state.meta && state.meta.readMethods;
+  const method = methods && methods[device.readMethod];
+  return (method && method.code)
+    || String(device.readMethod || '').toUpperCase();
+}
 
 export function versionOf(device) {
   const fields = device.result && device.result.fields;

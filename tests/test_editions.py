@@ -180,6 +180,24 @@ class Table(unittest.TestCase):
                 derived = stem.replace("DeviceMap", "").strip("_- ") or "YATAKLI"
                 self.assertEqual(project.label.upper(), derived.upper())
 
+    def test_the_screen_is_given_the_label_and_not_the_file_stem(self):
+        """The stem is ASCII because the file name has to be, so for two of
+        the five projects it is not how the name is written. The panel used
+        to show the stem, which put a misspelling in the top bar and,
+        worse, next to the project picker one line below it showing the
+        label — the same project spelled two ways on one screen."""
+        for project in catalogue.ALL_PROJECTS:
+            with self.subTest(project.key):
+                stem = project.map_name.rsplit(".", 1)[0]
+                derived = stem.replace("DeviceMap", "").strip("_- ")
+                self.assertEqual(catalogue.label_for(derived), project.label)
+
+    def test_a_project_nobody_listed_is_called_what_its_file_calls_it(self):
+        """A map delivered on the service key has no catalogue entry, and
+        its stem is then the best name anyone has for it."""
+        self.assertEqual(catalogue.label_for("Ozel"), "Ozel")
+        self.assertEqual(catalogue.label_for(""), "")
+
 
 class Resolution(unittest.TestCase):
     """Which edition this process is, and who gets to say so."""
@@ -244,7 +262,14 @@ class Activation(PanelTest):
         editions.activate("vip-yatakli")
         self.assertEqual(editions.current_project().key, "yatakli")
         self.assertEqual(settings.DEVICE_MAP.name, "DeviceMap_Yatakli.json")
-        self.assertEqual(device_map.load(1).project, "Yatakli")
+        loaded = device_map.load(1)
+        # The stem stays what the code matches on ...
+        self.assertEqual(loaded.project, "Yatakli")
+        # ... and the label is what a person is shown. The two
+        # differ for this project, which is the whole point.
+        self.assertEqual(loaded.project_label,
+                         catalogue.YATAKLI.label)
+        self.assertNotEqual(loaded.project, loaded.project_label)
 
     def test_each_edition_keeps_its_own_settings_folder(self):
         """Configuration targets are keyed by (train set, device id), and

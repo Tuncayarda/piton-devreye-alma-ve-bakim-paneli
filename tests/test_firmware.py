@@ -722,6 +722,33 @@ class FirmwareEndpoints(ServiceTest):
                          "intercom-1.2.6.bin")
         self.assertFalse(selected[devices[1].id]["selected"])
 
+    def test_a_device_type_this_project_has_not_got_is_refused(self):
+        """Not "no filter" — refused.
+
+        The picker only offers the open project's own device types, but the
+        client may still be holding the list from the project that was open a
+        moment ago. The trap this pins is the shape of the endpoint: `group`
+        resolving to nothing used to mean "every device", so once the lookup
+        became project-aware a stale name would have answered with the WHOLE
+        inventory instead of an error.
+        """
+        self.build()
+        base = self.start_service()
+
+        code, body = self.call(base, "/api/firmware?set=1&group=Twin%20LCD")
+        self.assertEqual(code, 400, body)
+        self.assertNotIn("devices", body)
+
+        # An unfiltered request still means every device — which is more
+        # than any one group, and is the branch the refusal must not fall
+        # into.
+        code, unfiltered = self.call(base, "/api/firmware?set=1")
+        self.assertEqual(code, 200)
+        code, intercoms = self.call(base, "/api/firmware?set=1&group=Intercom")
+        self.assertEqual(code, 200)
+        self.assertGreater(len(unfiltered["devices"]),
+                           len(intercoms["devices"]))
+
     def test_the_api_set_parameter_separates_the_selection(self):
         inventory = self.build()
         base = self.start_service()

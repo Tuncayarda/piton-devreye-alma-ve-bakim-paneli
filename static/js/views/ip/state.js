@@ -15,22 +15,39 @@
 import { api } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
 import { state, patch } from '../../core/store.js';
+import { groupsFor } from '../../components/group_bar.js';
 
 // A DeviceMap/API protocol value, assembled so the screen-text catalogue
 // check does not mistake it for a label shown to the operator.
 export const LCD_GROUP = ['Compartment', 'LCD'].join(' ');
 
-// The device type IP will be assigned to. The ids, group names and visible
-// labels follow DeviceMap verbatim. In particular, do not translate
-// "Compartment LCD" here: operators compare this picker with the names in the
-// map while moving devices between switches.
-export const IP_TARGETS = [
-  { id: 'Intercom', label: 'Intercom', groups: ['Intercom'] },
-  { id: LCD_GROUP, label: LCD_GROUP, groups: [LCD_GROUP] },
-];
+// The device types IP may be assigned to — the groups the OPEN PROJECT has
+// that declare the `ip` operation, and nothing else.
+//
+// This used to be a literal pair, `Intercom` and `Compartment LCD`, written
+// out here. It was a copy of the two rows in `panel/inventory/catalog.py`
+// that carry `ip` in their ops, and copying it cost what a copy costs: on
+// VIP, a project with no Compartment LCD in it at all, the screen went on
+// offering a Compartment LCD commissioning run — the run that cuts switch
+// ports and rewrites addresses.
+//
+// `catalog.py` says it in its own first line: the UI keeps no list of its
+// own and takes these from the API. This one had.
+//
+// The ids and labels still follow DeviceMap verbatim — `group_bar` hands
+// over the group's `name` and its `label`, and the catalogue leaves both
+// LCD names untranslated on purpose, so that an operator comparing this
+// picker with the map reads the same words.
+export function ipTargets() {
+  return groupsFor('ip').map(group => ({
+    id: group.name, label: group.label || group.name, groups: [group.name],
+  }));
+}
 
 export const local = {
-  targetId: IP_TARGETS[0].id,
+  // Null until the operator picks one: which targets exist is the open
+  // project's answer and is not known when this module is first evaluated.
+  targetId: null,
   portText: null,          // null = the plan's default (the group's ports)
   factoryIp: null,         // null = the plan's default (10.1.1.12)
   searchOpen: false,       // search the network for devices not on the
@@ -76,12 +93,18 @@ export const local = {
   },
 };
 
+// The chosen target, or the first one this project offers. The fallback is
+// what carries a project switch: `local.targetId` may name a group the new
+// project does not have, and on an empty list there is nothing to return —
+// the screen's own guard (`plan === null`) already covers that.
 export function currentTarget() {
-  return IP_TARGETS.find(t => t.id === local.targetId) || IP_TARGETS[0];
+  const targets = ipTargets();
+  return targets.find(entry => entry.id === local.targetId) || targets[0]
+    || null;
 }
 
 export function targetLabel(target = currentTarget()) {
-  return target.labelKey ? t(target.labelKey) : target.label;
+  return target ? target.label : '';
 }
 
 // Changing the physical switch invalidates every choice that was derived
@@ -97,7 +120,8 @@ export function selectAssignmentSwitch(switchId) {
 }
 
 export function selectedGroups() {
-  return currentTarget().groups;
+  const target = currentTarget();
+  return target ? target.groups : [];
 }
 
 // ── live refresh ────────────────────────────────────────────────────────

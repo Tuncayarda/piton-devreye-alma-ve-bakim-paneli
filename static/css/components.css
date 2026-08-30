@@ -3,8 +3,8 @@
 
 /* ──────────────────────────────────────────────────────────── buttons ── */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 8px 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
   background: transparent;
   border: 1px solid var(--line-strong);
   border-radius: 0;
@@ -15,34 +15,64 @@
   white-space: nowrap;
   transition: background .12s ease, border-color .12s ease;
 }
-.btn:hover:not(:disabled) { background: rgba(214, 235, 255, .06); }
+.btn:hover:not(:disabled) { background: var(--raise-2); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 
 .btn-primary {
   background: var(--accent); border-color: var(--accent); color: var(--deep);
 }
-.btn-primary:hover:not(:disabled) { background: #59a3e8; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 
-.btn-danger { border-color: var(--failed-soft); color: var(--failed-text); }
-.btn-danger:hover:not(:disabled) { background: rgba(218, 54, 51, .12); }
+.btn-danger { border-color: var(--failed-line); color: var(--failed-text); }
+.btn-danger:hover:not(:disabled) { background: var(--failed-wash); }
 
-.btn-small { padding: 5px 11px; font-size: var(--fs-base); }
+.btn-small { padding: var(--sp-1) var(--sp-4); font-size: var(--fs-base); }
+
+/* A BUTTON THAT IS NOT A BOX. The way to a screen's other face, sitting in a
+   sentence beside the words that introduce it — "no account yet? create
+   one". Given a border it would read as a second thing to press next to the
+   one thing to press, which is the choice the layout has already made for
+   the reader. Underlined rather than merely coloured: colour alone is not a
+   control, and this one is inside a line of prose where nothing else is. */
+.btn-link {
+  padding: 0; border: 0; background: transparent;
+  color: var(--accent); cursor: pointer;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--fs-sm);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.btn-link:hover:not(:disabled) { color: var(--accent-hover); }
+
+/* CONTROLS THAT BELONG TOGETHER, DRAWN AS ONE. Two buttons with a gap
+   between them are two decisions; two buttons sharing an edge are one
+   control with two halves. The top bar had eight separate boxes in a row and
+   now has five objects, which is the same thing said with less furniture.
+
+   `-1px` rather than dropping a border: both halves keep their own width, so
+   nothing shifts when one of them changes. The hovered or focused half is
+   lifted so its border is the one drawn on the shared edge. */
+.btn-group { display: flex; align-items: stretch; flex: none; }
+/* Any two halves, not two buttons: the mode group joins a badge to the
+   button that leaves the mode it names. */
+.btn-group > * + * { margin-left: -1px; }
+.btn-group > .btn:hover,
+.btn-group > .btn:focus-visible { position: relative; z-index: 1; }
 
 /* Fixed-width button: the two labels sit on top of each other in the same
    grid cell and the longer one sets the cell width. No pixel value is
    written — if the font is not installed the fallback kicks in and a fixed
    width no longer holds. */
-#refresh-btn, #auto-btn { display: inline-grid; place-items: center; }
-#refresh-btn > span, #auto-btn > span { grid-area: 1 / 1; }
-#refresh-btn .label-measure, #auto-btn .label-measure { visibility: hidden; }
+#refresh-btn { display: inline-grid; place-items: center; }
+#refresh-btn > span { grid-area: 1 / 1; }
+#refresh-btn .label-measure { visibility: hidden; }
 
-/* Pressed = paused, in the amber the panel already uses for "needs your
-   attention" rather than the accent it uses for "on". Being paused is not a
-   setting that is switched on, it is a state in which what is on screen is
-   quietly ageing. */
-#auto-btn[aria-pressed="true"] {
-  border-color: var(--auth); color: var(--auth);
-}
+/* Paused, in the amber the panel already uses for "needs your attention"
+   rather than the accent it uses for "on". Being paused is not a setting
+   that is switched on, it is a state in which what is on screen is quietly
+   ageing — so it is the whole control that is marked, not the half that was
+   pressed: "Scan now" still works while the rounds are off, and the frame is
+   what says the readings beside it have stopped renewing themselves. */
+.scan-group[data-paused="1"] > .btn { border-color: var(--auth); }
+.scan-group[data-paused="1"] > #auto-btn { color: var(--auth); }
 
 .btn-icon {
   width: 30px; height: 30px; padding: 0; flex: none;
@@ -64,16 +94,64 @@
   color: var(--text);
   border: 1px solid var(--line-strong);
   border-radius: 0;
-  padding: 8px 10px;
+  padding: var(--sp-3);
   font-family: var(--font-mono); font-size: var(--fs-base);
 }
-.field:focus-visible { border-color: var(--accent); }
+/* A field that has to fit inside a table row, where the row's own padding
+   is already carrying most of the space. */
+.field-tight { padding: var(--sp-1) var(--sp-3); }
+/* ONE EDGE, NOT TWO. The shared focus ring is two pixels wide and drawn one
+   pixel OUTSIDE the box, which is right for a button sitting on the page's
+   own ground — but a field already turns its border accent when it takes the
+   keyboard, so the ring landed as a second blue frame with a dark line
+   between the two: four pixels of blue around a box that had already said it
+   has the keyboard. Brought inside and thinned: the border and the ring make
+   one 2px edge, and it is still an outline, so a forced-colours mode still
+   draws it. */
+.field:focus-visible {
+  border-color: var(--accent);
+  outline-width: 1px;
+  outline-offset: -1px;
+}
 .field[aria-invalid="true"] { border-color: var(--failed); color: var(--failed-text); }
 
+/* THE NAME OF SOMETHING — a field's caption, a card's kicker, the word over
+   a number. There were three of these, byte for byte the same rule under
+   three names (`.label`, `.eyebrow`, `.kpi .name`), so whoever changed one
+   changed a third of the screens and could not tell which third. */
 .label {
   font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
   letter-spacing: .01em; color: var(--text-mid); text-transform: none;
 }
+/* And the small monospaced note that goes with a value: the "records" after
+   a count, the address under a device's name. Two names for this one. */
+.unit {
+  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-mid);
+}
+/* A `<label>` that wraps its own caption and its box. Block, so the caption
+   sits on the line above the input rather than beside it. `.label` itself
+   stays inline: it is also used as a cell in a row. */
+.field-label { display: block; }
+
+/* ─────────────────────────────────────────────────── search boxes ── */
+/* A magnifier inside the left edge of the box, and no placeholder — the
+   reasoning is in js/components/search_field.js. It is a wrapper rather than
+   a bare input because something has to hold the glass in place, and it is
+   the wrapper the screens give a width to.
+
+   The text clears the glass with `--sp-7` rather than a hand-picked number:
+   the icon starts at `--sp-3` and is fifteen pixels wide, so anything under
+   28 would run into it, and `--sp-7` is the first rung above that. */
+.search-field { position: relative; display: block; }
+.search-glass {
+  position: absolute; left: var(--sp-3); top: 0; bottom: 0;
+  display: flex; align-items: center;
+  color: var(--text-mid); pointer-events: none;
+}
+.search-input { padding-left: var(--sp-7); }
+/* The glass takes the focus colour with the border, so the box says it has
+   the keyboard in the one place the eye is already looking. */
+.search-field:focus-within .search-glass { color: var(--accent); }
 
 /* ──────────────────────────────────────────────────── corner marks ── */
 .corner { position: relative; }
@@ -91,23 +169,34 @@
 .card {
   border: 1px solid var(--line);
   background: var(--panel);
-  padding: 15px 17px 16px;
+  padding: var(--sp-5);
 }
 
+/* THE HEAD OF A CARD, and there is one of it. Five names were doing this
+   job — `.card-head`, `.fw-bulk-head`, `.ip-factory-reset-head` and, on the
+   IP screen, two more — so a card's title row looked slightly different
+   depending on which screen had built it. Every card title is an `h3` in
+   here; a card with nothing to call itself simply has no head. */
 .card-head {
-  display: flex; align-items: baseline; gap: 12px;
-  margin-bottom: 13px; flex-wrap: wrap;
+  display: flex; align-items: baseline; gap: var(--sp-4);
+  margin-bottom: var(--sp-4); flex-wrap: wrap;
 }
 .card-head .spacer { flex: 1; }
+/* The sentence under a title, where a card has one. */
+.card-head p {
+  margin: var(--sp-1) 0 0;
+  width: 100%;
+  color: var(--text-mid); font-size: var(--fs-sm); line-height: 1.45;
+}
 
 .page-head {
   display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; flex-wrap: wrap; margin-bottom: 18px;
+  gap: var(--sp-5); flex-wrap: wrap; margin-bottom: var(--sp-5);
 }
-.page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.page-head .actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
 /* The single line under the heading: how fresh the numbers on the page are. */
 .page-sub {
-  margin-top: 5px;
+  margin-top: var(--sp-1);
   font-family: var(--font-body); font-size: var(--fs-base); color: var(--text-mid);
 }
 /* The checklist refreshes itself. When the data goes stale this line draws
@@ -116,17 +205,125 @@
 
 /* The age of the data and the counters in the Excel confirmation. */
 .dialog .summary-box {
-  margin-top: 12px;
-  padding: 2px 12px;
+  margin-top: var(--sp-4);
+  padding: var(--sp-0) var(--sp-4);
   border: 1px solid var(--line-soft);
   background: var(--deep);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
 }
 .dialog .summary-box .summary-row:last-child { border-bottom: 0; }
-.eyebrow {
-  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
-  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
+
+/* A NAMED NUMBER — the shape of both the overview's four counters and the
+   check summary's four. They were written twice, on two screens, and had
+   drifted apart in six places: two grid minimums (190 and 155), two gaps,
+   two number sizes, two grounds, and a hover on one of them. Open the two
+   screens side by side and the same object appeared at two sizes.
+
+   One box here, and each screen says only what is true of it: the overview's
+   is pressed to go somewhere and carries the biggest number on the page; the
+   summary's is a figure and nothing else. That is now the ONLY difference,
+   and it is the honest one — a thing you can press should not look like a
+   thing you cannot. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  /* The same join a table makes under its heading (`.table-wrap`). */
+  gap: var(--sp-4); margin-top: var(--sp-4);
+}
+/* The name on the left, the figure on the right, on one baseline — the shape
+   the panel already uses for a stated fact (`.step-footer`, `.summary-row`,
+   every technical row on the network screen). Stacked, the box was a caption
+   and a number against three hundred pixels of nothing. */
+.stat {
+  display: flex; flex-direction: row;
+  align-items: baseline; justify-content: space-between;
+  gap: var(--sp-4);
+  width: 100%;
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: inherit; font: inherit; text-align: left;
+}
+.stat .value {
+  font-family: var(--font-heading); font-weight: 600;
+  font-size: var(--fs-2xl); line-height: 1;
+}
+/* The figure takes its state's colour — `--state-text` and not the fill,
+   because red reaches 3.7:1 on the panel and a number is a word. This is why
+   neither screen writes a colour of its own beside its figures any more. */
+.stat[data-state] .value { color: var(--state-text); }
+/* Pressable, and drawn so. `button` rather than a modifier class: the tag is
+   already the truth about whether this goes anywhere. */
+button.stat { cursor: pointer; }
+button.stat:hover {
+  border-color: var(--line-strong); background: var(--raise-1);
+}
+button.stat:focus-visible { outline-offset: -2px; }
+
+/* WHAT A SCREEN SHOWS INSTEAD OF ITS CONTENT
+   ──────────────────────────────────────────
+   Three different sentences, and they were being said five different ways:
+   a dashed box on two screens, a table's own empty row, an `.info` paragraph
+   on four, and two the IP screen had built for itself. The same situation
+   looked different depending on which screen the operator was standing on,
+   which is exactly the thing a person cannot learn.
+
+   They are three states and not one, and telling them apart is the point:
+
+     .loading      nothing has arrived YET
+     .empty-state  nothing is there
+     .warning      it could not be read          (see `placeholder.js`)
+
+   The last two were the same sentence on several screens, and they are not
+   the same fact: one means the scan found nothing, the other means the scan
+   did not happen. A table keeps `dataTable`'s own empty row — inside a table
+   the empty state belongs in the grid, where the columns still line up. */
+.loading {
+  min-height: 88px;
+  margin-top: var(--sp-5);
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--sp-3);
+  color: var(--text-mid);
+  font-family: var(--font-mono); font-size: var(--fs-sm);
+}
+/* A turning mark, because a screen that is waiting and a screen that is
+   broken look the same standing still — and behind a slow scan that wait is
+   a minute long. Deliberately not a skeleton: a fake table drawn where the
+   real one will be is a lie, and this is a tool for a depot. */
+.loading > i {
+  width: 13px; height: 13px;
+  border: 1px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: placeholder-spin .75s linear infinite;
+}
+@keyframes placeholder-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .loading > i { animation: none; } }
+
+/* Dashed, because the outline of the thing that is not there says more than
+   a sentence about it does. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  min-height: 92px;
+  margin-top: var(--sp-4);
+  padding: var(--sp-6);
+  border: 1px dashed var(--line-strong);
+  background: var(--raise-1);
+  color: var(--text-mid);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+.empty-state p { margin: 0; }
+.empty-state .hint { color: var(--text-dim); font-size: var(--fs-sm); }
+/* The same box standing in for a DRAWING rather than a list: a faceplate
+   leaves a hole this size, and a 92px strip inside it reads as a fault. */
+.empty-state-tall {
+  min-height: 190px;
+  align-items: center; justify-content: center; text-align: center;
 }
 
 /* ───────────────────────────────────────────────────── state colours ── */
@@ -156,11 +353,18 @@
 .state-text[data-state] { color: var(--state-text); }
 
 .badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 1px 5px;
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-0) var(--sp-1);
   border: 1px solid var(--line-strong);
   font-family: var(--font-mono); font-size: var(--fs-xs); letter-spacing: .02em;
   color: var(--text-mid);
+}
+/* A badge that reports a state rather than naming a thing. The border takes
+   the state's own colour and the word takes the readable one — the same two
+   values, for the same reason, as everywhere else `[data-state]` is used. */
+.badge[data-state] {
+  border-color: var(--state-colour);
+  color: var(--state-text);
 }
 
 /* A small stated fact, coloured by whether it is a good one. Used as a button
@@ -171,7 +375,7 @@
    is how that was noticed. `justify-self` is for the switch table's grid row
    and is ignored everywhere else. */
 .pill {
-  padding: 3px 10px;
+  padding: var(--sp-1) var(--sp-3);
   justify-self: start;
   border: 1px solid var(--line);
   background: transparent;
@@ -179,8 +383,8 @@
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
-.pill.on, .pill.ok { border-color: var(--ok-soft); color: var(--ok-text); }
-.pill.off { border-color: var(--failed-soft); color: var(--failed-text); }
+.pill.on, .pill.ok { border-color: var(--ok-line); color: var(--ok-text); }
+.pill.off { border-color: var(--failed-line); color: var(--failed-text); }
 /* Only the ones that are actually a control. The ADB screen's pill is a span
    stating a fact, and a hand cursor over it would promise a click. */
 button.pill { cursor: pointer; }
@@ -199,7 +403,93 @@ button.pill:hover { border-color: var(--line-strong); }
 .t-base { font-size: var(--fs-base); }
 /* A version the device really reported, as opposed to the dash that stands
    in for "not read yet" (see views/devices.js). */
-.version-read { color: var(--ok-text); }
+/* A version the device actually reported, against the dash that stands in
+   for one it did not. It used to be written in the state green, which is a
+   colour that means "reachable" everywhere else in the panel and means
+   nothing about a version number — and on the device list it was the third
+   green in a row that already had the state in its gutter and in its own
+   column. Read or not read is the only distinction here, so brightness
+   carries it. */
+.version-read { color: var(--text-bright); }
+
+/* LAYOUT UTILITIES — the same argument as the size utilities above.
+   ────────────────────────────────────────────────────────────────
+   Eighty inline `style:` strings in the views were laying elements out:
+   twenty-one margins, twenty displays, fourteen gaps, eleven flex settings
+   and three grid templates. A gap written there is invisible from the
+   stylesheet, so whoever goes looking for it cannot find it — and, worse,
+   the spacing scale cannot reach it. Every one of those eighty was a value
+   chosen by hand.
+
+   Deliberately utilities rather than a class per site. A `.overview-legend`
+   and a `.admin-key-row` that both mean "a row with a gap" are two names for
+   one idea, and naming each of the eighty would have bought nothing but the
+   names. What these buy is that the JS spells its spacing in `--sp-*`
+   without knowing it, so a change to the scale reaches the views as well
+   (see base.css).
+
+   `tests/test_frontend.py` rejects a layout property written inline. Colour,
+   a percentage width and the `--table-columns` a screen computes stay there:
+   those come from data, and data does not belong in a stylesheet. */
+/* All three carry `min-width: 0`. Most of them are a table cell or a flex
+   child, and without it a long device name refuses to shrink and pushes the
+   columns beside it off the row instead of ellipsing inside its own. */
+.row { display: flex; align-items: center; min-width: 0; }
+/* Icon-and-two-lines: the icon should sit with the first line, not float in
+   the middle of the block. */
+.row-top { display: flex; align-items: flex-start; min-width: 0; }
+.stack { display: flex; flex-direction: column; min-width: 0; }
+.wrap { flex-wrap: wrap; }
+/* In a column, a child stretches to the full width by default. This is for
+   the one that should stay its own size — a badge, not a bar. */
+.self-start { align-self: flex-start; }
+/* Takes the leftover width AND is allowed to be narrower than its text —
+   without `min-width: 0` a long device name pushes everything else out of
+   the row instead of ellipsing. The two belong together often enough that
+   splitting them only produced rows that had forgotten the second half. */
+.grow { flex: 1; min-width: 0; }
+.fixed { flex: none; }
+/* Everything after it goes to the far end of the row. */
+.push { margin-left: auto; }
+
+/* A SEGMENTED CHOICE — one border around the group and none between, so
+   three mutually exclusive filters read as one control rather than as three
+   buttons that happen to be adjacent. The chosen one is filled: there are
+   only ever a few, and which is on has to be readable at a glance. */
+.segmented { display: flex; gap: var(--sp-0); border: 1px solid var(--line-strong); }
+.segmented .btn {
+  border: 0; letter-spacing: .02em; text-transform: none;
+  font-family: var(--font-body);
+}
+.segmented .btn[aria-pressed="true"] {
+  background: var(--accent); color: var(--deep);
+}
+
+/* A LIST ROW WITH A HAIRLINE UNDER IT — what a short list looks like when
+   it is not worth a table: the broker's topics, the category definitions.
+   Two screens had each written this themselves and neither had picked the
+   same padding as the other. */
+.rule-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.gap-1 { gap: var(--sp-1); }
+.gap-2 { gap: var(--sp-2); }
+.gap-3 { gap: var(--sp-3); }
+.gap-4 { gap: var(--sp-4); }
+
+/* `.mt-0` is not a step: it cancels one a component brings with it, the way
+   `.table-wrap` carries the space that follows a heading. */
+.mt-0 { margin-top: 0; }
+.mt-1 { margin-top: var(--sp-1); }
+.mt-2 { margin-top: var(--sp-2); }
+.mt-3 { margin-top: var(--sp-3); }
+.mt-4 { margin-top: var(--sp-4); }
+.mt-5 { margin-top: var(--sp-5); }
+.mb-3 { margin-bottom: var(--sp-3); }
+.mb-4 { margin-bottom: var(--sp-4); }
 
 /* A single word used as a STATE — "Reachable", "Failed", the project name.
    The heading face, letter-spaced and upper case, so the cell reads as a
@@ -209,18 +499,13 @@ button.pill:hover { border-color: var(--line-strong); }
   font-size: var(--fs-base);
   letter-spacing: .08em; text-transform: uppercase;
 }
-.title-label {
-  font-family: var(--font-heading); font-weight: 600;
-  font-size: var(--fs-lg);
-  letter-spacing: .06em; text-transform: uppercase;
-}
 
 /* ───────────────────────────────────────────────────────── tablolar ──── */
 /* A grid-based table: column widths are tuned per screen, and it scrolls
    horizontally inside itself so rows do not break on a narrow screen. */
 .table-wrap {
   overflow-x: auto;
-  margin-top: 14px;
+  margin-top: var(--sp-4);
 }
 
 .table {
@@ -230,29 +515,10 @@ button.pill:hover { border-color: var(--line-strong); }
 .table-head, .table-row {
   display: grid;
   grid-template-columns: var(--table-columns);
-  gap: 10px;
+  gap: var(--sp-3);
   align-items: center;
-  padding: 9px 12px;
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--line);
-}
-
-/* COMPACT ROWS — padding only.
-   ──────────────────────────
-   Roughly a third more rows on the screen, which is the whole point: forty
-   devices in one view instead of twenty-eight. What does NOT change is the
-   type size. The scale's floor is 11px because this panel is read standing
-   up in a depot (see base.css), and packing more rows in is not a reason to
-   go under it — the text stays exactly as legible, the whitespace goes.
-
-   Set on #app, so it reaches the tables no `dataTable` builds too. */
-[data-density="compact"] .table-head,
-[data-density="compact"] .table-row {
-  padding: 4px 12px;
-}
-[data-density="compact"] .confirm-list .row,
-[data-density="compact"] .detail-row {
-  padding-top: 3px;
-  padding-bottom: 3px;
 }
 
 .table-head {
@@ -272,11 +538,22 @@ button.pill:hover { border-color: var(--line-strong); }
   color: var(--text);
 }
 button.table-row { cursor: pointer; }
-button.table-row:hover { background: #16212a; }
-button.table-row[aria-selected="true"] { background: var(--accent-soft); }
+button.table-row:hover { background: var(--lift-1); }
+button.table-row[aria-selected="true"] { background: var(--accent-wash); }
 
 
-.table-row .truncate {
+/* A CELL THAT ELLIPSES INSTEAD OF PUSHING ITS NEIGHBOUR OFF THE ROW.
+   ─────────────────────────────────────────────────────────────────
+   It was written `.table-row .truncate` and the JS writes `truncate` in
+   forty-odd places, most of them not in a table: the MQTT feed, the PISCU
+   lists, the confirmation dialog, the Excel preview's column headings. In
+   every one of those it styled nothing at all, silently — a long topic ran
+   straight through the payload beside it and a device name ran through the
+   extension it was meant to sit next to, and the class that was supposed to
+   stop it was right there in the markup.
+
+   Scoping it to the table was never the point; the point is the cell. */
+.truncate {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
 }
@@ -284,26 +561,32 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .table-empty {
   border: 1px solid var(--line); border-top: 0;
   background: var(--panel-2);
-  padding: 22px 12px; text-align: center;
+  padding: var(--sp-6) var(--sp-4); text-align: center;
   font-family: var(--font-body); font-size: var(--fs-base); color: var(--text-mid);
 }
 
 /* ───────────────────────────────────────────────────── target strip ── */
-/* The group strip scrolls horizontally when it does not fit. The fade on the
-   right edge says the list continues: a clipped last chip looked like the
-   end, and users were not looking for the remaining groups. */
+/* A FILTER ROW, NOT A PANEL. It used to be a bordered box with a filled
+   background, and every chip inside it was a bordered box too: a frame
+   around six frames, which is what made a plain row of filters the loudest
+   thing on the screen. The row carries no border of its own now — what
+   separates it from the results is the space under it — and the chips stop
+   competing with a container they are inside.
+
+   It scrolls horizontally when it does not fit. The fade on the right edge
+   says the list continues: a clipped last chip looked like the end, and
+   users were not looking for the remaining groups. */
 .chip-bar {
-  display: flex; align-items: center; gap: 7px;
+  display: flex; align-items: center; gap: var(--sp-2);
   flex-wrap: nowrap; overflow-x: auto;
-  min-height: 44px; margin-top: 16px;
-  padding: 6px 12px;
-  border: 1px solid var(--line); background: var(--panel);
-  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  min-height: 36px; margin-top: var(--sp-5);
+  /* A stencil, not a colour: opaque keeps the chip, transparent cuts it. */
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
 }
-/* No fade is needed at the end, or when everything fits. */
-.chip-bar[data-at-end="1"] { -webkit-mask-image: none; mask-image: none; }
-.chip-bar .label { flex: none; margin-right: 4px; }
+/* The word in front is a caption for the row, not one more thing in it, so
+   it is dimmer than the chips rather than the same weight. */
+.chip-bar .label { flex: none; margin-right: var(--sp-2); color: var(--text-dim); }
 
 /* The operation target: a compact dropdown instead of a row of chips when
    only one can be chosen. The counts appear in the operation table; the
@@ -311,48 +594,62 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .target-picker {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 18px;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-5);
 }
 .target-picker .label { margin: 0; color: var(--text-mid); }
 .target-picker .field {
   width: auto;
   min-width: 190px;
   min-height: 35px;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: var(--sp-2);
+  padding-bottom: var(--sp-2);
 }
 
+/* Quiet by default, and the borders are gone with the container's. A filter
+   nobody has chosen is a place to go, not a thing to read: it sits on a
+   raised ground and says so on hover instead of outlining itself. The
+   1px inset shadow, not a border, is what the chosen one is drawn with —
+   a border would move every other chip by a pixel as the choice changed. */
 .chip {
   flex: none;
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 5px 10px;
-  background: transparent;
-  border: 1px solid var(--line-strong);
-  color: var(--text-bright);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--panel);
+  border: 0;
+  color: var(--text-mid);
   cursor: pointer;
   font-family: var(--font-body); font-weight: 600; font-size: var(--fs-base);
   letter-spacing: 0; text-transform: none;
   white-space: nowrap;
 }
+/* The raise is small and the COUNT brightens with it, which is not
+   decoration: --text-dim measures 4.58:1 on the chip's own ground and 4.38:1
+   on this one, so a hover that only lightened the background would push the
+   number under the floor for as long as the pointer sat on it. */
+.chip:hover { background: var(--lift-1); color: var(--text); }
+.chip:hover .count { color: var(--text-mid); }
 .chip .count { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim); }
+/* CHOSEN, NOT SHOUTING. It was a solid accent block with dark text on it —
+   an inversion of the whole scheme for one chip in six, and the brightest
+   object on a screen whose subject is the table underneath. The accent now
+   draws the outline and the word, and the fill only tints. */
 .chip[aria-pressed="true"] {
-  background: var(--accent); border-color: var(--accent); color: var(--deep);
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  color: var(--accent);
 }
-/* The count sits ON the accent fill, so it is dark text on light.
-   At 65% it measured 3.4:1 — de-emphasised past the point of being
-   readable, which is not de-emphasis. 80% is the first step that
-   clears 4.5:1 and still reads as quieter than the label. */
-.chip[aria-pressed="true"] .count { color: rgba(11, 17, 22, .8); }
-
-/* ──────────────────────────────────────────────────── progress bars ── */
-.bar { height: 3px; background: rgba(214, 235, 255, .1); }
-.bar > i { display: block; height: 3px; background: var(--accent); }
+.chip[aria-pressed="true"]:hover { background: var(--accent-wash); }
+/* Full accent, and de-emphasised by SIZE alone. Every step down in opacity
+   was measured against the tinted ground it sits on and every one failed:
+   .85 gives 4.13:1 and .75 gives 3.50:1, against 5.16:1 at full strength.
+   A number nobody can read is not a quiet number. */
+.chip[aria-pressed="true"] .count { color: var(--accent); }
 
 /* ─────────────────────────────────────────── credentials and queue ─── */
 .count-badge {
   position: absolute; top: -7px; right: -7px;
-  min-width: 17px; height: 17px; padding: 0 4px;
+  min-width: 17px; height: 17px; padding: 0 var(--sp-1);
   display: flex; align-items: center; justify-content: center;
   background: var(--auth); color: var(--deep);
   font-family: var(--font-mono); font-size: var(--fs-xs);
@@ -367,13 +664,13 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   animation: queue-pulse .85s ease-out 3;
 }
 @keyframes queue-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(66, 148, 224, .55); }
-  70%  { box-shadow: 0 0 0 7px rgba(66, 148, 224, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(66, 148, 224, 0); }
+  0%   { box-shadow: 0 0 0 0 var(--accent-glyph); }
+  70%  { box-shadow: 0 0 0 7px var(--accent-clear); }
+  100% { box-shadow: 0 0 0 0 var(--accent-clear); }
 }
 /* For a user who asks for reduced motion, a flat accent replaces the pulse. */
 @media (prefers-reduced-motion: reduce) {
-  #queue-btn[data-flash] { animation: none; background: var(--accent-soft); }
+  #queue-btn[data-flash] { animation: none; background: var(--accent-wash); }
 }
 
 /* The job queue and the credentials list.
@@ -405,21 +702,21 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .panel-scrim {
   position: absolute; inset: 0;
   z-index: 29;
-  background: rgba(6, 10, 13, .55);
+  background: var(--scrim);
 }
 
-@media (min-width: 1081px) { .panel-scrim { display: none; } }
+@media (min-width: 901px) { .panel-scrim { display: none; } }
 
-@media (max-width: 1080px) {
+@media (max-width: 900px) {
   .side-panel {
     position: absolute; top: 0; right: 0; bottom: 0;
     width: min(92vw, max(300px, var(--side-panel, 340px)));
-    box-shadow: -14px 0 34px rgba(6, 10, 13, .55);
+    box-shadow: -14px 0 34px var(--drop-strong);
   }
 }
 .side-panel > header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-4);
   border-bottom: 1px solid var(--line);
 }
 .side-panel > header .title {
@@ -428,8 +725,8 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 .side-panel > .list {
   flex: 1; overflow-y: auto;
-  padding: 12px 14px 16px;
-  display: flex; flex-direction: column; gap: 10px;
+  padding: var(--sp-4) var(--sp-4) var(--sp-5);
+  display: flex; flex-direction: column; gap: var(--sp-3);
 }
 
 /* The job card has no coloured edge strip: the job's state is read from the
@@ -447,18 +744,20 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
    shifting the text relative to the other rows. */
 .job-row[data-row-state="running"] {
   border: 1px solid var(--accent-line);
-  background: rgba(66, 148, 224, .06);
-  padding: 6px 7px;
+  background: var(--accent-sheen);
+  padding: var(--sp-2);
   margin: 0 -8px;
 }
-/* The only motion is on the dot: it answers "stalled, or still running?". */
+/* The only motion is on a dot, and it always answers the same question:
+   still going, or stopped? The job list asks it of a run; the remote session
+   dialog asks it of a square nobody has approved yet. */
 .job-row[data-row-state="running"] .dot {
-  animation: job-pulse 1.6s ease-in-out infinite;
+  animation: pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes job-pulse {
-  0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 rgba(66, 148, 224, .45); }
-  50%      { opacity: .45; box-shadow: 0 0 0 3px rgba(66, 148, 224, 0); }
+@keyframes pulse {
+  0%, 100% { opacity: 1;  box-shadow: 0 0 0 0 var(--accent-line); }
+  50%      { opacity: .45; box-shadow: 0 0 0 3px var(--accent-clear); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -469,10 +768,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
    button spilled outside the card (the queue panel is narrow). Now the title
    flexes and the stop button keeps its fixed width. */
 .job-card-head { display: flex; align-items: stretch; min-width: 0; }
-.job-card-head > .btn-close { align-self: center; margin-right: 9px; flex: none; }
+.job-card-head > .btn-close { align-self: center; margin-right: var(--sp-3); flex: none; }
 .job-head {
-  display: flex; align-items: center; gap: 9px;
-  padding: 10px 11px; flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); flex: 1; min-width: 0;
   background: transparent; border: 0; cursor: pointer; text-align: left;
 }
 .job-head .name {
@@ -482,37 +781,38 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .job-head .sub {
-  display: block; margin-top: 3px;
+  display: block; margin-top: var(--sp-1);
   font-family: var(--font-mono); font-size: var(--fs-xs);
 }
 /* The phase text ("Port 14 · writing the IP (3/6)"). One line: a long phase
    must not grow the card and push the other queued jobs down. */
 .job-phase {
-  display: block; margin-top: 2px;
+  display: block; margin-top: var(--sp-0);
   font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .job-counts {
-  display: flex; gap: 9px; flex: none;
+  display: flex; gap: var(--sp-3); flex: none;
   font-family: var(--font-mono); font-size: var(--fs-xs);
 }
 /* Glyph and number read as one figure, so the pair must not be split by the
    gap between counts. */
-.job-count { display: inline-flex; align-items: center; gap: 3px; }
+.job-count { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .job-count svg { flex: none; }
 /* A thin progress bar — flush with the bottom of the card, running job only. */
+.job-card > .warning { margin: var(--sp-3) var(--sp-4); }
 .job-bar { height: 2px; background: var(--line-soft); overflow: hidden; }
 .job-bar i {
   display: block; height: 100%;
   background: var(--state-colour, var(--accent));
   transition: width .3s ease;
 }
-.job-rows { padding: 4px 11px 10px; }
+.job-rows { padding: var(--sp-1) var(--sp-4) var(--sp-3); }
 .job-row {
-  display: flex; gap: 9px; padding: 7px 0;
+  display: flex; gap: var(--sp-3); padding: var(--sp-2) 0;
   border-bottom: 1px solid var(--line-soft);
 }
-.job-row .dot { margin-top: 5px; width: 6px; height: 6px; }
+.job-row .dot { margin-top: var(--sp-1); width: 6px; height: 6px; }
 /* The class cannot be called ".body": that name is used by the application's
    main body, and its display:flex laid this row out side by side. */
 .job-row .job-row-body { min-width: 0; flex: 1; }
@@ -524,7 +824,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   overflow-wrap: anywhere;
 }
 .job-row .sub {
-  display: block; margin-top: 2px;
+  display: block; margin-top: var(--sp-0);
   font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
   word-break: break-word;
 }
@@ -535,7 +835,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  margin-top: 3px;
+  margin-top: var(--sp-1);
   font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--danger-text);
@@ -562,7 +862,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border-top: 0; border-left: 0; border-right: 0;
   text-align: left; cursor: pointer;
 }
-.job-row-btn:hover { background: rgba(255, 255, 255, .02); }
+.job-row-btn:hover { background: var(--raise-1); }
 /* The only marker that a row expands; it turns downwards when open. */
 .job-chevron {
   flex: none; align-self: center; width: 6px; height: 6px;
@@ -580,10 +880,10 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 
 .job-steps {
-  margin: 0 0 6px 3px; padding: 4px 0 4px 13px;
+  margin: 0 0 var(--sp-2) var(--sp-1); padding: var(--sp-1) 0 var(--sp-1) var(--sp-4);
   border-left: 1px solid var(--line-soft);
 }
-.job-step { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+.job-step { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-0) 0; }
 .job-step .dot { width: 5px; height: 5px; margin-top: 0; }
 .job-step-text {
   flex: 1; min-width: 0;
@@ -598,9 +898,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 
 /* The two buttons under a generated file: open / show in folder. */
-.file-actions { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.file-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); flex-wrap: wrap; }
 .file-btn {
-  gap: 5px; padding: 3px 8px;
+  gap: var(--sp-1); padding: var(--sp-1) var(--sp-3);
   font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
   border-color: var(--line); color: var(--text-mid);
@@ -611,15 +911,15 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .locked-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 4px 10px;
+  gap: var(--sp-1) var(--sp-3);
   width: 100%;
-  padding: 10px 11px;
+  padding: var(--sp-3) var(--sp-4);
   background: var(--panel-2);
-  border: 1px solid var(--auth-soft);
+  border: 1px solid var(--auth-line);
   color: var(--text);
   cursor: pointer; text-align: left;
 }
-.locked-row:hover { background: #1a232b; }
+.locked-row:hover { background: var(--lift-2); }
 .locked-row .name {
   font-family: var(--font-mono); font-size: var(--fs-base);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -633,9 +933,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 /* ────────────────────────────────────────────────────────── dialog ──── */
 .backdrop {
   position: fixed; inset: 0; z-index: 50;
-  background: rgba(6, 10, 13, .62);
+  background: var(--scrim);
   display: flex; align-items: center; justify-content: center;
-  padding: 20px;
+  padding: var(--sp-5);
 }
 .backdrop.right { align-items: stretch; justify-content: flex-end; padding: 0; }
 
@@ -643,25 +943,25 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   width: min(430px, 100%);
   background: var(--panel);
   border: 1px solid var(--line-strong);
-  padding: 20px 22px 22px;
-  display: flex; flex-direction: column; gap: 14px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  display: flex; flex-direction: column; gap: var(--sp-4);
   max-height: 92vh; overflow-y: auto;
 }
 .dialog h3 { font-size: var(--fs-lg); }
 .dialog .description { font-size: var(--fs-base); color: var(--text-bright); }
-.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; }
+.dialog .actions { display: flex; justify-content: flex-end; gap: var(--sp-3); }
 
 /* dialog.pick — one row per choice. A row that cannot be chosen is dimmed
    and keeps its note, which is the only thing on the row that says why. */
-.pick-list { display: flex; flex-direction: column; gap: 6px; }
+.pick-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .pick-item {
   display: flex; align-items: baseline; justify-content: space-between;
   /* Wraps rather than breaking a word: these rows carry drive names, and in
      a narrow column "DABP-KEY" was being split across two lines. The note
      drops underneath instead and the name keeps its full width. */
   flex-wrap: wrap;
-  gap: 4px 12px; width: 100%; text-align: left;
-  padding: 10px 12px;
+  gap: var(--sp-1) var(--sp-4); width: 100%; text-align: left;
+  padding: var(--sp-3) var(--sp-4);
   background: var(--panel-2);
   border: 1px solid var(--line);
   color: var(--text);
@@ -670,6 +970,17 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 .pick-item:hover:not(:disabled) { border-color: var(--accent-line); }
 .pick-item:disabled { cursor: default; color: var(--text-dim); }
+/* The row you are already on. Marked rather than greyed: disabled reads as
+   "not available to you", which is the opposite of what is true of the open
+   project — an undelivered one is what reads that way, and it does. */
+.pick-item[aria-current="true"] {
+  border-color: var(--ok-line);
+  border-left: 3px solid var(--ok);
+  background: var(--ok-sheen);
+  cursor: default;
+}
+.pick-item[aria-current="true"] .pick-label { color: var(--ok); }
+.pick-item[aria-current="true"] .pick-note { color: var(--ok-text); }
 .pick-label { font-weight: 600; }
 .pick-note {
   font-family: var(--font-mono); font-size: var(--fs-xs);
@@ -677,22 +988,22 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 }
 
 .warning {
-  padding: 8px 10px;
-  border: 1px solid var(--failed-soft);
-  background: rgba(218, 54, 51, .08);
+  padding: var(--sp-3);
+  border: 1px solid var(--failed-line);
+  background: var(--failed-sheen);
   color: var(--danger-text);
   font-size: var(--fs-base);
 }
 .info {
-  padding: 8px 10px;
+  padding: var(--sp-3);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   font-size: var(--fs-base); color: var(--text-bright);
 }
 
 .checkbox {
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 11px;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   background: transparent;
   border: 1px solid var(--line-strong);
   color: var(--text); cursor: pointer; text-align: left; width: 100%;
@@ -714,17 +1025,17 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   background: var(--panel);
   border-left: 1px solid var(--line-strong);
   overflow-y: auto;
-  padding: 20px 24px 30px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
 }
-.detail-block { margin-top: 20px; }
+.detail-block { margin-top: var(--sp-5); }
 .detail-block > .head {
-  display: flex; align-items: baseline; gap: 10px;
-  padding-bottom: 7px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--line);
 }
 .detail-block > .head .spacer { flex: 1; }
 .detail-row {
-  display: grid; grid-template-columns: 1fr 1.1fr; gap: 12px;
-  padding: 7px 0; border-bottom: 1px solid rgba(214, 235, 255, .06);
+  display: grid; grid-template-columns: 1fr 1.1fr; gap: var(--sp-4);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--line-soft);
 }
 .detail-row .name { font-size: var(--fs-base); color: var(--text-mid); }
 .detail-row .value {
@@ -738,32 +1049,65 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 #toast {
   position: fixed; left: 50%; bottom: 46px; transform: translateX(-50%);
   z-index: 70;
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: var(--sp-3);
   max-width: min(560px, 92vw);
   font-size: var(--fs-base);
 }
+/* A BAND IN THE GUTTER AND A MARK IN FRONT, and the sentence left in the
+   panel's ordinary text. It used to be the other way round: the frame took
+   the state's colour and so did every word inside it, so an error was two
+   lines of red — heavier to read than plain text, and the only thing telling
+   anybody which kind of message this was.
+
+   The band is the same three-pixel inset the device, verification and
+   assignment lists are all read by, which is why it is drawn as a shadow
+   rather than a border: nothing thickens, so the three boxes in the stack
+   stay exactly the same width. */
 .toast-item {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 9px 14px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--line-strong);
   background: var(--panel);
-  box-shadow: 0 8px 26px rgba(6, 10, 13, .6);
+  color: var(--text-bright);
+  box-shadow: inset 3px 0 0 var(--state-colour),
+              0 8px 26px var(--drop-strong);
 }
-.toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.toast-item[data-kind="error"] {
-  border-color: var(--failed-soft); color: var(--danger-text);
+.toast-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+/* `--state-text` and not the fill: red reaches 3.7:1 on the panel, and this
+   is the one part of the message that has to be seen at a glance. */
+.toast-mark {
+  display: flex; align-items: center; flex: none;
+  height: 1.45em;
+  color: var(--state-text);
 }
-.toast-item[data-kind="success"] {
-  border-color: var(--ok-soft); color: var(--ok-text);
+/* Only an error carries one — the others take themselves away. Frameless:
+   a bordered box inside a bordered box, for a control that is only ever
+   pressed to make something go away. */
+.toast-close {
+  flex: none; border-color: transparent; color: var(--text-mid);
 }
-/* Only an error carries one — the others take themselves away. */
-.toast-close { flex: none; margin: -2px -6px 0 0; }
+.toast-close:hover:not(:disabled) {
+  border-color: var(--line); color: var(--text);
+}
+
+/* It arrives from the edge it is anchored to. Short enough not to delay the
+   message, long enough that a strip which has just gained a line does not
+   look as though it always had one. */
+@keyframes toast-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.toast-item[data-enter="1"] { animation: toast-enter .16s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .toast-item[data-enter="1"] { animation: none; }
+}
 
 /* The shortcut list, opened with `?`. */
-.shortcut-list { display: flex; flex-direction: column; gap: 8px; }
-.shortcut-list .row { display: flex; align-items: center; gap: 12px; }
+.shortcut-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.shortcut-list .row { display: flex; align-items: center; gap: var(--sp-4); }
 .shortcut-list kbd {
-  flex: none; min-width: 34px; padding: 3px 7px;
+  flex: none; min-width: 34px; padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line-strong);
   background: var(--deep);
   font-family: var(--font-mono); font-size: var(--fs-sm);
@@ -772,22 +1116,22 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 
 /* ─────────────────────────────────────────── top bar project strip ─── */
 .project-bar {
-  display: flex; align-items: center; gap: 7px; flex: none;
-  padding: 3px 9px;
+  display: flex; align-items: center; gap: var(--sp-2); flex: none;
+  padding: var(--sp-1) var(--sp-3);
   border: 1px solid var(--line-strong);
   font-family: var(--font-mono); font-size: var(--fs-sm); letter-spacing: .04em;
   white-space: nowrap;
 }
 .project-bar > button {
-  display: flex; align-items: center; gap: 7px;
-  padding: 2px 2px;
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-0);
   background: transparent; border: 0; color: var(--text);
   cursor: pointer; font: inherit;
 }
 .project-bar > button:hover { color: var(--accent); }
 
 .set-field {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: var(--sp-1);
   color: var(--text); cursor: pointer;
 }
 /* A project addressed in fixed form has no train set to pick. The separator
@@ -802,7 +1146,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   color: var(--accent);
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 1px 4px;
+  padding: var(--sp-0) var(--sp-1);
   font-family: var(--font-mono); font-size: var(--fs-sm);
   text-align: center;
 }
@@ -828,7 +1172,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .language-btn {
   height: 30px;
   min-width: 34px;
-  padding: 0 8px;
+  padding: 0 var(--sp-3);
   border: 0;
   background: transparent;
   color: var(--text-dim);
@@ -837,9 +1181,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   letter-spacing: .06em;
 }
 .language-btn + .language-btn { border-left: 1px solid var(--line); }
-.language-btn:hover { color: var(--text); background: rgba(214, 235, 255, .05); }
+.language-btn:hover { color: var(--text); background: var(--raise-2); }
 .language-btn[aria-pressed="true"] {
-  background: var(--accent-soft);
+  background: var(--accent-wash);
   color: var(--accent);
 }
 
@@ -854,19 +1198,19 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line-strong);
-  box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+  box-shadow: 0 14px 38px var(--drop-strong);
 }
-.pm-menu-head { padding: 10px 13px 9px; border-bottom: 1px solid var(--line); }
+.pm-menu-head { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); }
 .pm-menu-title { color: var(--text); font-size: var(--fs-base); font-weight: 600; }
 .pm-menu-subtitle {
-  margin-top: 3px;
+  margin-top: var(--sp-1);
   color: var(--text-mid);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: 1.5;
 }
 .pm-menu-heading {
-  padding: 9px 13px 4px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-1);
   color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
@@ -875,9 +1219,9 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .pm-menu-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-3);
   width: 100%;
-  padding: 7px 13px;
+  padding: var(--sp-2) var(--sp-4);
   background: transparent;
   border: 0;
   color: var(--text);
@@ -885,7 +1229,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   font-size: var(--fs-sm);
   text-align: left;
 }
-.pm-menu-item:hover { background: var(--accent-soft); }
+.pm-menu-item:hover { background: var(--accent-wash); }
 .pm-menu-mark {
   flex: none;
   width: 8px;
@@ -893,7 +1237,7 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
   border: 1px solid var(--line-strong);
   background: transparent;
 }
-.pm-menu-item.is-selected { background: var(--accent-soft); }
+.pm-menu-item.is-selected { background: var(--accent-wash); }
 .pm-menu-item.is-selected .pm-menu-mark {
   background: var(--accent);
   border-color: var(--accent);
@@ -909,8 +1253,173 @@ button.table-row[aria-selected="true"] { background: var(--accent-soft); }
 .pm-menu-foot {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 9px 13px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   border-top: 1px solid var(--line);
 }
+
+/* TWO WAYS IN, TWO COLUMNS, ONE RULE BETWEEN THEM.
+
+   The dialog used to be a single narrow column, because there was one thing
+   in it. There are two now — an account and a square — and a stack would
+   have made the reader scroll past the one they had in order to find out the
+   other existed. So: what needs nobody else on the left, what needs somebody
+   else on the right, and a hairline saying they are alternatives rather than
+   steps.
+
+   THE RIGHT-HAND COLUMN IS THE FIXED ONE. Its width is the square's, which
+   is a whole number of modules and cannot be negotiated with (see app.js
+   PAIR_SIDE); the account takes what is left, which is comfortably more
+   than two fields and a button need. */
+.remote-ways { display: flex; align-items: stretch; gap: var(--sp-6); }
+/* A column: its heading, then the one thing under it. */
+.remote-way { display: flex; flex-direction: column; gap: var(--sp-5); }
+
+/* THE NAME OF A WAY IN — and the only thing telling the two columns apart.
+   Everything below it is drawn the same on both sides, on purpose: two ways
+   in that look alike and are labelled read as alternatives, while two drawn
+   differently read as a main way and a fallback, which is not true of
+   either of these.
+
+   Condensed caps in the accent, a step above the field captions under it and
+   nothing like them in colour: this is a signpost, read before anything
+   beneath it, rather than another label in the form. */
+.remote-way-head {
+  font-family: var(--font-heading); font-size: var(--fs-md);
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* THE COLUMN, AND THE ONE FACE OF IT ON SHOW. Signing in, asking for an
+   account and the sentence that follows a new one replace each other inside
+   this box (app.js showSignIn/showSignUp/showSignedUp) — heading and all,
+   because a column headed "sign in with an account" over a four-field
+   "create an account" form is a heading that has stopped describing what is
+   under it. The rule and the width belong to the box and the layout belongs
+   to whichever face is in it, so no swap can move the divider. */
+.remote-account { flex: 1 1 0; min-width: 0;
+                  border-inline-end: 1px solid var(--line);
+                  padding-inline-end: var(--sp-6); }
+.remote-account-pane { flex: 1 1 auto; min-width: 0;
+                       display: flex; flex-direction: column;
+                       gap: var(--sp-4); }
+.remote-account .warning, .remote-account .info { margin: 0; }
+
+/* A SIGN-IN FIELD IS PROSE, NOT A MACHINE VALUE. Everywhere else in the
+   panel a field holds an address, a port or a serial, and monospace is what
+   makes those checkable character by character; a name and an e-mail are
+   read as words. So this column's boxes take the body face at reading size,
+   with the ground lifted off the dialog and the border stepped back — the
+   box is found by its fill rather than by its outline, which is what stops
+   two large fields from drawing two large frames. */
+.remote-account .field {
+  background: var(--raise-3); border-color: var(--line-soft);
+  padding: var(--sp-4);
+  font-family: var(--font-body); font-size: var(--fs-md);
+}
+.remote-account .field:focus-visible { border-color: var(--accent); }
+/* The caption on its own line above the box it names. */
+.remote-account .field-label .label { display: block;
+                                      margin-block-end: var(--sp-2); }
+
+/* THE ONE THING TO PRESS IN THE COLUMN, drawn as one. Full width under the
+   fields it answers, condensed caps at heading size, and the accent running
+   across it: this is the end of the form, and a button that ends a form is
+   not the same object as the "Refresh" beside a table.
+
+   The gradient is the one flourish in the dialog and it is spent here on
+   purpose — everything around it is flat. */
+.remote-submit {
+  width: 100%;
+  padding: var(--sp-4);
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  font-family: var(--font-heading); font-size: var(--fs-lg);
+  letter-spacing: .08em; text-transform: uppercase;
+}
+.remote-submit:hover:not(:disabled) {
+  background: linear-gradient(90deg, var(--accent-hover), var(--accent-hover));
+}
+
+/* The line under the button: a quiet sentence and the way to this column's
+   other face. The link is a link because the column already has its one
+   thing to press — two buttons of equal weight under two fields turn an
+   answer back into a question. */
+.remote-aside { display: flex; flex-wrap: wrap; align-items: baseline;
+                gap: var(--sp-2); margin: 0;
+                color: var(--text-dim); font-size: var(--fs-sm); }
+
+/* The square's column. Fixed to the plate's width, so nothing in it moves
+   when the service answers. */
+.remote-pair { flex: 0 0 var(--remote-width); }
+
+/* A window too narrow to hold the square beside anything. The rule turns
+   with the layout: down the middle becomes across it, and the columns keep
+   their order — the account is still the first thing read.
+
+   620 BECAUSE THAT IS ONE OF THE THREE WIDTHS THIS DESIGN ANSWERS TO, not
+   because it is where these two columns start to feel tight. A dialog that
+   picked its own number would be a fifth place the application changes
+   shape as a window is narrowed (see the note in base.css). Between here
+   and the dialog's full 720 the account column simply gives ground, which
+   is what it has room to do. */
+@media (max-width: 620px) {
+  .remote-ways { flex-direction: column; }
+  .remote-account { border-inline-end: 0; padding-inline-end: 0;
+                    padding-block-end: var(--sp-5);
+                    border-block-end: 1px solid var(--line); }
+  .remote-pair { flex: 0 0 auto; margin-inline: auto; }
+}
+/* NOTHING HERE IS SIZED BY WHAT ARRIVES. The dialog opened at one width and
+   changed to another the moment the service answered: the column took its
+   own width while the square was still being asked for and then shrank onto
+   the square's edges — seventy pixels of movement, under the operator's
+   hands.
+
+   One number instead, `--remote-width`, set once by the window before the
+   request goes out (see app.js PAIR_SIDE) — the square's plate and the
+   status line are both that wide from the first frame. The floor here
+   reserves the same height for the spinner that the square and its status
+   row will take, so the column does not grow either. */
+.remote-square { display: flex; flex-direction: column; gap: var(--sp-3);
+                 align-items: stretch; text-align: center;
+                 justify-content: center;
+                 min-height: calc(var(--remote-width) + var(--sp-3)
+                                  + var(--sp-7)); }
+/* WHITE, IN BOTH THEMES. Black on white is what a camera is looking for, in
+   a dark panel as much as a light one, so this plate does not follow the
+   theme.
+
+   A WINDOW ONTO THE PICTURE, not the picture. The service draws the four
+   modules of quiet zone the standard asks for; on screen that is a fifth of
+   the square, so two of them are cropped away and the image is pulled up and
+   left behind this box (app.js squareBox).
+
+   The plate is a fixed square and the code is CENTRED in it rather than
+   filling it. A code is drawn in whole modules, so its side lands wherever
+   the module count puts it — 259 pixels for the version 4 this service
+   sends — and a plate that took that number would be a different size for a
+   different code, which is the movement this dialog exists without now. What
+   is left over is white, and white around a code is quiet zone: the one
+   thing a decoder is glad to have more of. */
+.remote-qr { position: relative; overflow: hidden;
+             width: var(--remote-width); height: var(--remote-width);
+             max-width: 100%;
+             margin-inline: auto; background: var(--paper); }
+.remote-qr img { position: absolute; display: block; }
+/* One row under the square, ending where it ends: what the panel is doing,
+   and which request it is doing it for. */
+.remote-status { display: flex; align-items: center;
+                 justify-content: space-between; gap: var(--sp-3);
+                 width: var(--remote-width); max-width: 100%;
+                 margin-inline: auto;
+                 color: var(--text-dim); font-size: var(--fs-sm); }
+.remote-status-live { display: flex; align-items: center; gap: var(--sp-2);
+                      min-width: 0; }
+.remote-status .dot { animation: pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .remote-status .dot { animation: none; }
+}
+.remote-pair-failed { display: flex; flex-direction: column;
+                      gap: var(--sp-2); align-items: center; }
+.remote-pair-failed .warning { margin: 0; }

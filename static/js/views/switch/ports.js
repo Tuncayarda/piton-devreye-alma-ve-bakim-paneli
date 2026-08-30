@@ -125,7 +125,11 @@ function table(ports, actions, busy, titleKey) {
   return el('div', { class: 'switch-table-block' }, [
     el('h4', { text: label }),
     dataTable({
-      template: COLUMNS, minWidth: 620, label,
+      // The floor is the sum of the column minimums, the gaps between them
+      // and the row's own padding — below it the grid cannot shrink any
+      // further and spills past the row's right border instead. It was
+      // thirty pixels under it.
+      template: COLUMNS, minWidth: 660, label,
       columns: [t('switch.columnPort'), t('switch.columnLink'),
                 t('switch.columnSpeed'), t('switch.columnState'),
                 t('switch.columnPoe'), t('switch.columnPower')],
@@ -145,7 +149,7 @@ export function portsCard(actions, busy) {
       el('h3', { text: t('switch.portsTitle') }),
       el('span', { class: 'spacer' }),
       el('span', {
-        class: 'eyebrow',
+        class: 'label',
         text: t('switch.portsCount', { count: local.ports.length }),
       }),
     ]),

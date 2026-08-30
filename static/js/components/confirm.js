@@ -14,10 +14,9 @@
 // that the dangerous ones are the ones that ask.
 //
 // The shape is the one the firmware dialog already used, because it was the
-// right one: a sentence saying what will happen, any warnings that apply to
-// this particular run, the list of what is affected, then Cancel and the
-// action. Cancel comes first so it takes focus (see components/dialog.js),
-// which means Enter and Escape both mean "no".
+// right one: a sentence saying what will happen, the list of what is
+// affected, then Cancel and the action. Cancel comes first so it takes focus
+// (see components/dialog.js), which means Enter and Escape both mean "no".
 
 import { el } from '../core/dom.js';
 import * as dialog from './dialog.js';
@@ -28,23 +27,16 @@ import { t } from '../core/i18n.js';
  * Ask, then run.
  *
  * `lead`      one sentence: what is about to happen, with the counts in it.
- * `notes`     [{ text, tone }] — 'info' for how it works, 'warning' for what
- *             the operator cannot undo. Falsy entries are dropped, so a
- *             conditional warning can be written inline.
  * `items`     [{ name, detail }] — the devices or ports affected, listed so
  *             "12 devices" is not something to take on trust.
  * `danger`    true for anything destructive; paints the confirm button red.
  * `run`       async () => {} — the write itself, plus whatever the caller
  *             does afterwards (queue, toast). Errors are reported here.
  */
-export function confirmWrite({ title, lead, notes = [], items = [],
+export function confirmWrite({ title, lead, items = [],
                                danger = false, confirmLabel, run }) {
   const content = el('div', {}, [
     el('p', { class: 'description', text: lead }),
-    ...notes.filter(Boolean).map(note => el('p', {
-      class: note.tone === 'warning' ? 'warning' : 'info',
-      style: 'margin-top:10px', text: note.text,
-    })),
     items.length
       ? el('div', { class: 'confirm-list' }, items.map(item => el('div', {
           class: 'row',

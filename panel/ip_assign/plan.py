@@ -6,7 +6,7 @@ import time
 
 from .. import i18n, settings
 from ..errors import AuthError
-from ..inventory.catalog import find_group, group_matches
+from ..inventory.catalog import find_group, group_in, group_matches
 from ..inventory.device_map import Inventory, resolve_template
 from ..probe import switch as switch_probe
 from .addressing import effective_prefix, factory_ip, netmask_for
@@ -15,15 +15,22 @@ from .ports import format_ports
 _COMPARTMENT_LCD = "Compartment LCD"
 
 
-def resolve_groups(names) -> list[dict]:
+def resolve_groups(names, inventory: Inventory | None = None) -> list[dict]:
     """Turn names that support IP assignment into group definitions.
 
     The limit in the UI is not enough on its own; a direct API call must not
     push a device type without a commissioning flow through a write routine.
+
+    WITH AN INVENTORY the name also has to be a group THIS project has. The
+    write paths all pass one — a run that cuts switch ports and rewrites
+    addresses is the last place to accept a device type from another
+    customer's train. Without one the answer is about the vocabulary only,
+    which is what `groups_without_runner` asks (see runner.py).
     """
     out, seen = [], set()
     for name in names or []:
-        group = find_group(str(name).strip())
+        group = (group_in(inventory, str(name).strip()) if inventory is not None
+                 else find_group(str(name).strip()))
         supported = group and "ip" in str(group.get("ops", "")).split()
         if supported and group["name"] not in seen:
             seen.add(group["name"])
@@ -74,7 +81,7 @@ def device_switch_for(inventory: Inventory, groups,
     """
     requested = [groups] if isinstance(groups, str) else (groups or [])
     selected = (requested if requested and isinstance(requested[0], dict)
-                else resolve_groups(requested))
+                else resolve_groups(requested, inventory))
     names = [group["name"] for group in selected]
     if names != [_COMPARTMENT_LCD] or not execution_switch_id:
         return execution_switch_id
@@ -128,7 +135,7 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
     target_prefix = effective_prefix(target_prefix)
     if isinstance(group_names, str):
         group_names = [group_names]
-    groups = resolve_groups(group_names)
+    groups = resolve_groups(group_names, inventory)
     resolved_device_switch = (device_switch_id
                               or device_switch_for(inventory, groups,
                                                    switch_id))

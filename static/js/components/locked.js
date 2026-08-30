@@ -11,10 +11,11 @@
 import { el, fill, $ } from '../core/dom.js';
 import { api } from '../core/api.js';
 import { state, patch } from '../core/store.js';
-import { value, typeLabel } from '../core/format.js';
+import { value, typeLabel, methodCode } from '../core/format.js';
 import * as dialog from './dialog.js';
 import { showSuccess } from './toast.js';
 import { t } from '../core/i18n.js';
+import { emptyState } from './placeholder.js';
 
 let onAccepted = () => {};
 
@@ -44,16 +45,15 @@ export function render() {
 
   // An empty list used to render as an empty grey box, which is worse than
   // it sounds: the IP screen tells the operator to enter credentials for a
-  // switch, they open this panel, and it is blank. The two answer different
-  // questions — this list only holds devices that ANSWERED a scan with
-  // "authentication required", while a switch that does not answer at all
-  // never appears here. So say which question this panel answers, and where
-  // the other one is asked.
+  // switch, they open this panel, and it is blank. This list only holds
+  // devices that ANSWERED a scan with "authentication required", while a
+  // switch that does not answer at all never appears here.
   if (!devices.length) {
-    fill(list, [el('div', { class: 'empty-state', tabindex: '-1' }, [
-      el('p', { text: t('locked.noneNeedCredentials') }),
-      el('p', { class: 'text-mid', text: t('locked.whereToEnter') }),
-    ])]);
+    const box = emptyState(t('locked.noneNeedCredentials'));
+    // The panel moves focus here when it opens with nothing in it, so the
+    // box has to be able to take it.
+    box.tabIndex = -1;
+    fill(list, [box]);
     return;
   }
 
@@ -80,14 +80,6 @@ export function render() {
 // resolved here.
 function detailOf(device) {
   return (device.result && device.result.detail) || device.detail || '';
-}
-
-function methodCode(device) {
-  if (device.readMethodCode) return device.readMethodCode;
-  const methods = state.meta && state.meta.readMethods;
-  const method = methods && methods[device.readMethod];
-  return (method && method.code)
-    || String(device.readMethod || '').toUpperCase();
 }
 
 // `onDone` is called when the verification succeeds, so the screen that
@@ -164,21 +156,17 @@ export function credentialDialog(device, onDone = null) {
       el('br'),
       value(detailOf(device)),
     ]),
-    el('label', { style: 'display:block;margin-bottom:10px' }, [
+    el('label', { class: 'field-label mb-3' }, [
       el('span', { class: 'label', text: t('locked.username') }),
       usernameField,
     ]),
-    el('label', { style: 'display:block' }, [
+    el('label', { class: 'field-label' }, [
       el('span', { class: 'label', text: t('locked.password') }),
       passwordField,
     ]),
-    groupButton ? el('div', { style: 'margin-top:12px' }, [groupButton]) : null,
-    el('p', {
-      class: 'info', style: 'margin-top:12px',
-      text: t('locked.whatYouEnterIsKept'),
-    }),
+    groupButton ? el('div', { class: 'mt-4' }, [groupButton]) : null,
     warning,
-    el('div', { class: 'actions', style: 'margin-top:14px' }, [
+    el('div', { class: 'actions mt-4' }, [
       el('button', {
         type: 'button', class: 'btn', text: t('locked.cancel'),
         onclick: () => dialog.close(),

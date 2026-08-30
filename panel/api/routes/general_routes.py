@@ -48,7 +48,10 @@ def post_language(body):
 def get_project(query):
     inventory = inventory_for(single(query, "set", 1))
     return respond(200, {
-        "project": inventory.project,
+        # The label, not the derived stem: the stem is a file name, and
+        # the naming rule keeps file names ASCII (`editions.catalogue`),
+        # so it cannot spell a project whose name is not.
+        "project": inventory.project_label,
         "setNo": inventory.set_no,
         # The set number is typed in; the UI gets the accepted range rather
         # than a ready-made list.
@@ -63,9 +66,13 @@ def get_project(query):
         "categories": [{**entry, "name": i18n.t(entry["nameKey"]),
                         "types": i18n.t(entry["types"])}
                        for entry in catalog.CATEGORIES],
+        # Only the groups THIS project has devices for. The vocabulary in
+        # `catalog.GROUPS` covers every project the panel was ever built for,
+        # and handing it out whole is what put another customer's screens in
+        # a Yatakli operator's picker (see `catalog.groups_for`).
         "groups": [{**entry, "label": i18n.t(entry.get("labelKey")
                                              or entry["name"])}
-                   for entry in catalog.GROUPS],
+                   for entry in catalog.groups_for(inventory)],
         "readMethods": catalog.READ_METHODS,
         "brokerIp": editions.broker_ip(inventory),
     })

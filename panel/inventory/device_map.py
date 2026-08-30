@@ -19,7 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import settings
-from .catalog import category_for, read_method_for
+from .catalog import category_for
+from ..editions import catalogue
+from . import profiles
 from .. import i18n
 
 # Present in DeviceMap, never handed out
@@ -65,6 +67,11 @@ class Device:
     active: bool
     category: str
     read_method: str
+    # What decides this device's configuration field set — the SubType for
+    # most equipment, the Type for video. Settled here, with the read method,
+    # because both are the PROJECT's answer (see inventory/profiles) and the
+    # device is the only thing that travels afterwards.
+    config_scope: str
     pbx_extension: str | None = None
     # SIP registration password from DeviceMap. The device's SIP endpoint
     # requires it when writing configuration. Absent from `dto()`: it never
@@ -107,10 +114,16 @@ class Inventory:
     """The resolved device list for one train set."""
 
     def __init__(self, set_no: int, devices: list[Device], project: str,
-                 source: Path, config: dict | None = None):
+                 source: Path, config: dict | None = None,
+                 project_label: str | None = None):
         self.set_no = set_no
         self.devices = devices
+        # TWO NAMES, ON PURPOSE. `project` is the file stem — ASCII, and what
+        # `profiles.for_project` and `panel/video_config/nvr.py` match on.
+        # `project_label` is the same project written the way it is said, and
+        # is the only one of the two a person should ever be shown.
         self.project = project
+        self.project_label = project_label or project
         self.source = source
         self.config = config or {}
         self._by_id = {d.id: d for d in devices}
@@ -262,6 +275,16 @@ def load(set_no: int, path: Path | None = None,
                 return ready
 
     raw = _read_raw(path)
+    # The project decides how its own equipment is talked to. Its key is the
+    # map's file stem, which `tests/test_editions.py` holds equal to the
+    # catalogue's `Project.key`; a map that belongs to no listed project — one
+    # delivered on a service key — gets the shared rules.
+    project = path.stem.replace("DeviceMap", "").strip("_- ") or "YATAKLI"
+    # The stem is ASCII by the naming rule, and so is the fallback above,
+    # so neither can spell a project name that is not. The name for the
+    # screen is therefore asked of the catalogue, not read off the file.
+    project_label = catalogue.label_for(project)
+    profile = profiles.for_project(project)
     devices: list[Device] = []
     for si, sw in enumerate(raw.get("Switches") or [], start=1):
         sw_id = f"sw{si}"
@@ -273,7 +296,8 @@ def load(set_no: int, path: Path | None = None,
             subtype=None, switch_name=sw_name, switch_id=sw_id, port=None,
             active=bool(sw.get("IsActive", True)),
             category=category_for("Switch"),
-            read_method=read_method_for("Switch", None),
+            read_method=profile.read_method("Switch", None),
+            config_scope=profile.config_scope("Switch", None),
             extra=_without_secrets(sw),
         ))
         for di, dv in enumerate(sw.get("Devices") or [], start=1):
@@ -288,15 +312,16 @@ def load(set_no: int, path: Path | None = None,
                 port=str(dv.get("Port")) if dv.get("Port") is not None else None,
                 active=bool(dv.get("IsActive", True)),
                 category=category_for(device_type),
-                read_method=read_method_for(device_type, subtype),
+                read_method=profile.read_method(device_type, subtype),
+                config_scope=profile.config_scope(device_type, subtype),
                 pbx_extension=dv.get("PBXExtension") or None,
                 pbx_password=dv.get("PBXPassword") or None,
                 extra=_without_secrets(dv),
             ))
 
     inventory = Inventory(
-        int(set_no), devices,
-        project=path.stem.replace("DeviceMap", "").strip("_- ") or "YATAKLI",
+        int(set_no), devices, project=project,
+        project_label=project_label,
         source=path, config=_read_config(raw))
     if cache:
         with _CACHE_LOCK:

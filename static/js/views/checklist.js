@@ -16,6 +16,7 @@ import * as detail from '../components/detail.js';
 import * as dialog from '../components/dialog.js';
 import { NONE, clockTime, age, stateLabel } from '../core/format.js';
 import { t } from '../core/i18n.js';
+import { loadFailed, loading } from '../components/placeholder.js';
 
 // Column widths, keyed by the server's stable column id (see
 // panel/checklist/columns.py) rather than by the heading in the sheet: a
@@ -68,6 +69,10 @@ const STALE_SECONDS = 120;
 // In daily use only the deviations are shown. The Excel preview is a separate
 // local tab for whoever wants to see every column of the template.
 let reportTab = 'deviations';
+// Whether the LAST round failed. `checklistState: null` is also what the
+// screen looks like before the first round, and the two are not the same
+// thing to say (see components/placeholder.js).
+let readFailed = false;
 
 const DEVIATION_COLUMNS =
   'minmax(170px,1.1fr) 112px minmax(260px,1.7fr) 150px';
@@ -131,11 +136,18 @@ function evaluate(row, columns) {
   return { problems, values, passed: problems.length === 0 };
 }
 
-function summaryCard(name, amount, colour, note = '') {
-  return el('div', { class: 'check-summary-card' }, [
-    el('span', { class: 'name', text: name }),
-    el('strong', { style: `color:var(--${colour})`, text: String(amount) }),
-    note ? el('span', { class: 'note', text: note }) : null,
+// A name and a number, and the same two lines in all four. One of them used
+// to carry a third — how many devices were in scope — and it was the only
+// one that did: the row stretched to fit it and the other three were left
+// standing over forty-one pixels of nothing, which is what made the row look
+// broken rather than full. The count is also already on the screen under
+// both tabs — the review badge beside "Device checks", and the row and
+// column count under the Excel preview — so it goes, rather than being
+// balanced out with three lines invented to match it.
+function summaryCard(name, amount, state_) {
+  return el('div', { class: 'stat', dataset: { state: state_ } }, [
+    el('span', { class: 'label', text: name }),
+    el('strong', { class: 'value', text: String(amount) }),
   ]);
 }
 
@@ -163,22 +175,19 @@ function checkTable(rows, columns) {
     rows: ordered.map(({ row, result }) => el('button', {
         type: 'button', class: 'table-row check-deviation-row',
         style: `--table-columns:${DEVIATION_COLUMNS}`,
-        title: t('checklist.openDetails', { device: row.name }),
+        // The strip in the gutter, which this screen's Excel preview already
+        // had and the list people actually read did not. It replaces the
+        // seven-pixel dot that used to sit in front of the name: a marker
+        // that small is not something an eye finds down forty rows, and the
+        // device list is read the same way (see views.css).
+        dataset: { state: row.state },
         onclick: () => { if (row.deviceId) detail.open(row.deviceId); },
       }, [
         // The sizes are the same ones every other table in the panel uses
         // (see the size utilities in components.css). Without them these
         // cells inherited the 15px body size and this one table read two
         // steps larger than the device list next to it.
-        el('span', { class: 'device-summary' }, [
-          el('span', {
-            class: 'dot', dataset: { state: row.state },
-            'aria-hidden': 'true',
-          }),
-          el('span', {
-            class: 'mono truncate t-base', text: row.name || NONE,
-          }),
-        ]),
+        el('span', { class: 'mono truncate t-base', text: row.name || NONE }),
         el('span', { class: 'mono t-base', text: row.ip || NONE }),
         el('span', {
           class: 'deviation-text',
@@ -187,8 +196,12 @@ function checkTable(rows, columns) {
             ? t('checklist.noDeviation')
             : result.problems.map(p => p.text).join(' · '),
         }),
+        // Quietly, and in the same words the device list uses. It was set in
+        // the heading face, upper case and letter-spaced — the loudest thing
+        // in a table whose subject is the FINDING beside it, saying
+        // "REACHABLE" seven times down a column the gutter already answers.
         el('span', {
-          class: 'state-text state-label', dataset: { state: row.state },
+          class: 'state-text truncate t-sm', dataset: { state: row.state },
           text: stateLabel(row.state, NONE),
         }),
       ])),
@@ -220,10 +233,10 @@ function excelPreview(rows, data) {
         t('checklist.legendGreen')]),
       el('span', {}, [el('i', { style: 'background:var(--failed)' }),
         t('checklist.legendRed')]),
-      el('span', {}, [el('i', { style: 'background:#2a3339' }),
+      el('span', {}, [el('i', { style: 'background:var(--inert)' }),
         t('checklist.legendGrey')]),
       el('span', {
-        style: 'margin-left:auto',
+        class: 'push',
         text: t('checklist.rowsColumns', {
           rows: rows.length, columns: data.columns.length,
         }),
@@ -234,8 +247,10 @@ function excelPreview(rows, data) {
 
 export async function refresh() {
   try {
+    readFailed = false;
     patch({ checklistState: await api.checklist(state.setNo) });
   } catch (e) {
+    readFailed = true;
     showError(e.message);
     patch({ checklistState: null });
   }
@@ -285,14 +300,28 @@ function lastScanAt() {
 // would mean the automatic round firing right after the button too.
 let pullScanForward = () => {};
 
-export function render(root, refreshNow) {
-  if (refreshNow) pullScanForward = refreshNow;
-  const data = state.checklistState;
-  const parts = [];
-
-  parts.push(el('div', { class: 'page-head' }, [
+// THE HEADING IS THE VERDICT, and the line under it says how old that
+// verdict is.
+//
+// It used to read "Verification and reports" — the name of the screen, which
+// the menu rail and the hidden `h1` both already say — while the one number
+// somebody comes here for sat in a small chip beside a section title reading
+// "Device checks", two hundred pixels lower and word for word the same as
+// the tab already selected above it. The chip and that title are gone; the
+// number they carried is the largest thing on the screen.
+//
+// It follows the category filter, because that is what is being looked at.
+function pageHead(summary) {
+  return el('div', { class: 'page-head' }, [
     el('div', {}, [
-      el('h2', { text: t('nav.verification') }),
+      el('h2', {
+        text: !summary ? t('nav.verification')
+          : summary.review
+            ? t('checklist.needReview', {
+              review: summary.review, total: summary.total,
+            })
+            : t('checklist.allPassed', { total: summary.total }),
+      }),
       // The list refreshes on its own; how fresh it is written here. The
       // Excel confirmation shows the same stamp.
       el('div', {
@@ -314,16 +343,48 @@ export function render(root, refreshNow) {
         onclick: confirmExport,
       }),
     ]),
-  ]));
+  ]);
+}
+
+export function render(root, refreshNow) {
+  if (refreshNow) pullScanForward = refreshNow;
+  const data = state.checklistState;
+  const parts = [];
 
   if (!data) {
-    parts.push(el('p', {
-      class: 'info',
-      text: t('checklist.theVerificationDataCouldNot'),
-    }));
+    parts.push(pageHead(null));
+    parts.push(readFailed
+      ? loadFailed(t('checklist.theVerificationDataCouldNot'))
+      : loading(t('checklist.readingVerification')));
     fill(root, parts);
     return;
   }
+
+  const categories = state.meta ? state.meta.categories : [];
+  const allRows = data.sections.flatMap(section => section.rows);
+  const deviceCategory = new Map(
+    state.devices.map(device => [device.id, device.category]));
+
+  const selected = state.checklistCategory || 'all';
+  const countFor = (id) => (id === 'all'
+    ? allRows.length
+    : allRows.filter(
+      row => deviceCategory.get(row.deviceId) === id).length);
+
+  const rows = selected === 'all'
+    ? allRows
+    : allRows.filter(row => deviceCategory.get(row.deviceId) === selected);
+
+  const results = rows.map(row => evaluate(row, data.columns));
+  const passed = results.filter(r => r.passed).length;
+  const reachIssues = results.filter(r => r.problems.some(
+    p => ['reach', 'auth', 'unread'].includes(p.code))).length;
+  const ipIssues = results.filter(
+    r => r.problems.some(p => p.code === 'ip')).length;
+  const sipIssues = results.filter(
+    r => r.problems.some(p => p.code === 'sip')).length;
+
+  parts.push(pageHead({ review: rows.length - passed, total: rows.length }));
 
   // ── local view and category filter ──
   parts.push(el('div', {
@@ -340,17 +401,6 @@ export function render(root, refreshNow) {
     onclick: () => { reportTab = id; render(root); },
   }))));
 
-  const categories = state.meta ? state.meta.categories : [];
-  const allRows = data.sections.flatMap(section => section.rows);
-  const deviceCategory = new Map(
-    state.devices.map(device => [device.id, device.category]));
-
-  const selected = state.checklistCategory || 'all';
-  const countFor = (id) => (id === 'all'
-    ? allRows.length
-    : allRows.filter(
-      row => deviceCategory.get(row.deviceId) === id).length);
-
   parts.push(el('div', {
     class: 'chip-bar', role: 'group', 'aria-label': t('checklist.categoryFilter'),
   }, [
@@ -366,22 +416,8 @@ export function render(root, refreshNow) {
     ])),
   ]));
 
-  const rows = selected === 'all'
-    ? allRows
-    : allRows.filter(row => deviceCategory.get(row.deviceId) === selected);
-
-  const results = rows.map(row => evaluate(row, data.columns));
-  const passed = results.filter(r => r.passed).length;
-  const reachIssues = results.filter(r => r.problems.some(
-    p => ['reach', 'auth', 'unread'].includes(p.code))).length;
-  const ipIssues = results.filter(
-    r => r.problems.some(p => p.code === 'ip')).length;
-  const sipIssues = results.filter(
-    r => r.problems.some(p => p.code === 'sip')).length;
-
-  parts.push(el('div', { class: 'check-summary-grid' }, [
-    summaryCard(t('checklist.passedBasicChecks'), passed, 'ok',
-      t('checklist.devicesInTotal', { count: rows.length })),
+  parts.push(el('div', { class: 'stat-grid' }, [
+    summaryCard(t('checklist.passedBasicChecks'), passed, 'ok'),
     summaryCard(t('checklist.accessProblems'), reachIssues,
       reachIssues ? 'failed' : 'ok'),
     summaryCard(t('checklist.ipDeviations'), ipIssues,
@@ -393,25 +429,6 @@ export function render(root, refreshNow) {
   if (reportTab === 'excel') {
     parts.push(...excelPreview(rows, data));
   } else {
-    parts.push(el('div', { class: 'section-head' }, [
-      el('div', {}, [
-        el('h3', { text: t('checklist.deviceChecks') }),
-      ]),
-      el('span', {
-        class: 'badge',
-        text: t('checklist.toReviewOfTotal', {
-          review: rows.length - passed, total: rows.length,
-        }),
-      }),
-    ]));
-    // With nothing to review the table is a wall of green; the line above it
-    // is what the person actually came to read.
-    if (rows.length && rows.length === passed) {
-      parts.push(el('div', { class: 'empty-state empty-state-success' }, [
-        el('strong', { text: t('checklist.theBasicChecksFoundNothing') }),
-        el('span', { text: t('checklist.withinTheSelectedScopeAccess') }),
-      ]));
-    }
     parts.push(checkTable(rows, data.columns));
   }
 
@@ -457,13 +474,6 @@ function confirmExport() {
       line(t('devices.needsReview'), `${counts.failed ?? 0}`,
         'var(--failed-text)'),
     ]),
-    stale ? el('p', {
-      class: 'warning', style: 'margin-top:12px',
-      text: t('checklist.theDataMayBeOut'),
-    }) : el('p', {
-      class: 'info', style: 'margin-top:12px',
-      text: t('checklist.theDataIsCurrentThe'),
-    }),
   ]);
 
   const produce = async () => {
@@ -486,8 +496,6 @@ function confirmExport() {
       el('button', {
         type: 'button', class: 'btn', text: t('checklist.scanFirst'),
         disabled: state.scanRunning,
-        title: t(state.scanRunning ? 'checklist.scanAlreadyRunning'
-          : 'checklist.scanThenGenerate'),
         onclick: () => { dialog.close(); pullScanForward(); },
       }),
       el('button', {
@@ -565,18 +573,16 @@ function renderRow(row, columns, template) {
       // A cell greyed out in the template: a field invalid on this device
       // type. No text is written — seeing "N/A" in half of 23 columns made
       // the table unreadable. The grey ground already carries the meaning,
-      // and the explanation lives in the tooltip and the legend.
+      // and the legend explains it.
       return el('span', {
-        class: 'na-cell', title: t('checklist.notUsedOnThisDevice'),
+        class: 'na-cell',
         'aria-label': t('checklist.notUsedOnThisDevice'),
       });
     }
     const empty = cell.value === '' || cell.value === null;
     if (i === 0) {
       // The first column carries the row's state colour too
-      return el('span', {
-        style: 'display:flex;align-items:center;gap:7px;min-width:0',
-      }, [
+      return el('span', { class: 'row gap-2' }, [
         el('span', {
           class: 'dot', dataset: { state: row.state }, 'aria-hidden': 'true',
         }),

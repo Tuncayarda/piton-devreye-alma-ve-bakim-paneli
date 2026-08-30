@@ -195,7 +195,28 @@ def set_admin(on: bool) -> bool:
         _ADMIN = bool(on)
         if not _ADMIN:
             _EXTRA.clear()
-        return _ADMIN
+        now = _ADMIN
+    # OUTSIDE THE LOCK, and after the flag is set rather than before: opening
+    # the sealed projects registers extras, which takes the same lock, and it
+    # is worth doing only once the mode it belongs to is actually on.
+    if now:
+        unlock_sealed()
+    return now
+
+
+def unlock_sealed() -> int:
+    """Register the projects sealed into this package, if any can be opened.
+
+    Best effort by design. A package built without the other customers'
+    maps, a run with no key in the machine, or a blob that will not open are
+    all the same answer — nothing extra in the menu — and none of them is a
+    reason for admin mode to fail.
+    """
+    try:
+        from ..adminkey import sealed                      # noqa: PLC0415
+        return sealed.unlock()
+    except Exception:
+        return 0
 
 
 def views() -> tuple[str, ...]:
@@ -228,6 +249,8 @@ def checklist_path(project: Project | None = None) -> Path:
     otherwise produce an empty report.
     """
     project = project or current_project()
+    if project.checklist_file:
+        return Path(project.checklist_file)
     if project.checklist_name:
         return settings.data_file(project.checklist_name,
                                   *project.checklist_source)

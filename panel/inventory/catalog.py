@@ -6,6 +6,8 @@ keeps no list of its own and takes these from the API.
 """
 from __future__ import annotations
 
+from . import profiles
+
 # ── sidebar categories ──────────────────────────────────────────────────
 CATEGORIES = [
     {"id": "all", "nameKey": "category.all", "code": "ALL",
@@ -56,44 +58,27 @@ READ_METHODS = {
 
 
 def read_method_for(device_type: str, subtype: str | None) -> str:
-    """Which reader handles this device type.
+    """Which reader handles this device type, on ANY project.
 
-    This is the panel's own map: how a device is READ and WRITTEN while the
-    panel is open. The COLLECTORS table in field_scripts/device_verify.py
-    answers a narrower question — which extra query the checklist export
-    makes — and the two are deliberately not the same table.
+    The shared rules, asked without a project — which is the right question
+    for the two callers that have no project to ask about: the checklist
+    template generator (`tools/make_checklist_template.py`) builds one
+    workbook per DeviceMap from the vocabulary, and
+    `tests/test_data.py:ReadMethodsMatchTheFieldScript` joins this table to
+    `field_scripts/device_verify.py:COLLECTORS`, which has no project
+    dimension either.
 
-    Where they overlap they must agree, and one device is deliberately in
-    this map and not in that one (Announcement/UIC: the panel writes its
-    settings over HTTP, but the checklist gets every UIC field it reports
-    from DeviceMap). That is pinned by
-    tests/test_data.py:ReadMethodsMatchTheFieldScript — a claim in a
-    docstring could not be checked, and was already untrue when it said the
-    two mirrored each other.
+    A DEVICE IS NOT READ THROUGH THIS. `panel/inventory/profiles` answers
+    for the project the device came from, and `Device.read_method` is filled
+    in from there when the map is loaded. The two agree today for every
+    device in every shipped map (`tests/test_data.py`), and the whole reason
+    the profiles exist is that they are allowed to stop agreeing: a customer
+    whose Intercom answers somewhere else says so in their own file, and no
+    other project moves.
 
     `mqtt` is the fallback: described by DeviceMap, asked nothing directly.
     """
-    if device_type == "Switch":
-        return "kyland"
-    if device_type in ("Camera", "NVR"):
-        return "isapi"
-    if device_type == "Announcement" and (subtype or "") in (
-            "Amplifier", "Handset", "Intercom", "Swanneck", "UIC"):
-        return "http"
-    if device_type in ("PISCU", "HMI"):
-        return "app"
-    # The Android displays. All four are reached the same way and none has a
-    # settings API — the address is written over ADB (see
-    # panel/config_sync/adb_network.py) and the application arrives as an APK.
-    # LINE and PIS are GDM's, the passenger information and line-diagram
-    # screens; they are the same hardware as the Compartment display and are
-    # read the same way.
-    # LCD/Landing is deliberately not here: it is a passive display the panel
-    # only knows from DeviceMap.
-    if device_type == "LCD" and (subtype or "") in (
-            "Compartment", "Twin", "LINE", "PIS"):
-        return "adb"
-    return "mqtt"
+    return profiles.SHARED.read_method(device_type, subtype)
 
 
 # ── groups that operations can target ───────────────────────────────────
@@ -193,6 +178,59 @@ def group_supports(group: dict | None, op: str) -> bool:
 
 
 def device_supports(device, op: str) -> bool:
-    """Does the device fall into any group that declares this operation?"""
+    """Does the device fall into any group that declares this operation?
+
+    Searches the whole vocabulary rather than the project's groups, and that
+    is right rather than an oversight: the device was looked up in the open
+    project's own inventory, so every group it matches is one the project
+    has by construction. Narrowing this would ask the same question twice.
+    """
     return any(group_supports(g, op) and group_matches(g, device)
                for g in GROUPS)
+
+
+# ── what THIS project has ───────────────────────────────────────────────
+# GROUPS above is the whole vocabulary: everything the panel knows how to do
+# to anything, across every project. It is not a list any one operator should
+# be offered. The target pickers were being handed it whole, so a Yatakli
+# train listed the exhibition rack's Twin LCD and GDM's two screens, and the
+# IP screen offered a Compartment LCD commissioning run on a project with no
+# Compartment LCD in it.
+#
+# DERIVED FROM THE MAP, not declared on the project. The cost of that is real
+# and worth writing down: this cannot tell "no Handset on this train" from
+# "no Handset FITTED YET", so a device kind nobody has installed is missing
+# from the picker until the first one appears in DeviceMap. The opposite
+# choice has the opposite cost — a list to maintain by hand, which is how
+# GROUPS came to describe five projects at once in the first place.
+#
+# `panel/editions/catalogue.py` argues for DECLARING where the two claims
+# genuinely differ (`fixed_addressing`), and `Inventory.span` argues for
+# COMPUTING where they do not. This is the second kind: "the picker offers
+# what the operator can actually point at" has one answer, and the map is it.
+
+
+def groups_for(inventory) -> list[dict]:
+    """The groups the open project actually has devices for.
+
+    Matched with `group_matches` rather than against a second table of type
+    names — one matcher, so a group cannot be offered by one rule and refused
+    by another.
+    """
+    return [group for group in GROUPS
+            if any(group_matches(group, device)
+                   for device in inventory.devices)]
+
+
+def group_in(inventory, name: str) -> dict | None:
+    """`find_group`, but only for a group the open project has.
+
+    The API's half of the same rule. A picker that no longer offers a group
+    is not a guarantee: the client may be holding a list from the project
+    that was open a moment ago, and this is the write path.
+    """
+    group = find_group(name)
+    if group is None:
+        return None
+    return group if any(group_matches(group, device)
+                        for device in inventory.devices) else None

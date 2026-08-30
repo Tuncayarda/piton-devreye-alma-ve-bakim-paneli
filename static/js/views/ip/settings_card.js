@@ -48,7 +48,7 @@ export function lcdAddressingArea(data, check, showActionState) {
   return el('fieldset', { class: 'setting-section ip-lcd-settings' }, [
     el('legend', { class: 'visually-hidden', text: t('ip.lcdAddressing') }),
     el('div', { class: 'ip-sub-head' }, [
-      el('span', { class: 'eyebrow', text: t('ip.lcdAddressing') }),
+      el('span', { class: 'label', text: t('ip.lcdAddressing') }),
     ]),
     el('div', { class: 'ip-lcd-source' }, [
       el('div', { class: 'row' }, [
@@ -120,8 +120,12 @@ export function addressingArea(data, check, showActionState) {
     id: 'ip-factory-error', class: 'ip-field-error', role: 'alert',
     text: check.factoryError, hidden: !check.factoryError,
   });
+  // `ip-medium-field`, the same as the mask below it: two boxes on
+  // consecutive rows, both holding a dotted quad, and a bare `.field` is
+  // 100% wide while the mask is 148px. They were visibly different lengths
+  // for no reason a reader could find.
   const factoryInput = el('input', {
-    id: 'ip-factory', class: 'field', value: check.factoryIp,
+    id: 'ip-factory', class: 'field ip-medium-field', value: check.factoryIp,
     autocomplete: 'off', spellcheck: 'false', inputmode: 'numeric',
     'aria-invalid': String(!!check.factoryError),
     'aria-describedby': 'ip-factory-error',
@@ -158,7 +162,7 @@ export function addressingArea(data, check, showActionState) {
   return el('fieldset', { class: 'setting-section' }, [
     el('legend', { class: 'visually-hidden', text: t('ip.addressing') }),
     el('div', { class: 'ip-sub-head' }, [
-      el('span', { class: 'eyebrow', text: t('ip.addressing') }),
+      el('span', { class: 'label', text: t('ip.addressing') }),
     ]),
     el('label', { class: 'setting-row', for: 'ip-factory' }, [
       el('span', { class: 'label', text: t('ip.factoryIpAddress') }),
@@ -204,19 +208,16 @@ export function settingsCard(data, check, header, areas) {
     addressingArea(data, check, header.showActionState),
 
     // ── summary: what happens on which switch ──
+    // One line, and it is the one thing the form above does not already
+    // state in a box of its own. The mask used to be repeated here, a
+    // hundred pixels under the field holding the same value — a summary that
+    // reads back the box directly above it is not a summary.
     el('div', { class: 'setting-summary' }, [
       el('div', { class: 'row' }, [
         el('span', { text: t('ip.target') }),
         el('b', {
           text: t('ip.targetSummary', { switch: value(plan.switch),
                                         count: plan.targetCount }),
-        }),
-      ]),
-      el('div', { class: 'row' }, [
-        el('span', { text: t('ip.targetMask') }),
-        el('b', {
-          class: 'mono',
-          text: local.targetMask || plan.targetNetmask || '255.255.255.0',
         }),
       ]),
     ]),

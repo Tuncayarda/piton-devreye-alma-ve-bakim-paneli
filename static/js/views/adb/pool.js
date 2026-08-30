@@ -30,7 +30,7 @@ export function poolCard(actions) {
       el('h3', { text: t('adb.deviceList') }),
       el('span', { class: 'spacer' }),
       el('span', {
-        class: 'eyebrow',
+        class: 'label',
         text: t('adb.selectedOfTotal',
                 { selected: chosen.size, total: list.length }),
       }),
@@ -63,12 +63,15 @@ export function poolCard(actions) {
         type: 'button', class: 'btn btn-small',
         text: local.exporting ? t('adb.exporting') : t('adb.exportList'),
         disabled: local.exporting || !list.length,
-        title: list.length ? '' : t('adb.exportEmpty'),
         onclick: () => actions.exportList(),
       }),
     ]),
     dataTable({
-      template: COLUMNS, minWidth: 520, label: t('adb.deviceList'),
+      // The floor is the sum of the column minimums, the gaps between them
+      // and the row's own padding — below it the grid cannot shrink any
+      // further and spills past the row's right border instead. It was
+      // sixteen pixels under it.
+      template: COLUMNS, minWidth: 540, label: t('adb.deviceList'),
       columns: ['', t('adb.columnAddress'), t('adb.columnLabel'), ''],
       rows: list.map(entry => deviceRow(entry, chosen, actions)),
       empty: t('adb.noDeviceYet'),
@@ -121,7 +124,6 @@ export function confirmReboot(ips, actions) {
   confirmWrite({
     title: t('adb.rebootTitle'),
     lead: t('adb.rebootLead', { count: ips.length }),
-    notes: [{ text: t('adb.rebootNote'), tone: 'warning' }],
     items: ips.map(ip => ({ name: ip, detail: labels.get(ip) || '' })),
     danger: true,
     confirmLabel: t('adb.reboot'),

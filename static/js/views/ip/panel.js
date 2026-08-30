@@ -112,8 +112,6 @@ function askSwitchCredentials(panel, onDone) {
 
 export function panelCard(panel, plan, handlers) {
   const active = panel.switchId === plan.switchId;
-  const info = (plan.switches || []).find(s => s.id === panel.switchId);
-  const groupDevices = info ? info.groupDevices : null;
   const targets = new Set(
     active ? plan.rows.filter(row => row.actionable).map(row => row.port) : []);
   // The protected ports come from the discovery (see state.refreshProtected).
@@ -158,11 +156,6 @@ export function panelCard(panel, plan, handlers) {
     },
   });
 
-  const guidance = t(context.physicalPortMode
-    ? 'ippanel.clickPhysicalPoePort'
-    : groupDevices === 0 ? 'ippanel.noTargetOnSwitch'
-      : 'ippanel.clickDefinedPort');
-
   return el('article', {
     class: 'card corner front-panel', dataset: { active: active ? '1' : '0' },
   }, [
@@ -170,7 +163,7 @@ export function panelCard(panel, plan, handlers) {
       el('div', { class: 'ip-switch-identity' }, [
         el('div', { class: 'ip-switch-name' }, [
           el('i', { 'aria-hidden': 'true' }),
-          el('h4', { text: panel.switchName || 'Switch' }),
+          el('h3', { text: panel.switchName || 'Switch' }),
         ]),
         el('span', { class: 'mono', text: panel.switchIp }),
       ]),
@@ -179,7 +172,6 @@ export function panelCard(panel, plan, handlers) {
         // was taken refreshes every second (see writeFreshness).
         panel.source === 'switch' ? el('span', {
           class: 'ip-freshness', dataset: { readAt: panel.readAt || 0 },
-          title: t('ippanel.whenThePortStatesWere'),
           text: t('ippanel.sAgo'),
         }) : null,
         el('span', {
@@ -187,40 +179,26 @@ export function panelCard(panel, plan, handlers) {
             ? 'badge ip-source-badge live' : 'badge ip-source-badge',
           text: t(panel.source === 'switch' ? 'ippanel.liveData'
             : 'ippanel.projectDefault'),
-          title: t(panel.source === 'switch' ? 'ippanel.readFromSwitch'
-            : 'ippanel.readFromDeviceMap'),
         }),
         // Without credentials the run cannot start; this must also be where
         // they are entered.
         panel.hasCredentials === false ? el('button', {
           type: 'button', class: 'btn btn-small ip-credential-btn',
           text: t('detail.enterCredentials'),
-          title: t('ippanel.enterCredentialsFor',
-                        { switch: panel.switchName }),
           onclick: () => askSwitchCredentials(panel, handlers.onCredentials),
         }) : null,
       ]),
     ]),
-    active ? null : el('p', { class: 'ip-switch-guidance', text: guidance }),
     // Why the panel could not be read stays as a single line; a separate box
     // per switch showed the same sentence twice on two switches.
     panel.note
       ? el('p', { class: 'ip-panel-note', text: panel.note })
       : null,
-    // The warning only on the active switch: that is where the run will go.
-    // On another switch a missing credential is not an obstacle, the "enter
-    // credentials" button is enough.
-    active && panel.hasCredentials === false
-      ? el('p', {
-          class: 'ip-panel-note warning-tone',
-          text: t('ippanel.ipAssignmentCannotStartWithout'),
-        })
-      : null,
     el('div', { class: 'pm-case' }, [
       el('div', { class: 'pm-wrap' }, [grid]),
       el('div', { class: 'pm-footer' }, [
         el('span', { text: t('ippanel.poeRange', { count: poeCount }) }),
-        el('span', { style: 'flex:1' }),
+        el('span', { class: 'grow' }),
         el('span', {
           text: t('ippanel.uplinkRange', {
             first: poeCount + 1, last: poeCount + uplinkCount,

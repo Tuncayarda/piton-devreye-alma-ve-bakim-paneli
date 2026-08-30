@@ -27,6 +27,13 @@ than a device taking its time:
     panel/jobs/                     the queue's own dispatch
     panel/adminkey/watcher.py       the USB poll beat; its tests measure the
                                     real cadence deliberately
+    panel/remotekey/watcher.py      the grant beat, for the same reason —
+                                    but only the BEAT. What that module
+                                    waits FOR is a deadline, and its
+                                    deadline is `monotonic` from here,
+                                    because moving it is how a test watches
+                                    a grant run out without spending twelve
+                                    seconds on it
     panel/elevation/privileges.py   waiting on an OS elevation prompt; tests
                                     replace those functions whole
     panel/telemetry/client.py       a threading.Event collection window

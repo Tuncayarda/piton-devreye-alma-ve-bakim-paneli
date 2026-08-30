@@ -180,8 +180,8 @@ Kaynaktan çıplak `python3 app.py` **çalışmaz**: hangi müşterinin paketi
 olduğu söylenmeden açılmaz ve geçerli adları yazıp 2 ile çıkar. Paketlenmiş
 bir build'de ise durum tersine döner — sürüm binary'nin içine damgalanmıştır
 ve `--edition` verilirse *reddedilir*. Müşteri kendi paketini başkasının
-paketi olarak başlatamasın diye böyle; admin moda yalnızca servis
-anahtarıyla geçilir.
+paketi olarak başlatamasın diye böyle; admin moda ancak servis anahtarıyla
+ya da imzalı bir uzaktan oturumla geçilir.
 
 ```bash
 python3 app.py --edition gdm                # bir müşteri paketi
@@ -196,8 +196,10 @@ tabloda durur. Listeyi görmek için:
 python3 tools/edition_info.py --list
 ```
 
-`--admin-parolasi` kaldırıldı. Admin modun tek kapısı USB servis anahtarı
-(`panel/adminkey/`); anahtarı yalnızca `admin` paketi yazabilir.
+`--admin-parolasi` kaldırıldı. Admin modun iki kapısı var: USB servis
+anahtarı (`panel/adminkey/`) ve imzası doğrulanan uzaktan oturum
+(`panel/remotekey/`). Anahtarı yalnızca `admin` paketi yazabilir; uzaktan
+oturumu imzalayan özel anahtar bu depoda hiç yoktur.
 
 ---
 
@@ -319,7 +321,8 @@ görünür.
 
 Bu yalnızca kaynaktan geçerlidir; paketlenmiş bir build ortam değişkenine
 bakmaz, damgasına bakar (`panel/adminkey/secret.py`). Yani sahadaki hiçbir
-paket kendiliğinden admin açılmaz — tek yol USB'dir. Anahtar malzemesi hiç
+paket kendiliğinden admin açılmaz — USB ya da uzaktan oturum gerekir.
+Anahtar malzemesi hiç yoksa ve pakette güvenilen bir servis açık anahtarı da
 yoksa admin moda **hiçbir yoldan** girilemez.
 
 ### Kaynaktan çalışırken anahtarın tanınması
@@ -411,7 +414,7 @@ Bellek yazarken izinli bir terminalden
 
 Bu yol yalnızca **kaynaktan** çalıştırmaya aittir. Paketlenmiş bir build
 ortamdaki sırra da, diskteki bu dosyaya da bakmaz; neyi kabul ettiği derleme
-anında belirlenir ve tek kapısı USB'dir.
+anında belirlenir — USB anahtarın özeti ve güvenilen servis açık anahtarları.
 
 Sır **hiç kimse tarafından yazılmaz** — CI secret'ında ve parola yöneticinde
 durur — bu yüzden akılda kalıcı olması gereksiz ve zararlıdır. Müşteri
@@ -694,7 +697,7 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 
 | Ne | Nasıl |
 |---|---|
-| Başlık | `Devreye Alma ve Bakım Paneli - GDM v0.9.8` — ham etiket değil, ürün adı + sürüm |
+| Başlık | `dabp-gdm-v1.0.6` — paketin kendi adı + sürüm; sayfadaki dosyalarla aynı ad |
 | Etiket | `dap-<paket>-v*` / `syp-v*` · `v*` |
 | Dosya adları | `dabp-gdm-…`, `dabp-gaziray-…` / `SwitchYonetimPaneli-…` |
 | Sürüm açıklaması | İlgili uygulamanın `docs/RELEASE_NOTES.md` dosyası |
@@ -703,6 +706,14 @@ yoktur. İki uygulamanın sürümleri aynı listede görünür ve şöyle ayrıl
 Her paket kendi Release sayfasına çıkar, çünkü her paketin kendi etiketi
 vardır. Bir müşteri kendi sürümünün sayfasına bakar; sayfada başka
 müşterilerin dosyaları bulunmaz.
+
+**Başlık neden ürün adı değil.** Bir zamanlar başlıkta ürün adı yazıyordu:
+`Devreye Alma ve Bakım Paneli - Gaziray v1.0.5`, kırk sekiz karakter. GitHub
+sürüm başlığını hem kenar çubuğunda hem deponun ön yüzündeki kutuda dar bir
+alanda gösterir, dolayısıyla her satır kırpılıyordu — kesilen yarı da tam
+olarak paketleri birbirinden ayıran yarıydı. Başlık artık paketin kendi adı
+(`edition_info.py --field app_name`) artı sürüm: kısa, sığıyor ve sayfadaki
+dosya adlarının önekiyle harfi harfine aynı.
 
 İki ayrıntı bilerek böyle:
 

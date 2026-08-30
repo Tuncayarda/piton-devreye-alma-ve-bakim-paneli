@@ -118,6 +118,12 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
     "static/js/views/devices.js": (
         ("Yataklı_1", "example of a real DeviceMap switch name"),
     ),
+    # The device search folds Turkish spelling so that an operator typing on
+    # an ASCII keyboard still finds the device. The letters ARE the data it
+    # folds: removing them would not translate the search, it would break it.
+    "static/js/core/store.js": (
+        ("const TURKISH =", "the alphabet the device search folds"),
+    ),
     # A language names ITSELF in its own language, always: someone looking for
     # Turkish should not have to read English to find it.
     "static/js/components/language.js": (
@@ -198,6 +204,10 @@ WHOLE_FILE_EXEMPT = {
     "tests/test_language.py",
     # The Turkish catalogue: being Turkish is its entire job.
     "panel/messages/tr.json",
+    # The alphabet the device search folds, and the spellings an operator
+    # types looking for it: this test is about those letters, so exempting
+    # them one line at a time would exempt most of the file anyway.
+    "tests/js/search_fold_test.js",
 }
 
 

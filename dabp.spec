@@ -25,6 +25,7 @@ import importlib.util
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
@@ -166,6 +167,85 @@ for project in EDITION.projects:
         DATA_FILES.append((sheet, project.checklist_name))
         print(f"[spec] checklist: {project.label} <- "
               f"{project.checklist_name}")
+
+# ── the OTHER customers' projects, sealed ───────────────────────────────
+# They ship too, and they ship unreadable. The bytes are encrypted with K —
+# the value written on the service key — while this package is built with
+# sha256(K) and nothing else, so the package carrying them carries nothing
+# that opens them (see panel/adminkey/vault.py). Admin mode with the stick in
+# the machine decrypts them into a session directory; a customer running
+# their own package cannot list them, and could not read them if they could.
+#
+# LOADED BARE, like the edition table above and for the same reason: this
+# spec must not import `panel`. Both modules are written to stand alone —
+# `vault` imports hashlib, hmac and os, and `derive` needs only hashlib.
+#
+# WITHOUT THE BUILD SECRET NOTHING IS SEALED and nothing is shipped, and that
+# is not an error: a fork, or a local build with DAP_ALLOW_NO_ADMIN_KEY, has
+# no K to seal with. Such a package behaves the way every package did before
+# this existed — its own projects and no others.
+def load_bare(relative, name):
+    """A stdlib-only module of ours, loaded without importing `panel`."""
+    path = ROOT.joinpath(*relative)
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_secret():
+    """S for this build: the environment, or the checkout's own file.
+
+    The two places a SOURCE run looks (`panel.adminkey.secret`), and a build
+    is a source run. The stamp is not consulted — this is what writes it.
+    """
+    raw = os.environ.get("DAP_ADMIN_KEY_SECRET", "").strip()
+    if raw:
+        return raw.encode("utf-8")
+    path = ROOT / ".adminkey-secret"
+    try:
+        return (path.read_text(encoding="utf-8").strip() or "").encode(
+            "utf-8") or None
+    except OSError:
+        return None
+
+
+SEAL_KEY = None
+try:
+    _secret = load_bare(("panel", "adminkey", "secret.py"), "dap_key_secret")
+    _vault = load_bare(("panel", "adminkey", "vault.py"), "dap_vault")
+    _S = build_secret()
+    SEAL_KEY = _secret.derive(_S) if _S else None
+except Exception as error:
+    print(f"[spec] sealing unavailable: {error}")
+
+if SEAL_KEY:
+    SEAL_DIR = Path(tempfile.mkdtemp(prefix="dabp-sealed-"))
+    MINE = {p.key for p in EDITION.projects}
+
+    def seal_into(source, name):
+        """Seal one file and add it to the bundle as `<name>.sealed`."""
+        target = SEAL_DIR / f"{name}.sealed"
+        target.write_bytes(_vault.seal(SEAL_KEY, source.read_bytes()))
+        DATA_FILES.append((target, target.name))
+
+    for project in EDITIONS.ALL_PROJECTS:
+        if project.key in MINE:
+            continue
+        source = ROOT.joinpath(*project.source_path)
+        if not source.exists():
+            print(f"[spec] sealed: {project.label} skipped, not delivered")
+            continue
+        seal_into(source, project.map_name)
+        print(f"[spec] sealed device list: {project.label}")
+        if project.checklist_name:
+            sheet = ROOT.joinpath(*project.checklist_source)
+            if sheet.exists():
+                seal_into(sheet, project.checklist_name)
+                print(f"[spec] sealed checklist: {project.label}")
+else:
+    print("[spec] no build secret: other projects are not shipped at all")
 
 # The message catalogue: EVERY visible string in the panel, in both
 # languages. It is data sitting next to a Python package, and PyInstaller

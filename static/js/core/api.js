@@ -1,8 +1,9 @@
 // The local API client.
 //
-// A password travels ONLY in the body of `tryCredentials()`, once. It is
-// never stored, never written to global state, never attached to another
-// request. The server does not send it back either.
+// A password travels ONLY in the body of `tryCredentials()` and
+// `remoteSignin()`, once each. It is never stored, never written to global
+// state, never attached to another request. The server does not send it back
+// either, and neither call is ever retried with the value still in hand.
 
 import { transport } from "./transport.js";
 import { t } from "./i18n.js";
@@ -77,6 +78,40 @@ export function createApi(carrier = transport) {
     adminKeyDrives: () => get("/api/admin/key/drives"),
     adminKeyPrepare: (drive, label) =>
       post("/api/admin/key/prepare", { drive, label }),
+    // The remote service session. `remote` carries no code and no signature;
+    // what is here is "is a grant still good", for how much longer, and a
+    // counter.
+    //
+    // NOTHING HERE TYPES A CODE IN. `/api/admin/remote/connect` still takes
+    // one and the service still mints them, but the window stopped asking
+    // for eight characters read down a telephone (see app.js), and a
+    // transport method nothing calls is a way in nobody can find.
+    remote: () => get("/api/admin/remote"),
+    remoteDisconnect: () => post("/api/admin/remote/disconnect", {}),
+    // The other way in: the engineer at the machine signs in as themselves
+    // and the service mints a session bound to this installation. THE ONLY
+    // OTHER PLACE A PASSWORD APPEARS — it goes into this one body and the
+    // caller clears its field the moment the reply lands, whichever way it
+    // landed (see views/app.js, and panel/remotekey/account.py).
+    remoteSignin: (email, password) =>
+      post("/api/admin/remote/signin", { email, password }),
+    // Asking the service for an account, which is open to anybody holding
+    // this application because what it makes GRANTS NOTHING: the row comes
+    // out with every permission at zero and stays that way until an
+    // administrator says otherwise. So this returns no session and no code —
+    // only that the account exists and is waiting on somebody.
+    remoteSignup: (email, password, name) =>
+      post("/api/admin/remote/signup", { email, password, name }),
+    // The square, for a session nobody has to read out. What comes back is
+    // the drawn code, already encoded for an `<img>`, and the address it
+    // holds — never the key that reads the issued code back, which never
+    // leaves the panel's own process.
+    // `remotePairPoll` is a POST because a round of it can END in admin
+    // mode: the round that finds an approval waiting is the round that
+    // enters it (see panel/api/routes/remote_routes.py).
+    remotePair: () => post("/api/admin/remote/pair", {}),
+    remotePairPoll: () => post("/api/admin/remote/pair/poll", {}),
+    remotePairCancel: () => post("/api/admin/remote/pair/cancel", {}),
     // The message catalogue. Fetched before the first paint; the POST comes
     // back with the whole new catalogue so nothing renders half-translated.
     language: () => get("/api/language"),

@@ -146,7 +146,11 @@ def target_devices(inventory, body, op: str = ""):
             raise ValueError(
                 i18n.t("error.someDevicesUnsupported"))
         return devices
-    group = catalog.find_group(str(body.get("group", "")))
+    # `group_in` rather than `find_group`: a name the panel knows is not the
+    # same as a name THIS project has, and the picker no longer offering it is
+    # no guarantee — the client may still be holding the list from the project
+    # that was open a moment ago.
+    group = catalog.group_in(inventory, str(body.get("group", "")))
     if group is None:
         raise ValueError(i18n.t("error.noTargetGroup"))
     if op and not catalog.group_supports(group, op):
@@ -174,7 +178,7 @@ def config_field_context(inventory, device, group: str) -> dict:
     from .. import config_sync
     from ..config_sync.targets import group_project_summary
 
-    definition = catalog.find_group(group)
+    definition = catalog.group_in(inventory, group)
     members = [candidate for candidate in inventory.devices
                if definition and catalog.group_matches(definition, candidate)]
     shared, varying = group_project_summary(inventory, members or [device])

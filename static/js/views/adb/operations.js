@@ -82,7 +82,7 @@ export function applicationCard(actions) {
     el('div', { class: 'card-head' }, [
       el('h3', { text: t('adb.appActions') }),
       el('span', { class: 'spacer' }),
-      el('span', { class: 'eyebrow', text: summary(chosen, targets) }),
+      el('span', { class: 'label', text: summary(chosen, targets) }),
     ]),
     el('div', { class: 'adb-op-bar' }, [
       opButton(t('adb.startApp'), withPackage,
@@ -277,7 +277,7 @@ function autostartLog() {
   const known = local.autostart;
   if (!known || !(known.log || []).length) return null;
   return el('div', { class: 'adb-autostart-log' }, [
-    el('span', { class: 'eyebrow', text: t('adb.autostartLog') }),
+    el('span', { class: 'label', text: t('adb.autostartLog') }),
     ...known.log.map(line => el('p', { class: 'mono truncate', text: line })),
   ]);
 }
@@ -302,7 +302,6 @@ function confirmUninstall(targets, actions) {
       count: targets.length,
       devices: new Set(targets.map(pair => pair.ip)).size,
     }),
-    notes: [{ text: t('adb.uninstallNote'), tone: 'warning' }],
     items: pairItems(targets),
     danger: true,
     confirmLabel: t('adb.uninstallApp'),
@@ -338,7 +337,6 @@ async function confirmAutostart(targets, actions, on) {
     lead: on
       ? t('adb.autostartInstallLead', { count: targets.length })
       : t('adb.autostartRemoveLead', { count: targets.length }),
-    notes: [{ text: t('adb.autostartSystemWarning'), tone: 'warning' }],
     items: [
       ...paths.map(path => ({ name: path, detail: t('adb.systemFile') })),
       ...pairItems(targets),

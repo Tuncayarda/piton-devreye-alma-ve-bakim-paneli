@@ -25,7 +25,7 @@ applyCatalogue({
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("the api surface keeps its 76 methods", () => {
+Deno.test("the api surface keeps its 83 methods", () => {
   const api = createApi({ request: () => ok() });
   const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
@@ -87,6 +87,13 @@ Deno.test("the api surface keeps its 76 methods", () => {
       "piscu",
       "project",
       "refresh",
+      "remote",
+      "remoteDisconnect",
+      "remotePair",
+      "remotePairCancel",
+      "remotePairPoll",
+      "remoteSignin",
+      "remoteSignup",
       "scan",
       "selectProject",
       "setLanguage",

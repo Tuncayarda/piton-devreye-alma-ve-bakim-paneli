@@ -36,7 +36,7 @@ export function discoveryCard(actions) {
       el('h3', { text: t('switch.discoveryTitle') }),
       el('span', { class: 'spacer' }),
       el('span', {
-        class: 'eyebrow',
+        class: 'label',
         text: t('switch.discoveryFoundCount', { count: found.length }),
       }),
     ]),
@@ -69,7 +69,7 @@ function scanForm(actions, busy) {
     class: 'field switch-range-field', type: 'text', autocomplete: 'off',
     spellcheck: 'false', inputmode: 'decimal',
     'aria-label': t('switch.discoveryRange'),
-    placeholder: '10.1.1.0-255', value: local.range,
+    value: local.range,
     oninput: (event) => { local.range = event.target.value; },
   });
   const prefix = el('select', {
@@ -91,11 +91,11 @@ function scanForm(actions, busy) {
     },
   }, [
     el('label', { class: 'switch-scan-label' }, [
-      el('span', { class: 'eyebrow', text: t('switch.discoveryRange') }),
+      el('span', { class: 'label', text: t('switch.discoveryRange') }),
       range,
     ]),
     el('label', { class: 'switch-scan-label' }, [
-      el('span', { class: 'eyebrow', text: t('switch.discoveryPrefix') }),
+      el('span', { class: 'label', text: t('switch.discoveryPrefix') }),
       prefix,
     ]),
     el('div', { class: 'switch-scan-actions' }, [

@@ -5,6 +5,64 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.0.6 — 30 Ağustos 2026
+
+Admin moda artık uzaktan da girilebiliyor: telefonla okutulan bir QR ya da
+kendi hesabınız. Ekranlardaki açıklama satırları kalktı.
+
+### Uzaktan oturum
+
+Servis anahtarı, klavyenin başında birinin bellek takmasını istiyor. Uzaktaki
+bir makinede bunu yapacak kimse olmadığı için admin moda ikinci bir kapı
+açıldı: üst çubuktaki **Uzaktan oturum** düğmesi iki yol sunuyor, ikisi de
+aynı anda ekranda.
+
+- **QR ile.** Panel bir kare çiziyor, yetkili kişi telefonuyla okutup
+  onaylıyor, panel admin moda geçiyor. Kimsenin bir şey yazması gerekmiyor.
+- **Hesapla.** Makinenin başındaki mühendis kendi e-postası ve parolasıyla
+  giriyor. Hesabı yoksa aynı ekrandan açabiliyor — ama yeni hesap bir yönetici
+  yetki verene kadar giriş yapamıyor, ekran bunu peşinen söylüyor.
+
+Oturumu **sunucu** açıyor, panel değil: imzayı doğrulayan taraf o. Oturum
+kendiliğinden bitiyor, telefondan kapatılabiliyor ve ağ giderse birkaç saniye
+içinde admin mod düşüyor. Cihazlara yazma sürerken düşmüyor — yarım kalmış
+bir IP ataması, birkaç dakika açık kalan bir kapıdan kötüdür.
+
+**Sekiz haneli oturum kodu kutusu kaldırıldı.** Kareyle aynı kişinin uyanık
+olmasını gerektiriyordu, karşılığında ekranın bir sütununu harcıyordu ve
+operatöre trenin yanında sekiz karakter yazdırıyordu.
+
+### Mühürlü proje haritaları
+
+Her paket artık bütün projelerin cihaz listesini taşıyor, ama yalnız kendisini
+açık taşıyor: diğerleri servis anahtarındaki değerle mühürlü. Kendi paketini
+çalıştıran müşteri için hiçbir şey değişmiyor — listeyi göremiyor, baytları
+zaten okuyamıyor. Anahtar takılıyken admin modda diğer projeler açılabiliyor,
+ve admin moddan çıkınca çözülmüş kopyalar siliniyor.
+
+### Ekranlar sadeleşti
+
+Kontrollerin altındaki açıklama cümleleri kaldırıldı — ne yaptığını düğmenin
+kendisi söylüyor. Aynı sadeleşme birkaç yerde yerleşimi de değiştirdi:
+
+- **Proje ve cihaz listesi** switch'e göre gruplandı. 110 cihazın düz bir
+  tablosu yerine, her switch bir başlık ve portları altında; yanında arama
+  kutusu ve kategori sayımı.
+- **Arama kutuları** artık örnek yazı taşımıyor; kutunun içinde duran ve
+  kaybolmayan bir büyüteç var.
+- **Cihaz listesinde** başlık kaç satırın göründüğünü söylüyor.
+
+### Bunlar da
+
+- **macOS'ta Düzenle menüsü.** Cmd-C, Cmd-V ve Cmd-A pencerenin her yerinde
+  çalışıyor; daha önce menü çubuğunda Düzenle menüsü olmadığı için hiçbir yere
+  ulaşmıyordu.
+- **Cihaz profilleri proje başına bir dosyada.** Panelin bir projenin
+  ekipmanı hakkında bildiği her şey tek dosyada; iki müşterinin "Intercom"u
+  aynı cihaz olmak zorunda değil.
+- **Sürüm başlıkları kısaldı.** GitHub sürüm sayfalarının adı artık paketin
+  kendi adı (`dabp-gdm-v1.0.6`) — eski uzun başlık listede kırpılıyordu.
+
 ## v1.0.5 — 29 Ağustos 2026
 
 Gaziray ve GDM kendi paketleriyle geldi, cihaz listesi çoklu seçim kazandı.

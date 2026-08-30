@@ -68,12 +68,6 @@ function selectedCount(list) {
   return list.filter(d => d.file && d.file.selected).length;
 }
 
-// How many devices are installed at once — the width of the server's pool.
-function concurrency() {
-  const data = state.firmwareState;
-  return (data && data.concurrency) || 1;
-}
-
 // The file type the group's devices expect (.bin / .apk). Because the bar
 // shows one group, in practice there is one type; if mixed, both are written
 // so the user knows up front what will be selected.
@@ -89,37 +83,29 @@ export function render(root) {
   const installable = list.filter(d => d.installable).length;
   const parts = [];
 
-  parts.push(el('div', { class: 'page-head' }, [
-    // The heading is the same on all three operation screens: the tab bar
-    // below already says which screen this is.
-    el('h2', { text: t('nav.operations') }),
-    el('div', { class: 'actions' }, [
-      el('button', {
-        type: 'button', class: 'btn', text: t('firmware.clearTheSelections'),
-        disabled: !selected,
-        title: t('firmware.removeEveryFileSelectionIn'),
-        onclick: () => removeSelection(null),
-      }),
-      el('button', {
-        type: 'button', class: 'btn btn-primary', text: t('firmware.startTheInstall'),
-        disabled: !selected,
-        title: selected
-          ? t('firmware.jobQueuedFor', { count: selected })
-          : t('firmware.selectFileFirst'),
-        onclick: start,
-      }),
-    ]),
+  // The screen's scope and its actions ride on the tab row — see
+  // components/action_tabs.js for what came off the top of this screen.
+  parts.push(actionTabs.render([
+    groupBar.picker('fw', () => refresh()),
+    el('button', {
+      type: 'button', class: 'btn', text: t('firmware.clearTheSelections'),
+      disabled: !selected,
+      onclick: () => removeSelection(null),
+    }),
+    el('button', {
+      type: 'button', class: 'btn btn-primary',
+      text: t('firmware.startTheInstall'),
+      disabled: !selected,
+      onclick: start,
+    }),
   ]));
-
-  parts.push(actionTabs.render());
-  parts.push(groupBar.picker('fw', () => refresh()));
 
   // ── bulk selection ──
   // The usual field case: one file for the whole group. It is chosen once;
   // the rows can still be changed one by one.
   const types = typeText(list);
   parts.push(el('section', { class: 'card corner fw-bulk' }, [
-    el('div', { class: 'fw-bulk-head' }, [
+    el('div', { class: 'card-head' }, [
       el('h3', { text: t('firmware.bulkSelection') }),
     ]),
     el('div', { class: 'fw-bulk-fields' }, [
@@ -131,10 +117,8 @@ export function render(root) {
             ? t('firmware.selectAndApply', { count: installable })
             : t('firmware.selectFile')),
         disabled: !installable || local.pickerOpen,
-        // The expected file type lives in the tooltip of the button that
-        // makes the choice, not as a separate note line.
-        title: t('firmware.yourComputersFileDialogOpens')
-          + (types ? ` (${types})` : ''),
+        // The expected file type is the one thing the tooltip still carries.
+        title: types || null,
         onclick: () => pickFile(null),
       }),
     ]),
@@ -189,13 +173,13 @@ function renderRow(device) {
             type: 'button', class: 'btn btn-small fw-pick-btn',
             text: t(file.selected ? 'firmware.change' : 'firmware.select'),
             disabled: local.pickerOpen,
-            title: t('firmware.selectFileFor', { device: device.name })
-              + (device.extension ? ` (.${device.extension})` : ''),
+            title: device.extension ? `.${device.extension}` : null,
             onclick: () => pickFile([device.deviceId]),
           }),
           file.selected ? el('button', {
             type: 'button', class: 'btn btn-close',
-            text: '×', title: t('firmware.removeThisDevicesSelection'),
+            text: '×',
+            title: t('firmware.removeSelectionFor', { device: device.name }),
             'aria-label': t('firmware.removeSelectionFor', { device: device.name }),
             onclick: () => removeSelection([device.deviceId]),
           }) : null,
@@ -268,14 +252,6 @@ function start() {
   confirmWrite({
     title: t('firmware.startTheFirmwareInstall'),
     lead: t('confirm.firmwareLead', { count: list.length }),
-    notes: [
-      { text: t('confirm.firmwareRestart'), tone: 'warning' },
-      // How many run at once comes from the server; in the field this
-      // answers "which devices are about to go dark".
-      concurrency() > 1
-        ? { text: t('firmware.concurrency', { count: concurrency() }) }
-        : null,
-    ],
     items: list.map(device => ({
       name: device.name, detail: device.file.name,
     })),

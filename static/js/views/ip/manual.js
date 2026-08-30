@@ -74,10 +74,8 @@ export function manualAssignCard(data, check) {
   onMaskResult((result) => review(result));
 
   const card = el('section', { class: 'card corner ip-manual-card' }, [
-    el('div', { class: 'ip-factory-reset-head' }, [
-      el('div', {}, [
-        el('h3', { text: t('ip.lcdManualSection') }),
-      ]),
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('ip.lcdManualSection') }),
     ]),
     field('ip-lcd-manual-port', 'manualPort', 'ip.lcdManualPort',
           { inputmode: 'numeric' }),
@@ -89,7 +87,6 @@ export function manualAssignCard(data, check) {
     // Both boxes hold the same setting (see maskField).
     ...maskField(data, check, () => {}, 'ip-lcd-manual-mask'),
     el('div', { class: 'ip-factory-reset-actions' }, [
-      el('p', { text: t('ip.lcdManualHow') }),
       startButton,
     ]),
   ]);
@@ -103,7 +100,6 @@ export function startManual(plan) {
     lead: t('confirm.lcdManualLead', {
       port: local.manualPort, ip: local.manualIp,
     }),
-    notes: [{ text: t('ip.lcdManualHow') }],
     confirmLabel: t('ip.lcdManualStart'),
     run: () => runManual(plan),
   });

@@ -27,6 +27,7 @@ import { el } from '../../core/dom.js';
 import { dataTable } from '../../components/table.js';
 import { clockTime } from '../../core/format.js';
 import { t } from '../../core/i18n.js';
+import { emptyState } from '../../components/placeholder.js';
 import { runner } from './state.js';
 
 const RUN_COLUMNS = 'minmax(120px,.8fr) minmax(160px,1.4fr) 120px';
@@ -80,7 +81,7 @@ export function statusCard(actions) {
       el('span', { class: 'spacer' }),
       rows.length
         ? el('span', {
-          class: 'eyebrow',
+          class: 'label',
           text: t('adb.runningOperation', {
             operation: operationName(current.operation),
           }),
@@ -106,7 +107,7 @@ export function statusCard(actions) {
         rows: rows.map(runRow),
         empty: '',
       })
-      : el('p', { class: 'info', text: t('adb.noRunYet') }),
+      : emptyState(t('adb.noRunYet')),
     ...history(log),
   ]);
 }
@@ -135,7 +136,7 @@ function history(log) {
   if (!log.length) return [];
   return [
     el('div', { class: 'adb-log-head' }, [
-      el('span', { class: 'eyebrow', text: t('adb.history') }),
+      el('span', { class: 'label', text: t('adb.history') }),
       el('span', { class: 'spacer' }),
       el('span', {
         class: 'adb-log-count',
@@ -143,7 +144,11 @@ function history(log) {
       }),
     ]),
     dataTable({
-      template: LOG_COLUMNS, minWidth: 720, label: t('adb.history'),
+      // The floor is the sum of the column minimums, the gaps between them
+      // and the row's own padding — below it the grid cannot shrink any
+      // further and spills past the row's right border instead. It was
+      // fifty pixels under it.
+      template: LOG_COLUMNS, minWidth: 780, label: t('adb.history'),
       wrapClass: 'adb-log',
       columns: [t('adb.columnTime'), t('adb.columnOperation'),
                 t('adb.columnAddress'), t('adb.columnPackage'),

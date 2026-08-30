@@ -95,7 +95,7 @@ export async function showAddressMap(factoryIp) {
       // made and whether the ARP flush worked decide how trustworthy the
       // result is.
       el('p', {
-        class: map.arpFlush ? 'info' : 'warning', style: 'margin-top:10px',
+        class: `${map.arpFlush ? 'info' : 'warning'} mt-3`,
         text: t(map.arpFlush ? 'ipmap.arpFlushed'
           : 'ipmap.arpNotFlushed'),
       }),
@@ -135,14 +135,6 @@ export function confirmLcdFactoryReset(plan, portText, sourceSetNo) {
       el('p', { class: 'description' }, [
         t('ipmap.lcdFactoryResetIntro', { ports: portText, set: sourceSet }),
       ]),
-      el('p', {
-        class: 'info', style: 'margin-top:10px',
-        text: t('ipmap.lcdFactoryResetHow'),
-      }),
-      el('p', {
-        class: 'warning', style: 'margin-top:10px',
-        text: t('ipmap.lcdFactoryResetWarning'),
-      }),
     ]),
     actions: [
       el('button', {
@@ -217,30 +209,8 @@ export async function confirmFactoryReset(factoryIp, resetSetNo = state.setNo) {
         }),
       ]),
       el('p', {
-        class: 'info', style: 'margin-top:10px',
+        class: 'info mt-3',
         text: t('ipmap.factoryResetSourceSet', { set: sourceSet }),
-      }),
-      el('p', {
-        class: 'info', style: 'margin-top:10px',
-        text: t('ipmap.thisTestToolPreparesThe'),
-      }),
-      // The only reliable way to reach devices sharing an address in turn is
-      // flushing the ARP cache. Without the privilege the operation still
-      // runs but waits for the entry to turn over on its own and the result
-      // may be incomplete; the user must know before pressing the button.
-      plan.arpFlush === false
-        ? el('p', {
-            class: 'warning', style: 'margin-top:10px',
-            text: t('ipmap.theArpCacheCannotBe'),
-          })
-        : null,
-      // The factory address is not resolved per train set (it is always
-      // 10.1.1.12). If the computer is on another network the devices become
-      // invisible after this write and the run cannot find them — and undoing
-      // it also requires reaching the device, so it must be said first.
-      el('p', {
-        class: 'warning', style: 'margin-top:10px',
-        text: t('ipmap.factoryWarning', { factory: factoryIp }),
       }),
     ]),
     actions: [
@@ -312,7 +282,7 @@ export function factoryResetCard(data, check) {
     id: 'ip-factory-reset-set', class: 'field ip-reset-set-field',
     type: 'number', min: '1', max: '254', step: '1',
     value: local.factoryResetSet,
-    placeholder: String(state.setNo), inputmode: 'numeric',
+    inputmode: 'numeric',
     autocomplete: 'off',
     'aria-invalid': String(!!initial.error),
     'aria-describedby': 'ip-factory-reset-set-error',
@@ -366,10 +336,9 @@ export function factoryResetCard(data, check) {
   });
 
   return el('section', { class: 'card corner ip-factory-reset-card' }, [
-    el('div', { class: 'ip-factory-reset-head' }, [
-      el('div', {}, [
-        el('h3', { text: t('ipmap.factoryResetSection') }),
-      ]),
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('ipmap.factoryResetSection') }),
+      el('span', { class: 'spacer' }),
       el('span', { class: 'mono ip-factory-reset-address',
         text: check.factoryIp }),
     ]),
@@ -438,10 +407,9 @@ export function lcdFactoryResetCard(data, check) {
   });
 
   return el('section', { class: 'card corner ip-factory-reset-card' }, [
-    el('div', { class: 'ip-factory-reset-head' }, [
-      el('div', {}, [
-        el('h3', { text: t('ipmap.lcdFactoryResetSection') }),
-      ]),
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('ipmap.lcdFactoryResetSection') }),
+      el('span', { class: 'spacer' }),
       el('span', { class: 'mono ip-factory-reset-address',
         text: t('ipmap.setOneAddresses') }),
     ]),
@@ -459,7 +427,7 @@ export function lcdFactoryResetCard(data, check) {
           id: 'ip-lcd-reset-set', class: 'field ip-reset-set-field',
           type: 'number', min: '1', max: '254', step: '1',
           value: local.factoryResetSet,
-          placeholder: String(state.setNo), inputmode: 'numeric',
+          inputmode: 'numeric',
           autocomplete: 'off',
           'aria-invalid': String(!!initial.error),
           'aria-describedby': 'ip-lcd-reset-set-error',

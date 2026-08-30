@@ -126,9 +126,7 @@ function jobRow(job) {
   return el('div', {
     class: 'table-row', style: `--table-columns:${COLUMNS}`,
   }, [
-    el('span', {
-      style: 'display:flex;flex-direction:column;gap:3px;min-width:0',
-    }, [
+    el('span', { class: 'stack gap-1' }, [
       el('span', {
         class: 'text-bright t-base', text: jobName(job),
       }),
@@ -137,12 +135,10 @@ function jobRow(job) {
         title: scope, text: scope,
       }) : null,
       job.auto ? el('span', {
-        class: 'badge', style: 'align-self:flex-start', text: t('history.automatic'),
+        class: 'badge self-start', text: t('history.automatic'),
       }) : null,
     ]),
-    el('span', {
-      style: 'display:flex;align-items:center;gap:8px;min-width:0',
-    }, [
+    el('span', { class: 'row gap-3' }, [
       el('span', {
         class: 'dot', dataset: { state: colour }, 'aria-hidden': 'true',
       }),
@@ -157,9 +153,7 @@ function jobRow(job) {
       class: 'mono text-mid t-sm',
       text: t('history.trainSet', { set: job.setNo ?? NONE }),
     }),
-    el('span', {
-      style: 'display:flex;flex-direction:column;gap:3px',
-    }, [
+    el('span', { class: 'stack gap-1' }, [
       el('span', {
         class: 'mono text-bright t-sm',
         text: timeText(startedAt),
@@ -184,13 +178,13 @@ function jobRow(job) {
 }
 
 function section(title, jobs, emptyText) {
-  return el('section', { style: 'margin-top:20px' }, [
+  return el('section', { class: 'mt-5' }, [
     el('div', { class: 'card-head' }, [
       el('h3', { text: title }),
       el('span', { class: 'badge', text: String(jobs.length) }),
     ]),
     dataTable({
-      template: COLUMNS, minWidth: 1040, wrapStyle: 'margin-top:0',
+      template: COLUMNS, minWidth: 1040, wrapClass: 'mt-0',
       label: title,
       columns: ['col.job', 'col.state', 'col.trainSet',
                 'col.startAndDuration', 'col.outcome', '']
@@ -212,14 +206,10 @@ function filters(active, finished) {
       label: t('history.filterFinished', { count: finished.length }) },
   ];
   return el('div', {
-    style: 'display:flex;gap:2px;border:1px solid var(--line-strong)',
+    class: 'segmented',
     role: 'group', 'aria-label': t('history.historyFilter'),
   }, options.map(option => el('button', {
     type: 'button', class: 'btn btn-small t-base',
-    style: 'border:0;letter-spacing:.02em;text-transform:none;'
-      + 'font-family:var(--font-body)'
-      + (state.historyFilter === option.id
-        ? ';background:var(--accent);color:var(--deep)' : ''),
     'aria-pressed': String(state.historyFilter === option.id),
     text: option.label,
     onclick: () => patch({ historyFilter: option.id }),

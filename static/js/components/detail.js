@@ -37,8 +37,8 @@ export async function open(deviceId) {
 function block(title, source, rows) {
   return el('div', { class: 'detail-block' }, [
     el('div', { class: 'head' }, [
-      el('h4', { text: title }),
-      el('span', { style: 'flex:1' }),
+      el('h3', { text: title }),
+      el('span', { class: 'grow' }),
       el('span', { class: 'label', text: source || '' }),
     ]),
     ...rows.map(([name, raw, colour]) => el('div', { class: 'detail-row' }, [
@@ -204,14 +204,14 @@ function render(device) {
     class: 'detail', role: 'dialog', 'aria-modal': 'true',
     'aria-label': t('detail.dialogLabel', { device: device.name }),
   }, [
-    el('div', { style: 'display:flex;align-items:flex-start;gap:14px' }, [
-      el('div', { style: 'flex:1;min-width:0' }, [
+    el('div', { class: 'row-top gap-4' }, [
+      el('div', { class: 'grow' }, [
         el('div', {
-          class: 'eyebrow', text: typeLabel(device.typeLabel),
+          class: 'label', text: typeLabel(device.typeLabel),
         }),
-        el('h2', { style: 'margin:5px 0 0', text: device.name }),
+        el('h2', { class: 'mt-1', text: device.name }),
         el('div', {
-          class: 'mono text-mid t-sm', style: 'margin-top:5px',
+          class: 'mono text-mid t-sm mt-1',
           text: `${device.ip} · ${device.portLabel}`,
         }),
       ]),
@@ -220,11 +220,9 @@ function render(device) {
         onclick: close,
       }, ['×']),
     ]),
+    el('div', { class: 'row wrap gap-3 mt-5' }, actions),
     el('div', {
-      style: 'display:flex;gap:8px;margin-top:16px;flex-wrap:wrap',
-    }, actions),
-    el('div', {
-      class: 'info', style: 'margin-top:14px',
+      class: 'info mt-4',
       text: result.readAt
         ? t('detail.lastRead', {
           time: clockTime(result.readAt),

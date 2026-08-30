@@ -28,8 +28,13 @@ def project_dto(project, current: str) -> dict:
         # rather than fail on the click.
         "available": editions.available(project),
         "current": project.key == current,
-        # "usb" projects arrive on the service key and disappear with it.
-        "origin": "usb" if editions.is_extra(project) else "edition",
+        # "edition" is one of this package's own; "extra" is anything admin
+        # mode added — a project sealed into the package and opened with the
+        # service key (`panel.adminkey.sealed`), or a map carried on the
+        # stick itself (`panel.adminkey.pack`). The two are not told apart
+        # because nothing downstream treats them differently: both appear
+        # with admin mode and both go when it does.
+        "origin": "extra" if editions.is_extra(project) else "edition",
     }
 
 
@@ -49,6 +54,10 @@ def edition_body() -> dict:
         # when no key material was built in (see panel.adminkey.secret), so
         # the UI can say "unavailable" instead of silently never asking.
         "adminAvailable": editions.opens_as_admin() or _key_material(),
+        # Whether this build can check a REMOTE grant: false when it was
+        # cut with no public key for the service, in which case the window
+        # leaves the offer out rather than showing a door onto nothing.
+        "remoteAvailable": _remote_material(),
         # Minting a key needs the secret itself rather than a digest of it,
         # which no shipped package carries.
         "canWriteKey": _can_write_key(),
@@ -65,6 +74,11 @@ def edition_body() -> dict:
 def _key_material() -> bool:
     from ... import adminkey                              # noqa: PLC0415
     return adminkey.usable()
+
+
+def _remote_material() -> bool:
+    from ... import remotekey                              # noqa: PLC0415
+    return remotekey.available()
 
 
 def _can_write_key() -> bool:

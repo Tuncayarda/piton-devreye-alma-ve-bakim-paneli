@@ -82,7 +82,7 @@ def get_plan(query):
     # Without a parameter the established Intercom scope is used. A named
     # target is never quietly changed into another device group.
     names = name_list(single(query, "groups") or single(query, "group", ""))
-    groups = ip_assign.resolve_groups(names or ["Intercom"])
+    groups = ip_assign.resolve_groups(names or ["Intercom"], inventory)
     if not groups:
         return respond(400, {"error": i18n.t(_ONLY_INTERCOM)})
     candidates = [device for device in inventory.devices
@@ -188,7 +188,7 @@ def get_address_map(query):
     switch = find_device(inventory,
                          first_switch_id(inventory, single(query, "switch")))
     groups = [group["name"] for group in ip_assign.resolve_groups(
-        [single(query, "group") or "Intercom"])]
+        [single(query, "group") or "Intercom"], inventory)]
     if groups != [_INTERCOM]:
         return respond(400, {
             "error": i18n.t("error.addressMapIntercomOnly")})
@@ -292,7 +292,7 @@ def post_run(body):
     # different physical switch while their immutable device/id/IP/port map is
     # taken from DeviceMap's one canonical LCD switch.
     groups = [group["name"] for group in ip_assign.resolve_groups(
-        name_list(body.get("groups") or body.get("group")))]
+        name_list(body.get("groups") or body.get("group")), inventory)]
     if not groups:
         return respond(400, {"error": i18n.t(_ONLY_INTERCOM)})
     missing = ip_assign.groups_without_runner(groups)
@@ -300,7 +300,7 @@ def post_run(body):
         return respond(400, {
             "error": i18n.t("error.noRunnerForGroup",
                             groups=", ".join(missing))})
-    resolved_groups = ip_assign.resolve_groups(groups)
+    resolved_groups = ip_assign.resolve_groups(groups, inventory)
     device_switch_id = ip_assign.device_switch_for(
         inventory, resolved_groups, switch.id)
     lcd_only = groups == [_COMPARTMENT_LCD]
@@ -426,7 +426,7 @@ def post_factory_reset(body):
     # a mistyped external set can never fall back to set 1.
     inventory = inventory_for_write(body.get("set"))
     groups = [group["name"] for group in ip_assign.resolve_groups(
-        name_list(body.get("groups") or body.get("group")))]
+        name_list(body.get("groups") or body.get("group")), inventory)]
     # A display goes back to ITS OWN set-1 address, which is the ordinary
     # Android run with the two sets swapped — a different operation from the
     # Intercom one below, not a mode of it.
@@ -474,7 +474,7 @@ def post_lcd_assign(body):
     switch = _physical_switch(inventory, body.get("switch"))
     groups = [group["name"] for group in ip_assign.resolve_groups(
         name_list(body.get("groups") or body.get("group"))
-        or [_COMPARTMENT_LCD])]
+        or [_COMPARTMENT_LCD], inventory)]
     if groups != [_COMPARTMENT_LCD]:
         return respond(400, {"error": i18n.t("error.lcdManualOnly")})
     allowed = set(range(1, settings.SWITCH_POE_PORTS + 1))

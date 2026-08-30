@@ -177,6 +177,29 @@ def self_test() -> int:
         # development convenience and says nothing about any package.
         write(f"  [ --  ] Admin key material — {material} (from source)")
 
+    # THE REMOTE SERVICE, and the thing that can only be checked in a
+    # PACKAGE. Asking a grant service for a signature is the first HTTPS
+    # call this application has ever made — every other request goes to a
+    # device on 10.1.1.x — so the certificate roots `requests` needs have
+    # never had to survive PyInstaller before. A build that collected no
+    # roots fails on the customer's machine, in the field, at the moment
+    # somebody is on the telephone waiting for admin mode. It is named here
+    # so that a build says so instead.
+    from panel import remotekey                            # noqa: PLC0415
+    trusted = len(remotekey.verify.accepted_keys())
+    if trusted:
+        roots = ""
+        try:
+            import requests.certs                          # noqa: PLC0415
+            candidate = Path(requests.certs.where())
+            roots = str(candidate) if candidate.is_file() else ""
+        except Exception:
+            roots = ""
+        check("Remote service trust store", bool(roots),
+              f"{trusted} signing key(s), TLS roots: {roots or 'MISSING'}")
+    else:
+        write("  [ --  ] Remote service — no public key in this build")
+
     check("DeviceMap found", settings.DEVICE_MAP.exists(),
           str(settings.DEVICE_MAP))
     check("Excel template found", settings.EXCEL_TEMPLATE.exists())
@@ -470,12 +493,24 @@ def main() -> int:
               "socketless desktop mode")
         write(f"DeviceMap: {settings.DEVICE_MAP}")
         write("Credentials are asked for in the UI and written nowhere.")
+        # Cmd-C and Cmd-V need a menu bar to be attached to; pywebview
+        # builds no Edit menu (see panel.desktop.editmenu). Passed as
+        # `func` so it runs once the application object exists, and given
+        # the window because Paste writes the operator's clipboard straight
+        # into the page rather than trusting this process's pasteboard —
+        # elevated, it is not the one the operator copied into.
+        from panel.desktop import editmenu
+
+        def edit_menu():
+            editmenu.install(window)
+
         if platform.system() == "Windows":
             # No silent fallback to the old MSHTML engine: WebView2 is
             # required for modern module and security behaviour.
-            webview.start(gui="edgechromium", http_server=False)
+            webview.start(func=edit_menu, gui="edgechromium",
+                          http_server=False)
         else:
-            webview.start(http_server=False)
+            webview.start(func=edit_menu, http_server=False)
         return 0
     except Exception:
         write("[ERROR] The window could not be opened:\n"

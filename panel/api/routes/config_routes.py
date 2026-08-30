@@ -65,7 +65,7 @@ def post_target(body):
     # equipment (see config_sync.fields.config_scope). Not to be confused
     # with the request's own "scope" below, which says group or device.
     field_scope = config_sync.config_scope(device)
-    definition = catalog.find_group(group) if group else None
+    definition = catalog.group_in(inventory, group) if group else None
     if not catalog.device_supports(device, "cfg"):
         return respond(400, {
             "error": i18n.t("error.configUnsupported")})

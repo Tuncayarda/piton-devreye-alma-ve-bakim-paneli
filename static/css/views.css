@@ -6,13 +6,13 @@
    element becomes inline text. One marker only: the strip on the left edge of
    the selected area. */
 .sidebar-list {
-  display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 0; flex: 1; min-height: 0;
+  display: flex; flex-direction: column; gap: var(--sp-0);
+  padding: var(--sp-3) 0; flex: 1; min-height: 0;
 }
 .sidebar-item {
   position: relative;
-  display: flex; align-items: center; gap: 12px;
-  flex: none; height: 40px; padding: 0 12px 0 18px;
+  display: flex; align-items: center; gap: var(--sp-4);
+  flex: none; height: 40px; padding: 0 var(--sp-4) 0 var(--sp-5);
   background: transparent;
   border: 0; border-left: 2px solid transparent;
   color: var(--text-mid); cursor: pointer; text-align: left;
@@ -20,12 +20,12 @@
   letter-spacing: 0; text-transform: none;
   transition: background .14s ease, color .14s ease;
 }
-.sidebar-item:hover { background: rgba(214, 235, 255, .05); color: var(--text); }
+.sidebar-item:hover { background: var(--raise-2); color: var(--text); }
 .sidebar-item[aria-current="page"] {
-  background: var(--accent-soft);
+  background: var(--accent-wash);
   border-left-color: var(--accent);
   color: var(--text);
-  padding-left: 16px;
+  padding-left: var(--sp-5);
 }
 .sidebar-icon { display: inline-flex; flex: none; }
 .sidebar-item[aria-current="page"] .sidebar-icon { color: var(--accent); }
@@ -33,7 +33,7 @@
 
 /* The line separating the field areas from the admin tools. */
 .sidebar-divider {
-  height: 1px; margin: 8px 14px;
+  height: 1px; margin: var(--sp-3) var(--sp-4);
   background: var(--line); flex: none;
 }
 
@@ -47,10 +47,10 @@
 .sidebar[data-wide="0"] .sidebar-name {
   position: absolute; left: calc(100% + 9px); top: 50%;
   z-index: 40;
-  padding: 5px 10px;
+  padding: var(--sp-1) var(--sp-3);
   background: var(--panel);
   border: 1px solid var(--line-strong);
-  box-shadow: 0 8px 24px rgba(6, 10, 13, .45);
+  box-shadow: 0 8px 24px var(--drop);
   color: var(--text); font-size: var(--fs-base);
   opacity: 0; pointer-events: none;
   transform: translateY(-50%) translateX(-5px);
@@ -71,7 +71,7 @@
   border: 0; border-top: 1px solid var(--line);
   color: var(--text-dim); cursor: pointer;
 }
-.sidebar-expand:hover { color: var(--text); background: rgba(214, 235, 255, .05); }
+.sidebar-expand:hover { color: var(--text); background: var(--raise-2); }
 .sidebar-expand-icon {
   display: inline-flex;
   transition: transform .18s ease;
@@ -83,105 +83,181 @@
 }
 
 /* ──────────────────────────────────────────────────────── overview ─── */
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 14px; margin-top: 20px;
-}
-/* The tile is clickable: it leads to the device list behind the number.
-   Because it is a button, the browser defaults are reset here. */
-.kpi {
-  position: relative;
-  width: 100%;
-  display: block;
-  border: 1px solid var(--line);
-  background: transparent;
-  padding: 13px 16px 14px;
-  color: inherit; font: inherit; text-align: left;
-  cursor: pointer;
-}
-.kpi:hover { border-color: var(--line-strong); background: rgba(214, 235, 255, .03); }
-.kpi:focus-visible { outline-offset: -2px; }
-.kpi .name {
-  font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
-  letter-spacing: .01em; color: var(--text-mid); text-transform: none;
-}
-.kpi .value-wrap {
-  margin-top: 9px; display: flex; align-items: baseline; gap: 7px;
-}
-.kpi .value {
-  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-3xl); line-height: 1;
-}
-.kpi .unit { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-mid); }
-.kpi .bar { margin-top: 12px; }
+/* THE HEADING IS THE ANSWER, so it is a step larger than every other screen's.
+   Elsewhere an `h2` names the screen and the content below it does the
+   talking; here the heading IS the content — one sentence saying how much of
+   the train set is answering — and the strip beneath is that sentence drawn.
+   The screen's name is on the menu rail and in the hidden `h1`, which is
+   where a name belongs. */
+.overview-head h2 { font-size: var(--fs-3xl); }
 
+/* THE SWEEP STRIP — the whole device list as one bar.
+   ──────────────────────────────────────────────────
+   A device is in exactly one of the four states and the four add up to the
+   list, so a scan is a PARTITION, not four independent shares. It used to be
+   drawn as four bars, each a percentage of the total, one under each counter:
+   reading "how much is left" meant adding three of them up, and every
+   category row below drew a single amber bar whenever the count was anything
+   short of all — six rows, six identical ambers, and no way to tell 88% from
+   64%.
+
+   It is the only thing on the screen that is not inside a box, and the only
+   large area of colour on it. That is deliberate and it is the whole budget:
+   everything around it — the counters, the cards, the rows — stays quiet so
+   that this is what is seen from across the workshop.
+
+   The ground is `--sunk-2`, a channel pressed into the panel rather than a
+   surface laid on it, and the 2px between segments lets that ground through
+   so the partition reads as parts rather than as one gradient. */
+.sweep {
+  position: relative;
+  display: flex; gap: var(--sp-0);
+  height: 12px;
+  margin-top: var(--sp-5);
+  background: var(--sunk-2);
+}
+/* Quarters, so "about two thirds" can be read off a bar that carries no
+   numbers.
+
+   NOTCHED AT THE EDGES, NOT CUT THROUGH. A hairline running the full height
+   severs the strip: three of them at even spacing and the eye stops seeing
+   one bar with a scale on it and starts seeing four equal blocks — which is
+   the one thing this strip must not say, because its blocks are the states
+   and they are never equal. The scoring marks the top and bottom three
+   pixels and leaves the middle whole, the way a rule is scored along the
+   edge of a gauge. */
+.sweep::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px),
+                              var(--sunk-3) calc(25% - 1px) 25%)
+      top / 100% 3px repeat-x,
+    repeating-linear-gradient(90deg, transparent 0 calc(25% - 1px),
+                              var(--sunk-3) calc(25% - 1px) 25%)
+      bottom / 100% 3px repeat-x;
+}
+.sweep-part { display: block; min-width: 3px; }
+.sweep-part[data-state] { background: var(--state-colour); }
+
+/* The counters under the strip are `.stat` and nothing else: four states,
+   four segments, one order, and a figure in the colour of its own segment —
+   which is the only thing tying the two rows together. No legend swatch and
+   no rule down the side of the box, because the order and the colour already
+   say it. The shape and the state colour both live on `.stat` itself (see
+   components.css), so this screen and the verification summary cannot drift
+   into two sizes of the same object again. */
+
+/* The only screen whose two columns were a RATIO rather than a rail, so it
+   was the only one whose right-hand column changed width with the window
+   while every other screen's stayed put. The check summary and the recent
+   jobs are a rail: capped, and the category list takes what is left. */
 .overview-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  gap: 18px; margin-top: 22px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--rail-wide));
+  gap: var(--sp-5); margin-top: var(--sp-6); align-items: start;
 }
-@media (max-width: 1080px) {
+@media (max-width: 1180px) {
   .overview-grid { grid-template-columns: 1fr; }
 }
 
+/* THE SAME INSTRUMENT, ONE LEVEL DOWN. Each row carries the strip from the
+   top of the page over its own category, so the set and its parts are read
+   the same way.
+
+   The name column is capped rather than elastic. It used to take `1fr` and
+   the strip a fixed 320: on a wide window the names ended wherever their
+   own length put them, the strips started at six different places, and
+   comparing one category with another — which is the entire job of this
+   card — meant comparing bars that did not line up. Capped, they all start
+   at the same x and share one width. */
 .category-row {
   width: 100%;
   min-height: 46px;
   display: grid;
-  /* The bar has a maximum width: on a wide screen that falls to one column,
-     a strip running the full page width made the row's number easy to miss. */
-  grid-template-columns: minmax(0, 1fr) minmax(80px, 320px) 62px;
-  align-items: center; gap: 16px;
-  padding: 11px 4px;
+  grid-template-columns: minmax(0, 210px) minmax(0, 1fr) 62px;
+  align-items: center; gap: var(--sp-5);
+  padding: var(--sp-4) var(--sp-1);
   background: transparent;
-  border: 0; border-bottom: 1px solid rgba(214, 235, 255, .09);
+  border: 0; border-bottom: 1px solid var(--line-soft);
   color: var(--text); cursor: pointer; text-align: left;
 }
-.category-row:hover { background: rgba(214, 235, 255, .04); }
+.category-row:last-child { border-bottom: 0; }
+.category-row:hover { background: var(--raise-2); }
+.category-name {
+  display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0;
+}
 .category-row .name {
   font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-md);
   letter-spacing: 0; text-transform: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.category-row .bar { height: 6px; background: rgba(214, 235, 255, .1); display: block; }
-.category-row .bar > i { display: block; height: 6px; }
+/* The types the category covers, in the panel's monospaced face because it
+   is a list of identifiers rather than a sentence. */
+.category-row .types {
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* No scale on the small ones: three hairlines across a six-pixel bar is not
+   a scale anybody can read, and it makes the strip look broken. The quarters
+   belong to the one at the top of the page. */
+.category-row .sweep { height: 6px; margin-top: 0; }
+.category-row .sweep::after { content: none; }
+.category-count { text-align: right; }
 @media (max-width: 620px) {
   .category-row { grid-template-columns: 1fr auto; }
-  .category-row .bar { display: none; }
+  .category-row .sweep { display: none; }
 }
 
 /* Next steps: each row carries one task and the button that does it. */
 .step-row {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start; gap: 10px;
-  padding: 11px 0; border-bottom: 1px solid var(--line-soft);
+  align-items: start; gap: var(--sp-3);
+  padding: var(--sp-4) 0; border-bottom: 1px solid var(--line-soft);
 }
-.step-row > .dot { margin-top: 5px; }
-.step-row .text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.step-row > .dot { margin-top: var(--sp-1); }
+.step-row .text { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
 .step-row .name { font-size: var(--fs-base); color: var(--text-bright); line-height: 1.4; }
-/* The running scan's progress, inside a check-summary row. A bar rather
-   than a sentence: the page subtitle above already says how far the sweep
-   has got, and the same words twice on an otherwise empty screen read as a
-   fault rather than as waiting. Thicker than the shared 3px bar because
-   here it is the row's subject, not a footnote to a number. */
-.scan-progress { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-.scan-progress .bar { flex: 1; min-width: 0; height: 6px; }
-.scan-progress .bar > i { height: 6px; }
 
 .step-footer {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding-top: 11px;
+  gap: var(--sp-3); padding-top: var(--sp-4);
   font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
 }
 
 .summary-row {
   display: grid; grid-template-columns: 1fr auto;
-  align-items: center; gap: 10px;
-  padding: 8px 0; border-bottom: 1px solid var(--line-soft);
+  align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) 0; border-bottom: 1px solid var(--line-soft);
 }
-.summary-row .left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.summary-row .left { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .summary-row .left span:last-child { font-size: var(--fs-base); color: var(--text-bright); }
 .summary-row .value { font-family: var(--font-mono); font-size: var(--fs-sm); }
+
+/* THE LAST SIX JOBS, on the overview. Three columns, not six sentences: the
+   row used to read "Configuration · 12 devices — Completed" with the outcome
+   glued to the end of a name of any length, so the six outcomes — the only
+   part anybody scans this list for — finished at six different places down
+   the column. They are one column now, against the right edge, and the dot
+   that used to say the same thing in a colour beside the time is gone.
+
+   The time keeps the monospaced face so the six line up on the colon; the
+   job's own name does not, because it is prose and reads better as prose. */
+.overview-job-row {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline; gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.overview-job-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.overview-job-row .time {
+  font-family: var(--font-mono); font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.overview-job-row .title {
+  font-size: var(--fs-base); color: var(--text-bright);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.overview-job-row .outcome { font-size: var(--fs-sm); font-weight: 600; }
 
 /* ─────────────────────────────────────────────────── configuration ── */
 /* Shared settings run full width with the fields in several columns; the
@@ -191,14 +267,14 @@
 .cfg-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 18px; margin-top: 18px; align-items: start;
+  gap: var(--sp-5); margin-top: var(--sp-5); align-items: start;
 }
 .cfg-group-card {
   display: grid;
   grid-template-columns: repeat(3, minmax(210px, 1fr));
-  gap: 9px 12px;
+  gap: var(--sp-3) var(--sp-4);
 }
-.cfg-group-card > h3,
+.cfg-group-card > .card-head,
 .cfg-group-card > .cfg-section,
 .cfg-group-card > .cfg-defaults,
 .cfg-group-card > p { grid-column: 1 / -1; }
@@ -210,8 +286,8 @@
 /* The card footer: the saved state and the reset. */
 .cfg-defaults {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; flex-wrap: wrap;
-  margin-top: 16px; padding-top: 12px;
+  gap: var(--sp-3); flex-wrap: wrap;
+  margin-top: var(--sp-5); padding-top: var(--sp-4);
   border-top: 1px solid var(--line);
 }
 .cfg-saved-note {
@@ -224,16 +300,16 @@
 .cfg-inherited:focus-visible { color: var(--text); font-style: normal; }
 /* Section heading: on the UIC a list of 20+ fields is unreadable without one. */
 .cfg-section {
-  margin: 16px 0 2px;
+  margin: var(--sp-5) 0 var(--sp-0);
   font-family: var(--font-heading); font-size: var(--fs-xs); font-weight: 600;
   letter-spacing: .1em; text-transform: uppercase; color: var(--text-mid);
-  border-bottom: 1px solid var(--line); padding-bottom: 5px;
+  border-bottom: 1px solid var(--line); padding-bottom: var(--sp-1);
 }
-.cfg-group-card .cfg-section:first-of-type { margin-top: 12px; }
+.cfg-group-card .cfg-section:first-of-type { margin-top: var(--sp-4); }
 .cfg-device-area { min-width: 0; }
 .cfg-device-head {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 12px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--sp-3);
+  margin-bottom: var(--sp-4); flex-wrap: wrap;
 }
 
 /* Devices are listed, not selected: clicking a row opens that device's
@@ -242,17 +318,17 @@
 .cfg-device-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto 12px;
-  align-items: center; gap: 10px;
-  width: 100%; padding: 10px 12px;
+  align-items: center; gap: var(--sp-3);
+  width: 100%; padding: var(--sp-3) var(--sp-4);
   background: transparent;
   border: 1px solid var(--line); border-bottom: 0;
   color: var(--text); cursor: pointer; text-align: left;
   transition: background .14s ease, border-color .14s ease;
 }
 .cfg-device-item:last-child { border-bottom: 1px solid var(--line); }
-.cfg-device-item:hover { background: rgba(214, 235, 255, .04); }
+.cfg-device-item:hover { background: var(--raise-2); }
 .cfg-device-item[data-open="1"] {
-  background: var(--accent-soft); border-color: var(--accent-line);
+  background: var(--accent-wash); border-color: var(--accent-line);
 }
 .cfg-item-name { font-size: var(--fs-base); }
 .cfg-item-ip { font-size: var(--fs-sm); }
@@ -260,10 +336,7 @@
 
 /* The device window: settings are edited in a centred dialog and applied to
    that device only. */
-.cfg-window-body { display: flex; flex-direction: column; gap: 10px; }
-.cfg-window-note {
-  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-mid);
-}
+.cfg-window-body { display: flex; flex-direction: column; gap: var(--sp-3); }
 .cfg-window-body .table-wrap { margin-top: 0; }
 
 @media (max-width: 900px) {
@@ -278,8 +351,8 @@
 /* ─────────────────────────────────────────────────────── MQTT stream ── */
 .mqtt-grid {
   display: grid;
-  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
-  gap: 18px; margin-top: 18px; align-items: start;
+  grid-template-columns: minmax(0, var(--rail)) minmax(0, 1fr);
+  gap: var(--sp-5); margin-top: var(--sp-5); align-items: start;
 }
 @media (max-width: 900px) { .mqtt-grid { grid-template-columns: 1fr; } }
 
@@ -289,68 +362,221 @@
    9px-wide, 320px-tall bordered box. */
 .mqtt-feed {
   border: 1px solid var(--line); background: var(--deep);
-  padding: 14px 16px 16px; min-height: 320px;
+  padding: var(--sp-4) var(--sp-5) var(--sp-5); min-height: 320px;
   max-height: 60vh; overflow: auto;
 }
 .mqtt-feed-row {
   display: grid; grid-template-columns: 74px minmax(120px, 190px) minmax(0, 1fr);
-  gap: 11px; padding: 5px 0;
+  gap: var(--sp-4); padding: var(--sp-1) 0;
   font-family: var(--font-mono); font-size: var(--fs-sm); line-height: 1.5;
 }
-.mqtt-feed-row .body {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-bright); display: block; min-width: 0;
-}
+/* The topic is what the rows are scanned by, so it keeps the accent; the
+   payload is the content and reads in the ordinary bright text. Both ellipse
+   rather than running into what is beside them — the rule that was here
+   before named a class (`.body`) that this screen has never written, so
+   nothing was clipped and a long topic ran straight through its payload. */
+.mqtt-topic { color: var(--accent); }
+.mqtt-feed-row .payload { color: var(--text-bright); }
 
-/* ───────────────────────────────────────────────────────── admin ────── */
-.project-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px; margin-top: 18px;
+/* ──────────────────────────────────────────────────────────── PISCU ──── */
+/* Two short lists laid out as grids rather than tables: fixed shape, a
+   handful of rows, not worth the table machinery. The column templates are
+   named here so a list's header and its rows cannot drift apart — written
+   inline they were spelled out twice, once each. */
+.piscu-clients { grid-template-columns: minmax(0, 1fr) 104px minmax(0, 110px); }
+.piscu-extensions {
+  grid-template-columns: 64px minmax(0, 1fr) 96px minmax(0, 130px);
 }
+/* The number the project says a device should answer on: the accent, because
+   it is what the row is looked up by. The PISCU screen and the project's
+   device–port table both show it, so it is one class and one colour rather
+   than the same `color:var(--accent)` written into two screens' rows. */
+.sip-extension { color: var(--accent); }
+.piscu-row {
+  display: grid; gap: var(--sp-3); padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+}
+/* The line over the extensions: the same columns without the rule, because
+   it is a caption for the rows rather than one of them. */
+.piscu-head { display: grid; gap: var(--sp-3); padding-bottom: var(--sp-2); }
+
+/* ───────────────────────────────────── project and device list ────── */
+/* THE PAGE IS THE MAP, AND THE MAP IS A CABINET OF SWITCHES.
+   ─────────────────────────────────────────────────────────
+   It used to be one flat table of every device in the DeviceMap, 110 rows
+   of it on Gaziray, with the switch nowhere on the screen. Port numbers
+   restart at 1 on every switch, so the port column read 1,2,3,4,5,7,8…17,
+   then 1 again — and the only thing that said which cabinet a row belonged
+   to was the suffix somebody had put in the device's NAME. The file itself
+   is written as switches with devices hanging off their ports; the screen
+   was the one place that shape had been thrown away.
+
+   So the switch is a BAND across the ledger and its devices are the rows
+   under it. The gaps in the port column (6 and 12 missing on Ska1_1) are
+   free ports, and they are visible now because the numbers are read against
+   one switch instead of eight. */
 .admin-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
-  gap: 18px; margin-top: 20px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--rail));
+  gap: var(--sp-5); margin-top: var(--sp-5); align-items: start;
 }
-@media (max-width: 1080px) { .admin-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .admin-grid { grid-template-columns: 1fr; } }
+
+/* The rail: what this copy is loaded with. The category census always, and
+   on a build that can open somebody else's train or mint a service key,
+   those two cards under it. They used to sit in a row ABOVE the tables,
+   which pushed the one thing the screen is for off the bottom of the
+   window on the only builds that had them. */
+.map-rail { display: grid; gap: var(--sp-5); }
+
+/* THE LEDGER SCROLLS, THE PAGE DOES NOT.
+   `.table-wrap` is already a scroll container — `overflow-x: auto` makes it
+   one on both axes — so `position: sticky` inside it has never had the page
+   to resolve against. Giving it a height of its own is what makes the
+   column head and the switch bands pin, and it also means the census beside
+   it does not scroll away from the rows it counts.
+
+   180px is what stands above and below the ledger and never moves: the
+   content area's padding, the page head, and the card's own frame and
+   title. The floor keeps a short window showing rows rather than a slot. */
+.map-wrap {
+  max-height: calc(100vh - var(--top-height) - var(--footer-height) - 180px);
+  min-height: 240px;
+  overflow-y: auto;
+}
+
+/* The band is a row of the table, so it carries one cell and lays that cell
+   out — a screen reader is told about one thing here, not three. */
+.map-band {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line); border-top: 0;
+  background: var(--lift-2);
+  /* Under the column head, which is sticky at the top of the same box. */
+  position: sticky; top: 35px; z-index: 1;
+}
+.map-band-line {
+  display: flex; align-items: baseline; gap: var(--sp-4); flex-wrap: wrap;
+}
+.map-band .name {
+  font-family: var(--font-heading); font-weight: 600; font-size: var(--fs-md);
+  letter-spacing: .04em; color: var(--text);
+}
+/* The switch's own record — the address it answers on and how it is read.
+   It is a device like the rest and it used to have a row of its own, with
+   an em dash where its port would be; a switch has no port on itself. */
+.map-band .meta {
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-mid);
+}
+.map-band .ports {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
+}
+
+/* The port is the row's own reference and the column the ledger is read
+   down, so it leads the row and the digits line up on the right. */
+.map-port {
+  font-family: var(--font-mono); font-size: var(--fs-sm);
+  color: var(--text-mid); text-align: right;
+}
+/* The device name is what the row IS. It was the smallest and dimmest thing
+   on the row while the type beside it was set in --text-bright. */
+.map-name {
+  font-family: var(--font-mono); font-size: var(--fs-base); color: var(--text);
+}
+.map-method {
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
+  letter-spacing: .04em;
+}
+
+/* WHAT THE MAP HOLDS, AND THE FILTER OVER IT, AS ONE OBJECT.
+   The card was a static glossary — six codes and the types behind them,
+   in a rail beside a table four thousand pixels long. It says how many of
+   each are in this map now, and pressing a row is how the ledger is cut
+   down to them; the definition stays where it was rather than retreating
+   into a tooltip. Pressed is drawn the way a chip is (components.css), so
+   "this filter is on" is one signal across the panel. */
+/* THE DEFINITION SITS UNDER THE NAME, NOT BESIDE IT. Side by side they fit
+   the three-letter codes this card used to show (ANN, VIDEO, NET); they do
+   not fit the category names it shows now, which are two words in either
+   language. Those wrapped onto a second line and pushed the types they were
+   meant to explain into the count. Stacked, the row holds a name of any
+   length without anybody having measured it. */
+.census-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-0) var(--sp-3); width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: transparent; border: 0; cursor: pointer; text-align: left;
+  color: var(--text-mid);
+}
+.census-row:hover { background: var(--lift-1); color: var(--text); }
+.census-row[aria-pressed="true"] {
+  background: var(--accent-wash);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  color: var(--accent);
+}
+/* Placed rather than flowed. Auto-placement reads the DOM in order, and the
+   types below span both columns, so the count was pushed onto a third line
+   of its own — the name, its definition and its figure each on a line. The
+   DOM order stays name → definition → count, which is the order it should
+   be read out in. */
+.census-row .name {
+  grid-column: 1; grid-row: 1;
+  font-family: var(--font-body); font-weight: 600; font-size: var(--fs-base);
+  color: inherit;
+}
+/* The whole width of the row, under both cells above it: a type list is a
+   caption for the name, and it is the one thing here that may be clipped. */
+.census-row .types {
+  grid-column: 1 / -1; grid-row: 2; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
+}
+.census-row .count {
+  grid-column: 2; grid-row: 1; justify-self: end;
+  font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--text-bright);
+}
+.census-row[aria-pressed="true"] .types,
+.census-row[aria-pressed="true"] .count { color: var(--accent); }
+
+/* The search box sits in the page head beside the project name. The rail
+   width is what stops it stretching across half the bar on a wide window. */
+.map-search { width: var(--rail); max-width: 100%; }
 
 /* ─────────────────────────────────────────────────── firmware install ── */
 /* The image is chosen per device: every row has its own path and version
    box. The bulk field at the top is a convenience only — its value is written
    into the rows. */
-.fw-bulk { margin-top: 16px; padding: 16px 18px 14px; }
-.fw-bulk-head p {
-  margin: 5px 0 0;
-  color: var(--text-mid); font-size: var(--fs-sm); line-height: 1.45;
-}
+.fw-bulk { margin-top: var(--sp-5); padding: var(--sp-5) var(--sp-5) var(--sp-4); }
 .fw-bulk-fields {
-  display: flex; align-items: flex-end; gap: 12px;
-  flex-wrap: wrap; margin-top: 12px;
+  display: flex; align-items: flex-end; gap: var(--sp-4);
+  flex-wrap: wrap; margin-top: var(--sp-4);
 }
 .fw-bulk-fields label { display: block; }
-.fw-bulk-fields .label { display: block; margin-bottom: 5px; }
+.fw-bulk-fields .label { display: block; margin-bottom: var(--sp-1); }
 .fw-field-narrow { flex: 0 1 150px; }
 
 /* The file cell in a row: name + select/remove. The name is clipped and the
    full path lives in the tooltip — the path does not fit the row and is never
    typed by hand. */
 .fw-file {
-  display: flex; align-items: center; gap: 7px; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-2); min-width: 0;
   font-size: var(--fs-sm);
 }
 .fw-file > span { flex: 1; min-width: 0; }
-.fw-pick-btn { flex: none; padding: 3px 9px; font-size: var(--fs-sm); }
+.fw-pick-btn { flex: none; padding: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); }
 .fw-file .btn-close { width: 20px; height: 20px; }
 
 /* The row inputs sit inside the table cell: they must not grow the row
    height, or a 15-device list no longer fits the screen. */
 .fw-row .field {
-  min-height: 0; padding: 5px 8px;
+  min-height: 0; padding: var(--sp-1) var(--sp-3);
   font-size: var(--fs-sm); background: var(--deep);
 }
 .fw-row .field:disabled { color: var(--text-dim); cursor: not-allowed; }
 .fw-device {
-  display: flex; align-items: center; gap: 8px; min-width: 0;
+  display: flex; align-items: center; gap: var(--sp-3); min-width: 0;
 }
 .fw-state { font-size: var(--fs-sm); color: var(--text-mid); }
 /* A row with a file selected is read from the strip on the left, so "which
@@ -362,12 +588,12 @@
    name is kept alongside it — the firmware screen's markup predates the
    shared component and reads the same. */
 .confirm-list, .fw-confirm-list {
-  margin-top: 10px; max-height: 240px; overflow-y: auto;
+  margin-top: var(--sp-3); max-height: 240px; overflow-y: auto;
   font-family: var(--font-mono); font-size: var(--fs-sm);
 }
 .confirm-list .row, .fw-confirm-list .row {
-  display: flex; justify-content: space-between; gap: 12px;
-  padding: 4px 0; border-bottom: 1px solid var(--line-soft);
+  display: flex; justify-content: space-between; gap: var(--sp-4);
+  padding: var(--sp-1) 0; border-bottom: 1px solid var(--line-soft);
 }
 .confirm-list .row b,
 .fw-confirm-list .row b { color: var(--accent); font-weight: 500; }
@@ -376,17 +602,34 @@
    for the browser's own clear button — a field that filters a list wants a
    one-click way back to the whole list. */
 .device-head-actions {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap;
 }
-.device-search { width: min(280px, 42vw); }
+.device-search { width: min(320px, 46vw); }
+
+/* THE TWO FILTER ROWS LINE UP. Category and State are the same control in
+   two rows, and the word in front of each is what tells them apart — but
+   `.chip-bar .label` sizes itself to its own text, so "Category" and "State"
+   pushed their chips to two different left edges and the pair read as two
+   unrelated strips. A floor under the caption puts both rows of chips on one
+   column; in rem, so it holds when the operating system's text size changes.
+   A longer word in another language simply pushes past it. */
+#v-devices .chip-bar .label { min-width: 4.5rem; }
+
+/* THE NORMAL STATE IS NOT NEWS. "Reachable" is most of a healthy set, and in
+   the state green it made a column of forty rows that the eye had to read
+   past to find the two that matter. The strip in the gutter already says a
+   row is fine; the word here only has to be legible. The states that need
+   somebody keep their colour, because those are the rows being looked for. */
+#v-devices .state-text[data-state="ok"],
+#v-checklist .state-text[data-state="ok"] { color: var(--text-mid); }
 
 /* How many rows are selected, and the way out of the selection. Only drawn
    when there IS one, so it does not compete with the search box on the
    ordinary visit; it reads like the switch screen's selection strip because
    it is the same act. */
 .device-selection {
-  display: flex; align-items: center; gap: 8px;
-  padding-right: 12px;
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding-right: var(--sp-4);
   border-right: 1px solid var(--line);
   color: var(--accent);
   font-family: var(--font-mono); font-size: var(--fs-xs);
@@ -396,7 +639,7 @@
    and the arrow only appears on the column actually in use — an arrow on
    every heading reads as decoration rather than as state. */
 .sort-btn {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: var(--sp-1);
   padding: 0; border: 0; background: none;
   font: inherit; color: inherit; letter-spacing: inherit;
   text-align: left; cursor: pointer;
@@ -405,18 +648,15 @@
 .sort-btn[aria-pressed="true"] { color: var(--accent); }
 .sort-mark { font-size: var(--fs-xs); line-height: 1; }
 
-.overview-column { display: flex; flex-direction: column; gap: 18px; }
+.overview-column { display: flex; flex-direction: column; gap: var(--sp-5); }
 
-/* The answer to "is the network ready", at the top of its own screen. */
-.net-readiness {
-  display: inline-flex; align-items: center; gap: 8px; flex: none;
-  padding: 6px 12px;
-  border: 1px solid var(--line-strong);
-  font-size: var(--fs-sm);
-}
-.net-readiness[data-state="ok"] { border-color: var(--ok-soft); }
-.net-readiness[data-state="auth"] { border-color: var(--auth-soft); }
-.net-readiness[data-state="failed"] { border-color: var(--failed-soft); }
+/* A HEADING THAT IS AN ANSWER, with the state it reports in front of it.
+   The network screen asks it first — is this computer ready to reach the
+   devices — and the MQTT and PISCU screens ask their own version of the same
+   question, so the shape is named for what it does rather than for the first
+   screen that wanted it. */
+.verdict { display: flex; align-items: center; gap: var(--sp-4); }
+.verdict .dot { width: 10px; height: 10px; }
 
 /* ─────────────────────────────────────────────────────── checklist ─── */
 /* Every column of the template sits side by side; the table scrolls
@@ -424,7 +664,7 @@
 .na-cell {
   /* An empty grey cell: "not used on this device type". No text is written;
      the ground carries the meaning (see the legend). */
-  background: #2a3339;
+  background: var(--inert);
   height: 14px;
   align-self: center;
   display: block;
@@ -432,8 +672,15 @@
 
 /* The row's state is also read from the strip on its left. An inset shadow
    rather than a border: nothing thickens, so its alignment with the header
-   row does not drift. */
-#v-checklist .table-row[data-state] {
+   row does not drift.
+
+   The device list is read the same way. It used to mark the state with a
+   seven-pixel dot in front of the name and again, in the heading face and
+   upper case, in a column two thirds of the way across — the quiet encoding
+   too small to scan and the loud one too far from the eye's path down the
+   left edge. One strip, in the gutter, on both of the panel's long lists. */
+#v-checklist .table-row[data-state],
+#v-devices .table-row[data-state] {
   box-shadow: inset 3px 0 0 var(--state-colour);
 }
 
@@ -445,19 +692,49 @@
 .action-tab-list {
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: var(--sp-6);
   min-width: 0;
   overflow-x: auto;
   border-bottom: 1px solid var(--line);
 }
-.local-tabs { margin: 4px 0 16px; }
-.action-tabs { margin: 2px 0 18px; }
+.local-tabs { margin: var(--sp-1) 0 var(--sp-5); }
+
+/* THE OPERATIONS TAB ROW CARRIES THE SCREEN'S OWN CONTROLS.
+   ────────────────────────────────────────────────────────
+   The rule under the tabs runs the whole width, so it belongs to the row and
+   not to the list of tabs inside it; the list keeps the layout it shares with
+   `.local-tabs` and gives the border up. `flex-end` is what keeps the active
+   tab's two-pixel underline sitting on that rule rather than floating above
+   it when the controls beside it are taller. */
+.action-tabs {
+  display: flex; align-items: flex-end; gap: var(--sp-5); flex-wrap: wrap;
+  margin: var(--sp-0) 0 var(--sp-5);
+  border-bottom: 1px solid var(--line);
+}
+/* THE TABS ARE NEVER THE THING THAT GIVES WAY. With a plain `flex: 1 1 260px`
+   the controls beside them squeezed the list until the third tab was cut off
+   mid-word — and a clipped tab is not a tab, it is a bug the operator has to
+   discover by scrolling something that shows no scrollbar. The floor is the
+   list's own content width, capped at the row so the list itself can still
+   scroll on a window narrower than three tabs; the controls wrap under it
+   before any of that happens. */
+.action-tab-list {
+  flex: 1 1 auto; min-width: min(100%, max-content);
+  border-bottom: 0;
+}
+.action-tab-actions {
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  flex: none; margin-left: auto;
+  padding-bottom: var(--sp-2);
+}
+/* The picker brings its own bottom margin for the row it used to be. */
+.action-tab-actions .target-picker { margin: 0; }
 .local-tab,
 .action-tab {
   position: relative;
   flex: none;
   min-height: 39px;
-  padding: 7px 1px 9px;
+  padding: var(--sp-2) var(--sp-0) var(--sp-3);
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
@@ -492,38 +769,18 @@
   .local-tab, .action-tab { transition: none; }
 }
 
-/* ────────────────────────────────────── descriptions and empty states ─ */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 5px;
-  min-height: 92px;
-  margin-top: 14px;
-  padding: 22px;
-  border: 1px dashed var(--line-strong);
-  background: rgba(214, 235, 255, .015);
-  color: var(--text-mid);
-  font-size: var(--fs-base);
-  line-height: 1.5;
-}
-.empty-state strong { color: var(--text); font-size: var(--fs-md); }
-.empty-state-success {
-  border-color: var(--ok-soft);
-  background: rgba(63, 185, 80, .035);
-}
-.empty-state-success strong { color: var(--ok); }
+/* ─────────────────────────────────────────────── descriptions ─────── */
 
 .section-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  margin-top: 24px;
+  gap: var(--sp-5);
+  margin-top: var(--sp-6);
 }
 .section-head p {
   max-width: 720px;
-  margin: 5px 0 0;
+  margin: var(--sp-1) 0 0;
   color: var(--text-mid);
   font-size: var(--fs-base);
   line-height: 1.5;
@@ -532,12 +789,12 @@
 /* The raw source text in the device detail is kept apart from the ordinary
    information. */
 .tech-detail {
-  margin-top: 20px;
+  margin-top: var(--sp-5);
   border-top: 1px solid var(--line);
   color: var(--text-mid);
 }
 .tech-detail > summary {
-  padding: 12px 0;
+  padding: var(--sp-4) 0;
   cursor: pointer;
   font-size: var(--fs-base);
   font-weight: 600;
@@ -545,52 +802,16 @@
 .tech-detail[open] > summary { color: var(--text); }
 
 /* ──────────────────────────────────── verification and reports ──── */
-.report-tabs { margin-top: 2px; }
-.check-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(155px, 1fr));
-  gap: 10px;
-}
-/* Two rows, not three: the explanation under each number is gone, and the
-   108px this used to reserve for it left the cards standing on dead space.
-   The one card that still carries a line (how many devices are in scope —
-   a count, not an explanation) puts it in an implicit third row. */
-.check-summary-card {
-  display: grid;
-  grid-template-rows: auto auto;
-  align-content: start;
-  gap: 5px;
-  min-height: 84px;
-  padding: 13px 15px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-}
-.check-summary-card .name {
-  color: var(--text-bright);
-  font-size: var(--fs-base);
-  font-weight: 600;
-}
-.check-summary-card strong {
-  font-family: var(--font-heading);
-  font-size: var(--fs-2xl);
-  line-height: 1;
-}
-.check-summary-card .note {
-  align-self: end;
-  color: var(--text-dim);
-  font-size: var(--fs-sm);
-}
+.report-tabs { margin-top: var(--sp-0); }
+/* The check summary is four `.stat` boxes in a `.stat-grid`; both live in
+   components.css now. The category bar above them carries no bottom margin,
+   and the grid brings the same top spacing a table does, so the bar's border
+   no longer sits on the cards' and the two read as separate blocks. */
 /* A floor, not a height: a long finding still wraps onto a second line. The
    number matches the row height of every other table in the panel — the 48px
    it used to be came from the cells being two size steps larger than the
    device list beside it. */
 .check-deviation-row { min-height: 39px; }
-.device-summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
 .deviation-text {
   color: var(--text-bright);
   font-size: var(--fs-base);
@@ -598,17 +819,14 @@
 }
 /* A device with nothing wrong is listed too, so that "everything here was
    checked" is visible; it is not the row anyone is looking for, so it does
-   not read as loudly as a finding. */
-.deviation-text[data-passed="1"] { color: var(--ok-text); }
+   not read as loudly as a finding — which is what the state green it used to
+   be written in did do, seven times down a column whose subject is the rows
+   that are NOT fine. The strip in the gutter says the device answered. */
+.deviation-text[data-passed="1"] { color: var(--text-mid); }
 
-@media (max-width: 900px) {
-  .check-summary-grid { grid-template-columns: repeat(2, minmax(155px, 1fr)); }
-}
 @media (max-width: 620px) {
   .local-tabs,
-  .action-tab-list { gap: 16px; }
-  .check-summary-grid { grid-template-columns: minmax(0, 1fr); }
-  .check-summary-card { min-height: 94px; }
+  .action-tab-list { gap: var(--sp-5); }
   .section-head { align-items: flex-start; }
 }
 
@@ -616,44 +834,54 @@
 /* The rows follow the technical card on the IP screen: label on the left,
    value right-aligned and monospaced, a hairline between them. Same shape,
    because they answer the same kind of question. */
-.net-card { display: flex; flex-direction: column; gap: 2px; }
-.net-card + .net-card { margin-top: 14px; }
-.net-card > .eyebrow { margin: 9px 0 3px; }
+/* Both cards side by side while there is room for two of them; the tracks
+   collapse to one on a narrow window without a width of their own, the way
+   `.stat-grid` does. */
+.net-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--sp-5); margin-top: var(--sp-5); align-items: start;
+}
+.net-card { display: flex; flex-direction: column; gap: var(--sp-0); }
+.net-card > .label { margin: var(--sp-4) 0 var(--sp-1); }
 
 .net-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 8px 0;
+  gap: var(--sp-5);
+  padding: var(--sp-3) 0;
   border-bottom: 1px solid var(--line-soft);
   color: var(--text-mid);
   font-size: var(--fs-base);
 }
 .net-row:last-child { border-bottom: none; }
+/* The value, and it is the thing the row exists for — an address, an adapter
+   name. It used to be set a step SMALLER than the caption beside it, which
+   is the wrong way round on a screen whose whole content is these values. */
 .net-row > b {
   max-width: 60%;
   color: var(--text-bright);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 400;
   text-align: right;
   overflow-wrap: anywhere;
 }
 
-.net-label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.net-label { display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0; }
 .net-hint { color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.4; }
 .net-note {
-  margin: 6px 0 0;
+  margin: var(--sp-2) 0 0;
   color: var(--text-dim);
   font-size: var(--fs-sm);
   line-height: 1.5;
 }
 
-.net-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.net-card > .net-actions { margin-top: 14px; }
+.net-actions { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
+.net-card > .net-actions { margin-top: var(--sp-4); }
 
 .net-input {
-  padding: 5px 9px;
+  padding: var(--sp-1) var(--sp-3);
   border: 1px solid var(--line-strong);
   background: var(--panel-2);
   color: var(--text-bright);
@@ -665,15 +893,22 @@
 .net-accent { color: var(--accent); }
 
 @media (max-width: 620px) {
-  .net-row { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .net-row { align-items: flex-start; flex-direction: column; gap: var(--sp-2); }
   .net-row > b { max-width: 100%; text-align: left; }
 }
 
 /* The panel could not tell which adapter reaches the devices and is asking.
    Marked like a prompt, not like an error: nothing is broken, it just has a
-   question that one click answers. */
+   question that one click answers.
+
+   It takes the whole row, and so does what follows it. A screen that cannot
+   work until somebody answers a question should not put that question in a
+   column beside the readings it is waiting on — the point of asking is that
+   it is the loudest thing here. */
+.net-ask,
+.net-ask ~ .net-card { grid-column: 1 / -1; }
 .net-ask { border-color: var(--accent); }
-.net-ask > .eyebrow { color: var(--accent); font-size: var(--fs-base); }
+.net-ask > .card-head h3 { color: var(--accent); }
 
 /* ─────────────────────────────────────────────────────────── ADB screen ── */
 /* The bench tool. Cards down the page, in the order the work is done — the
@@ -682,12 +917,44 @@
    to be three, with the last one holding everything that was not a list; it
    was the card nobody could read. */
 
-.adb-pool { margin-top: 16px; }
-.adb-packages, .adb-actions, .adb-install,
-.adb-server, .adb-status { margin-top: 16px; }
+/* Two columns: the tables on the left, the controls on the right (see
+   views/adb/index.js for which card goes where and why). Stacked full width,
+   the daemon's two buttons had the same fourteen hundred pixels as the
+   device table, and the screen ran to three times its own height.
 
-.adb-add { margin-top: 12px; }
-.adb-add-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+   The rail is capped rather than proportional: past about 420px these rows
+   are a label and a short value with empty space after them, and a wider
+   rail only takes width off the tables that can use it. */
+.adb-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--rail-wide));
+  gap: var(--sp-5); margin-top: var(--sp-5); align-items: start;
+}
+.adb-column { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+/* The gap owns the spacing now; the per-card margins would double it. */
+.adb-grid .adb-pool, .adb-grid .adb-packages, .adb-grid .adb-actions,
+.adb-grid .adb-install, .adb-grid .adb-server,
+.adb-grid .adb-status { margin-top: 0; }
+
+/* In the rail a label beside its value leaves a third of the row for a file
+   name. Same treatment the narrow window already gets, applied because the
+   COLUMN is narrow rather than the screen — which a media query cannot ask
+   about. */
+.adb-grid .adb-op-row > .label { flex: 1 1 100%; }
+.adb-grid .adb-autostart-log { margin-left: 0; }
+
+/* One column again before the rail squeezes the device table below the
+   520px it is laid out for. */
+@media (max-width: 1180px) {
+  .adb-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.adb-pool { margin-top: var(--sp-5); }
+.adb-packages, .adb-actions, .adb-install,
+.adb-server, .adb-status { margin-top: var(--sp-5); }
+
+.adb-add { margin-top: var(--sp-4); }
+.adb-add-fields { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
 .adb-ip-field { font-family: var(--font-mono); }
 
 /* A text box with its name in front of it instead of inside it (see
@@ -697,7 +964,7 @@
 .adb-field { display: flex; align-items: stretch; flex: 1 1 200px; min-width: 0; }
 .adb-field-tag {
   display: flex; align-items: center; white-space: nowrap;
-  padding: 0 10px;
+  padding: 0 var(--sp-3);
   border: 1px solid var(--line-strong); border-right: 0;
   background: var(--panel);
   font-family: var(--font-body); font-size: var(--fs-sm); font-weight: 600;
@@ -706,45 +973,49 @@
 .adb-field .field { flex: 1 1 auto; width: auto; min-width: 0; }
 
 .adb-pool-tools {
-  display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px;
+  display: flex; gap: var(--sp-3); flex-wrap: wrap; margin: var(--sp-4) 0 var(--sp-1);
 }
 
 /* The selectable row. `button.table-row[aria-selected="true"]` already paints
    the selected background; the row here is a div because it CONTAINS two
    buttons (the tick and the remove), and a button inside a button is not
    valid markup. So the selected background is repeated for this one case. */
-.adb-row[data-selected="1"] { background: var(--accent-soft); }
+.adb-row[data-selected="1"] { background: var(--accent-wash); }
 .adb-tick {
   width: 22px; height: 22px; padding: 0; justify-content: center;
   border-color: var(--line);
 }
 .adb-row .btn-small { justify-self: start; }
 /* The row's own buttons: restart this display, forget this address. */
-.adb-row-actions { display: flex; gap: 6px; justify-self: start; }
+.adb-row-actions { display: flex; gap: var(--sp-2); justify-self: start; }
 
-.adb-search { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.adb-search { display: flex; gap: var(--sp-3); margin-top: var(--sp-4); flex-wrap: wrap; }
 .adb-keyword { min-width: 0; }
 
 .adb-package-list {
-  display: flex; flex-direction: column; gap: 6px; margin-top: 12px;
+  display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4);
 }
 .adb-package { align-items: flex-start; }
-.adb-package .box { margin-top: 4px; }
+.adb-package .box { margin-top: var(--sp-1); }
 .adb-package-text {
-  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  display: flex; flex-direction: column; gap: var(--sp-0); min-width: 0;
 }
 /* Found everywhere / found on some. The second is the whole reason the search
    answers per device (see views/adb/packages.js), so it is marked. */
 .adb-package-note { color: var(--text-mid); font-size: var(--fs-sm); }
 .adb-package-warn { color: var(--auth-text); font-size: var(--fs-sm); }
 
-.adb-op-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.adb-op-bar { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-1); }
 .adb-op-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 10px 0; border-top: 1px solid var(--line-soft);
-  margin-top: 12px;
+  display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap;
+  padding: var(--sp-3) 0; border-top: 1px solid var(--line-soft);
+  margin-top: var(--sp-4);
 }
-.adb-op-row > .label { flex: 0 0 140px; }
+/* The label column of an operation row. The log under the row indents to
+   the same measure so its lines start where the values above them do; one
+   token, because two literals drifted apart the first time either moved. */
+.adb-actions { --adb-label: 140px; }
+.adb-op-row > .label { flex: 0 0 var(--adb-label); }
 .adb-op-row > .mono, .adb-op-row > .adb-op-empty { flex: 1 1 160px; min-width: 0; }
 .adb-op-empty { color: var(--text-dim); font-size: var(--fs-sm); }
 /* A verdict the operator has to do something about. Amber rather than red:
@@ -760,14 +1031,14 @@
    scrollable: these are the device's own words and are worth nothing
    reflowed. */
 .adb-autostart-log {
-  margin: 4px 0 0 140px;
-  padding: 8px 10px;
+  margin: var(--sp-1) 0 0 var(--adb-label);
+  padding: var(--sp-3);
   border-left: 2px solid var(--line);
   max-height: 150px;
   overflow-y: auto;
 }
 .adb-autostart-log p {
-  margin: 2px 0;
+  margin: var(--sp-0) 0;
   font-size: var(--fs-sm);
   color: var(--text-dim);
 }
@@ -786,16 +1057,16 @@
    buttons that write the next line. The header row is sticky, so scrolling
    does not leave six unlabelled columns. */
 .adb-log-head {
-  display: flex; align-items: baseline; gap: 10px;
-  margin: 18px 0 0; padding-top: 12px;
+  display: flex; align-items: baseline; gap: var(--sp-3);
+  margin: var(--sp-5) 0 0; padding-top: var(--sp-4);
   border-top: 1px solid var(--line);
 }
 .adb-log-head .spacer { flex: 1; }
 .adb-log-count { font-size: var(--fs-sm); color: var(--text-dim); }
 .adb-log {
-  /* One row is 9px of padding twice, a 20px line and a 1px border; the extra
-     row is the header sitting on top of them. */
-  --adb-log-row: 40px;
+  /* One row is `--sp-3` of padding twice, a 20px line and a 1px border; the
+     extra row is the header sitting on top of them. */
+  --adb-log-row: 38px;
   max-height: calc(21 * var(--adb-log-row));
   overflow-y: auto;
 }

@@ -20,9 +20,10 @@ import { state, patch } from '../../core/store.js';
 import * as actionTabs from '../../components/action_tabs.js';
 import { confirmWrite } from '../../components/confirm.js';
 import { showError, showSuccess, notify } from '../../components/toast.js';
+import { emptyState, loadFailed, loading } from '../../components/placeholder.js';
 import { value } from '../../core/format.js';
 import {
-  IP_TARGETS, PROTECTED_INTERVAL, REFRESH_INTERVAL, currentTarget, live,
+  PROTECTED_INTERVAL, REFRESH_INTERVAL, currentTarget, ipTargets, live,
   local, onScreen, protectedFound,
   refreshProtected, resetProtectedForSet, selectedGroups,
   stopPanels, selectAssignmentSwitch, targetLabel,
@@ -61,18 +62,13 @@ async function refreshPanels() {
 function drawPanels(data) {
   if (!live.stack) return;
   fill(live.stack, data.panelsLoading
-    ? [el('div', { class: 'info ip-panel-empty', role: 'status' }, [
-        el('span', { text: t('ip.readingSwitchPanel') }),
-      ])]
+    ? [loading(t('ip.readingSwitchPanel'))]
     : data.panels.length
     ? data.panels.map(panel => panelCard(panel, data.plan, {
       onPortClick: togglePort,
       onCredentials: () => refresh(),
     }))
-    : [el('div', { class: 'ip-panel-empty' }, [
-        el('span', { class: 'eyebrow', text: t('ip.noPanelInformation') }),
-        el('p', { text: t('ip.theSwitchFrontPanelCannot') }),
-      ])]);
+    : [emptyState(t('ip.noPanelInformation'), '', { tall: true })]);
   writeFreshness();
 }
 
@@ -128,6 +124,7 @@ function startRefreshing() {
 // should be able to read from the screen which devices IP assignment goes to.
 function targetPicker() {
   const active = currentTarget();
+  const targets = ipTargets();
   return el('label', { class: 'target-picker' }, [
     el('span', { class: 'label', text: t('groupbar.deviceType') }),
     el('select', {
@@ -158,9 +155,9 @@ function targetPicker() {
         local.manualIp = '';
         refresh();
       },
-    }, IP_TARGETS.map(target => el('option', {
+    }, targets.map(target => el('option', {
       value: target.id,
-      selected: target.id === active.id ? true : null,
+      selected: active && target.id === active.id ? true : null,
       text: targetLabel(target),
     }))),
   ]);
@@ -282,12 +279,6 @@ function runHeader(data, check) {
     runError.hidden = !result.error;
   }
 
-  const bar = el('div', { class: 'page-head ip-page-head' }, [
-    // The heading is the same on all three operation screens: the tab bar
-    // below already says which screen this is.
-    el('h2', { text: t('nav.operations') }),
-  ]);
-
   // The action goes at the FOOT of the form, not the head of the page.
   //
   // The form runs long — switch, ports, addressing, mask, set transfer, APK —
@@ -299,7 +290,7 @@ function runHeader(data, check) {
     readiness, startButton,
   ]);
 
-  return { bar, actionBar, summaryBadge, runError, networkLink,
+  return { actionBar, summaryBadge, runError, networkLink,
            showActionState };
 }
 
@@ -380,10 +371,6 @@ function portArea(data, check, showActionState) {
     ]),
     portInput,
     portWarning,
-    el('p', {
-      class: 'ip-field-help',
-      text: t('ip.rangesAndSinglePortsCan'),
-    }),
   ]);
 }
 
@@ -449,22 +436,16 @@ export function render(root) {
   const data = state.ipState;
   const check = data ? validateRun(data) : null;
   const header = runHeader(data, check);
-  const parts = [header.bar, actionTabs.render(), targetPicker()];
+  const parts = [actionTabs.render([targetPicker()])];
   if (header.runError) parts.push(header.runError);
   if (header.networkLink) parts.push(header.networkLink);
 
   if (!data) {
-    parts.push(el('div', {
-      class: local.errorText
-        ? 'warning ip-empty-state' : 'info ip-empty-state ip-loading',
-      role: local.errorText ? 'alert' : 'status',
-      'aria-live': 'polite', 'aria-busy': String(!local.errorText),
-    }, [
-      local.errorText ? null : el('i', { 'aria-hidden': 'true' }),
-      el('span', {
-        text: local.errorText || t('ip.preparingPlanLong'),
-      }),
-    ]));
+    // Two different facts, and they were one shape with a swapped class:
+    // the plan is still being worked out, or working it out failed.
+    parts.push(local.errorText
+      ? loadFailed(local.errorText)
+      : loading(t('ip.preparingPlanLong')));
     fill(root, parts);
     return;
   }
@@ -531,12 +512,6 @@ function start() {
       count: check.inPlan, switch: value(plan.switch),
       ports: check.portText,
     }),
-    notes: [
-      { text: t('confirm.ipRunPower'), tone: 'warning' },
-      { text: t('confirm.ipRunMask', {
-        mask: local.targetMask || plan.targetNetmask || '255.255.255.0',
-      }) },
-    ],
     items: rows.map(row => ({
       name: deviceMapName(row) || `${t('ip.lcdManualPort')} ${row.port}`,
       detail: row.targetIp || '',

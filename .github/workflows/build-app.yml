@@ -660,14 +660,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           PRODUCT_NAME: ${{ env.DISPLAY_NAME }}
+          PACKAGE_NAME: ${{ env.APP_NAME }}
         run: |
           set -euo pipefail
           NOTES="$GITHUB_WORKSPACE/${{ inputs.app_dir }}/docs/RELEASE_NOTES.md"
           # "##" (longest match) — see "Determine the version".
           VERSION="${TAG##*-v}"; VERSION="${VERSION#v}"
-          # The title carries the product name + version rather than the
-          # raw tag, so the Releases list stays readable.
-          TITLE="$PRODUCT_NAME v$VERSION"
+          # THE TITLE IS THE PACKAGE'S OWN NAME, which is also what every
+          # file on the page is called: `dabp-gaziray-v1.0.6` over
+          # `dabp-gaziray-1.0.6-windows-x64-Setup.exe`. It used to be the
+          # product name spelled out in full - forty-eight characters, which
+          # is wider than the box GitHub gives a release title in the sidebar
+          # and on the repository's own front page. Every entry was clipped,
+          # and the half that told the packages apart was the half cut off.
+          TITLE="$PACKAGE_NAME-v$VERSION"
 
           cd downloaded
 

@@ -1,5 +1,5 @@
-// The "target group" bar — the shared picker at the top of the IP assignment,
-// configuration, firmware and checklist screens.
+// The "target group" — the shared picker at the top of the IP assignment,
+// configuration and firmware screens.
 import { el } from '../core/dom.js';
 import { state, patch } from '../core/store.js';
 import { t } from '../core/i18n.js';
@@ -58,57 +58,4 @@ export function picker(op, onSelect = () => {}) {
       text: g.label || g.name,
     }))),
   ]);
-}
-
-// When the bar does not fit, its right edge fades out (see the .chip-bar
-// mask). At the end, or when everything fits, no fade is needed — and that
-// can only be known by measuring.
-function markEdge(container) {
-  const update = () => {
-    // The measurement is only meaningful once the element is in the page; it
-    // is not attached yet where this is called.
-    if (!container.isConnected) return;
-    const atEnd = container.scrollLeft + container.clientWidth
-      >= container.scrollWidth - 2;
-    container.dataset.atEnd = atEnd ? '1' : '0';
-  };
-  container.addEventListener('scroll', update, { passive: true });
-  // Not requestAnimationFrame: while the window is not painting (in the
-  // background, minimised) it never runs and the bar stays faded forever.
-  setTimeout(update, 0);
-  return container;
-}
-
-// With `options.multi` the bar becomes a multi-select: the selected names are
-// held by the calling screen (state.targetGroup carries a single name, so the
-// other screens' behaviour is unchanged) and a click only goes to the
-// callback.
-export function render(op, onSelect = () => {}, options = {}) {
-  const { multi = false, selected = null } = options;
-  const list = groupsFor(op);
-  const active = currentGroup(op);
-  const isSelected = (g) => (multi
-    ? !!selected && selected.includes(g.name)
-    : !!active && active.name === g.name);
-  return markEdge(el('div', {
-    class: 'chip-bar', role: 'group',
-    'aria-label': t(multi ? 'groupbar.targetGroups' : 'groupbar.targetGroup'),
-  }, [
-    el('span', {
-      class: 'label',
-      text: t(multi ? 'groupbar.targetGroupsLabel'
-        : 'groupbar.targetGroupLabel'),
-    }),
-    ...list.map(g => el('button', {
-      type: 'button', class: 'chip',
-      'aria-pressed': String(isSelected(g)),
-      onclick: () => {
-        if (!multi) patch({ targetGroup: g.name });
-        onSelect(g);
-      },
-    }, [
-      el('span', { text: g.label || g.name }),
-      el('span', { class: 'count', text: String(devicesIn(g).length) }),
-    ])),
-  ]));
 }

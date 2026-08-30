@@ -311,6 +311,49 @@ def verify(proof_text: str) -> bool:
                for known in accepted_digests())
 
 
+def decode(value) -> bytes | None:
+    """Base64 in, bytes out, None for anything that is not. Public because
+    `keyfile` decodes the same proof it hands here to be verified."""
+    return _decode(value)
+
+
+def content_key() -> bytes | None:
+    """K, when this run can work it out on its own. Not from a stick.
+
+    THIS IS THE SEALING KEY (see `vault.py`), and there are only two ways to
+    hold it without one being inserted:
+
+      * a run that holds S can derive it — a source run with the secret
+        exported or dropped in `.adminkey-secret`, which is where keys are
+        written and where the sealing at build time is done;
+      * nothing else. A shipped package holds D and D alone.
+
+    The stick's own copy comes from `keyfile.KeyFile.proof` and is carried by
+    the watcher; this function deliberately does not reach for it, so that
+    "what this build can open by itself" stays a separate question from "what
+    is plugged in right now".
+    """
+    secret = build_secret()
+    if secret is None:
+        return None
+    return _derived_key(secret)
+
+
+# `derive` is 600 000 rounds of PBKDF2. The sealed maps are opened on the
+# path of entering admin mode, not once per file, but a source run switching
+# projects would still pay it repeatedly. Same cache shape as `_DERIVED`.
+_KEYS: dict[bytes, bytes] = {}
+
+
+def _derived_key(secret: bytes) -> bytes:
+    known = _KEYS.get(secret)
+    if known is None:
+        if len(_KEYS) > 8:
+            _KEYS.clear()
+        known = _KEYS[secret] = derive(secret)
+    return known
+
+
 def _decode(value) -> bytes | None:
     if isinstance(value, (bytes, bytearray)):
         return bytes(value)

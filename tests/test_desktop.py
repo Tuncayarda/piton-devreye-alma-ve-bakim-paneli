@@ -16,7 +16,7 @@ from .support.base import ROOT  # noqa: F401  (sys.path + temp data dir)
 import app
 from panel import i18n, settings
 from panel.desktop import (BRIDGE_MARKER, CAPABILITY_SLOT, PanelBridge,
-                           load_html)
+                           editmenu, load_html)
 
 
 class DesktopHtml(unittest.TestCase):
@@ -248,8 +248,9 @@ class DesktopStartup(unittest.TestCase):
 
         def create_window(*args, **kwargs):
             fake.window = (args, kwargs)
-            return types.SimpleNamespace(
+            fake.window_object = types.SimpleNamespace(
                 expose=lambda *f: fake.exposed_functions.extend(f))
+            return fake.window_object
 
         def start(**kwargs):
             fake.startup = kwargs
@@ -278,8 +279,20 @@ class DesktopStartup(unittest.TestCase):
         self.assertEqual(
             [f.__name__ for f in fake.exposed_functions], ["invoke"])
         self.assertIsInstance(fake.exposed_functions[0].__self__, PanelBridge)
-        self.assertEqual(fake.startup,
-                         {"gui": "edgechromium", "http_server": False})
+        # `func` installs the Edit menu: macOS has no Cmd-C or Cmd-V without
+        # a menu bar to hang them on, and pywebview builds no Edit menu of
+        # its own (see panel.desktop.editmenu). Checked by CALLING it rather
+        # than by identity, because it now has to carry the window through —
+        # Paste writes into the page, and a closure that forgot the window
+        # would still be a callable of the right name.
+        self.assertEqual(set(fake.startup),
+                         {"func", "gui", "http_server"})
+        self.assertEqual(fake.startup["gui"], "edgechromium")
+        self.assertFalse(fake.startup["http_server"])
+        with mock.patch.object(editmenu, "install") as install:
+            fake.startup["func"]()
+        install.assert_called_once()
+        self.assertIs(install.call_args[0][0], fake.window_object)
         self.assertFalse(fake.settings["ALLOW_FILE_URLS"])
         self.assertFalse(fake.settings["ALLOW_DOWNLOADS"])
 

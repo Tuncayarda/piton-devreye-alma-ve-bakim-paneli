@@ -27,18 +27,25 @@
 
 import { el } from '../../core/dom.js';
 import { t } from '../../core/i18n.js';
+import { emptyState } from '../../components/placeholder.js';
 import { local, running, selectedIps } from './state.js';
-import { tagged } from './fields.js';
+import { searchField } from '../../components/search_field.js';
 
 export function packagesCard(actions) {
   const answer = local.found;
   const chosen = selectedIps();
 
-  const keywordField = el('input', {
-    class: 'field adb-keyword', type: 'text', autocomplete: 'off',
-    spellcheck: 'false', value: local.keyword,
+  // The same box the device list is filtered with (components/search_field).
+  // It used to be a plain field with the word "Keyword" tagged in front of
+  // it, beside a button reading "Search" — three ways of saying one thing on
+  // a screen that already has three boxes and four tables on it.
+  const keywordBox = searchField({
+    value: local.keyword,
+    title: t('adb.keyword'),
+    'aria-label': t('adb.keyword'),
     oninput: (event) => { local.keyword = event.target.value; },
-  });
+  }, 'adb-keyword');
+  const keywordField = keywordBox.querySelector('input');
 
   return el('section', { class: 'card corner adb-packages' }, [
     el('div', { class: 'card-head' }, [
@@ -54,12 +61,11 @@ export function packagesCard(actions) {
         actions.search(keywordField.value);
       },
     }, [
-      tagged('adb.keyword', keywordField),
+      keywordBox,
       el('button', {
         type: 'submit', class: 'btn btn-primary',
         text: local.searching ? t('adb.searching') : t('adb.search'),
         disabled: local.searching || !chosen.length || running(),
-        title: chosen.length ? '' : t('adb.selectDeviceFirst'),
       }),
     ]),
     ...results(answer, actions),
@@ -73,11 +79,9 @@ function results(answer, actions) {
   const parts = [];
 
   if (!found.length) {
-    parts.push(el('p', {
-      class: 'info',
-      text: t('adb.noPackageMatched',
-              { word: (answer.keywords || []).join(', ') }),
-    }));
+    parts.push(emptyState(
+      t('adb.noPackageMatched',
+        { word: (answer.keywords || []).join(', ') })));
   } else {
     parts.push(el('div', { class: 'adb-package-list' },
                  found.map(entry => packageRow(entry, actions))));

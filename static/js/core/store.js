@@ -5,11 +5,11 @@
 // API call without passing through here.
 
 const KEYS = new Set([
-  'edition', 'mode', 'views', 'projects', 'adminKey',
+  'edition', 'mode', 'views', 'projects', 'adminKey', 'remote',
   'setNo', 'project', 'view', 'category', 'subtype', 'filter',
   'devices', 'counts', 'locked', 'jobs', 'openJob', 'queueOpen',
   'lockedOpen', 'detailId', 'targetGroup', 'version', 'lastScan',
-  'scanRunning', 'sidebarOpen', 'density', 'loading', 'ipState',
+  'scanRunning', 'sidebarOpen', 'loading', 'ipState',
   'configState', 'firmwareState', 'mqttState', 'piscuState', 'meta',
   'checklistState', 'checklistCategory', 'historyFilter', 'networkState',
   'autoRefresh', 'deviceSearch', 'deviceSort', 'deviceSortDesc',
@@ -30,6 +30,9 @@ export const state = {
   // The last observation of the service key (/api/admin/key). Never the key
   // itself: what is here is "present", "recognised" and a counter.
   adminKey: null,
+  // The last observation of the remote service session
+  // (/api/admin/remote). Never the code in full and never a signature.
+  remote: null,
   setNo: 1,
   project: null,
   meta: null,
@@ -53,16 +56,6 @@ export const state = {
   // is a memory tax for anyone who uses the panel now and then. Whoever
   // wants the room back collapses it, and the choice sticks.
   sidebarOpen: true,
-  // How tightly the tables are packed. Comfortable by default: the panel is
-  // read standing up in a depot and the roomier row is the safer one to hand
-  // somebody. Whoever is at a desk with forty devices to get through turns it
-  // down from the top bar, and the choice lasts the session — like
-  // `sidebarOpen`, and for the same reason there is no browser storage here.
-  //
-  // Only the PADDING changes. The type scale does not: base.css puts the
-  // floor at 11px because below it this stops being a tool you can use at
-  // arm's length, and a density control is not a reason to go under it.
-  density: 'comfortable',
   loading: false,
   ipState: null,
   configState: null,
@@ -166,15 +159,41 @@ export function publish(changed = null) {
   }
 }
 
+// Folded so that Turkish spelling is not something the operator has to
+// reproduce in the search box. NEITHER PLAIN NOR LOCALE LOWERCASING WORKS
+// HERE, and they fail in opposite directions: plain `toLowerCase` leaves the
+// dotted capital I as an i carrying a combining dot, which matches nothing
+// anyone can type, while `toLocaleLowerCase('tr')` lowercases the ASCII I of
+// "VIP" to a dotless i, so that typing "vip" stops finding it. Mapping the
+// letters onto their ASCII base before lowercasing settles both, and it also
+// makes the search forgiving in the direction it is actually used: a name
+// typed on an ASCII keyboard finds the device that carries the real letters.
+// The letters, and what each one folds to, in step. Two aligned strings
+// rather than a table of twelve pairs, so that the letters occupy one line:
+// this file is scanned for Turkish letters (tests/test_language.py), and the
+// exemption that lets these through should cover as little as possible.
+const TURKISH = 'İıŞşĞğÜüÖöÇç';
+const ASCII = 'iissgguuoocc';
+// Derived, so the two cannot drift: a letter added above is matched here
+// without anyone having to remember this line as well.
+const FOLDABLE = new RegExp(`[${TURKISH}]`, 'g');
+
+// Both sides of the comparison go through this, or it is not a comparison.
+export function fold(text) {
+  return String(text || '')
+    .replace(FOLDABLE, ch => ASCII[TURKISH.indexOf(ch)])
+    .toLowerCase();
+}
+
 // What a device is searched BY. Everything the row already shows, so a
 // search that finds nothing is a search whose text is not on the screen —
 // there is no hidden field to guess at.
 function searchable(device) {
   const result = device.result || {};
-  return [
+  return fold([
     device.name, device.typeLabel, device.portLabel, device.ip,
     result.version, result.detail,
-  ].filter(Boolean).join(' ').toLowerCase();
+  ].filter(Boolean).join(' '));
 }
 
 // Visible devices: category + subtype + state filter + free text
@@ -185,8 +204,7 @@ export function visibleDevices() {
   // Several words all have to match, in any order and any field: "lcd 44"
   // finds Compartment_Lcd_5 at 10.1.1.44 without anyone having to know which
   // column holds which.
-  const words = String(state.deviceSearch || '')
-    .toLowerCase().split(/\s+/).filter(Boolean);
+  const words = fold(state.deviceSearch).split(/\s+/).filter(Boolean);
   return state.devices.filter(d => {
     if (category !== 'all' && d.category !== category) return false;
     if (subtype) {
@@ -197,10 +215,32 @@ export function visibleDevices() {
       const haystack = searchable(d);
       if (!words.every(word => haystack.includes(word))) return false;
     }
-    if (filter === 'active') return d.result.state === 'ok';
-    if (filter === 'problem') {
-      return d.result.state === 'failed' || d.result.state === 'auth';
-    }
+    // ONE FILTER PER STATE, named after the state itself. There used to be
+    // two buckets — `active` (ok) and `problem` (failed OR auth) — and the
+    // overview links into them: "Needs review 18" landed on a list of 32
+    // rows because the bucket also held the devices waiting on credentials.
+    // A filter that shows a different number from the figure that opened it
+    // is a filter nobody can trust. Anything unrecognised shows everything,
+    // so an old choice read back from a session cannot empty the list.
+    if (STATE_FILTERS.has(filter)) return d.result.state === filter;
     return true;
   });
+}
+
+const STATE_FILTERS = new Set(['ok', 'auth', 'failed', 'unknown']);
+
+// The four states, always summing to the device list.
+//
+// `unknown` is worked out rather than read off the snapshot: a device the
+// scan has not reached yet has no result to be tallied, so the server's four
+// numbers can come to less than the list. The overview's strip and the
+// devices screen's filters both need the four to add up, and they must not
+// each do this sum their own way.
+export function stateSpread() {
+  const counts = state.counts;
+  const settled = counts.ok + counts.auth + counts.failed;
+  return {
+    ok: counts.ok, auth: counts.auth, failed: counts.failed,
+    unknown: Math.max(0, state.devices.length - settled),
+  };
 }

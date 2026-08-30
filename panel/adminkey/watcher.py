@@ -16,20 +16,20 @@ every two seconds after the user has said no: the declined generation is
 remembered, and the question comes back only after the key has been taken out
 and put in again.
 
-LEAVING ADMIN MODE IS DECIDED HERE, because this is the only place that sees
-the key go. Pulling the stick ends admin mode — that is what makes it a key
-rather than a password typed once. The single exception is a job that is
-WRITING to devices: an IP assignment or a firmware upload half-finished is a
-worse outcome than a door left open for another few minutes, so the drop
-waits for the queue to clear and the badge says so meanwhile.
+PULLING THE STICK ENDS ADMIN MODE — that is what makes it a key rather than
+a password typed once — but this module no longer decides that on its own.
+It sees the key go and says so; `panel.authority` weighs that against the
+other way in (a remote service session) and ends the mode only when nothing
+at all is holding it. Deciding here would mean deciding without knowing about
+the other source, and taking back a mode granted two seconds earlier.
 """
 from __future__ import annotations
 
 import threading
 import time
 
-from .. import editions
-from . import keyfile, pack, secret, volumes
+from .. import authority, editions
+from . import keyfile, pack, sealed, secret, volumes
 
 # How often the WHOLE question is asked: which volumes are mounted, and what
 # is on them.
@@ -58,7 +58,7 @@ class KeyWatch:
         self._reason = ""
         self._volume = None
         self._pack = 0
-        self._revoke_pending = False
+        self._proof = b""
         self._generation = 0
         self._seen_at = 0.0
 
@@ -166,17 +166,24 @@ class KeyWatch:
             for project in projects:
                 editions.add_extra(project)
             self._record(True, entry.recognised, entry.label, entry.reason,
-                         volume, len(projects))
+                         volume, len(projects), entry.proof)
+            # The stick carries the key that opens the device lists sealed
+            # into this package (see `vault.py`). Opened here, on the same
+            # observation that recognised the key, so that a project the
+            # engineer can open is a project the menu can already list.
+            if entry.recognised:
+                sealed.unlock(entry.proof)
         self._apply_mode()
         return self.snapshot()
 
     def _record(self, present, recognised, label, reason, volume,
-                pack_count) -> None:
+                pack_count, proof: bytes = b"") -> None:
         with self._lock:
             self._seen_at = time.monotonic()
             changed = (present, recognised, label, reason, pack_count) != (
                 self._present, self._recognised, self._label, self._reason,
                 self._pack)
+            self._proof = bytes(proof or b"")
             self._present = present
             self._recognised = recognised
             self._label = label
@@ -188,27 +195,19 @@ class KeyWatch:
 
     # ── the mode this observation implies ────────────────────────────────
     def _apply_mode(self) -> None:
-        if not editions.is_active():
-            return
-        if editions.opens_as_admin():
-            # This package opened as admin without a key, so a key
-            # going away takes nothing with it.
-            return
+        """Report what was seen, and let the arbiter decide what it means.
+
+        The generation is bumped when the ARBITER's answer moves, not when
+        this observation does — `_record` has already counted the latter.
+        What changes here is "the mode is about to end", which the window
+        shows in the badge and which a source this module cannot see may
+        equally have caused.
+        """
         with self._lock:
             recognised = self._recognised
-        if recognised or not editions.admin():
-            self._set_pending(False)
-            return
-        if _writing():
-            self._set_pending(True)     # drop it when the queue clears
-            return
-        _leave_admin()
-        self._set_pending(False)
-
-    def _set_pending(self, pending: bool) -> None:
-        with self._lock:
-            if self._revoke_pending != pending:
-                self._revoke_pending = pending
+        authority.report(authority.KEY, recognised)
+        if authority.settle():
+            with self._lock:
                 self._generation += 1
 
     # ── what the API hands out ───────────────────────────────────────────
@@ -243,7 +242,10 @@ class KeyWatch:
                 "label": self._label,
                 "reason": self._reason,
                 "packAvailable": self._pack,
-                "revokePending": self._revoke_pending,
+                # The arbiter's, not this watcher's: the write that is
+                # holding the door may have been holding it for a remote
+                # session (see panel.authority).
+                "revokePending": authority.revoke_pending(),
                 "generation": self._generation,
             }
 
@@ -251,6 +253,17 @@ class KeyWatch:
         """The volume the recognised key is on, for the routes that write."""
         with self._lock:
             return self._volume if self._recognised else None
+
+    def content_key(self) -> bytes:
+        """K from the key in the machine, or empty. Recognised keys only.
+
+        The one caller is the sealed-project store. Kept behind a method
+        rather than exposed as an attribute so that "there is no key in the
+        machine" and "the key in the machine is not ours" are the same empty
+        answer here as they are everywhere else.
+        """
+        with self._lock:
+            return self._proof if self._recognised else b""
 
     def reset(self) -> None:
         """Forget everything observed. Tests only."""
@@ -262,24 +275,8 @@ class KeyWatch:
             self._reason = ""
             self._volume = None
             self._pack = 0
-            self._revoke_pending = False
+            self._proof = b""
             self._generation = 0
-
-
-def _leave_admin() -> None:
-    # Imported here rather than at the top: lifecycle imports this package,
-    # and it is lifecycle that knows what has to be put back — the project,
-    # the queue's device results, the configuration targets.
-    from ..api.lifecycle import leave_admin                 # noqa: PLC0415
-    leave_admin()
-
-
-def _writing() -> bool:
-    from .. import jobs                                    # noqa: PLC0415
-    from ..api.presenters import WRITING_JOB_KINDS         # noqa: PLC0415
-    return any(job.kind in WRITING_JOB_KINDS
-               and job.state in (jobs.QUEUED, jobs.RUNNING)
-               for job in jobs.QUEUE.list())
 
 
 WATCH = KeyWatch()

@@ -247,7 +247,7 @@ def run(inventory: Inventory, switch_id: str, ports: list[int], emit,
 
     # With no group given nothing is assumed: "which devices to assign" is not
     # something to guess.
-    selected = resolve_groups(groups)
+    selected = resolve_groups(groups, inventory)
     if not selected:
         raise ValueError(
             i18n.t("error.intercomOnly"))

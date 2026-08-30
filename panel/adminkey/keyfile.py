@@ -39,13 +39,22 @@ MAX_BYTES = 64 * 1024
 class KeyFile:
     """What was found on a volume. `recognised` is the only thing that
     grants anything; `label` and `issued` are the operator's own notes and
-    are never checked against anything."""
+    are never checked against anything.
+
+    `proof` is K itself — the value the stick carries — and it is kept, on a
+    RECOGNISED key only, because it is also the key that opens the sealed
+    device lists in the package (see `vault.py`). It used to be dropped the
+    moment it had been verified, which was right while verifying was all it
+    was for. Nothing widens here: the bytes were already in this process,
+    read from a volume the operator has physically inserted.
+    """
 
     path: Path
     recognised: bool
     label: str = ""
     issued: str = ""
     reason: str = ""
+    proof: bytes = b""
 
 
 def path_on(volume: Path) -> Path:
@@ -130,6 +139,10 @@ def _parsed(path: Path, raw: str) -> KeyFile | None:
         label=_text(data.get("label")),
         issued=_text(data.get("issued")),
         reason="" if recognised else "unrecognised",
+        # Only from a key that passed. An unrecognised file's bytes are
+        # somebody else's guess and must not be carried around as if they
+        # were key material.
+        proof=(key_secret.decode(proof) or b"") if recognised else b"",
     )
 
 

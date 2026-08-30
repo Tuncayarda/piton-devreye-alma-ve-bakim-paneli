@@ -17,7 +17,20 @@ const TABS = [
   { id: 'firmware', labelKey: 'tabs.firmware' },
 ];
 
-export function render() {
+/**
+ * The tab row, with the open screen's own top-level controls on its right.
+ *
+ * `actions` is what that screen puts there — its device-type picker, its
+ * primary button. They used to sit on two rows of their own above this one,
+ * under an `h2` reading "Operations" that all three screens shared: a word
+ * the menu rail already says, that the hidden `h1` does not say (it is named
+ * by the TAB — see app.js VIEW_NAME), and that therefore named nothing on
+ * any of the three. Two rows and a heading came to some ninety pixels at the
+ * top of every operation screen, which on the IP screen is the difference
+ * between seeing the Start button in the first screenful and not.
+ */
+export function render(actions = []) {
+  const extras = [].concat(actions).filter(Boolean);
   return el('nav', {
     class: 'action-tabs',
     'aria-label': t('tabs.operationAreas'),
@@ -33,5 +46,6 @@ export function render() {
         onclick: active ? null : () => patch({ view: tab.id }),
       });
     })),
+    extras.length ? el('div', { class: 'action-tab-actions' }, extras) : null,
   ]);
 }

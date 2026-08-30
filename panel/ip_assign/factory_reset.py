@@ -379,7 +379,7 @@ def reset_to_factory(inventory: Inventory, switch_id: str, ports: list[int],
     switch = inventory.find(switch_id)
     if switch is None:
         raise ValueError(i18n.t("error.switchNotFound"))
-    selected = resolve_groups(groups)
+    selected = resolve_groups(groups, inventory)
     if not selected:
         raise ValueError(
             i18n.t("error.intercomOnly"))

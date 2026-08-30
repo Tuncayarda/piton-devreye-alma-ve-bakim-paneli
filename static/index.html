@@ -14,7 +14,7 @@
 <body>
 
 <!-- ═════════════════════════════════════════════════ application ══════ -->
-<div id="app" data-density="comfortable">
+<div id="app">
 
   <!-- Without this a keyboard user walks the whole top bar and the menu rail
        again on every screen before reaching what they came for. -->
@@ -52,35 +52,47 @@
 
     <span class="spacer"></span>
 
-    <!-- A scan already runs by itself every minute; this button pulls that
-         round forward (see js/app.js).
+    <!-- ONE CONTROL, TWO THINGS TO DO WITH THE SCAN: run one now, and stop
+         the ones that run by themselves. They were two full-width text
+         buttons side by side — "Scan now" and "Pause" — which put two words
+         in the top bar for a switch that is thrown once a shift, and read as
+         two unrelated actions rather than as the run and its clock. -->
+    <div class="btn-group scan-group" id="scan-group" data-paused="0">
+      <!-- A scan already runs by itself every minute; this button pulls that
+           round forward (see js/app.js).
 
-         Two labels sit on top of each other: the visible one changes with
-         the state, while the width is always set by the longer one. Without
-         that, the "Scan now" -> "Scanning…" switch grew the button and
-         shifted the top bar. -->
-    <button type="button" class="btn" id="refresh-btn"
-            data-i18n-title="topbar.runNextScan" title="Run the next scan now">
-      <span class="label-live" data-i18n="topbar.scanNow">Scan now</span>
-      <span class="label-measure" aria-hidden="true"
-            data-i18n="topbar.scanning">Scanning…</span>
-    </button>
+           Two labels sit on top of each other: the visible one changes with
+           the state, while the width is always set by the longer one.
+           Without that, the "Scan now" -> "Scanning…" switch grew the button
+           and shifted the top bar. -->
+      <button type="button" class="btn" id="refresh-btn"
+              data-i18n-title="topbar.runNextScan" title="Run the next scan now">
+        <span class="label-live" data-i18n="topbar.scanNow">Scan now</span>
+        <span class="label-measure" aria-hidden="true"
+              data-i18n="topbar.scanning">Scanning…</span>
+      </button>
 
-    <!-- Stops the AUTOMATIC rounds — both of them, not only the minute-long
-         discovery: the light round reads over adb every two seconds and is
-         the one that actually interrupts a session on a Compartment LCD.
-         "Scan now" keeps working while paused, so the operator still decides
-         when a device is read.
+      <!-- Stops the AUTOMATIC rounds — both of them, not only the minute-long
+           discovery: the light round reads over adb every two seconds and is
+           the one that actually interrupts a session on a Compartment LCD.
+           "Scan now" keeps working while paused, so the operator still
+           decides when a device is read.
 
-         Not written to disk (see js/core/store.js): a panel that came back
-         paused would show yesterday's readings with nothing saying why.
-         While it is paused the status text says so, in place of the usual
-         "last scan" line. -->
-    <button type="button" class="btn" id="auto-btn" aria-pressed="false">
-      <span class="label-live" data-i18n="topbar.pause">Pause</span>
-      <span class="label-measure" aria-hidden="true"
-            data-i18n="topbar.paused">Paused</span>
-    </button>
+           Not written to disk (see js/core/store.js): a panel that came back
+           paused would show yesterday's readings with nothing saying why.
+           The glyph is the media one — bars to stop it, a triangle to start
+           it again — so the button says what the click does; what the panel
+           IS doing is said by the amber frame around the pair and, in words,
+           by the footer ("Paused since 14:19"). -->
+      <button type="button" class="btn btn-icon" id="auto-btn"
+              aria-pressed="false">
+        <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true">
+          <path id="auto-icon" d="M7.5 5.5v9M12.5 5.5v9"></path>
+        </svg>
+      </button>
+    </div>
 
     <!-- Devices that need credentials; the badge shows how many. -->
     <button type="button" class="btn btn-icon" id="locked-btn"
@@ -108,28 +120,21 @@
       <span class="count-badge" id="queue-count" data-kind="queue" hidden>0</span>
     </button>
 
-    <!-- How tightly the tables are packed. One button rather than a menu:
-         there are two states and the icon shows which one is on. -->
-    <button type="button" class="btn btn-icon" id="density-btn"
-            aria-pressed="false"
-            data-i18n-title="topbar.density" data-i18n-aria="topbar.density"
-            title="Row density" aria-label="Row density">
-      <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-           stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-           aria-hidden="true" id="density-icon">
-        <path d="M4 6h12M4 10h12M4 14h12"></path>
-      </svg>
-    </button>
-
     <!-- The language control sits next to the mode badge: switching is a
          session-level act, not a screen setting. -->
-    <div class="language-picker" id="language-picker" role="group"
+    <div class="language-picker btn-group" id="language-picker" role="group"
          data-i18n-aria="topbar.language" aria-label="Language"></div>
 
-    <!-- Nothing here in field mode. There is no role to display: the package
-         IS the role, and a badge reading "User" on every screen of every
-         customer's copy said nothing. It appears only once admin mode has
-         been opened with the service key, where it is worth knowing. -->
+    <!-- WHAT MODE THIS IS, AND THE WAY IN OR OUT OF IT, as one object. Four
+         separate boxes could stand here — the badge and three buttons — and
+         only ever two of them at once; joined, the pair reads as a state
+         with its own switch rather than as two more things in a row of
+         things. `[hidden]` takes an unused half out of the group entirely.
+
+         Nothing shows here in field mode. There is no role to display: the
+         package IS the role, and a badge reading "User" on every screen of
+         every customer's copy said nothing. -->
+    <div class="btn-group">
     <span class="badge" id="mode-badge" hidden></span>
 
     <!-- Enters admin mode without going through the launch question again.
@@ -146,6 +151,20 @@
       </svg>
     </button>
 
+    <!-- Opens admin mode from somewhere else entirely: an engineer on the
+         telephone reads out an eight-character session code. Shown only when
+         this build was cut with a public key for the grant service, because
+         without one there is nothing it could check (panel/remotekey). -->
+    <button type="button" class="btn btn-icon" id="remote-admin-btn" hidden
+            data-i18n-title="topbar.remoteSession" data-i18n-aria="topbar.remoteSession"
+            title="Remote session" aria-label="Remote session">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+        <circle cx="10" cy="10" r="6.5"></circle>
+        <path d="M3.5 10h13M10 3.5c1.8 2 1.8 11 0 13M10 3.5c-1.8 2-1.8 11 0 13"></path>
+      </svg>
+    </button>
+
     <!-- Leaves admin mode. Not a sign-out: there is no session to end and no
          screen to go back to, only the field view of this same package. It
          comes back with the button above. -->
@@ -157,6 +176,7 @@
         <path d="M12 6V4H4v12h8v-2M9 10h8m0 0l-2.5-2.5M17 10l-2.5 2.5"></path>
       </svg>
     </button>
+    </div>
   </header>
 
   <div class="body">

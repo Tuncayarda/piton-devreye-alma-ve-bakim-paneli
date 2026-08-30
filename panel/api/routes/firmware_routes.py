@@ -21,8 +21,14 @@ def get_firmware(query):
     # which device here. Without a group, only the selected ones come back
     # (the install button counts those).
     inventory = inventory_for(single(query, "set", 1))
-    group = catalog.find_group(str(single(query, "group", "") or ""))
-    if group and not catalog.group_supports(group, "fw"):
+    # ASKED FOR AND ABSENT is not the same as NOT ASKED FOR, and only the
+    # second one means "every device". Resolving straight to a group would
+    # have collapsed the two the moment the lookup became project-aware: a
+    # name this project does not have would have answered with the whole
+    # inventory instead of refusing.
+    wanted = str(single(query, "group", "") or "")
+    group = catalog.group_in(inventory, wanted) if wanted else None
+    if wanted and not catalog.group_supports(group, "fw"):
         return respond(400, {
             "error": i18n.t("error.firmwareTypeUnsupported")})
     devices = [device for device in inventory.devices

@@ -1016,6 +1016,95 @@ class EveryShippedDeviceMapIsUnderstood(unittest.TestCase):
                          "reachable, but in no group — add one to "
                          "catalog.GROUPS")
 
+    # What each project's target pickers may offer. Written out rather than
+    # recomputed: the whole point is that these are the customer's own device
+    # types, and a table that derived itself from the same function it checks
+    # would keep passing while the lists silently grew back.
+    #
+    # These were the numbers before `groups_for` existed: every project was
+    # handed all eleven `cfg` groups and all nine `fw` ones, so a Yatakli
+    # operator's picker listed the exhibition rack's Twin LCD and GDM's two
+    # screens, and VIP's listed a Compartment LCD it does not have.
+    OFFERED: ClassVar[dict] = {
+        "DeviceMap_Yatakli.json": {
+            "cfg": ["Intercom", "Handset", "Amplifier", "UIC",
+                    "Compartment LCD", "Camera", "NVR"],
+            "fw": ["Intercom", "Handset", "Amplifier", "UIC",
+                   "Compartment LCD"],
+            "ip": ["Intercom", "Compartment LCD"],
+        },
+        "DeviceMap_Vip.json": {
+            "cfg": ["Intercom", "Handset", "Amplifier", "UIC", "Camera",
+                    "NVR"],
+            "fw": ["Intercom", "Handset", "Amplifier", "UIC"],
+            "ip": ["Intercom"],
+        },
+        "DeviceMap_Gdm.json": {
+            "cfg": ["Intercom", "Amplifier", "Swanneck", "LINE LCD",
+                    "PIS LCD", "Camera", "NVR"],
+            "fw": ["Intercom", "Amplifier", "Swanneck", "LINE LCD",
+                   "PIS LCD"],
+            "ip": ["Intercom"],
+        },
+        "DeviceMap_Gaziray.json": {
+            "cfg": ["Intercom", "Amplifier", "Swanneck", "UIC", "Twin LCD",
+                    "Camera", "NVR"],
+            "fw": ["Intercom", "Amplifier", "Swanneck", "UIC", "Twin LCD"],
+            "ip": ["Intercom"],
+        },
+        "DeviceMap_Fuar.json": {
+            "cfg": ["Intercom", "Handset", "Amplifier", "Swanneck",
+                    "Twin LCD", "Camera"],
+            "fw": ["Intercom", "Handset", "Amplifier", "Swanneck",
+                   "Twin LCD"],
+            "ip": ["Intercom"],
+        },
+    }
+
+    def test_a_picker_offers_only_this_project_s_own_device_types(self):
+        """`groups_for` answers with the customer's equipment and no one
+        else's.
+
+        The screens take this list verbatim (`/api/project` → `meta.groups` →
+        `group_bar.groupsFor`), so what is offered here is what an operator
+        can point an operation at.
+        """
+        for path in self.maps():
+            inventory = device_map.load(1, path, cache=False)
+            offered = catalog.groups_for(inventory)
+            with self.subTest(project=path.name):
+                # Nothing is offered that the project has no device for.
+                empty = [group["name"] for group in offered
+                         if not any(catalog.group_matches(group, device)
+                                    for device in inventory.devices)]
+                self.assertEqual(empty, [], "offered with nothing behind it")
+                expected = self.OFFERED.get(path.name)
+                self.assertIsNotNone(
+                    expected, f"{path.name} is new — add its row to OFFERED")
+                for op, names in expected.items():
+                    self.assertEqual(
+                        [group["name"] for group in offered
+                         if catalog.group_supports(group, op)],
+                        names, op)
+
+    def test_a_group_this_project_does_not_have_is_refused(self):
+        """The picker no longer offering it is not the same as the API
+        refusing it: the client may still hold the list from the project that
+        was open a moment ago, and these are the write paths."""
+        vip = next(path for path in self.maps()
+                   if path.name == "DeviceMap_Vip.json")
+        inventory = device_map.load(1, vip, cache=False)
+        # Yatakli has these; VIP does not.
+        for absent in ("Compartment LCD", "Twin LCD"):
+            with self.subTest(group=absent):
+                self.assertIsNotNone(catalog.find_group(absent),
+                                     "the vocabulary still knows it")
+                self.assertIsNone(catalog.group_in(inventory, absent))
+                self.assertEqual(ip_assign.resolve_groups([absent], inventory),
+                                 [])
+        # And what VIP does have still resolves.
+        self.assertIsNotNone(catalog.group_in(inventory, "Intercom"))
+
 
 class ReadMethodsMatchTheFieldScript(unittest.TestCase):
     """`read_method_for` and device_verify's COLLECTORS must not drift apart.

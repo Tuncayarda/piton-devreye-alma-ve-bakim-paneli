@@ -83,7 +83,7 @@ export function apkFields(plan, check) {
           type: 'button', class: 'btn btn-small btn-primary',
           text: local.apkPickerOpen ? t('firmware.selectingFile')
             : t('ip.selectApkFor', { count: rows.length }),
-          title: `${t('firmware.yourComputersFileDialogOpens')} (.apk)`,
+          title: '.apk',
           disabled: !supported || !rows.length || local.apkPickerOpen,
           onclick: () => pickApk(plan),
         }),

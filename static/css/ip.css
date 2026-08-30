@@ -7,15 +7,6 @@
 
 #v-ip { max-width: 1580px; margin: 0 auto; }
 
-/* The heading and the action stack on the right align at the top. With
-   `flex-end` the heading dropped below a two-line action column and no longer
-   sat on the same line as the headings of the other operation screens. */
-.ip-page-head {
-  align-items: flex-start;
-  margin-bottom: 0;
-  padding-top: 2px;
-}
-
 /* The run's action, at the foot of the form it belongs to. The readiness line
    sits with it: "why is this button disabled" and the button are one thing.
 
@@ -29,9 +20,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  margin-top: 4px;
-  padding: 12px 18px;
+  gap: var(--sp-4);
+  margin-top: var(--sp-1);
+  padding: var(--sp-4) var(--sp-5);
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
@@ -42,7 +33,7 @@
 .ip-readiness {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-mid);
@@ -50,40 +41,22 @@
 .ip-readiness i {
   width: 6px; height: 6px;
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(66, 148, 224, .09);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 .ip-readiness[data-state="ready"] i {
   background: var(--ok);
-  box-shadow: 0 0 0 3px rgba(63, 185, 80, .09);
+  box-shadow: 0 0 0 3px var(--ok-sheen);
 }
 .ip-readiness[data-state="error"] { color: var(--danger-text); }
 .ip-readiness[data-state="error"] i {
   background: var(--failed);
-  box-shadow: 0 0 0 3px rgba(218, 54, 51, .1);
+  box-shadow: 0 0 0 3px var(--failed-wash);
 }
 .ip-start-btn {
   min-height: 40px;
-  padding: 9px 19px;
-  box-shadow: 0 8px 22px rgba(6, 10, 13, .24);
+  padding: var(--sp-3) var(--sp-5);
+  box-shadow: 0 8px 22px var(--drop-soft);
 }
-.ip-empty-state {
-  min-height: 88px;
-  margin-top: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-}
-.ip-loading > i {
-  width: 13px; height: 13px;
-  border: 1px solid var(--line-strong);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: ip-spin .75s linear infinite;
-}
-@keyframes ip-spin { to { transform: rotate(360deg); } }
 
 /* One run panel on the left, the front panels of the two switches stacked on
    its right. The right column is as wide as a panel; the run panel takes what
@@ -91,8 +64,8 @@
 .ip-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 480px;
-  gap: 24px;
-  margin-top: 24px;
+  gap: var(--sp-6);
+  margin-top: var(--sp-6);
   align-items: start;
 }
 .ip-panel-area { min-width: 0; }
@@ -101,31 +74,24 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-4);
 }
 .ip-section-title {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
+  gap: var(--sp-4);
   min-width: 0;
 }
-.ip-section-head h3 { margin-top: 1px; }
+.ip-section-head h3 { margin-top: var(--sp-0); }
 .ip-section-head p,
-.ip-card-head p {
-  margin: 5px 0 0;
-  color: var(--text-mid);
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-}
 .ip-section-count {
   flex: none;
-  padding: 4px 7px;
+  padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line);
   color: var(--text-mid);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  text-transform: uppercase;
 }
 
 /* The settings card has three clear layers: targets, protections, summary. */
@@ -135,18 +101,23 @@
   min-width: 0;
   padding: 0;
   background:
-    linear-gradient(145deg, rgba(66, 148, 224, .035), transparent 42%),
+    linear-gradient(145deg, var(--accent-sheen), transparent 42%),
     var(--panel);
 }
+/* THE BANDED HEAD — the second and last card anatomy. An IP card carries no
+   padding of its own (its areas are separated by full-width rules), so its
+   title sits in a band that reaches both edges rather than inside the card's
+   inset like `.card-head` does. Kept apart from `.card-head` on purpose, and
+   it is the only card head that is. */
 .ip-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding: 17px 19px;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
   border-bottom: 1px solid var(--line);
-  background: rgba(214, 235, 255, .018);
+  background: var(--raise-1);
 }
-.ip-card-head h3 { margin-top: 1px; }
+.ip-card-head h3 { margin-top: var(--sp-0); }
 .ip-form-section,
 .setting-section {
   min-width: 0;
@@ -154,18 +125,18 @@
   border: 0;
 }
 .ip-switch-picker-area {
-  padding: 18px 19px;
+  padding: var(--sp-5);
   border-bottom: 1px solid var(--line);
 }
-.ip-switch-picker-area > .label { display: block; margin-bottom: 7px; }
+.ip-switch-picker-area > .label { display: block; margin-bottom: var(--sp-2); }
 .ip-switch-picker-area > .field { width: 100%; }
-.ip-port-area { padding: 18px 19px; }
+.ip-port-area { padding: var(--sp-5); }
 .ip-field-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 7px;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-2);
 }
 .ip-field-count {
   color: var(--accent);
@@ -176,25 +147,18 @@
   min-height: 39px;
   background: var(--deep);
 }
-.ip-settings-card #port-warning { margin: 7px 0 0; }
-.ip-field-help {
-  margin: 7px 0 0;
-  color: var(--text-mid);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-}
+.ip-settings-card #port-warning { margin: var(--sp-2) 0 0; }
 
 .setting-section {
-  padding: 18px 19px;
+  padding: var(--sp-5);
   border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-3);
 }
-.ip-sub-head { margin-bottom: 3px; }
+.ip-sub-head { margin-bottom: var(--sp-1); }
 .ip-sub-head p {
-  margin: 5px 0 0;
+  margin: var(--sp-1) 0 0;
   color: var(--text-mid);
   font-size: var(--fs-sm);
   line-height: 1.45;
@@ -203,11 +167,11 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-4);
   min-height: 45px;
-  padding: 7px 9px;
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--line-soft);
-  background: rgba(11, 17, 22, .34);
+  background: var(--sunk-1);
 }
 .setting-row:hover { border-color: var(--line); }
 .setting-row .label {
@@ -218,39 +182,35 @@
 .setting-row select.field { width: auto; min-width: 138px; max-width: 180px; }
 .ip-medium-field { width: 148px; }
 .ip-field-error {
-  margin: -2px 0 2px;
-  padding: 0 9px;
+  margin: -2px 0 var(--sp-0);
+  padding: 0 var(--sp-3);
   color: var(--danger-text);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: 1.45;
 }
 
-/* Both `.ip-field-help[data-state=...]` rules were removed: nothing sets a
-   data-state on that class, so neither ever matched. The evidence line's
-   colour comes from the element it is rendered next to. */
-
 .setting-summary {
   margin: 0;
-  padding: 17px 19px 19px;
+  padding: var(--sp-5);
   border-top: 1px solid var(--line);
-  background: rgba(11, 17, 22, .28);
+  background: var(--sunk-1);
   color: var(--text-mid);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: 1.55;
 }
 .ip-ready-badge {
-  border-color: var(--ok-soft);
+  border-color: var(--ok-line);
   color: var(--ok);
 }
-.ip-waiting-badge { border-color: var(--auth-soft); color: var(--auth); }
-.ip-error-badge { border-color: var(--failed-soft); color: var(--danger-text); }
+.ip-waiting-badge { border-color: var(--auth-line); color: var(--auth); }
+.ip-error-badge { border-color: var(--failed-line); color: var(--danger-text); }
 .ip-run-error {
-  margin: 0 0 8px;
-  padding: 7px 8px;
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
   border-left: 2px solid var(--failed);
-  background: rgba(218, 54, 51, .06);
+  background: var(--failed-sheen);
   color: var(--danger-text);
   font-family: var(--font-body);
   font-size: var(--fs-xs);
@@ -260,8 +220,8 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 14px;
-  padding: 5px 0;
+  gap: var(--sp-4);
+  padding: var(--sp-1) 0;
   border-bottom: 1px solid var(--line-soft);
 }
 .setting-summary .row:last-child { border-bottom: 0; }
@@ -282,19 +242,8 @@
 .panel-stack {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--sp-5);
 }
-.ip-panel-empty {
-  min-height: 190px;
-  padding: 24px;
-  border: 1px dashed var(--line-strong);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-}
-.ip-panel-empty p { margin: 6px 0 0; color: var(--text-mid); font-size: var(--fs-base); }
 
 .front-panel {
   min-width: 0;
@@ -305,7 +254,7 @@
   max-width: 100%;
   padding: 0;
   background:
-    linear-gradient(180deg, rgba(214, 235, 255, .018), transparent 40%),
+    linear-gradient(180deg, var(--raise-1), transparent 40%),
     var(--panel);
   transition: border-color .14s ease, background .14s ease, transform .14s ease;
 }
@@ -316,15 +265,15 @@
 .front-panel:hover { border-color: var(--line-strong); }
 .ip-switch-head {
   min-height: 67px;
-  padding: 14px 16px 12px;
+  padding: var(--sp-4) var(--sp-5);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: var(--sp-4);
   border-bottom: 1px solid var(--line-soft);
 }
 .ip-switch-identity { min-width: 0; }
-.ip-switch-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ip-switch-name { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
 .ip-switch-name i {
   width: 7px; height: 7px;
   flex: none;
@@ -332,27 +281,27 @@
 }
 .front-panel[data-active="1"] .ip-switch-name i {
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(66, 148, 224, .1);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
-.ip-switch-name h4 {
+.ip-switch-name h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ip-switch-identity > .mono {
   display: block;
-  margin: 5px 0 0 15px;
+  margin: var(--sp-1) 0 0 var(--sp-5);
   color: var(--text-mid);
   font-size: var(--fs-xs);
 }
 .ip-switch-badges {
   display: flex;
   justify-content: flex-end;
-  gap: 5px;
+  gap: var(--sp-1);
   flex-wrap: wrap;
 }
 .ip-source-badge { color: var(--text-mid); }
-.ip-source-badge.live { border-color: var(--ok-soft); color: var(--ok); }
+.ip-source-badge.live { border-color: var(--ok-line); color: var(--ok); }
 
 /* How many seconds ago the data was read; past 15 s it counts as stale. */
 .ip-freshness {
@@ -362,77 +311,69 @@
 .ip-freshness[data-stale="1"] { color: var(--auth); }
 
 /* The automatic refresh of the front panels — it can be paused. */
-.ip-section-action { display: flex; align-items: center; gap: 8px; flex: none; }
+.ip-section-action { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
 .ip-refresh-btn {
-  padding: 3px 9px;
+  padding: var(--sp-1) var(--sp-3);
   font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
   border-color: var(--line); color: var(--text-mid);
 }
 .ip-refresh-btn[aria-pressed="true"] {
-  border-color: var(--ok-soft); color: var(--ok);
+  border-color: var(--ok-line); color: var(--ok);
 }
-.ip-switch-guidance {
-  margin: 11px 16px 0;
-  color: var(--text-mid);
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-}
-/* Why the panel could not be read, plus the credentials warning: a one-line
-   note, not a box. Two boxes with the same sentence for two switches
-   overwhelmed the panel. */
+/* Why the panel could not be read: a one-line note, not a box. Two boxes
+   with the same sentence for two switches overwhelmed the panel. */
 .ip-panel-note {
-  margin: 9px 16px 0;
-  padding-left: 9px;
+  margin: var(--sp-3) var(--sp-5) 0;
+  padding-left: var(--sp-3);
   border-left: 2px solid var(--line-strong);
   color: var(--text-mid);
   font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.5;
 }
-.ip-panel-note.warning-tone {
-  border-left-color: var(--auth); color: var(--auth);
-}
 .ip-credential-btn {
-  padding: 3px 9px;
+  padding: var(--sp-1) var(--sp-3);
   font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 400;
   letter-spacing: .04em; text-transform: none;
-  border-color: var(--auth-soft); color: var(--auth);
+  border-color: var(--auth-line); color: var(--auth);
 }
 .ip-credential-btn:hover:not(:disabled) {
-  background: rgba(210, 153, 34, .12); border-color: var(--auth);
+  background: var(--auth-wash); border-color: var(--auth);
 }
 
 /* The plan below is scanned by state badges rather than by fading rows. */
 .ip-plan-section {
-  margin-top: 28px;
-  padding-top: 23px;
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-6);
   border-top: 1px solid var(--line);
 }
 .ip-plan-metrics {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--sp-2);
   flex-wrap: wrap;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--text-mid);
 }
 .ip-plan-metrics span {
-  padding: 4px 7px;
+  padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line);
 }
 .ip-plan-metrics b { color: var(--text); font-weight: 500; }
 .ip-plan-table { margin-top: 0; }
-.ip-plan-table .table-head { background: #182129; }
+.ip-plan-table .table-head { background: var(--lift-1); }
 .ip-plan-row { min-height: 43px; }
+/* The gutter strip the device list and the verification list are both read
+   by, at the same three pixels. Here it says the port is in the run. */
 .ip-plan-row[data-actionable="1"] {
-  box-shadow: inset 2px 0 0 rgba(66, 148, 224, .58);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
-.ip-plan-row[data-actionable="0"] { background: rgba(17, 26, 32, .62); }
+.ip-plan-row[data-actionable="0"] { background: var(--sunk-3); }
 .ip-plan-row[data-actionable="0"] .ip-device-name,
 .ip-plan-row[data-actionable="0"] .ip-address { color: var(--text-dim); }
 .ip-port-badge {
   width: fit-content;
-  padding: 3px 6px;
+  padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line);
   color: var(--text-bright);
   font-family: var(--font-mono);
@@ -442,49 +383,47 @@
 .ip-group-name { font-size: var(--fs-sm); color: var(--text-mid); }
 .ip-address { font-size: var(--fs-sm); }
 .ip-target-ip { color: var(--accent); }
+/* THE WORD, QUIETLY. It was a bordered chip with a coloured dot in it, one
+   per row, in the accent — so a port's place in the run was said four times
+   over: the strip in the gutter, the row's own ground, the chip's border and
+   colour, and the dot inside it. The strip is what the table is scanned by
+   and the ground is what dims the rows nobody asked about; this only has to
+   name which of the three cases a row is, because "outside the target group"
+   and "matched automatically" are not the same answer and no colour could
+   tell them apart. */
 .ip-state-badge {
   width: fit-content;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  color: var(--text-mid);
+  color: var(--text-dim);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
-.ip-state-badge i { width: 5px; height: 5px; background: var(--text-faint); }
-.ip-state-badge.included { border-color: var(--accent-line); color: var(--accent); }
-.ip-state-badge.included i { background: var(--accent); }
+.ip-state-badge.included { color: var(--text-mid); }
 
 @media (max-width: 900px) {
-  .ip-grid { grid-template-columns: minmax(0, 1fr); }
+  .ip-grid { grid-template-columns: minmax(0, 1fr); gap: var(--sp-5); margin-top: var(--sp-5); }
   .ip-settings-card { position: static; }
   /* When it falls to one column the panel must not stretch the page; the map
      is already drawn for 480px. */
   .ip-panel-area { max-width: 480px; }
+  /* And the two faceplates stack, for the same reason: side by side inside a
+     480px cap each one is half a drawing. */
+  .panel-stack { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 720px) {
-  .ip-page-head { align-items: stretch; }
+@media (max-width: 620px) {
   .ip-action-bar { flex-direction: column; align-items: stretch; }
   .ip-action-bar .ip-start-btn { width: 100%; }
   .ip-readiness { align-self: flex-end; }
   .ip-start-btn { width: 100%; }
-  .ip-grid { gap: 20px; margin-top: 20px; }
-  .panel-stack { grid-template-columns: minmax(0, 1fr); }
-  .ip-section-head { gap: 10px; }
+  .ip-section-head { gap: var(--sp-3); }
   .ip-section-count { display: none; }
-  .ip-plan-section { margin-top: 23px; padding-top: 20px; }
-}
-
-@media (max-width: 620px) {
+  .ip-plan-section { margin-top: var(--sp-6); padding-top: var(--sp-5); }
   .ip-card-head,
   .ip-port-area,
   .setting-section,
-  .setting-summary { padding-left: 15px; padding-right: 15px; }
-  .setting-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .setting-summary { padding-left: var(--sp-5); padding-right: var(--sp-5); }
+  .setting-row { grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); }
   .setting-row select.field,
   .ip-medium-field { width: 100%; max-width: none; }
   .ip-switch-head { flex-direction: column; }
@@ -492,16 +431,12 @@
   .ip-plan-section > .ip-section-head { flex-direction: column; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ip-loading > i { animation: none; }
-}
-
 .legend {
-  display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px;
+  display: flex; gap: var(--sp-5); flex-wrap: wrap; margin-top: var(--sp-4);
   font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-dim);
 }
 .legend i {
-  display: inline-block; width: 8px; height: 8px; margin-right: 6px;
+  display: inline-block; width: 8px; height: 8px; margin-right: var(--sp-2);
 }
 
 /* ─────────────────────────────────────────────── disclosures ─ */
@@ -532,57 +467,51 @@
 }
 .ip-panel-tools {
   justify-content: flex-end;
-  padding: 0 0 10px;
+  padding: 0 0 var(--sp-3);
 }
 /* Factory-IP reset is intentionally separate from the primary assignment
    settings. It is rendered only for a plan whose backend declares support;
    the destructive button sits at the far end of a labelled maintenance card. */
 .ip-factory-reset-card {
-  margin-top: 18px;
-  padding: 18px 19px;
-  border-color: rgba(218, 54, 51, .28);
+  margin-top: var(--sp-5);
+  padding: var(--sp-5);
+  border-color: var(--failed-edge);
   background:
-    linear-gradient(145deg, rgba(218, 54, 51, .035), transparent 45%),
+    linear-gradient(145deg, var(--failed-sheen), transparent 45%),
     var(--panel);
-}
-.ip-factory-reset-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
 }
 .ip-factory-reset-head p,
 .ip-factory-reset-actions p {
-  margin: 5px 0 0;
+  margin: var(--sp-1) 0 0;
   color: var(--text-mid);
   font-size: var(--fs-sm);
   line-height: 1.5;
 }
 .ip-factory-reset-address {
   flex: none;
-  padding: 5px 8px;
-  border: 1px solid rgba(218, 54, 51, .25);
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--failed-edge);
   color: var(--danger-text);
   font-size: var(--fs-sm);
 }
 .ip-reset-scope {
   min-width: 0;
-  margin: 16px 0 0;
-  padding: 14px;
+  margin: var(--sp-5) 0 0;
+  padding: var(--sp-4);
   border: 1px solid var(--line-soft);
 }
-.ip-reset-scope > legend { padding: 0 6px; }
+.ip-reset-scope > legend { padding: 0 var(--sp-2); }
 .ip-reset-scope-options {
   display: flex;
   flex-wrap: wrap;
-  gap: 9px;
+  gap: var(--sp-3);
 }
 .ip-reset-scope-option {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-3);
   min-height: 38px;
-  padding: 8px 11px;
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--line);
   color: var(--text-mid);
   font-size: var(--fs-sm);
@@ -591,24 +520,24 @@
 .ip-reset-scope-option[data-active="1"] {
   border-color: var(--accent-line);
   color: var(--text-bright);
-  background: rgba(66, 148, 224, .055);
+  background: var(--accent-sheen);
 }
 .ip-reset-scope-option input { accent-color: var(--accent); }
 .ip-reset-external-set {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 150px;
   align-items: center;
-  gap: 12px;
-  margin-top: 11px;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
 }
 .ip-reset-set-field { width: 150px; }
-.ip-reset-scope > .ip-field-error { margin-top: 7px; padding-left: 0; }
+.ip-reset-scope > .ip-field-error { margin-top: var(--sp-2); padding-left: 0; }
 .ip-factory-reset-actions {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 18px;
-  margin-top: 14px;
+  gap: var(--sp-5);
+  margin-top: var(--sp-4);
 }
 .ip-factory-reset-actions p { max-width: 700px; }
 .ip-factory-reset-actions .btn { flex: none; }
@@ -617,11 +546,10 @@
    writes one address to one display, so it is ordinary work rather than a
    destructive step. */
 .ip-manual-card {
-  margin-top: 18px;
-  padding: 18px 19px;
+  margin-top: var(--sp-5);
+  padding: var(--sp-5);
 }
 .ip-manual-card .setting-row { padding-left: 0; padding-right: 0; }
-.ip-manual-card > .ip-field-help { margin: 4px 0 0; }
 
 @media (max-width: 620px) {
   .ip-factory-reset-head,
@@ -639,7 +567,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--sp-3);
   flex-wrap: wrap;
   min-width: 0;
   font-size: var(--fs-sm);
@@ -650,15 +578,15 @@
    server-side APK selection. The compact list makes a missing file visible
    without turning the primary IP card into a second firmware table. */
 .ip-lcd-source {
-  padding: 10px 11px;
+  padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--line-soft);
-  background: rgba(66, 148, 224, .035);
+  background: var(--accent-sheen);
 }
 .ip-lcd-source .row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 14px;
+  gap: var(--sp-4);
   color: var(--text-mid);
   font-size: var(--fs-sm);
 }
@@ -669,44 +597,44 @@
   text-align: right;
 }
 .ip-apk-block {
-  margin-top: 2px;
-  padding: 12px;
+  margin-top: var(--sp-0);
+  padding: var(--sp-4);
   border: 1px solid var(--line);
-  background: rgba(11, 17, 22, .42);
+  background: var(--sunk-2);
 }
 .ip-apk-head,
 .ip-apk-controls,
 .ip-apk-actions {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--sp-3);
 }
 .ip-apk-head { justify-content: space-between; }
 .ip-apk-controls {
   align-items: flex-end;
   justify-content: space-between;
-  margin-top: 11px;
+  margin-top: var(--sp-4);
 }
 .ip-apk-version {
   display: grid;
-  gap: 5px;
+  gap: var(--sp-1);
 }
 .ip-apk-version .label { margin: 0; }
 .ip-apk-list {
   display: grid;
-  gap: 4px;
-  margin-top: 11px;
+  gap: var(--sp-1);
+  margin-top: var(--sp-4);
 }
 .ip-apk-row {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(115px, 1fr) minmax(145px, 1.3fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-3);
   min-height: 35px;
-  padding: 6px 8px;
+  padding: var(--sp-2) var(--sp-3);
   border-left: 2px solid var(--line);
-  background: rgba(214, 235, 255, .018);
+  background: var(--raise-1);
   font-size: var(--fs-xs);
 }
 .ip-apk-row[data-selected="1"] { border-left-color: var(--ok); }
@@ -715,7 +643,7 @@
   font-size: var(--fs-xs);
   white-space: nowrap;
 }
-.ip-apk-error { margin: 9px 0 0; padding: 0; }
+.ip-apk-error { margin: var(--sp-3) 0 0; padding: 0; }
 
 @media (max-width: 620px) {
   .ip-apk-controls { align-items: stretch; flex-direction: column; }
@@ -723,8 +651,8 @@
   .ip-apk-version .field { width: 100%; }
   .ip-apk-actions { width: 100%; }
   .ip-apk-actions .btn { flex: 1; }
-  .ip-apk-row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .ip-apk-row { grid-template-columns: minmax(0, 1fr); gap: var(--sp-1); }
   .ip-apk-row > :last-child { white-space: normal; }
-  .ip-lcd-source .row { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .ip-lcd-source .row { align-items: flex-start; flex-direction: column; gap: var(--sp-1); }
   .ip-lcd-source .row b { text-align: left; }
 }

@@ -45,12 +45,10 @@ function markRow(row) {
  * nothing else, which on a screen holding two of them is no help.
  */
 export function dataTable({ template, columns, rows, empty,
-                            minWidth = 900, label,
-                            wrapClass = '', wrapStyle = null }) {
+                            minWidth = 900, label, wrapClass = '' }) {
   const list = (rows || []).map(markRow);
   return el('div', {
     class: `table-wrap${wrapClass ? ` ${wrapClass}` : ''}`,
-    style: wrapStyle,
   }, [
     el('div', {
       class: 'table', role: 'table', 'aria-label': label || null,

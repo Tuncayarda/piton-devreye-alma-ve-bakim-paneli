@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from .. import (adminkey, config_sync, credentials, editions, firmware,
-                jobs, network, switch, telemetry)
+from .. import (adminkey, authority, config_sync, credentials, editions,
+                firmware, jobs, network, remotekey, switch, telemetry)
 from ..inventory import device_map
 
 # Starting the application service does not depend on the HTTP server. The
@@ -68,6 +68,11 @@ def prepare_network() -> None:
 def leave_admin() -> None:
     """Give up admin mode, and give up what it was showing.
 
+    EITHER WAY IN IS GIVEN UP, the stick's and the network's alike: this is
+    called when the last source has gone (`panel.authority`) and when the
+    operator simply presses the button, and in the second case the remote
+    session is still running and has to be told.
+
     THE PROJECT HAS TO GO BACK TOO. Admin mode may have opened a device list
     delivered on the service key — another customer's, in the general case.
     Dropping the mode alone left that list on screen: the menu said the
@@ -79,6 +84,15 @@ def leave_admin() -> None:
     been delivered yet: an empty screen that says so is the right answer, and
     strictly better than another customer's inventory.
     """
+    # The remote session goes FIRST, and it goes whether or not it was what
+    # opened the mode. Leaving admin mode is a decision about this machine,
+    # and a beat still running against the grant service afterwards would be
+    # a session the operator believes they closed.
+    #
+    # `disconnect` reports the source gone without settling, which is what
+    # makes this safe to call from inside `authority.settle` — see the note
+    # on `RemoteWatch.disconnect`.
+    remotekey.WATCH.disconnect()
     stranded = editions.current_is_extra()
     editions.set_admin(False)
     adminkey.pack.clear_session()
@@ -134,6 +148,19 @@ def reset() -> None:
         adminkey.WATCH.stop()
     except Exception:
         pass
+    try:
+        # The pairing goes first: it holds the one key that could read a
+        # session code back, and it has no business outliving the process
+        # that asked for it (see panel.remotekey.pairing).
+        remotekey.PAIR.reset()
+        remotekey.WATCH.reset()
+        remotekey.client.reset()
+    except Exception:
+        pass
+    # Nothing is holding admin mode once the watches are down. Said out loud
+    # so a service rebuilt in the same process does not start life believing
+    # a source from the last one is still there.
+    authority.reset()
     # The computer's network goes back as it was found. This is the ONLY
     # reliable moment: `app.py` calls reset() in main()'s finally, before the
     # interpreter is ended outright, and an address left behind would outlive

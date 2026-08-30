@@ -237,11 +237,9 @@ def _uncovered(written: frozenset, compounds: set[frozenset]) -> list[str]:
 # saying "on purpose"; the default is to give the class a rule or drop it.
 CLASSES_WITHOUT_RULES: dict[str, str] = {
     "adb-op-note": "modifier beside .info, which carries the styling",
-    "device-category-bar": "modifier beside .chip-bar",
     "ip-lcd-settings": "modifier beside .setting-section",
     "job-row-box": "wrapper the queue styles through its parent",
     "legend-plain": "modifier beside .legend",
-    "payload": "the MQTT payload cell, styled through .table-row",
 }
 
 # The closed vocabulary of `[data-state]`. `dotState` in the switch port table
@@ -380,7 +378,7 @@ class Frontend(unittest.TestCase):
         html = (settings.STATIC_DIR / "index.html").read_text(encoding="utf-8")
         for element_id in ("app", "mode-badge", "leave-admin-btn",
                            "locked-btn", "queue-btn", "refresh-btn",
-                           "density-btn",
+                           "auto-btn", "scan-group",
                            "locked-panel", "queue-panel", "toast",
                            "set-picker"):
             self.assertIn(f'id="{element_id}"', html, element_id)
@@ -578,6 +576,41 @@ class Frontend(unittest.TestCase):
         self.assertEqual(failures, [], "text below 4.5:1:\n  "
                                        + "\n  ".join(failures))
 
+    def test_a_colour_is_only_ever_chosen_in_base_css(self):
+        """Every colour is a token; the literals live in one block.
+
+        The companion of the contrast gate above, and the reason it can be
+        trusted: a gate that measures the tokens proves nothing while the
+        screens are mixing their own colours beside them. They were — one
+        light, `#d6ebff`, appeared at fifteen different alphas of which three
+        were tokens, the accent at twelve, and nine greys were hand-mixed in
+        hex. Two cards carried different borders and nobody could say why.
+
+        `black` and `transparent` are allowed: the first is only ever a mask
+        stencil, the second is the absence of a colour rather than one.
+        """
+        base = CSS_DIR / "base.css"
+        literal = re.compile(r"rgba?\([\d\s,.]+\)|#[0-9a-fA-F]{3,8}\b")
+        offenders = []
+        for path in sorted(CSS_DIR.glob("*.css")):
+            text = path.read_text(encoding="utf-8")
+            # base.css declares the palette; only its `:root` block may.
+            if path == base:
+                text = text.split("\n}\n", 1)[1]
+            text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+            for number, line in enumerate(text.splitlines(), 1):
+                if literal.search(line):
+                    offenders.append(f"{path.name}: {line.strip()}")
+        for path in _js_files():
+            for number, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                if "style:" in line and literal.search(line):
+                    name = path.relative_to(JS_DIR).as_posix()
+                    offenders.append(f"js/{name}:{number}: {line.strip()}")
+        self.assertEqual(offenders, [],
+                         "a colour chosen outside base.css:\n  "
+                         + "\n  ".join(offenders))
+
     def test_a_font_size_is_only_ever_chosen_in_the_scale(self):
         """Sizes come from `--fs-*`, in rem, and from nowhere else.
 
@@ -602,13 +635,107 @@ class Frontend(unittest.TestCase):
                          "a size chosen outside the scale:\n  "
                          + "\n  ".join(offenders))
 
-    def test_responsive_breakpoints_exist(self):
-        """The 1440 base design must not overflow on narrow screens."""
+    def test_a_space_is_only_ever_chosen_in_the_scale(self):
+        """Margins, paddings and gaps come from `--sp-*` and nowhere else.
+
+        The twin of the font-size gate above, and it was missing for as long
+        as the type scale had one: 23 distinct pixel values across the five
+        stylesheets, 9 and 10 and 11 all doing the same job. Spacing sets a
+        screen's rhythm more than type size does, so a value picked by hand
+        here is worth more than one picked by hand there.
+
+        Negative values are left alone. A `-1px` clip or a `-2px` optical
+        nudge corrects something the box model did; it is not rhythm, and
+        there is no scale step it could come from.
+        """
+        declaration = re.compile(
+            r"(?<![-\w])(?:margin|padding|gap|row-gap|column-gap)"
+            r"(?:-(?:top|bottom|left|right))?\s*:\s*[^;}]*")
+        # `-4px` is a correction; `var(--sp-1)` and `4px` are not the same
+        # thing, so only a bare positive length is an offender.
+        positive_px = re.compile(r"(?<![-\w.])\d+(?:\.\d+)?px")
+        offenders = []
+        for path in sorted(CSS_DIR.glob("*.css")):
+            for number, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                for found in declaration.finditer(line):
+                    if positive_px.search(found.group(0)):
+                        offenders.append(f"{path.name}:{number}: "
+                                         f"{line.strip()}")
+                        break
+        self.assertEqual(offenders, [],
+                         "a space chosen outside the scale:\n  "
+                         + "\n  ".join(offenders))
+
+    def test_layout_is_not_written_inline_in_the_javascript(self):
+        """A view may compute a colour or a width; it may not lay itself out.
+
+        The mirror of the class-name gate above. Eighty inline `style:`
+        strings were doing layout — margins, displays, gaps, flex settings,
+        three grid templates — and a rule written there is invisible from the
+        stylesheets: whoever goes looking for a gap cannot find it, and the
+        spacing scale cannot reach it either.
+
+        What stays inline is what comes from DATA and could not be written
+        ahead of time: the state colour of a row, the width of a progress
+        bar, the `--table-columns` a screen computes for its own table.
+        """
+        layout = re.compile(
+            r"(?:^|;|\s)(margin|padding|gap|row-gap|column-gap|display|flex"
+            r"|grid|align-items|align-self|align-content|justify-content"
+            r"|justify-items|justify-self|order|float)"
+            r"(?:-[a-z]+)*\s*:")
+        value = re.compile(r"""\bstyle:\s*(?:'([^']*)'|"([^"]*)"|`([^`]*)`)""")
+        offenders = []
+        for path in _js_files():
+            for number, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                for found in value.finditer(line):
+                    text = next(group for group in found.groups()
+                                if group is not None)
+                    if layout.search(text):
+                        name = path.relative_to(JS_DIR).as_posix()
+                        offenders.append(f"js/{name}:{number}: {line.strip()}")
+        self.assertEqual(offenders, [],
+                         "layout written inline; give it a class:\n  "
+                         + "\n  ".join(offenders))
+
+    def test_the_layout_answers_to_three_widths_and_no_others(self):
+        """The 1440 base design must not overflow — at three widths only.
+
+        There were six: 620, 720, 900, 1080, 1081 and 1180. Every screen
+        with a rail beside its content had picked its own, so narrowing the
+        window slowly dropped the application to one column four separate
+        times. A rail now collapses at the width its own KIND collapses at
+        (see the note in base.css), which leaves three.
+
+        `min-width` counts as its `max-width` neighbour: 901 is the far side
+        of 900, not a fourth width.
+        """
         base = (CSS_DIR / "base.css").read_text(encoding="utf-8")
-        self.assertIn("@media (max-width: 1080px)", base)
-        self.assertIn("@media (max-width: 720px)", base)
+        self.assertIn("@media (max-width: 900px)", base)
+        self.assertIn("@media (max-width: 620px)", base)
         components = (CSS_DIR / "components.css").read_text(encoding="utf-8")
         self.assertIn("overflow-x: auto", components)   # wide tables scroll
+
+        allowed = {620, 900, 1180}
+        found = {}
+        for path in sorted(CSS_DIR.glob("*.css")):
+            text = path.read_text(encoding="utf-8")
+            for kind, width in re.findall(
+                    r"\((?:(max)|min)-width:\s*(\d+)px\)", text):
+                width = int(width) if kind else int(width) - 1
+                found.setdefault(width, set()).add(path.name)
+        extra = {width: sorted(names) for width, names in found.items()
+                 if width not in allowed}
+        self.assertEqual(extra, {}, f"a fourth width: {extra}")
+
+        # And the rails the widths belong to.
+        self.assertIn("--rail: 320px", base)
+        self.assertIn("--rail-wide: 420px", base)
+        # The JS has to agree about when the side panel stops overlaying.
+        app = (JS_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("OVERLAY_PANEL_MAX = 900", app)
 
     def test_python_sources_compile(self):
         """Every Python source passes a syntax check."""

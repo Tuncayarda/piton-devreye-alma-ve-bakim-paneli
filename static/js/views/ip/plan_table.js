@@ -53,10 +53,8 @@ function planRow(plan, row, factoryIp) {
     el('span', {
       class: row.actionable
         ? 'ip-state-badge included' : 'ip-state-badge excluded',
-    }, [
-      el('i', { 'aria-hidden': 'true' }),
-      t(planRowStateKey(plan, row)),
-    ]),
+      text: t(planRowStateKey(plan, row)),
+    }),
   ]);
 }
 

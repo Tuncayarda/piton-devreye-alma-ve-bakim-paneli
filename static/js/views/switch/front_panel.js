@@ -93,7 +93,7 @@ export function frontPanelCard(actions, ip, busy) {
       : null,
     info && info.version ? el('span', { class: 'badge', text: info.version })
       : null,
-    busy ? el('span', { class: 'eyebrow', text: t('switch.busy') }) : null,
+    busy ? el('span', { class: 'label', text: t('switch.busy') }) : null,
     ...(local.ports.length ? counters() : []),
   ]);
 
@@ -129,7 +129,7 @@ export function frontPanelCard(actions, ip, busy) {
       el('div', { class: 'pm-wrap' }, [grid]),
       el('div', { class: 'pm-footer' }, [
         el('span', { text: t('switch.poeRange', { count: poe.length }) }),
-        el('span', { style: 'flex:1' }),
+        el('span', { class: 'grow' }),
         uplink.length
           ? el('span', {
               text: t('switch.uplinkRange', {

@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 
 import { applyCatalogue } from "../../static/js/core/i18n.js";
 import {
-  IP_TARGETS,
+  ipTargets,
   local,
   selectAssignmentSwitch,
   targetLabel,
 } from "../../static/js/views/ip/state.js";
+import { patch } from "../../static/js/core/store.js";
 import {
   deviceCandidateRows,
   deviceMapName,
@@ -67,6 +68,20 @@ function lcdPlan() {
   };
 }
 
+// The picker's options come from the open project's own group list, so the
+// fixture is a `meta` payload of the shape `/api/project` returns.
+const META = {
+  groups: [
+    { name: "Intercom", label: "Intercom", type: "Announcement",
+      subtype: "Intercom", ops: "ip cfg fw check" },
+    { name: "Compartment LCD", label: "Compartment LCD", type: "LCD",
+      subtype: "Compartment", ops: "ip cfg fw check" },
+    // Configured and updated, never addressed — so it must not appear here.
+    { name: "Camera", label: "Kamera", type: "Camera", subtype: "",
+      ops: "cfg check" },
+  ],
+};
+
 Deno.test("the IP picker keeps the DeviceMap Compartment LCD group verbatim", () => {
   applyCatalogue({
     language: "tr",
@@ -77,10 +92,29 @@ Deno.test("the IP picker keeps the DeviceMap Compartment LCD group verbatim", ()
       ),
     ),
   });
-  const lcd = IP_TARGETS.find((target) => target.id === "Compartment LCD");
+  patch({ meta: META });
+  const lcd = ipTargets().find((target) => target.id === "Compartment LCD");
   assert.deepEqual(lcd.groups, ["Compartment LCD"]);
   assert.equal(lcd.label, "Compartment LCD");
   assert.equal(targetLabel(lcd), "Compartment LCD");
+});
+
+// The bug this replaces a hard-coded pair for: the screen used to carry its
+// own list of two device types, so a project without a Compartment LCD was
+// still offered the run that cuts its switch ports.
+Deno.test("the IP picker offers only the open project's ip-capable groups", () => {
+  patch({ meta: META });
+  assert.deepEqual(ipTargets().map((target) => target.id),
+                   ["Intercom", "Compartment LCD"]);
+
+  patch({ meta: { groups: META.groups.filter((g) => g.name !== "Compartment LCD") } });
+  assert.deepEqual(ipTargets().map((target) => target.id), ["Intercom"]);
+
+  patch({ meta: { groups: [] } });
+  assert.deepEqual(ipTargets(), []);
+  assert.equal(targetLabel(), "");
+
+  patch({ meta: META });
 });
 
 Deno.test("DeviceMap row names are never translated or normalized", () => {

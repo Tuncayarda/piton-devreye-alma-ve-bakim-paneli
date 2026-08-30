@@ -17,7 +17,7 @@ from pathlib import Path
 # Short and ASCII so it survives every shell, ZIP and installer it passes
 # through, and unchanged by the language.
 APP_SLUG = "dabp"
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a
 # temp dir and reports it via sys._MEIPASS.
@@ -166,6 +166,22 @@ def adb_devices_file() -> Path:
     (see `panel.adb.pool`).
     """
     return data_dir() / "adb_devices.json"
+
+
+def remote_session_file() -> Path:
+    """This installation's random name for itself, for remote service sessions.
+
+    NOT A SECRET and not a credential: a uuid4 that lets the grant service
+    tie an answer to the machine that asked (see `panel.remotekey.session`).
+    Losing it costs nothing, and a copy of it grants nothing — which is
+    exactly what the service key's file cannot say for itself.
+    """
+    # `remote_session.json`, not `remote.json`: the catalogue now has a
+    # `remote.` area, and tests/test_i18n.py reads any quoted `word.word` in
+    # that area as a message key — a file name that looks like one is
+    # reported as a key with no translation. The underscore ends that, and
+    # the longer name says more anyway.
+    return data_dir() / "remote_session.json"
 
 
 def ui_settings_file() -> Path:

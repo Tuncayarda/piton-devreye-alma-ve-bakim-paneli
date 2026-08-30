@@ -147,9 +147,9 @@ class Field:
     `read_names` are the candidates to read it by — kept wide for fields
     renamed between firmware versions; empty falls back to `write_name`.
 
-    `label`, `hint` and the option labels are message KEYS, not text: this
-    table is read on every request and the answer has to be in the language
-    selected at that moment (see panel.i18n).
+    `label` and the option labels are message KEYS, not text: this table is
+    read on every request and the answer has to be in the language selected
+    at that moment (see panel.i18n).
     """
 
     label: str
@@ -163,7 +163,6 @@ class Field:
     secret: bool = False   # the value never reaches the UI
     read_names: tuple = ()
     exclude: tuple = ()
-    hint: str = ""
 
     def candidates(self) -> tuple:
         return self.read_names or ((self.write_name,) if self.write_name
@@ -266,8 +265,7 @@ FIELDS: dict[str, Field] = {
     # belong in a routine apply run, so the panel reports the mask and the
     # mask is set with SADP (see docs/DEGISIKLIKLER.md).
     "subnetMask": Field("field.subnetMask", None, SECTION_NETWORK,
-                        read_names=("subnetmask",),
-                        hint="field.subnetMaskHint"),
+                        read_names=("subnetmask",)),
     "channelName": Field("field.channelName", "CameraName", SECTION_VIDEO,
                          "text", read_names=("channelname",),
                          ),
@@ -376,10 +374,17 @@ def config_scope(device) -> str:
     """What decides this device's field set.
 
     The SubType for announcement equipment, the Type for video: see the
-    SCOPE note at the top of this file.
+    SCOPE note at the top of this file. Settled when the map was loaded, by
+    the PROJECT the device came from (`panel/inventory/profiles`) — it was
+    derived here from the read method, which happened to be right for the
+    five projects shipped today and had nowhere to be anything else.
+
+    A third scope rule — one customer's Handset carrying a field set of its
+    own — is now a rule in that project's file plus rows under a new name in
+    `ROUTES` and `SCOPE_READ_ONLY` below. No branch, and no other project
+    moves.
     """
-    return (device.type if device.read_method == "isapi"
-            else (device.subtype or ""))
+    return device.config_scope
 
 
 def read_only_for_scope(scope: str | None) -> tuple[str, ...]:
@@ -431,6 +436,5 @@ def field_list(scope: str | None = None) -> list[dict]:
                         for value, label in field.options],
             "minimum": field.minimum, "maximum": field.maximum,
             "step": field.step, "secret": field.secret,
-            "hint": i18n.t(field.hint) if field.hint else "",
         })
     return out

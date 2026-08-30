@@ -55,6 +55,10 @@ export const live = {
   // The last runner generation drawn. The poll compares against this and
   // redraws only on a real change.
   generation: -1,
+  // Whether the last read failed. `adbState: null` is also what the screen
+  // looks like before the first round, and the two are different things to
+  // tell the operator (see components/placeholder.js).
+  readFailed: false,
 };
 
 export function onScreen() {

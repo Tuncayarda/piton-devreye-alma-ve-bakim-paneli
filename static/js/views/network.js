@@ -127,13 +127,17 @@ function adapterCard(data) {
 
   if (data.needsAdapter) {
     return el('div', { class: 'card corner net-card net-ask' }, [
-      el('span', { class: 'eyebrow', text: t('net.pickAdapter') }),
+      el('div', { class: 'card-head' }, [
+        el('h3', { text: t('net.pickAdapter') }),
+      ]),
       row(t('net.adapterPick'), picker),
     ]);
   }
 
   return el('div', { class: 'card corner net-card' }, [
-    el('span', { class: 'eyebrow', text: t('net.connection') }),
+    el('div', { class: 'card-head' }, [
+      el('h3', { text: t('net.connection') }),
+    ]),
     row(t('net.adapter'), el('b', {
       class: chosen ? 'net-accent' : 'text-dim',
       text: chosen ? `${chosen.name} · ${stateText(chosen)}`
@@ -157,7 +161,13 @@ function adapterCard(data) {
 function requiredCard(data) {
   const required = data.required || [];
   const added = data.aliases || [];
-  const children = [el('span', { class: 'eyebrow', text: t('net.required') })];
+  // A card with a title, like the one beside it. Its heading used to be an
+  // inline `.label` in the body — so of the screen's two cards one had an
+  // `h3` and the other had nothing a screen reader could announce it by, and
+  // the two looked like different kinds of object.
+  const children = [el('div', { class: 'card-head' }, [
+    el('h3', { text: t('net.required') }),
+  ])];
 
   if (!required.length && !added.length) {
     children.push(el('p', { class: 'net-note',
@@ -178,20 +188,30 @@ function requiredCard(data) {
             ? `${reason} · ${t('net.for', { target: entry.target })}`
             : reason }),
       ]),
-      el('span', { class: 'badge', text: t('net.stateMissing') }),
+      // The one chip on this screen that carries a colour, because it is the
+      // only one that reports a problem. It read exactly like the "reachable"
+      // chip on the rows below — same border, same grey — so a network with
+      // no route and an address that works wore the same badge.
+      el('span', {
+        class: 'badge', dataset: { state: 'auth' },
+        text: t('net.stateMissing'),
+      }),
     ]));
   }
 
   if (added.length) {
-    children.push(el('span', { class: 'eyebrow', text: t('net.added') }));
+    children.push(el('span', { class: 'label', text: t('net.added') }));
     for (const entry of added) {
       children.push(el('div', { class: 'net-row' }, [
         el('span', { class: 'net-label' }, [
           el('b', { class: 'mono', text: `${entry.ip}/${entry.prefix}` }),
           el('span', { class: 'net-hint', text: entry.adapter }),
         ]),
+        // No "reachable" chip: the heading over these rows already says the
+        // panel added them and the line at the top of the screen already
+        // says they are working. Three tellings of one fact, and the chip
+        // was the one that said it in the same grey as "no address".
         el('span', { class: 'net-actions' }, [
-          el('span', { class: 'badge', text: t('net.stateReady') }),
           el('button', {
             type: 'button', class: 'btn btn-small',
             text: t('net.releaseOne'),
@@ -226,7 +246,6 @@ function requiredCard(data) {
       onclick: () => confirmWrite({
         title: t('net.release'),
         lead: t('confirm.releaseAllLead', { count: added.length }),
-        notes: [{ text: t('confirm.releaseAllNote'), tone: 'warning' }],
         items: added.map(entry => ({
           name: `${entry.ip}/${entry.prefix}`, detail: entry.adapter,
         })),
@@ -248,7 +267,12 @@ function requiredCard(data) {
 // The one line somebody opens this screen for: is the computer ready to
 // reach the devices, or is something missing? It used to be a sentence
 // buried in the fourth paragraph of a card.
-function readinessLine(data) {
+// THE HEADING IS THAT LINE. It was a small chip in the top right corner
+// while the largest words on the screen read "The computer's network" — the
+// name of a screen the menu rail names, the hidden `h1` names, and nobody
+// came here to be told. The one thing somebody opens this screen for is now
+// the one thing it says loudest.
+function verdict(data) {
   const required = (data.required || []).length;
   const added = (data.aliases || []).length;
   const failed = (data.failed || []).length;
@@ -260,7 +284,7 @@ function readinessLine(data) {
       : added
         ? t('net.stateReadyWith', { count: added })
         : t('net.stateReadyPlain');
-  return el('div', { class: 'net-readiness', dataset: { state: state_ } }, [
+  return el('h2', { class: 'verdict', dataset: { state: state_ } }, [
     el('span', { class: 'dot', dataset: { state: state_ },
       'aria-hidden': 'true' }),
     el('span', { text }),
@@ -271,8 +295,7 @@ export function render(root) {
   const data = state.networkState;
   const parts = [
     el('div', { class: 'page-head' }, [
-      el('h2', { text: t('net.title') }),
-      data ? readinessLine(data) : null,
+      data ? verdict(data) : el('h2', { text: t('net.title') }),
     ]),
   ];
 
@@ -289,6 +312,13 @@ export function render(root) {
       text: t('net.unsupported', { system: data.system }) }));
   }
 
-  parts.push(adapterCard(data), requiredCard(data));
+  // TWO COLUMNS, BECAUSE THESE ROWS ARE SHORT. A card of "label on the left,
+  // address on the right" laid across fourteen hundred pixels puts a metre
+  // of empty ground between a caption and the value it belongs to, and the
+  // eye has to travel it on every row. Side by side, each card gets about
+  // the measure the rows were drawn for.
+  parts.push(el('div', { class: 'net-grid' }, [
+    adapterCard(data), requiredCard(data),
+  ]));
   fill(root, parts);
 }
