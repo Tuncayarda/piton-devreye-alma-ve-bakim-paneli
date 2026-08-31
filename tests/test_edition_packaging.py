@@ -13,6 +13,7 @@ must line up actually do.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import struct
@@ -31,6 +32,7 @@ CALLER = (settings.ROOT / ".github" / "workflows"
           / "build-commissioning-panel.yml")
 BUILD = settings.ROOT / ".github" / "workflows" / "build-app.yml"
 CI = settings.ROOT / ".github" / "workflows" / "ci.yml"
+REPO_CHECKS = settings.ROOT / ".github" / "workflows" / "repo-checks.yml"
 
 
 def read(path) -> str:
@@ -305,6 +307,11 @@ class Workflows(unittest.TestCase):
         allowed = (
             "DAP_ADMIN_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET }}",
             "HAS_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET != '' }}",
+            # The escape hatch asks the same yes/no question — is there a
+            # secret at all — and the value itself still never leaves the
+            # env block.
+            ("DAP_ALLOW_NO_ADMIN_KEY: "
+             "${{ secrets.DAP_ADMIN_KEY_SECRET != '' && '0' || '1' }}"),
         )
         for line in read(BUILD).splitlines():
             if "secrets.DAP_ADMIN_KEY_SECRET" in line:
@@ -422,6 +429,157 @@ class InnoSetup(unittest.TestCase):
         self.assertIsNotNone(found)
         self.assertIn(found.group(1),
                       [e.windows_app_id for e in catalogue.EDITIONS])
+
+
+class ReleaseGating(unittest.TestCase):
+    """What has to hold before a Release may publish."""
+
+    def test_the_escape_hatch_opens_only_without_a_secret(self):
+        """DAP_ALLOW_NO_ADMIN_KEY used to be a constant "1", which silenced
+        the spec's only refusal — "this package could never open admin
+        mode" — for real releases as well as for forks. The hatch may open
+        only when there really is no secret to build with."""
+        text = read(BUILD)
+        self.assertNotIn('DAP_ALLOW_NO_ADMIN_KEY: "1"', text)
+        self.assertIn(
+            "DAP_ALLOW_NO_ADMIN_KEY: "
+            "${{ secrets.DAP_ADMIN_KEY_SECRET != '' && '0' || '1' }}", text)
+
+    def test_a_tagged_build_demands_the_secret(self):
+        """A fork builds artifacts via workflow_dispatch; a TAG is a release,
+        and a release cut without the secret is a package no service key can
+        open. The gate has to sit before the PyInstaller step."""
+        text = read(BUILD)
+        gate = text.find("A tagged build must carry the key secret")
+        self.assertGreater(gate, -1)
+        pyinstaller = text.find("Clean PyInstaller build")
+        self.assertGreater(pyinstaller, gate)
+        self.assertIn("if: github.ref_type == 'tag'", text[gate:pyinstaller])
+
+    def test_the_release_gates_on_the_repo_checks(self):
+        """ci.yml runs in parallel with the build on a tag push, so a check
+        living only there can fail while the Release publishes anyway — and
+        the credential scan inspects the very DeviceMap the spec compiles
+        into the package. The build must `needs:` the same checks."""
+        self.assertTrue(REPO_CHECKS.is_file())
+        checks = read(REPO_CHECKS)
+        # The scan itself lives in the shared file, once.
+        self.assertIn("Any credentials in the inventory", checks)
+        self.assertIn("workflow_call", checks)
+        caller = read(CALLER)
+        self.assertIn("uses: ./.github/workflows/repo-checks.yml", caller)
+        self.assertIn("needs: [resolve, checks]", caller)
+        # And ci.yml calls the same file rather than keeping a second copy.
+        ci = read(CI)
+        self.assertIn("uses: ./.github/workflows/repo-checks.yml", ci)
+        self.assertNotIn("Any credentials in the inventory", ci)
+
+    def test_the_adb_download_is_pinned_and_verified(self):
+        """The archive is copied INTO every package (dabp.spec), so
+        "-latest-" meant the shipped adb changed on Google's schedule,
+        unverified, between two builds of the same tag."""
+        text = read(BUILD)
+        self.assertNotIn("platform-tools-latest", text)
+        self.assertRegex(text, r'PT_VERSION="r\d+\.\d+\.\d+"')
+        self.assertIn("platform-tools_${PT_VERSION}-${ARCHIVE}.zip", text)
+        # One digest per target operating system, next to its archive name.
+        self.assertEqual(len(re.findall(r"SHA256=[0-9a-f]{64}\b", text)), 3)
+
+    def test_the_appimagetool_is_pinned_beside_its_version(self):
+        """The version and the digest can only be bumped together, so they
+        live together in the script; a copy of the digest in the workflow
+        would be the copy that drifts."""
+        script = read(settings.ROOT / "packaging" / "appimage.sh")
+        self.assertRegex(
+            script, r'APPIMAGETOOL_SHA256="\$\{APPIMAGETOOL_SHA256-'
+                    r'[0-9a-f]{64}\}"')
+        self.assertNotIn("APPIMAGETOOL_SHA256:", read(BUILD))
+
+    def test_the_packaged_selftest_is_verified_on_every_platform(self):
+        """The edition and key-material greps ran on Linux alone for a
+        while; four packages come out of four separate PyInstaller runs, and
+        a wrong stamp in the other three would have shipped unverified. All
+        three platform steps write the same output file and one shared,
+        unconditional step reads it back."""
+        text = read(BUILD)
+        # Every platform's packaged self-test step feeds the file the
+        # verifier reads — asserted per step, because a global count would
+        # be satisfied by the verifier's own mentions of the name.
+        for platform in ("Windows", "macOS", "Linux"):
+            start = text.find(f"- name: Self-test (packaged) — {platform}")
+            self.assertGreater(start, -1, platform)
+            step = text[start:text.find("- name:", start + 1)]
+            self.assertIn("selftest-output.txt", step, platform)
+        verify = text.find("- name: Verify the packaged self-test output")
+        self.assertGreater(verify, -1)
+        # The verifier itself runs on every platform: no runner condition
+        # anywhere in the whole step, not merely above its script.
+        body = text[verify:text.find("- name:", verify + 1)]
+        self.assertNotIn("if:", body)
+        self.assertIn('grep -q "edition: $EDITION "', body)
+        self.assertIn("digest only", body)
+        self.assertIn(".sealed", body)
+
+
+class SealingModules(unittest.TestCase):
+    """The two files dabp.spec loads bare to seal the other projects.
+
+    The catalogue has carried this contract (and its two tests) for a
+    while; secret.py and vault.py carry the same one, and a violation used
+    to be SILENT — the spec's broad except turned a broken import into a
+    printed line and a green build with no .sealed files in it.
+    """
+
+    FILES = (("panel", "adminkey", "secret.py"),
+             ("panel", "adminkey", "vault.py"))
+
+    def test_the_sealing_modules_need_nothing_but_the_standard_library(self):
+        """Module-LEVEL imports only: secret.py keeps function-local
+        `from .. import settings` imports on paths the spec never calls,
+        and those do not stop a bare load."""
+        for parts in self.FILES:
+            path = settings.ROOT.joinpath(*parts)
+            with self.subTest(parts[-1]):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    if not line.startswith(("import ", "from ")):
+                        continue
+                    self.assertNotIn("panel", line, line)
+                    self.assertFalse(line.startswith("from ."), line)
+
+    def test_the_spec_can_load_them_the_way_the_build_does(self):
+        """Loaded standalone and actually used: derive, then a seal/unseal
+        round trip, exactly the calls dabp.spec makes at build time."""
+        loaded = {}
+        for parts in self.FILES:
+            path = settings.ROOT.joinpath(*parts)
+            name = f"dap_seal_probe_{parts[-1].removesuffix('.py')}"
+            spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            try:
+                spec.loader.exec_module(module)
+            finally:
+                sys.modules.pop(spec.name, None)
+            loaded[parts[-1]] = module
+
+        key = loaded["secret.py"].derive(b"a-build-secret-for-this-test")
+        self.assertEqual(len(key), 32)
+        vault = loaded["vault.py"]
+        blob = vault.seal(key, b"the other customer's map")
+        self.assertEqual(vault.unseal(key, blob),
+                         b"the other customer's map")
+        self.assertIsNone(vault.unseal(b"\x00" * 32, blob))
+
+    def test_a_secret_holding_build_fails_loudly_when_sealing_breaks(self):
+        """The spec may not catch its way past a broken sealing module: a
+        build that holds the secret and produces no .sealed files is a
+        broken build, not a lean one."""
+        text = read(SPEC)
+        self.assertNotIn("sealing unavailable", text)
+        # The loads run only under `if _S:` — a fork without a secret still
+        # builds — and the derivation is no longer conditioned on anything
+        # else that could quietly leave SEAL_KEY as None.
+        self.assertIn("SEAL_KEY = _secret.derive(_S)", text)
 
 
 if __name__ == "__main__":

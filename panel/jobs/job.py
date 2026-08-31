@@ -180,12 +180,20 @@ class Job:
             return (self._rows.get(key) or {}).get("path", "")
 
     # ---- counters ----
-    def counts(self) -> dict:
+    def counts(self, rows: list[dict] | None = None) -> dict:
+        """Tally the rows — a list already built may be handed in.
+
+        `dto()` used to fan out into progress() → counts() → rows() and
+        outcome() → counts() → rows() and rows() again, so ONE poll of an
+        open job rebuilt and re-rendered the whole row list four times —
+        thousands of dict constructions per second against a 40-port run
+        polled at ~1.1 Hz. The list is built once now and threaded through.
+        """
         counts = {"total": 0, "ok": 0, "auth": 0, "failed": 0,
                   "pending": 0, "skipped": 0}
         with self._lock:
             informational = set(self._informational)
-        for row in self.rows():
+        for row in (self.rows() if rows is None else rows):
             if row["deviceId"] in informational:
                 continue
             counts["total"] += 1
@@ -223,18 +231,19 @@ class Job:
             if self._ratio is None or value > self._ratio:
                 self._ratio = value
 
-    def progress(self) -> float:
+    def progress(self, counts: dict | None = None) -> float:
         with self._lock:
             ratio = self._ratio
         if ratio is not None:
             return round(ratio, 4)
-        counts = self.counts()
+        if counts is None:
+            counts = self.counts()
         if not counts["total"]:
             return 1.0 if self.state in (DONE, CANCELLED, FAILED) else 0.0
         finished = counts["total"] - counts["pending"]
         return round(finished / counts["total"], 4)
 
-    def outcome(self) -> str | None:
+    def outcome(self, counts: dict | None = None) -> str | None:
         """The user-facing result, separate from the queue lifecycle."""
         if self.state in (QUEUED, RUNNING):
             return None
@@ -245,22 +254,28 @@ class Job:
         # A body returning normally does not mean every device succeeded. A
         # scan can complete with devices that never answered, and that must
         # not look like a green success.
-        counts = self.counts()
+        if counts is None:
+            counts = self.counts()
         if (counts["failed"] or counts["auth"] or counts["skipped"]
                 or counts["pending"]):
             return "warning"
         return "success"
 
     def dto(self, rows: bool = True) -> dict:
+        # Rows once, then everything derived from that one list — see
+        # `counts` for the fan-out this replaces.
+        built = self.rows()
+        counts = self.counts(rows=built)
         data = {
             "id": self.id, "kind": self.kind, "title": _text(self.title, 200),
             "auto": self.auto, "phase": _text(self.phase, 120),
             "setNo": self.set_no, "state": self.state,
             "createdAt": self.created_at, "startedAt": self.started_at,
-            "finishedAt": self.finished_at, "progress": self.progress(),
+            "finishedAt": self.finished_at,
+            "progress": self.progress(counts=counts),
             "error": _text(self.error, 400) or None,
-            "counts": self.counts(),
-            "outcome": self.outcome(),
+            "counts": counts,
+            "outcome": self.outcome(counts=counts),
             # Cancel was requested but the job is still stopping: the worker
             # may be waiting out a device timeout. If the UI still said
             # "Running" in that gap, whoever pressed the button assumed
@@ -268,5 +283,5 @@ class Job:
             "cancelRequested": self.cancel.is_set(),
         }
         if rows:
-            data["rows"] = self.rows()
+            data["rows"] = built
         return data

@@ -29,9 +29,9 @@
 //   · Every reply carries a generation; a late old reply never overwrites a
 //     newer one.
 
-import { $, el, fill, preserveScroll } from './core/dom.js';
+import { $, el, preserveScroll } from './core/dom.js';
 import { api } from './core/api.js';
-import { state, patch, subscribe } from './core/store.js';
+import { ownProjects, state, patch, subscribe } from './core/store.js';
 import {
   lightRoundAllowed, scanRoundAllowed, writingRunInProgress,
 } from './core/schedule.js';
@@ -43,7 +43,6 @@ import * as locked from './components/locked.js';
 import * as detail from './components/detail.js';
 import * as dialog from './components/dialog.js';
 import { notify, showError, showSuccess } from './components/toast.js';
-import { loadFailed, loading } from './components/placeholder.js';
 import * as overviewView from './views/overview.js';
 import * as devicesView from './views/devices.js';
 import * as ipView from './views/ip/index.js';
@@ -57,6 +56,8 @@ import * as historyView from './views/history.js';
 import * as piscuView from './views/piscu.js';
 import * as mqttView from './views/mqtt.js';
 import * as adminView from './views/admin.js';
+import { createRemoteSession } from './components/remote_session.js';
+import { createAdminKey } from './components/admin_key.js';
 
 // The GAP between rounds (not their duration). The light round only visits
 // green devices so it finishes quickly on its own; two seconds is what a
@@ -73,12 +74,6 @@ const FIRST_SCAN_DELAY = 1500;
 // How long to wait before looking again when a scan was skipped for a reason.
 const BLOCKED_RETRY = 3000;
 const JOB_INTERVAL = 900;
-// The service key: a USB stick appearing is a physical act, and a second is
-// the difference between "the panel noticed" and "the panel is broken".
-// The cost is nothing but reading back what the panel's own watcher already
-// established (see panel/adminkey/watcher.py), not a device read, so this
-// round is not held back by a running job the way the two above are.
-const ADMIN_KEY_INTERVAL = 1000;
 
 let stateGeneration = 0;
 let lightTimer = null;
@@ -137,7 +132,14 @@ async function fetchJobs() {
       try {
         const full = await api.job(state.openJob);
         jobs = jobs.map(j => (j.id === full.id ? full : j));
-      } catch { /* the job may have been removed */ }
+      } catch (error) {
+        // The job is gone — removed, or the service restarted and forgot
+        // the id. A real status (a 404) means the id can never answer
+        // again, and keeping it would cost a doomed second request every
+        // round for the rest of the session. Status 0 is the service being
+        // unreachable and is left alone: the next round retries.
+        if (error && error.status) patch({ openJob: null });
+      }
     }
     const signature = JSON.stringify(jobs);
     if (signature === lastJobSignature) return;
@@ -258,6 +260,43 @@ const VIEWS = {
 
 let lastView = null;
 
+// The per-view lifecycle, in one table.
+//
+// `enter` runs when a screen is OPENED: it fetches the screen's own data
+// (not everything is fetched at start-up) and arms whatever timers that
+// screen keeps. `leave` runs when it is LEFT: polls disarmed, menus closed,
+// half-typed credentials dropped. Between the two, `render` stays DRAWING
+// ONLY — app.js calls it on every store publish, and a screen that fetched
+// or armed timers inside render paid for it twice already: a request per
+// publish (the switch screen's note), and timers rebuilt every round so
+// none ever elapsed (the IP screen's double-timer bug). The IP screen was
+// the last one still arming its rounds from render; its enter()/leave()
+// now carry them (views/ip/index.js).
+//
+// A screen with no entry needs nothing fetched and nothing stopped
+// (overview, devices, history, admin all draw from state already loaded).
+const VIEW_LIFECYCLE = {
+  ip: { enter: () => ipView.enter(), leave: () => ipView.leave() },
+  adb: { enter: () => adbView.refresh(), leave: () => adbView.stop() },
+  switch: { enter: () => switchView.refresh(), leave: () => switchView.stop() },
+  checklist: { enter: () => checklistView.refresh() },
+  network: { enter: () => networkView.refresh() },
+  config: { enter: () => configView.refresh() },
+  firmware: { enter: () => firmwareView.refresh() },
+  piscu: { enter: () => piscuView.refresh() },
+  mqtt: { enter: () => mqttView.refresh() },
+};
+
+function enterView(name) {
+  const hooks = VIEW_LIFECYCLE[name];
+  if (hooks && hooks.enter) hooks.enter();
+}
+
+function leaveView(name) {
+  const hooks = VIEW_LIFECYCLE[name];
+  if (hooks && hooks.leave) hooks.leave();
+}
+
 // Only the side panels depend on these keys. Opening and closing a job in the
 // queue does not need the rest of the screen (device table, sidebar, top bar)
 // rebuilt — and rebuilding it stuttered visibly.
@@ -316,6 +355,11 @@ function canEnterAdmin() {
 
 function redrawEverything() {
   sidebar.reset();
+  // The two side panels skip identical redraws by signature, and the
+  // signature knows nothing about language: with a panel open, the old
+  // catalogue's rows passed the comparison and stayed untranslated.
+  queue.reset();
+  locked.reset();
   lastView = null;
   detail.close();
   dialog.close();
@@ -394,6 +438,10 @@ function render(_state, changed) {
   }
   const [selector, renderView] = VIEWS[state.view] || VIEWS.overview;
   const viewChanged = lastView !== state.view;
+  // The outgoing screen is torn down before the incoming one draws. Not on
+  // a redrawEverything (lastView is null then): the screen is not being
+  // left, and stopping its poll would leave a running sweep unfollowed.
+  if (viewChanged && lastView) leaveView(lastView);
 
   // Staying on the same screen preserves the scroll position; on a screen
   // change, starting at the top is the right behaviour.
@@ -425,7 +473,7 @@ function render(_state, changed) {
     $('#content').scrollTop = 0;
     announceView();
     playTransition($(selector));
-    onViewEntered(state.view);
+    enterView(state.view);
   }
 }
 
@@ -594,20 +642,6 @@ function focusInDropdown() {
     root => root && root.contains(active));
 }
 
-// A screen fetches its own data the first time it opens (not everything is
-// fetched at start-up).
-function onViewEntered(name) {
-  if (name === 'checklist') checklistView.refresh();
-  else if (name === 'ip') ipView.refresh();
-  else if (name === 'network') networkView.refresh();
-  else if (name === 'adb') adbView.refresh();
-  else if (name === 'switch') switchView.refresh();
-  else if (name === 'config') configView.refresh();
-  else if (name === 'firmware') firmwareView.refresh();
-  else if (name === 'piscu') piscuView.refresh();
-  else if (name === 'mqtt') mqttView.refresh();
-}
-
 // ───────────────────────────────────────────────────────── actions ───────
 // "Scan now" no longer STARTS a scan, it PULLS the next one FORWARD: the
 // scan already runs once a minute, and the button queues that round now and
@@ -626,7 +660,11 @@ async function refreshNow() {
   const running = writingRunInProgress(state.jobs);
   try {
     const job = await api.scan(state.setNo);
-    patch({ openJob: job.id, scanRunning: true });
+    // Only the flag. The queue panel is not opened (see above), so the job
+    // is not marked open either: an `openJob` set here was never cleared
+    // when the scan ended, and every later poll round paid for a second
+    // /api/job request against it for the rest of the session.
+    patch({ scanRunning: true });
     if (job.new === false) {
       notify(t('topbar.scanAlreadyQueued'));
     } else {
@@ -732,7 +770,7 @@ async function changeSet(value) {
     detailId: null });
   try {
     await loadInitialData();
-    onViewEntered(state.view);
+    enterView(state.view);
     showSuccess(t('topbar.setLoaded', { set: next }));
   } catch (e) {
     showError(e.message);
@@ -771,633 +809,17 @@ function applyEdition(body) {
   return body;
 }
 
-async function enterAdmin() {
-  try {
-    applyEdition(await api.adminMode(true));
-    showSuccess(t('adminkey.entered'));
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-async function leaveAdmin() {
-  try {
-    applyEdition(await api.adminMode(false));
-    notify(t('adminkey.left'));
-  } catch (e) {
-    showError(e.message);
-  }
-}
-
-// ──────────────────────────────────────── the remote service session ─────
-// The other way into admin mode, on a machine with no service key in it: the
-// panel opens a session on the grant service and then keeps asking that
-// service to sign for it, and the mode lasts as long as the answers do (see
-// panel/remotekey/watcher.py).
-//
-// TWO DOORS, ONE ROOM, AND SO ONE DIALOG. A square somebody approves on a
-// telephone, and an engineer standing at the panel signing in as themselves.
-// They end in the same place by the same evidence — a grant the SERVER
-// checked a signature on — so they are laid out side by side rather than
-// hidden behind a choice nobody can make before they know which one they
-// have. The account is on the left because it needs nobody else awake; the
-// square is on the right because it is what to reach for when the person who
-// can say yes is somewhere else.
-//
-// EACH COLUMN IS NAMED, and that heading is the only thing telling the two
-// apart: same ground, same rhythm, one line of accent caps over each. Two
-// ways in that look alike and are labelled are read as alternatives; two
-// that are drawn differently are read as a main way and a fallback, which is
-// not true of either of these.
-//
-// THERE WAS A THIRD: eight characters read down a telephone into two boxes
-// of four, with a button swapping them for the square. It is gone. It needed
-// the same person awake at the other end that the square needs, so it bought
-// nothing the square does not give, and it asked the operator to transcribe
-// eight characters while standing next to a train. The service still mints
-// those codes and `/api/admin/remote/connect` still takes one; nothing in
-// this window asks for one any more.
-
-function askForRemoteSession() {
-  // Filled in by `startPairing` below, and refilled every time the square
-  // moves on: asked for, waiting, refused, gone.
-  const square = el('div', { class: 'remote-square' });
-
-  dialog.show({
-    title: t('remote.title'),
-    // The account column, a rule, and the square's column. The square is
-    // what fixes the right-hand number; the left takes what is left, which
-    // is comfortably more than two fields and a button need.
-    width: '720px',
-    // The width the RIGHT-HAND column is drawn to, declared before the
-    // service is even asked. It is here rather than in the stylesheet
-    // because the window is what needs the number: the square's scale is
-    // worked out from it, in whole modules (see squareBox).
-    content: el('div', {
-      class: 'remote-ways', style: `--remote-width:${PAIR_SIDE}px`,
-    }, [
-      accountSide(),
-      el('div', { class: 'remote-way remote-pair' }, [
-        wayHead(t('remote.wayQr')),
-        square,
-      ]),
-    ]),
-    actions: [
-      el('button', {
-        type: 'button', class: 'btn', text: t('locked.cancel'),
-        onclick: () => dialog.close(),
-      }),
-    ],
-    // Escape, the backdrop and the Cancel button all arrive here, which is
-    // the only place that knows the square is no longer being looked at.
-    onClose: stopPairing,
-  });
-  startPairing(square);
-}
-
-// ─────────────────────────────────── signing in as yourself ─────────────
-// The left-hand column, and the only way in that needs nobody else awake:
-// the engineer standing at the machine gives their own e-mail and password,
-// and the service mints a session bound to this installation. The SERVER
-// enters admin mode on the round that succeeds, on a signature it checked —
-// exactly as it does for an approved square
-// (panel/api/routes/remote_routes.py).
-//
-// THREE FACES, ONE COLUMN, ONE AT A TIME: signing in, asking for an account,
-// and the sentence that follows a new one. They replace each other in place
-// rather than opening dialogs of their own — the square on the right is live
-// throughout, and a second window on top of it would cover the very thing
-// the operator may be about to point a phone at.
-//
-// THE HEADING BELONGS TO THE FACE, not to the column, which is why the whole
-// column is what gets refilled. A column headed "Sign in with an account"
-// with a four-field "create an account" form under it is a heading that has
-// stopped describing what is beneath it.
-//
-// THE PASSWORD LIVES IN ONE FIELD AND ONE REQUEST BODY. It is not put in
-// `state`, not remembered for a retry, and the field is emptied the moment
-// the reply lands — whichever way it landed, because a wrong password left
-// on screen is a wrong password somebody tries to correct rather than
-// retype.
-//
-// A REFUSAL KEEPS THE DIALOG OPEN, and that is the point of the layout: an
-// account without permission to sign in from the panel is told so beside a
-// square that is already drawn and already waiting. The fallback is not a
-// second dialog; it is the other half of this one.
-function accountSide() {
-  const pane = el('div', { class: 'remote-way remote-account' });
-  showSignIn(pane, '');
-  return pane;
-}
-
-const wayHead = (caption) => el('h4', {
-  class: 'remote-way-head', text: caption,
+// The two components that own the ways into admin mode. Factories rather
+// than plain modules so their dialogs and polls can be driven by import in
+// the tests (tests/js/remote_pair_test.js, tests/js/admin_key_test.js):
+// everything they need defaults to the real thing, and what app.js alone
+// owns is passed in — `applyEdition` above, and the remote-session poll
+// ridden on the service key's beat.
+const remoteSession = createRemoteSession({ applyEdition });
+const adminKey = createAdminKey({
+  applyEdition,
+  pollRemote: remoteSession.pollRemote,
 });
-
-const fieldLabel = (caption, field) => el('label', { class: 'field-label' }, [
-  el('span', { class: 'label', text: caption }),
-  field,
-]);
-
-// The quiet line under the button: a sentence nobody has to read, and the
-// way to the column's other face. It is a link rather than a second button
-// because the column already has the one thing to press, and two buttons of
-// equal weight under two fields is a question where there was an answer.
-const aside = (sentence, link) => el('p', { class: 'remote-aside' }, [
-  el('span', { text: sentence }),
-  link,
-]);
-
-function showSignIn(pane, address) {
-  const email = el('input', {
-    class: 'field', type: 'email', autocomplete: 'off', value: address,
-    autocapitalize: 'off', spellcheck: 'false', inputmode: 'email',
-  });
-  const password = el('input', {
-    class: 'field', type: 'password', autocomplete: 'new-password',
-  });
-  const warning = el('p', { class: 'warning', role: 'alert', hidden: true });
-  const submit = el('button', {
-    type: 'submit', class: 'btn btn-primary remote-submit',
-    text: t('remote.signIn'),
-  });
-
-  fill(pane, [wayHead(t('remote.wayAccount')), el('form', {
-    class: 'remote-account-pane',
-    onsubmit: async (event) => {
-      event.preventDefault();
-      warning.hidden = true;
-      submit.disabled = true;
-      submit.textContent = t('remote.signingIn');
-      try {
-        const answer = await api.remoteSignin(email.value.trim(),
-                                              password.value);
-        password.value = '';
-        // Closing takes the square back at the same time: the dialog's
-        // `onClose` is the only thing that knows a pairing was asked for.
-        dialog.close();
-        patch({ remote: answer.remote });
-        applyEdition(answer);
-        showSuccess(t('remote.connected'));
-      } catch (e) {
-        password.value = '';
-        warning.textContent = e.message;
-        warning.hidden = false;
-        password.focus();
-      } finally {
-        submit.disabled = false;
-        submit.textContent = t('remote.signIn');
-      }
-    },
-  }, [
-    fieldLabel(t('remote.email'), email),
-    fieldLabel(t('remote.password'), password),
-    warning,
-    submit,
-    aside(t('remote.noAccount'), el('button', {
-      type: 'button', class: 'btn-link', text: t('remote.signUp'),
-      // What is typed already comes along. Somebody who filled the address
-      // in, was told there is no such account and pressed this should not be
-      // asked for it a second time.
-      onclick: () => showSignUp(pane, email.value.trim()),
-    })),
-  ])]);
-  email.focus();
-}
-
-// Asking for an account, from the panel, by anybody holding it.
-//
-// WHAT THIS MAKES CANNOT DO ANYTHING. The service gives a new account every
-// permission at zero, so the very next sign-in with it is refused until an
-// administrator turns a switch on their own page — which is why the door can
-// be open at all. The screen says so before the account is asked for and
-// again after it exists, because somebody who was not told would spend the
-// afternoon retyping a password that is perfectly correct.
-function showSignUp(pane, address) {
-  const name = el('input', {
-    class: 'field', type: 'text', autocomplete: 'off', spellcheck: 'false',
-  });
-  const email = el('input', {
-    class: 'field', type: 'email', autocomplete: 'off', value: address,
-    autocapitalize: 'off', spellcheck: 'false', inputmode: 'email',
-  });
-  const password = el('input', {
-    class: 'field', type: 'password', autocomplete: 'new-password',
-  });
-  const again = el('input', {
-    class: 'field', type: 'password', autocomplete: 'new-password',
-  });
-  const warning = el('p', { class: 'warning', role: 'alert', hidden: true });
-  const submit = el('button', {
-    type: 'submit', class: 'btn btn-primary remote-submit',
-    text: t('remote.signUp'),
-  });
-
-  const refuse = (message, field) => {
-    password.value = '';
-    again.value = '';
-    warning.textContent = message;
-    warning.hidden = false;
-    field.focus();
-  };
-
-  fill(pane, [wayHead(t('remote.signUp')), el('form', {
-    class: 'remote-account-pane',
-    onsubmit: async (event) => {
-      event.preventDefault();
-      warning.hidden = true;
-      // The two boxes are compared HERE and nowhere else. There is no
-      // recovering a password nobody knows on an account nobody has
-      // approved yet, and a mismatch needs no round trip to notice.
-      if (password.value !== again.value) {
-        refuse(t('remote.passwordMismatch'), password);
-        return;
-      }
-      submit.disabled = true;
-      submit.textContent = t('remote.signingUp');
-      const wanted = email.value.trim();
-      try {
-        await api.remoteSignup(wanted, password.value, name.value.trim());
-        password.value = '';
-        again.value = '';
-        showSignedUp(pane, wanted);
-      } catch (e) {
-        refuse(e.message, password);
-      } finally {
-        submit.disabled = false;
-        submit.textContent = t('remote.signUp');
-      }
-    },
-  }, [
-    fieldLabel(t('remote.name'), name),
-    fieldLabel(t('remote.email'), email),
-    fieldLabel(t('remote.password'), password),
-    fieldLabel(t('remote.passwordAgain'), again),
-    warning,
-    submit,
-    aside(t('remote.haveAccount'), el('button', {
-      type: 'button', class: 'btn-link', text: t('remote.backToSignIn'),
-      onclick: () => showSignIn(pane, email.value.trim()),
-    })),
-  ])]);
-  name.focus();
-}
-
-// The account exists and is waiting on somebody. Said as an `.info` rather
-// than a `.warning`: nothing went wrong, and the one thing left to do about
-// it is not on this machine.
-function showSignedUp(pane, address) {
-  const back = el('button', {
-    type: 'button', class: 'btn btn-primary remote-submit',
-    text: t('remote.backToSignIn'),
-    // The address goes back with it, so the person who has just chosen a
-    // password can try it the moment somebody says yes.
-    onclick: () => showSignIn(pane, address),
-  });
-  fill(pane, [wayHead(t('remote.signUp')),
-    el('div', { class: 'remote-account-pane' }, [
-      el('p', {
-        class: 'info', role: 'status', text: t('remote.signUpWaiting'),
-      }),
-      back,
-    ])]);
-  back.focus();
-}
-
-
-// ─────────────────────────────────────────────── the square ─────────────
-// The other half of the same dialog, for the far more common case: nobody
-// has to read anything out. The panel asks the service for a pairing, draws
-// the square that comes back, and asks every couple of seconds whether
-// anybody has approved it. The round that finds an approval is the round
-// that enters admin mode — and the SERVER does that, on a signature it
-// checked, exactly as it does for a code typed in below
-// (panel/api/routes/remote_routes.py).
-//
-// THE SQUARE IS AN `<img>` WITH AN INLINE-ENCODED SOURCE, and that is not
-// decoration. What the service draws is SVG; SVG inside an `<img>` is static
-// by specification — no script runs, nothing is fetched. Putting the same
-// markup into the page AS markup would hand a drawing that came off the
-// network the run of the panel's own DOM, which is the one thing `el()`
-// exists to make impossible (see core/dom.js).
-
-// A late answer never touches a screen that has moved on. Every round takes
-// a number, closing the dialog burns it, and an answer that comes back with
-// an old one is dropped — the same rule the refresh loops follow.
-let pairRound = 0;
-let pairTimer = null;
-// Whether the service is holding a pairing this window asked for. Only this
-// says whether closing the dialog has anything to take back.
-let pairingOpen = false;
-
-// Statuses worth asking again after. Everything else is a decision — the
-// pairing was refused, expired or swept — and the square says so and stops
-// rather than beating against it.
-const PAIR_RETRY = new Set([0, 429, 503]);
-
-// How big the square wants to be, before it is rounded to whole modules.
-//
-// MEASURED IN MODULES, NOT IN PIXELS. A pairing address is 54 characters,
-// which is a version 4 code: 33 modules of code, 41 across with its margin.
-// At 176px — where this started — each module was four pixels, which is
-// below what a phone can resolve at the distance it will also focus at.
-// Eight is comfortable and does not take over the dialog.
-//
-// It is not a workaround for anything. The square was unreadable at every
-// size for a fortnight because the service was drawing the format
-// information backwards, and enlarging it did nothing at all; the fix was
-// in the service (dabp-remote-key/src/qr.js). This is just a legible size.
-const PAIR_SIDE = 224;
-
-// HOW MUCH WHITE IS LEFT AROUND IT, IN MODULES.
-//
-// The service draws the four the standard asks for, which is the right thing
-// for a code that might be printed and photographed off a wall. On a panel
-// it is a fifth of the picture: with the margin also counted into the scale,
-// the code came out at seven pixels a module inside a plate that was a third
-// white — a small drawing floating on a card, which is what made the square
-// look pasted on rather than presented.
-//
-// Two, and they are the ONLY white: the scale is worked out from the code
-// plus these two and nothing else, so the plate is filled by what somebody
-// is meant to point a telephone at. Not zero, and this is the one place the
-// number cannot be chosen by eye — a code with nothing clear around it is
-// read against whatever is behind it, and behind this one is a dark panel.
-// Two modules is what a screen decoder wants at arm's length.
-const PAIR_QUIET = 2;
-
-// Everything the window needs to draw one: the picture's real size, the
-// size of the hole it is seen through, and how far to pull it up and left
-// behind that hole.
-//
-// A WHOLE NUMBER OF PIXELS PER MODULE. The drawing asks for crisp edges, so
-// a fractional scale — 300 across 41 modules is 7.3 — is not blurred; it is
-// SNAPPED, and the modules come out alternating seven and eight pixels wide.
-// Rounding down to seven costs thirteen pixels of size and makes every
-// square the same size as every other, which is the assumption a decoder
-// starts from.
-function squareBox(modules, quiet) {
-  const across = Number(modules);
-  const margin = Number(quiet);
-  if (!(across > 0)) return { side: PAIR_SIDE, shown: PAIR_SIDE, offset: 0 };
-  // The margin the picture keeps, and the margin the plate has to supply
-  // because the picture did not carry it. Between them the code always sits
-  // inside `PAIR_QUIET` clear modules, however the service drew it.
-  const kept = Math.min(margin, PAIR_QUIET);
-  const crop = margin - kept;
-  const shownModules = across - crop * 2;
-  // THE SCALE IS WORKED OUT FROM WHAT IS SEEN, not from the whole picture.
-  // Dividing by `across` sized the code against margin that was then cropped
-  // away, so it lost a pixel a module to white nobody ever saw.
-  const boxModules = shownModules + (PAIR_QUIET - kept) * 2;
-  const scale = Math.max(1, Math.floor(PAIR_SIDE / boxModules));
-  return {
-    side: across * scale,
-    shown: shownModules * scale,
-    offset: -crop * scale,
-  };
-}
-
-function stopPairing() {
-  pairRound += 1;
-  if (pairTimer !== null) { clearTimeout(pairTimer); pairTimer = null; }
-  if (!pairingOpen) return;
-  pairingOpen = false;
-  // Nothing waits for this and nothing is shown if it fails: the dialog has
-  // already gone, and a pairing nobody takes back expires on its own.
-  api.remotePairCancel().catch(() => {});
-}
-
-async function startPairing(square) {
-  const mine = (pairRound += 1);
-  // Nothing arms a timer and then offers "another square", so this should
-  // already be clear — but a round left beating against a square that has
-  // been replaced is the one failure here nobody would ever see.
-  if (pairTimer !== null) { clearTimeout(pairTimer); pairTimer = null; }
-  // The spinner and nothing else. "Preparing the square" is a sentence whose
-  // whole content is already on screen as a spinner, in a dialog the
-  // operator opened one second ago.
-  fill(square, [loading('')]);
-  let answer;
-  try {
-    answer = await api.remotePair();
-  } catch (e) {
-    if (mine === pairRound) fill(square, [pairFailed(square, e.message)]);
-    return;
-  }
-  // The dialog closed while the service was answering, so there is a pairing
-  // out there that nothing will use. It is left to expire rather than
-  // cancelled: another square may have been asked for since, and the service
-  // keeps one at a time — cancelling now would take back the wrong one.
-  if (mine !== pairRound) return;
-
-  pairingOpen = true;
-  const pair = answer.pair || {};
-  const box = squareBox(pair.modules, pair.quiet);
-  // The plate is a fixed square (see components.css .remote-qr) and the code
-  // is centred in it: a code is drawn in whole modules, so its own side is
-  // whatever the module count makes it, and a plate that took that number
-  // would be a different size for a different code. What is left over is
-  // white, which is quiet zone, which is the one thing a decoder wants more
-  // of. This is the only number that comes from the answer.
-  const inset = Math.round((PAIR_SIDE - box.shown) / 2);
-  fill(square, [
-    el('div', { class: 'remote-qr' }, [
-      el('img', {
-        src: pair.image, alt: t('remote.pairAlt'),
-        width: box.side, height: box.side,
-        style: `left:${box.offset + inset}px;top:${box.offset + inset}px`,
-      }),
-    ]),
-    // ONE ROW, NOT TWO SENTENCES. What it is doing on the left, which
-    // request it is on the right, both ending where the square ends. The
-    // number is there because a square that will not scan is not the end of
-    // the road — the same request is waiting on the operator's own page
-    // under it — and it is a badge rather than a sentence because nobody
-    // reads it until they need it.
-    el('div', { class: 'remote-status', role: 'status', 'aria-live': 'polite' }, [
-      el('span', { class: 'remote-status-live' }, [
-        el('span', { class: 'dot', 'data-state': 'busy', 'aria-hidden': 'true' }),
-        el('span', { text: t('remote.pairWaiting') }),
-      ]),
-      el('span', {
-        class: 'badge', title: t('remote.pairNumber'),
-        text: pair.pairId || '',
-      }),
-    ]),
-  ]);
-  waitForPairing(square, pair.pollAfter, mine);
-}
-
-function waitForPairing(square, after, mine) {
-  const seconds = Number(after) > 0 ? Number(after) : 2;
-  pairTimer = setTimeout(() => pollPairing(square, seconds, mine),
-                         seconds * 1000);
-}
-
-async function pollPairing(square, seconds, mine) {
-  pairTimer = null;
-  let answer;
-  try {
-    answer = await api.remotePairPoll();
-  } catch (e) {
-    if (mine !== pairRound) return;
-    if (!PAIR_RETRY.has(e.status)) {
-      pairingOpen = false;
-      fill(square, [pairFailed(square, e.message)]);
-      return;
-    }
-    // The network, or a service asking to be left alone for a moment. The
-    // square is still good and the deadline is the service's, so this is
-    // ridden out exactly as the grant beat rides out silence.
-    waitForPairing(square, seconds, mine);
-    return;
-  }
-  if (mine !== pairRound) return;
-
-  // Approved, and the server has already been in and out of the service with
-  // it: what came back is the whole edition, the way a sign-in gets it.
-  if (answer.mode !== undefined) {
-    pairingOpen = false;                  // used, not abandoned — never cancel
-    dialog.close();
-    patch({ remote: answer.remote });
-    applyEdition(answer);
-    showSuccess(t('remote.connected'));
-    return;
-  }
-  const settled = (answer.pair || {}).state;
-  if (settled !== 'pending') {
-    pairingOpen = false;
-    // Expired, or given up on: there is nothing to say about it that the
-    // button underneath does not say better. A REFUSAL IS DIFFERENT —
-    // somebody decided that, and swallowing it would leave the operator
-    // pressing "new square" until they wore out.
-    fill(square, [pairFailed(square,
-      settled === 'denied' ? (answer.stateText || '') : '')]);
-    return;
-  }
-  waitForPairing(square, seconds, mine);
-}
-
-// The square is gone, and here is the one thing to do about it. The
-// sentence above the button is for the cases where it would not otherwise
-// be obvious — a refusal, or a service that could not be reached — and is
-// left out where it would only be reading the button back.
-function pairFailed(square, message) {
-  return el('div', { class: 'remote-pair-failed' }, [
-    message ? loadFailed(message) : null,
-    el('button', {
-      type: 'button', class: 'btn', text: t('remote.pairRetry'),
-      onclick: () => startPairing(square),
-    }),
-  ]);
-}
-
-// Polled on the same beat as the service key, and only where it could do
-// anything: a package built without a public key for the service has no
-// session to ask about.
-async function pollRemote() {
-  if (!(state.edition && state.edition.remoteAvailable)) return;
-  let seen;
-  try { seen = await api.remote(); } catch { return; }
-  const previous = state.remote;
-  patch({ remote: seen });
-  if (!previous || previous.generation === seen.generation) return;
-  // The session was holding the door and is not any more — the link was
-  // closed, the network went, or the grant simply ran out. The server has
-  // already dropped the mode (or is holding it until a write finishes), so
-  // what is on screen has to be read again rather than guessed at.
-  if (previous.active && !seen.active) {
-    try { applyEdition(await api.edition()); } catch { /* next round */ }
-    notify(seen.reasonText || t('remote.ended'));
-  }
-}
-
-// ────────────────────────────────────────────────── the service key ──────
-// The only way into admin mode on a customer package. There is no socket, so
-// the panel asks; `generation` counts OBSERVED CHANGES rather than polls, so
-// asking twice a second still means "nothing has happened" almost every
-// time (see panel/adminkey/watcher.py).
-let adminKeyTimer = null;
-// The observation the user has already said no to. Without this the question
-// would come back every two seconds; with it, it comes back only after the
-// key has been taken out and put in again.
-let declinedGeneration = -1;
-let askingAboutKey = false;
-
-function adminKeyLoop() {
-  clearTimeout(adminKeyTimer);
-  adminKeyTimer = setTimeout(async () => {
-    try {
-      const seen = await api.adminKey();
-      const previous = state.adminKey;
-      patch({ adminKey: seen });
-      // `withoutKey` as well as the generation: the secret appearing or
-      // going away changes what may be done without anything happening to
-      // a volume, so the observation counter would not move.
-      if (!previous || previous.generation !== seen.generation
-          || previous.withoutKey !== seen.withoutKey) {
-        await onKeyChanged(seen, previous);
-      }
-    } catch { /* the next round retries */ }
-    // On the same beat rather than a timer of its own: both questions are
-    // "has the way in gone away", both are cheap, and two timers would mean
-    // two answers arriving out of step about one mode.
-    await pollRemote();
-    adminKeyLoop();
-  }, ADMIN_KEY_INTERVAL);
-}
-
-async function onKeyChanged(seen, previous) {
-  // Admin mode may have just ended on its own: the key was pulled — or the
-  // secret file taken away — and the server dropped it (or is holding it
-  // until a write finishes).
-  if (state.mode === 'admin' && !seen.recognised && !seen.withoutKey) {
-    try { applyEdition(await api.edition()); } catch { /* next round */ }
-    if (state.mode !== 'admin') {
-      // Which of the two went away decides which sentence is true. Saying
-      // "the key was removed" to somebody who deleted the secret file would
-      // send them looking at a USB port for no reason.
-      const pulled = !!(previous && previous.recognised);
-      notify(t(pulled ? 'adminkey.removed' : 'adminkey.closed'));
-    }
-    return;
-  }
-  if (state.mode === 'admin' || !seen.recognised) {
-    // A key was found and NOT recognised: worth saying, because a stick that
-    // looks right and is not is otherwise indistinguishable from no stick.
-    if (seen.present && !seen.recognised) {
-      // "denied" is not a bad key, it is a key nobody was allowed to read:
-      // the operating system gates removable volumes and the panel runs
-      // elevated (see panel/adminkey/keyfile.py). Said even at launch —
-      // `previous` null — because there is something to go and do about it,
-      // and it will not fix itself on the next poll.
-      if (seen.reason === 'denied') notify(t('adminkey.denied'));
-      else if (previous) notify(t('adminkey.notRecognised'));
-    }
-    return;
-  }
-  if (seen.generation === declinedGeneration) return;
-  await askAboutKey(seen, !previous);
-}
-
-async function askAboutKey(seen, atLaunch) {
-  if (askingAboutKey) return;
-  askingAboutKey = true;
-  try {
-    const yes = await dialog.ask({
-      title: t(atLaunch ? 'adminkey.launchTitle' : 'adminkey.switchTitle'),
-      body: t(atLaunch ? 'adminkey.launchLead' : 'adminkey.switchLead',
-              { label: seen.label || t('adminkey.unlabelled') }),
-      confirm: t(atLaunch ? 'adminkey.startAdmin' : 'adminkey.switchNow'),
-      cancel: t(atLaunch ? 'adminkey.continueNormal' : 'adminkey.notNow'),
-    });
-    if (yes) await enterAdmin();
-    else declinedGeneration = seen.generation;
-  } finally {
-    askingAboutKey = false;
-  }
-}
 
 // ────────────────────────────────────────────────── project switching ────
 // TWO DIFFERENT QUESTIONS, and they are deliberately not in the same place.
@@ -1413,8 +835,9 @@ async function askAboutKey(seen, atLaunch) {
 // of the admin screen (`views/admin.js`), beside the project it replaces.
 // Mixing the two put another customer's train one click from the name of
 // the one on screen, which is the wrong shape for the heavier act.
-const ownProjects = () =>
-  (state.projects || []).filter(project => project.origin !== 'extra');
+//
+// The filter itself is `ownProjects` in core/store.js: a selector over
+// state, importable by its test — nothing in this self-starting file can be.
 
 async function chooseProject() {
   const projects = ownProjects();
@@ -1465,7 +888,7 @@ async function openProject(key) {
   });
   try {
     await loadInitialData();
-    onViewEntered(state.view);
+    enterView(state.view);
     showSuccess(t('admin.projectSwitched', { project: state.meta.project }));
   } catch (e) {
     showError(e.message);
@@ -1510,9 +933,10 @@ async function start() {
   });
   $('#queue-btn').addEventListener('click', queue.toggle);
   $('#locked-btn').addEventListener('click', locked.toggle);
-  $('#leave-admin-btn').addEventListener('click', leaveAdmin);
-  $('#enter-admin-btn').addEventListener('click', enterAdmin);
-  $('#remote-admin-btn').addEventListener('click', askForRemoteSession);
+  $('#leave-admin-btn').addEventListener('click', adminKey.leaveAdmin);
+  $('#enter-admin-btn').addEventListener('click', adminKey.enterAdmin);
+  $('#remote-admin-btn').addEventListener('click',
+    remoteSession.askForRemoteSession);
   // The project name does two different things depending on the package. On
   // one that carries a single project there is nothing to switch to, so it
   // opens the project screen if that screen exists at all; on one that
@@ -1564,7 +988,7 @@ async function start() {
   // had to leave and re-enter the page for the summary to update.
   locked.onCredentialsAccepted(() => {
     fetchJobs();
-    onViewEntered(state.view);
+    enterView(state.view);
   });
   subscribe(render);
 
@@ -1581,21 +1005,11 @@ async function start() {
   // The table used to open empty and wait for "Scan now". Refreshing is
   // continuous, so the first discovery round should start on its own too.
   scanLoop(FIRST_SCAN_DELAY);
-  adminKeyLoop();
+  adminKey.start();
   render();
   $('#content').focus();
 
-  // One look at the slot before the first paint: a key already in the
-  // machine should be offered at launch, not two seconds later.
-  try {
-    const seen = await api.adminKey();
-    patch({ adminKey: seen });
-    // "denied" as well as recognised: a key the panel is not allowed to read
-    // looks exactly like an empty slot, and this is the moment to say so.
-    if (seen.recognised || seen.reason === 'denied') {
-      await onKeyChanged(seen, null);
-    }
-  } catch { /* the loop retries */ }
+  await adminKey.checkAtLaunch();
 }
 
 // Stop the running loops as the tab/window closes.
@@ -1603,7 +1017,7 @@ globalThis.addEventListener('pagehide', () => {
   clearTimeout(lightTimer);
   clearTimeout(jobTimer);
   clearTimeout(scanTimer);
-  clearTimeout(adminKeyTimer);
+  adminKey.stop();
 });
 
 start();

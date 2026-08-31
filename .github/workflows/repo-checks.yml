@@ -1,0 +1,74 @@
+name: Repository checks (reusable)
+
+# The tracked-secrets scan, the DeviceMap credential scan and the
+# clean-worktree check — shared between CI and the release build.
+#
+# They lived in ci.yml alone for a while, and ci.yml runs in PARALLEL with
+# the build on a tag push: the credential scan could fail while the Release
+# published anyway, carrying the very DeviceMap the scan had just flagged
+# (dabp.spec compiles it into the package). The build workflow now `needs:`
+# these checks (.github/workflows/build-commissioning-panel.yml), and ci.yml
+# calls the same file, so there is one copy of each check and it gates both.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-checks:
+    name: Repository checks
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Any tracked sensitive files
+        run: |
+          set -euo pipefail
+          # Looks at file names only; never prints their contents.
+          FOUND=$(git ls-files \
+            | grep -Ei '(^|/)\.env$|\.pem$|\.key$|\.p12$|\.pfx$|id_rsa' || true)
+          if [ -n "$FOUND" ]; then
+            echo "::warning::the repository tracks possibly sensitive files:"
+            echo "$FOUND" | sed 's/^/  /'
+          else
+            echo "No tracked sensitive files."
+          fi
+
+      - name: Any credentials in the inventory
+        run: |
+          set -euo pipefail
+          # The file NAME check (the step above) could not catch this: the
+          # credentials sat inside an ordinary JSON file. The panel does not
+          # use those fields (credentials come from the user, see
+          # panel/inventory/device_map.py) and the SIP password is derived
+          # from the extension, so all of them must be EMPTY.
+          #
+          # Values are never printed: finding a secret and echoing it into
+          # the run log multiplies the leak instead of fixing it.
+          FILES=$(git ls-files '*DeviceMap*.json' || true)
+          [ -n "$FILES" ] || { echo "No DeviceMap file."; exit 0; }
+          BAD=0
+          for f in $FILES; do
+            COUNT=$(grep -Eoc '"(Password|Username|PBXPassword)"[[:space:]]*:[[:space:]]*"[^"]+"' "$f" || true)
+            if [ "${COUNT:-0}" -gt 0 ]; then
+              echo "::error::$f holds $COUNT populated credential field(s)"
+              BAD=1
+            fi
+          done
+          [ "$BAD" -eq 0 ] || exit 1
+          echo "No populated credential fields in the inventory."
+
+      - name: Is the working tree clean (is a generated file tracked)
+        run: |
+          set -euo pipefail
+          git status --porcelain > /tmp/worktree-status
+          if [ -s /tmp/worktree-status ]; then
+            echo "::error::the working tree is dirty after checkout:"
+            cat /tmp/worktree-status
+            exit 1
+          fi
+          echo "The working tree is clean."

@@ -82,7 +82,12 @@ def _event(emit, event: str, **fields) -> None:
 # The aliases below are what the rest of this file still calls them.
 _adb = client.run
 _target = client.target
-_disconnect = client.disconnect
+# FORCED, always: this run's safety proof depends on the old transport
+# being GONE before the address changes and on the verification connect
+# being fresh — a background read's lease on the same serial must not veto
+# either (see client.disconnect's `force`).
+def _disconnect(ip, *, timeout=None):
+    client.disconnect(ip, timeout=timeout, force=True)
 _connect_once = client.connect_once
 _connect = client.connect
 _shell = client.shell
@@ -347,6 +352,123 @@ def _restore(module, cfg, state, managed: set[int], emit) -> bool:
     return False
 
 
+def _fresh_switch_state(module, cfg, managed: set[int]) -> list:
+    """A fresh MAC table and the PoE state of every selected port.
+
+    The field helper caches its discovered MAC endpoint and last table.  The
+    LCD flows change the powered device on every port, so each run starts
+    fresh — through the script's public name, which the loader guarantees
+    exists (script_loader.CONTRACTS).  Reaching into the private cache with
+    getattr meant a rename over there silently skipped the reset, and the
+    whole wrong-socket safety argument in `_commission_port` rests on it
+    happening.
+    """
+    module.reset_mac_cache()
+    state = module.poe_read(cfg)
+    known = {int(row["pid"]) for row in state}
+    if not managed.issubset(known):
+        raise ValueError(
+            f"Ports not present on the switch: {sorted(managed - known)}")
+    return state
+
+
+def _commission_port(module, cfg, state, port: int, *, powered, managed,
+                     prefix, find, emit, cancelled, target_hint="",
+                     install_apk=None,
+                     cancel_before_power=False) -> tuple[bool, str]:
+    """One port's complete attempt: isolate, prove, write, verify, clean up.
+
+    The engine :func:`run` and :func:`run_manual` share.  The two flows
+    differ ONLY in what they inject here: `find` decides which candidate
+    addresses are tried and which identity is claimed for the display that
+    answers (a DeviceMap row for the set run, the answering address itself
+    for the bench run), and `install_apk` exists only for the set run.
+    Returns ``(ok, reason)`` with the port's events already emitted;
+    `target_hint` is the destination when it is known before discovery, so
+    a failed port still cleans up that transport.
+
+    The safety argument, step by step:
+
+    * only `powered` ports are on while this one is examined, so the MAC
+      the switch learns can only belong to the display actually cabled to
+      this socket;
+    * `find` must return positive serial + MAC->port proof — a display
+      answering on another port, or with an empty Android serial, fails the
+      port instead of being written to (absence is not identity);
+    * the address transaction goes out over that proven transport, and its
+      TCP reply is deliberately not trusted (see `_write_address`);
+    * both the old and the would-be new TCP serial are dropped BEFORE the
+      verification connect: ADB's serial is the address itself, and a stale
+      transport under either name could otherwise answer for the device;
+    * success is declared only after a fresh connection at the target shows
+      the SAME Android serial, eth0 holding EXACTLY ``{target}/{prefix}``
+      and nothing else, and the MAC still learned on this port
+      (`_reconnect_and_verify`).
+    """
+    old_ip, target_ip = "", target_hint
+    try:
+        if cancel_before_power and cancelled is not None and cancelled():
+            # The bench flow refuses to touch PoE at all once cancelled; the
+            # set run makes this check in its loop, before calling here.
+            raise RuntimeError("cancelled")
+        _event(emit, "port_step", port=port, step="poe_on",
+               detail=f"opening switch port {port}")
+        module.poe_apply(cfg, state, powered, managed)
+        if POE_SETTLE:
+            clock.sleep(POE_SETTLE)
+        linked, _elapsed = module.wait_for_link(cfg, port, cfg.link_wait)
+        if linked is False:
+            raise RuntimeError("the switch port did not link")
+
+        old_ip, before_serial, cidrs, target_ip, device = find(port)
+
+        if install_apk is not None:
+            _event(emit, "port_step", port=port, step="firmware",
+                   detail="installing the selected APK")
+            install_apk(device, old_ip)
+            if not _connect(old_ip):
+                raise RuntimeError("adb did not reconnect after APK install")
+            if _serial(old_ip) != before_serial:
+                raise RuntimeError("Android serial changed after APK install")
+            cidrs = _cidrs(old_ip)
+
+        expected_cidr = f"{target_ip}/{prefix}"
+        if old_ip == target_ip and cidrs == {expected_cidr}:
+            _event(emit, "port_written", port=port,
+                   reason="already_correct", target=target_ip)
+        else:
+            if cancelled is not None and cancelled():
+                raise RuntimeError("cancelled")
+            _event(emit, "port_step", port=port, step="writing_ip",
+                   detail=f"writing {expected_cidr}")
+            _write_address(old_ip, target_ip, prefix)
+            _event(emit, "port_written", port=port, reason="written",
+                   target=target_ip)
+
+        _event(emit, "port_step", port=port, step="verifying",
+               detail=f"reconnecting to {target_ip}")
+        _disconnect(old_ip)
+        _disconnect(target_ip)
+        ok, reason = _reconnect_and_verify(
+            module, target_ip, before_serial, port, cfg, prefix)
+        if not ok:
+            raise RuntimeError(reason)
+        _event(emit, "port_ok", port=port, target=target_ip)
+        return True, ""
+    except Exception as exc:
+        reason = str(exc)[:240] or type(exc).__name__
+        _event(emit, "port_failed", port=port, reason=reason)
+        return False, reason
+    finally:
+        # Remove both aliases from the global ADB server.  The next port (or
+        # the next run) must never inherit an implicit/stale transport.  (The
+        # set run used to fall back to the candidate's source address here;
+        # that fallback was unreachable — the source is only known once
+        # old_ip is.)
+        _disconnect(old_ip)
+        _disconnect(target_ip)
+
+
 def run(inventory: Inventory, switch, ports: list[int], account, emit,
         options: dict | None = None, cancelled=None) -> int:
     """Move selected Compartment LCD ports between two sets; return 0/1/130.
@@ -366,11 +488,7 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
     # derives this private DeviceMap source server-side for the explicit LCD
     # switch override; no device id, IP or source switch comes from the UI.
     device_switch_id = str(options.get("_deviceSwitchId") or switch.id)
-    devices = sorted((device for device in inventory.devices
-        if device.switch_id == device_switch_id
-        and device.type == "LCD" and (device.subtype or "") == "Compartment"
-        and device.port and str(device.port).isdigit()),
-        key=lambda device: (int(device.port), device.id))
+    devices = _lcd_devices(inventory, device_switch_id)
     if not devices:
         raise ValueError("No Compartment LCD candidate is defined in DeviceMap")
 
@@ -400,22 +518,38 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
             raise ValueError(
                 f"No APK is selected for candidates: {', '.join(absent)}")
 
-    # The field helper caches its discovered MAC endpoint and last table.  The
-    # LCD run changes the powered device on every iteration, so start fresh.
-    cache = getattr(module, "_MAC_CACHE", None)
-    if isinstance(cache, dict):
-        cache.update(endpoint=None, table={}, at=0.0, dead=False)
-
     managed = set(ports)
     completed: set[int] = set()
     used_devices: set[str] = set()
     identified: dict[int, dict] = {}
     failures: dict[int, str] = {}
-    state = module.poe_read(cfg)
-    known = {int(row["pid"]) for row in state}
-    if not managed.issubset(known):
-        raise ValueError(
-            f"Ports not present on the switch: {sorted(managed - known)}")
+    state = _fresh_switch_state(module, cfg, managed)
+
+    def find(port):
+        """Claim a DeviceMap identity for whatever answers on this port."""
+        _event(emit, "port_step", port=port, step="searching",
+               detail=(f"looking for one of {len(candidates)} "
+                       "DeviceMap LCD candidates"))
+        candidate, old_ip, before_serial, cidrs, reason = (
+            _find_candidate(module, candidates, used_devices, port,
+                            cfg, cancelled=cancelled))
+        if candidate is None or not old_ip:
+            raise RuntimeError(reason or "the display was not found")
+        device = candidate["device"]
+        used_devices.add(device.id)
+        identified[port] = candidate
+        _event(emit, "port_identified", port=port,
+               deviceId=device.id, name=device.name,
+               source=old_ip, target=candidate["target"])
+        _event(emit, "port_step", port=port, step="device_found",
+               detail=f"{device.name} · {old_ip}")
+        return old_ip, before_serial, cidrs, candidate["target"], device
+
+    def install(device, old_ip):
+        # The ordinary firmware flow uses DeviceMap's destination address.
+        # During commissioning the same verified device is still at old_ip,
+        # so only this immutable copy differs.
+        firmware.install(replace(device, ip=old_ip), set_no=inventory.set_no)
 
     _event(emit, "phase", phase="baseline")
     try:
@@ -427,90 +561,20 @@ def run(inventory: Inventory, switch, ports: list[int], account, emit,
         _event(emit, "pass_started", **{"pass": 1})
 
         for index, port in enumerate(sorted(managed), start=1):
-            device = None
-            source = target_ip = ""
-            old_ip = ""
             _event(emit, "port_started", port=port, target="",
                    index=index, total=len(managed))
             if cancelled is not None and cancelled():
                 failures[port] = "cancelled"
                 break
-            try:
-                _event(emit, "port_step", port=port, step="poe_on",
-                       detail=f"opening switch port {port}")
-                module.poe_apply(cfg, state, completed | {port}, managed)
-                if POE_SETTLE:
-                    clock.sleep(POE_SETTLE)
-                linked, _elapsed = module.wait_for_link(cfg, port, cfg.link_wait)
-                if linked is False:
-                    raise RuntimeError("the switch port did not link")
-
-                _event(emit, "port_step", port=port, step="searching",
-                       detail=(f"looking for one of {len(candidates)} "
-                               "DeviceMap LCD candidates"))
-                candidate, old_ip, before_serial, cidrs, reason = (
-                    _find_candidate(module, candidates, used_devices, port,
-                                    cfg, cancelled=cancelled))
-                if candidate is None or not old_ip:
-                    raise RuntimeError(reason or "the display was not found")
-                device = candidate["device"]
-                source, target_ip = candidate["source"], candidate["target"]
-                used_devices.add(device.id)
-                identified[port] = candidate
-                _event(emit, "port_identified", port=port,
-                       deviceId=device.id, name=device.name,
-                       source=old_ip, target=target_ip)
-                _event(emit, "port_step", port=port, step="device_found",
-                       detail=f"{device.name} · {old_ip}")
-
-                if options.get("installApk"):
-                    _event(emit, "port_step", port=port, step="firmware",
-                           detail="installing the selected APK")
-                    # The ordinary firmware flow uses DeviceMap's destination
-                    # address.  During commissioning the same verified device
-                    # is still at old_ip, so only this immutable copy differs.
-                    firmware.install(replace(device, ip=old_ip),
-                                     set_no=inventory.set_no)
-                    if not _connect(old_ip):
-                        raise RuntimeError("adb did not reconnect after APK install")
-                    if _serial(old_ip) != before_serial:
-                        raise RuntimeError("Android serial changed after APK install")
-                    cidrs = _cidrs(old_ip)
-
-                expected_cidr = f"{target_ip}/{prefix}"
-                already_correct = (old_ip == target_ip
-                                   and cidrs == {expected_cidr})
-                if already_correct:
-                    _event(emit, "port_written", port=port,
-                           reason="already_correct", target=target_ip)
-                else:
-                    if cancelled is not None and cancelled():
-                        raise RuntimeError("cancelled")
-                    _event(emit, "port_step", port=port, step="writing_ip",
-                           detail=f"writing {target_ip}/{prefix}")
-                    _write_address(old_ip, target_ip, prefix)
-                    _event(emit, "port_written", port=port, reason="written",
-                           target=target_ip)
-
-                _event(emit, "port_step", port=port, step="verifying",
-                       detail=f"reconnecting to {target_ip}")
-                _disconnect(old_ip)
-                _disconnect(target_ip)
-                ok, reason = _reconnect_and_verify(
-                    module, target_ip, before_serial, port, cfg, prefix)
-                if not ok:
-                    raise RuntimeError(reason)
+            ok, reason = _commission_port(
+                module, cfg, state, port,
+                powered=completed | {port}, managed=managed, prefix=prefix,
+                find=find, emit=emit, cancelled=cancelled,
+                install_apk=install if options.get("installApk") else None)
+            if ok:
                 completed.add(port)
-                _event(emit, "port_ok", port=port, target=target_ip)
-            except Exception as exc:
-                failures[port] = str(exc)[:240] or type(exc).__name__
-                _event(emit, "port_failed", port=port,
-                       reason=failures[port])
-            finally:
-                # Remove both aliases from the global ADB server.  The next
-                # port must never inherit an implicit/stale transport.
-                _disconnect(old_ip or source)
-                _disconnect(target_ip)
+            else:
+                failures[port] = reason
     finally:
         restored = _restore(module, cfg, state, managed, emit)
 
@@ -594,20 +658,26 @@ def run_manual(inventory: Inventory, switch, port: int, account, emit,
 
     # As in the ordinary run: a MAC table learned for another display is
     # already stale by the time this port powers up.
-    cache = getattr(module, "_MAC_CACHE", None)
-    if isinstance(cache, dict):
-        cache.update(endpoint=None, table={}, at=0.0, dead=False)
-
     managed = {port}
-    state = module.poe_read(cfg)
-    known = {int(row["pid"]) for row in state}
-    if not managed.issubset(known):
-        raise ValueError(
-            f"Ports not present on the switch: {sorted(managed - known)}")
+    state = _fresh_switch_state(module, cfg, managed)
 
-    failure = ""
-    done = False
-    old_ip = ""
+    def find(port):
+        """The one display on the bench port, with no DeviceMap claim."""
+        _event(emit, "port_step", port=port, step="searching",
+               detail=f"trying {len(addresses)} candidate addresses")
+        old_ip, before_serial, cidrs, reason = _discover(
+            module, addresses, port, cfg, cancelled=cancelled)
+        if not old_ip:
+            raise RuntimeError(reason or "the display was not found")
+        # There is no DeviceMap identity to claim here, so the row is
+        # titled with the address the display actually answered on —
+        # which is the most identifying thing this flow ever learns.
+        _event(emit, "port_identified", port=port, deviceId="",
+               name=old_ip, source=old_ip, target=target_ip)
+        _event(emit, "port_step", port=port, step="device_found",
+               detail=f"{old_ip} · {before_serial}")
+        return old_ip, before_serial, cidrs, target_ip, None
+
     _event(emit, "phase", phase="baseline")
     try:
         module.poe_apply(cfg, state, set(), managed)
@@ -616,61 +686,11 @@ def run_manual(inventory: Inventory, switch, port: int, account, emit,
         _event(emit, "pass_started", **{"pass": 1})
         _event(emit, "port_started", port=port, target=target_ip,
                index=1, total=1)
-        try:
-            if cancelled is not None and cancelled():
-                raise RuntimeError("cancelled")
-            _event(emit, "port_step", port=port, step="poe_on",
-                   detail=f"opening switch port {port}")
-            module.poe_apply(cfg, state, managed, managed)
-            if POE_SETTLE:
-                clock.sleep(POE_SETTLE)
-            linked, _elapsed = module.wait_for_link(cfg, port, cfg.link_wait)
-            if linked is False:
-                raise RuntimeError("the switch port did not link")
-
-            _event(emit, "port_step", port=port, step="searching",
-                   detail=f"trying {len(addresses)} candidate addresses")
-            old_ip, before_serial, cidrs, reason = _discover(
-                module, addresses, port, cfg, cancelled=cancelled)
-            if not old_ip:
-                raise RuntimeError(reason or "the display was not found")
-            # There is no DeviceMap identity to claim here, so the row is
-            # titled with the address the display actually answered on —
-            # which is the most identifying thing this flow ever learns.
-            _event(emit, "port_identified", port=port, deviceId="",
-                   name=old_ip, source=old_ip, target=target_ip)
-            _event(emit, "port_step", port=port, step="device_found",
-                   detail=f"{old_ip} · {before_serial}")
-
-            expected_cidr = f"{target_ip}/{prefix}"
-            if old_ip == target_ip and cidrs == {expected_cidr}:
-                _event(emit, "port_written", port=port,
-                       reason="already_correct", target=target_ip)
-            else:
-                if cancelled is not None and cancelled():
-                    raise RuntimeError("cancelled")
-                _event(emit, "port_step", port=port, step="writing_ip",
-                       detail=f"writing {expected_cidr}")
-                _write_address(old_ip, target_ip, prefix)
-                _event(emit, "port_written", port=port, reason="written",
-                       target=target_ip)
-
-            _event(emit, "port_step", port=port, step="verifying",
-                   detail=f"reconnecting to {target_ip}")
-            _disconnect(old_ip)
-            _disconnect(target_ip)
-            ok, reason = _reconnect_and_verify(
-                module, target_ip, before_serial, port, cfg, prefix)
-            if not ok:
-                raise RuntimeError(reason)
-            done = True
-            _event(emit, "port_ok", port=port, target=target_ip)
-        except Exception as exc:
-            failure = str(exc)[:240] or type(exc).__name__
-            _event(emit, "port_failed", port=port, reason=failure)
-        finally:
-            _disconnect(old_ip)
-            _disconnect(target_ip)
+        done, failure = _commission_port(
+            module, cfg, state, port,
+            powered=managed, managed=managed, prefix=prefix,
+            find=find, emit=emit, cancelled=cancelled,
+            target_hint=target_ip, cancel_before_power=True)
     finally:
         restored = _restore(module, cfg, state, managed, emit)
 

@@ -290,13 +290,6 @@ def clear() -> list[dict]:
         return replace_all([])
 
 
-def contains(ip) -> bool:
-    try:
-        wanted = normalise_ip(ip)
-    except PoolError:
-        return False
-    return any(entry["ip"] == wanted for entry in load())
-
 
 def addresses() -> list[str]:
     return [entry["ip"] for entry in load()]

@@ -19,6 +19,7 @@ from typing import ClassVar
 
 from panel import (checklist, editions, ip_assign, jobs, script_loader,
                    settings, status)
+from panel.adb import client as adb_client
 from panel.checklist import columns as cols
 from panel.inventory import catalog, device_map
 from panel.probe import android, reader
@@ -27,6 +28,39 @@ from panel.telemetry import TelemetrySnapshot
 
 from .support import fakes
 from .support.base import YATAKLI_MAP, PanelTest, ServiceTest
+
+
+class RetainedCollection(unittest.TestCase):
+    """telemetry.client._collected — when is the retained burst over?
+
+    Pure, because the thing it prevents is invisible in a fake: on a slow
+    broker the DeviceMap burst can land while a second subscription is
+    still unacknowledged, and a cutoff keyed on quiet-inbox alone ended the
+    collection before AppStatus was even requested.
+    """
+
+    def check(self, **kw):
+        from panel.telemetry.client import _collected
+        base = {"now": 10.0, "deadline": 14.0, "wanted": 3, "count": 0,
+                "last": 0.0, "acked": 0, "acked_at": 0.0}
+        base.update(kw)
+        return _collected(**base)
+
+    def test_the_window_is_the_ceiling(self):
+        self.assertTrue(self.check(now=14.0))
+
+    def test_quiet_does_not_end_it_while_a_subscription_is_pending(self):
+        self.assertFalse(self.check(count=5, last=9.0, acked=2,
+                                    acked_at=9.5))
+
+    def test_all_acked_plus_quiet_ends_it(self):
+        self.assertTrue(self.check(count=5, last=9.0, acked=3, acked_at=9.5))
+        self.assertFalse(self.check(count=5, last=9.9, acked=3,
+                                    acked_at=9.5))
+
+    def test_acknowledged_emptiness_gets_a_floor_not_a_full_window(self):
+        self.assertFalse(self.check(acked=3, acked_at=9.5))
+        self.assertTrue(self.check(acked=3, acked_at=8.5))
 
 
 class Inventory(PanelTest):
@@ -365,7 +399,13 @@ LOGCAT = """08-05 12:04:17.249 13854 13946 I AnnounceSip: Registration state=reg
 
 
 class FakeAdb:
-    """Stands in for subprocess.run; returns canned output for adb calls."""
+    """Stands in for subprocess.run; returns canned output for adb calls.
+
+    Deliberately minimal — a device that ANSWERS, so these tests can be
+    about what the probe makes of the answers. The transport itself (the
+    connect proof, the lease, what a refused command does) is exercised
+    against the rich shared fake in tests/support/adb.py.
+    """
 
     def __init__(self, **answers):
         self.answers = answers
@@ -374,9 +414,15 @@ class FakeAdb:
     def __call__(self, args, **kwargs):
         self.calls.append(list(args))
         joined = " ".join(args)
-        output = ""
-        if "connect" in args:
+        recognised, output = True, ""
+        if "disconnect" in args:
+            output = "disconnected"
+        elif "connect" in args:
             output = "connected"
+        elif "get-state" in args:
+            # The shared client's connect proof: `adb connect`'s cheerful
+            # answer is not believed until the serial reports `device`.
+            output = "device"
         elif "ro.serialno" in joined:
             output = self.answers.get("serial", "rk3568r0001")
         elif "persist.sys.timezone" in joined:
@@ -387,11 +433,16 @@ class FakeAdb:
             output = self.answers.get("dumpsys", DUMPSYS)
         elif "logcat" in args:
             output = self.answers.get("logcat", LOGCAT)
+        else:
+            # A command nobody wrote a case for FAILS. Answering it with an
+            # empty success is how a fake keeps passing while the product
+            # sends a command the device would refuse.
+            recognised = False
 
         class Result:
             stdout = output
-            stderr = ""
-            returncode = 0
+            stderr = "" if recognised else f"unexpected adb command: {joined}"
+            returncode = 0 if recognised else 1
         return Result()
 
 
@@ -412,10 +463,12 @@ class CompartmentLcd(PanelTest):
         return inventory.by_type("LCD")[0]
 
     def patch(self, fake_adb):
-        previous = android.subprocess.run
-        android.subprocess.run = fake_adb
+        # The probe has no subprocess of its own any more — its transport is
+        # panel.adb.client, so that is the seam the fake stands in at.
+        previous = adb_client.subprocess.run
+        adb_client.subprocess.run = fake_adb
         self.addCleanup(
-            lambda: setattr(android.subprocess, "run", previous))
+            lambda: setattr(adb_client.subprocess, "run", previous))
 
     def test_the_dumpsys_version_is_parsed(self):
         info = android.package_info(DUMPSYS)
@@ -786,6 +839,52 @@ class IpPlan(PanelTest):
                                  lambda _line: None, {"targetPrefix": 8})
         argv = captured["argv"]
         self.assertEqual(argv[argv.index("--netmask") + 1], "255.0.0.0")
+
+    def test_the_routes_unstated_zero_forces_no_mask_either(self):
+        """The HTTP route sends 0 for an empty mask box now, not 24.
+
+        For a prefix-0 project (Yatakli, VIP) that has to mean the same as
+        no option at all — the device keeps its own mask — because the /24
+        the route used to materialise made the project branch unreachable
+        AND forced 255.255.255.0 on projects that never asked for it. This
+        is the route→runner half of the contract; the empty-options half is
+        pinned above.
+        """
+        from panel.ip_assign import runner
+
+        inventory, switch, captured = self._intercom_run_capture()
+        runner._run_intercom(inventory, switch, [11], ("admin", "x"),
+                             lambda _line: None, {"targetPrefix": 0})
+        argv = captured["argv"]
+        self.assertNotIn("--force-netmask", argv)
+        self.assertNotIn("--netmask", argv)
+
+    def test_the_plan_says_whether_a_mask_was_stated(self):
+        """`maskStated` is what keeps the screen honest about the mask box.
+
+        The plan still publishes a resolved prefix — the LCD flow writes a
+        whole address and needs one — but for the intercom run an unstated
+        mask writes NOTHING, and the box used to prefill 255.255.255.0 from
+        the resolved number under the promise "the mask that WILL be
+        written" (static/js/views/ip/validation.js reads this flag).
+        """
+        from panel.editions import runtime as editions
+
+        inventory, _switch, _captured = self._intercom_run_capture()
+        unstated = ip_assign.build_plan(inventory, "Intercom", [11])
+        self.assertFalse(unstated["maskStated"])
+        # The resolved fallback is still published for the flows that need
+        # a concrete number.
+        self.assertEqual(unstated["targetNetmask"], "255.255.255.0")
+
+        typed = ip_assign.build_plan(inventory, "Intercom", [11],
+                                     target_prefix=8)
+        self.assertTrue(typed["maskStated"])
+
+        with mock.patch.object(editions, "prefix", return_value=16):
+            stated_by_project = ip_assign.build_plan(inventory, "Intercom",
+                                                     [11])
+        self.assertTrue(stated_by_project["maskStated"])
 
     def _intercom_run_capture(self):
         """One intercom, and `_execute` replaced by a recorder."""

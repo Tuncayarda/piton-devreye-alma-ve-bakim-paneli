@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 
 from panel import jobs, settings, status
 from panel.probe import result as probe_result
@@ -466,6 +467,229 @@ class CrashingJobQueue(unittest.TestCase):
             lambda j: (_ for _ in ()).throw(ValueError("No port selected")))
         self.assertEqual(job.state, jobs.FAILED)
         self.assertEqual(job.error, "No port selected")
+
+
+class CancelDispatchRace(unittest.TestCase):
+    """The cancel decision and the RUNNING stamp share the dispatch lock.
+
+    The dispatcher used to pop the job under the lock but stamp it RUNNING
+    outside it. A cancel landing in that gap still saw QUEUED and took the
+    "never started" branch — every row marked skipped with "cancelled", the
+    job closed — while the dispatcher went on to run the body anyway. The
+    user was told nothing ran; the devices were written to regardless.
+    """
+
+    def setUp(self):
+        self.queue = jobs.JobQueue()
+        self.addCleanup(self.queue.close)
+
+    def test_a_cancel_landing_on_the_dispatch_window_sees_running(self):
+        """Pins the race by parking the dispatcher at the exact instant it
+        stamps RUNNING — the widest version of the old gap — and cancelling
+        right there. The cancel must find a RUNNING job (flag only, rows
+        left to the body), never a QUEUED one it can pretend to stop."""
+
+        class HeldJob(jobs.Job):
+            """Parks whoever stamps it RUNNING until told to proceed."""
+
+            def __init__(self, *args, **kwargs):
+                self.entering = threading.Event()
+                self.proceed = threading.Event()
+                super().__init__(*args, **kwargs)
+
+            @property
+            def state(self):
+                return self._state
+
+            @state.setter
+            def state(self, value):
+                if value == jobs.RUNNING and not self.entering.is_set():
+                    self.entering.set()
+                    self.proceed.wait(5)
+                self._state = value
+
+        job = HeldJob("scan", "Race trial", 1)
+        # A row the body never touches: under the old code the too-early
+        # cancel branch marked it "skipped · cancelled" while the job ran.
+        job.add_row("bystander", "Untouched device", state="queued",
+                    counted=True)
+        ran = threading.Event()
+        cancel_done = threading.Event()
+
+        def body(j):
+            # The body waits for the cancel to land first, so the final
+            # state is decided by the flag and not by thread luck.
+            cancel_done.wait(5)
+            ran.set()
+
+        self.queue.submit(job, body)
+        self.assertTrue(job.entering.wait(5), "the job never dispatched")
+
+        answers = []
+
+        def cancel():
+            answers.append(self.queue.cancel(job.id))
+            cancel_done.set()
+
+        canceller = threading.Thread(target=cancel)
+        canceller.start()
+        # Let the cancel reach the queue lock the dispatcher now holds.
+        # Under the old code there was no lock to reach: this pause was
+        # exactly the time it needed to finish its "never started" branch.
+        time.sleep(0.2)
+        job.proceed.set()
+        canceller.join(5)
+
+        deadline = time.time() + 5
+        while (job.state not in (jobs.DONE, jobs.CANCELLED, jobs.FAILED)
+               and time.time() < deadline):
+            time.sleep(0.02)
+
+        self.assertEqual(answers, [True])
+        self.assertTrue(ran.is_set(),
+                        "the body was already dispatched and must have run")
+        self.assertEqual(job.state, jobs.CANCELLED)
+        # The proof of the fix: the cancel took the RUNNING branch, so no
+        # row was stamped "skipped before start" for a job that ran.
+        self.assertEqual(job.rows()[0]["state"], "queued")
+
+
+class DeviceClaim(unittest.TestCase):
+    """panel.jobs.access — the one gate the three sweeping workers share."""
+
+    def setUp(self):
+        jobs.access.reset()
+        self.addCleanup(jobs.access.reset)
+
+    def test_a_cancelled_wait_abandons_without_taking_the_claim(self):
+        """QUEUE.close() must not hang behind an ADB-screen operation: the
+        worker waiting for the claim polls its job's cancel flag, and a
+        cancel ends the wait with nothing acquired."""
+        self.assertTrue(jobs.access.try_acquire("adb-screen"))
+        flag = {"cancelled": True}
+        self.assertFalse(jobs.access.acquire("job:x",
+                                             cancelled=lambda: flag["cancelled"],
+                                             poll=0.01))
+        # The abandoned waiter took nothing: the holder is unchanged and a
+        # release from it must not free the screen's claim.
+        jobs.access.release("job:x")
+        self.assertEqual(jobs.access.holder(), "adb-screen")
+        self.assertFalse(jobs.access.try_acquire("refresh"))
+
+    def test_release_by_a_non_owner_changes_nothing(self):
+        self.assertTrue(jobs.access.try_acquire("refresh"))
+        jobs.access.release("job:someone-else")
+        self.assertEqual(jobs.access.holder(), "refresh")
+        jobs.access.release("refresh")
+        self.assertEqual(jobs.access.holder(), "")
+        self.assertTrue(jobs.access.try_acquire("adb-screen"))
+
+    def test_reset_frees_a_held_claim_and_survives_the_late_release(self):
+        """Shutdown drops the claim; the worker it belonged to may still run
+        its finally afterwards, and that late release must neither raise
+        nor free a claim the NEXT service has taken."""
+        self.assertTrue(jobs.access.try_acquire("job:old"))
+        jobs.access.reset()
+        self.assertTrue(jobs.access.try_acquire("job:new"))
+        jobs.access.release("job:old")      # the stale finally
+        self.assertEqual(jobs.access.holder(), "job:new")
+
+    def test_busy_error_speaks_sentences_not_claim_tokens(self):
+        """The refusal a claim produces is user-facing text: the internal
+        token ("adb-screen", "job:j3f…") leaked into a toast verbatim the
+        first time it was needed."""
+        self.assertTrue(jobs.access.try_acquire("adb-screen"))
+        self.assertNotIn("adb-screen", jobs.busy_error())
+        jobs.access.reset()
+
+        job = jobs.Job("config", "Configure 3 devices", 1, key="cfg:test")
+        jobs.QUEUE._jobs.append(job)
+        self.addCleanup(lambda: jobs.QUEUE._jobs.remove(job))
+        self.assertTrue(jobs.access.try_acquire(f"job:{job.id}"))
+        message = jobs.busy_error()
+        self.assertIn("Configure 3 devices", message)
+        self.assertNotIn(job.id, message)
+
+
+class DeviceView(unittest.TestCase):
+    """The registry of per-set views, across a project switch and a cancel."""
+
+    def setUp(self):
+        jobs.view.clear_all()
+
+    def _result(self, version: str) -> probe_result.ProbeResult:
+        result = probe_result.success({"version": version}, "http")
+        result.generation = jobs.next_generation()
+        return result
+
+    def test_clear_all_keeps_a_captured_view_receiving_writes(self):
+        """A sweep captures its view once, at start (see sweep_devices).
+
+        `clear_all` used to rebuild the registry, so a sweep racing a
+        project switch kept writing into an orphan nothing would ever read
+        again — the scan finished green and its results silently vanished.
+        The views must be emptied IN PLACE, the objects kept.
+        """
+        view = jobs.view_for(4)
+        view.write("d1", self._result("0.9"))
+
+        jobs.view.clear_all()
+
+        self.assertIs(jobs.view_for(4), view,
+                      "the registry must hand out the same object")
+        self.assertIsNone(view.get("d1"), "results must still be dropped")
+        # The captured reference is still the live one: what the "sweep"
+        # writes now is what the next reader sees.
+        view.write("d1", self._result("1.0"))
+        self.assertEqual(jobs.view_for(4).get("d1").fields["version"], "1.0")
+
+    def test_clearing_undates_the_view(self):
+        """`lastScan` feeds the staleness banner; an emptied view must not
+        claim it was verified recently."""
+        view = jobs.view_for(4)
+        view.last_scan = 1234.5
+        jobs.view.clear_all()
+        self.assertIsNone(view.last_scan)
+
+    def test_a_write_from_before_the_clear_is_refused(self):
+        """The other half of keeping the object alive across a project
+        switch: a sweep CANCELLED for the switch still finishes its
+        in-flight device, and without a fence that one result — the OLD
+        project's device, under an id the NEW project reuses — landed in
+        the fresh view as a green row. The sweep captures `view.epoch`
+        with the view (jobs/sweep.py); a `clear()` in between bumps it and
+        the late write becomes a refusal instead."""
+        view = jobs.view_for(4)
+        epoch = view.epoch
+        self.assertTrue(view.write("d1", self._result("0.9"), epoch=epoch))
+
+        jobs.view.clear_all()
+
+        self.assertFalse(view.write("d1", self._result("1.0"), epoch=epoch),
+                         "a stale-epoch write must be dropped")
+        self.assertIsNone(view.get("d1"))
+        # A writer born after the clear is the new project's own.
+        self.assertTrue(view.write("d1", self._result("1.1"),
+                                   epoch=view.epoch))
+
+    def test_a_cancelled_sweep_does_not_stamp_last_scan(self):
+        """A scan cancelled before reading anything used to stamp
+        `last_scan` on its way out — and `lastScan` is what the checklist
+        staleness banner trusts, so stale data looked freshly verified."""
+        job = jobs.Job("scan", "Cancelled scan", 6)
+        job.cancel.set()
+        reads = []
+        jobs.sweep_devices(job, [SimpleNamespace(id="d1")],
+                           lambda device: reads.append(device))
+        self.assertIsNone(jobs.view_for(6).last_scan)
+        self.assertEqual(reads, [], "a cancelled sweep reads nothing")
+
+    def test_a_completed_sweep_stamps_last_scan(self):
+        """The counterpart: a sweep that ran IS the verification."""
+        job = jobs.Job("scan", "Full scan", 6)
+        jobs.sweep_devices(job, [SimpleNamespace(id="d1")],
+                           lambda device: self._result("1.0"))
+        self.assertIsNotNone(jobs.view_for(6).last_scan)
 
 
 class IpSummaryError(unittest.TestCase):

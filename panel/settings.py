@@ -17,7 +17,7 @@ from pathlib import Path
 # Short and ASCII so it survives every shell, ZIP and installer it passes
 # through, and unchanged by the language.
 APP_SLUG = "dabp"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 # From source this is the parent of this file; PyInstaller unpacks data into a
 # temp dir and reports it via sys._MEIPASS.
@@ -206,18 +206,52 @@ IP_ASSIGN_SCRIPT = Path(
     or data_file("intercom_ip_assign.py",
                  "field_scripts", "intercom_ip_assign.py"))
 
+def _int(name: str, default: int) -> int:
+    """An env override, or the default — never a crash.
+
+    These constants are the application's ONLY configuration and they are
+    read at import, before i18n, before the elevation window, before
+    anything that could report a problem. `PROBE_TIMEOUT=5s` left in a
+    shell profile used to abort `import panel.settings` with a bare
+    traceback — on a frozen GUI build, invisibly. A bad value now falls
+    back and says so on stderr, which is the most anything can say this
+    early.
+    """
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        sys.stderr.write(f"settings: {name}={raw!r} is not a whole number; "
+                         f"using {default}\n")
+        return default
+
+
+def _float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        sys.stderr.write(f"settings: {name}={raw!r} is not a number; "
+                         f"using {default}\n")
+        return default
+
+
 # ────────────────────────────────────────────────────── network / ports ──
-KYLAND_PORT = int(os.environ.get("KYLAND_HTTP_PORT", "80"))
+KYLAND_PORT = _int("KYLAND_HTTP_PORT", 80)
 
 # Physical layout of the front panel. The SICOM3028GPT in the field has
 # 24 PoE + 4 uplink ports. The panel draws the device's real face, empty
 # ports included — otherwise the map does not match the hardware.
-SWITCH_POE_PORTS = int(os.environ.get("SWITCH_POE_PORTS", "24"))
-SWITCH_UPLINK_PORTS = int(os.environ.get("SWITCH_UPLINK_PORTS", "4"))
-VIDEO_PORT = int(os.environ.get("VIDEO_HTTP_PORT", "80"))
-ANNOUNCEMENT_PORT = int(os.environ.get("ARDUINO_HTTP_PORT", "80"))
-MQTT_PORT = int(os.environ.get("PISCU_MQTT_PORT", "1883"))
-ADB_PORT = int(os.environ.get("COMPARTMENT_LCD_ADB_PORT", "5555"))
+SWITCH_POE_PORTS = _int("SWITCH_POE_PORTS", 24)
+SWITCH_UPLINK_PORTS = _int("SWITCH_UPLINK_PORTS", 4)
+VIDEO_PORT = _int("VIDEO_HTTP_PORT", 80)
+ANNOUNCEMENT_PORT = _int("ARDUINO_HTTP_PORT", 80)
+MQTT_PORT = _int("PISCU_MQTT_PORT", 1883)
+ADB_PORT = _int("COMPARTMENT_LCD_ADB_PORT", 5555)
 
 # Panel app running on the Compartment LCD. This is the authoritative
 # version source: `ro.build.display.id` is the Android build id, not the
@@ -247,25 +281,25 @@ MQTT_SIP_PORT_PREFIX = os.environ.get("PISCU_SIP_PORT_PREFIX", "ALFA/SipPort")
 # ──────────────────────────────────────────────────────────── timeouts ────
 # Per-device ceiling during a full scan. Kept short: one silent device must
 # not hold up a 30-device sweep.
-PROBE_TIMEOUT = float(os.environ.get("PROBE_TIMEOUT", "5.0"))
+PROBE_TIMEOUT = _float("PROBE_TIMEOUT", 5.0)
 # A credential attempt keeps the user waiting; slightly more generous.
-AUTH_TIMEOUT = float(os.environ.get("AUTH_TIMEOUT", "6.0"))
-MQTT_TIMEOUT = float(os.environ.get("MQTT_TIMEOUT", "4.0"))
-ADB_TIMEOUT = int(os.environ.get("ADB_TIMEOUT", "12"))
+AUTH_TIMEOUT = _float("AUTH_TIMEOUT", 6.0)
+MQTT_TIMEOUT = _float("MQTT_TIMEOUT", 4.0)
+ADB_TIMEOUT = _int("ADB_TIMEOUT", 12)
 # Installing an APK takes far longer than reading: push, then package manager.
-ADB_INSTALL_TIMEOUT = int(os.environ.get("ADB_INSTALL_TIMEOUT", "180"))
-SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", "12"))
+ADB_INSTALL_TIMEOUT = _int("ADB_INSTALL_TIMEOUT", 180)
+SCAN_WORKERS = _int("SCAN_WORKERS", 12)
 
 # How many devices are flashed at once. Lower than scanning: every install
 # reboots a device and then waits for version verification, and blacking out
 # 12 devices behind one switch strains both the PoE budget and the person
 # standing next to them. Four cuts a 12-intercom set to a quarter of serial.
-FIRMWARE_WORKERS = int(os.environ.get("FIRMWARE_WORKERS", "4"))
+FIRMWARE_WORKERS = _int("FIRMWARE_WORKERS", 4)
 
 # How many devices are configured at once. Serial writes stacked every
 # device's read + write + verify wait end to end. Same width as firmware:
 # a write can reboot the device, so it must stay narrower than scanning.
-CONFIG_WORKERS = int(os.environ.get("CONFIG_WORKERS", FIRMWARE_WORKERS))
+CONFIG_WORKERS = _int("CONFIG_WORKERS", FIRMWARE_WORKERS)
 
 # How many devices the ADB screen works on at once. Wider than firmware
 # because most of what that screen does is cheap and does not reboot
@@ -273,7 +307,7 @@ CONFIG_WORKERS = int(os.environ.get("CONFIG_WORKERS", FIRMWARE_WORKERS))
 # watching a table of devices fill in. Installing an APK through it is the
 # one heavy operation and is bounded by the same per-device timeout as
 # everywhere else.
-ADB_WORKERS = int(os.environ.get("ADB_WORKERS", "8"))
+ADB_WORKERS = _int("ADB_WORKERS", 8)
 
 # How long a rebooted display is given to answer again. Generous, because
 # what the operator wants to know is not "the command was accepted" but "it
@@ -281,11 +315,11 @@ ADB_WORKERS = int(os.environ.get("ADB_WORKERS", "8"))
 # dark is a reboot they have to go and check by eye. These images take
 # 40-70 seconds; two minutes leaves room for a slow one without leaving
 # somebody watching a spinner for ever.
-ADB_REBOOT_WAIT = float(os.environ.get("ADB_REBOOT_WAIT", "120"))
+ADB_REBOOT_WAIT = _float("ADB_REBOOT_WAIT", 120.0)
 # How long it is given to GO DOWN first. Short: this only proves the reboot
 # was really taken, and a display that never drops the connection has
 # ignored the command.
-ADB_REBOOT_DOWN_WAIT = float(os.environ.get("ADB_REBOOT_DOWN_WAIT", "25"))
+ADB_REBOOT_DOWN_WAIT = _float("ADB_REBOOT_DOWN_WAIT", 25.0)
 
 # ────────────────────────────────────────────────────────── verification ──
 EXPECTED_TIMEZONE = os.environ.get("EXPECTED_TIMEZONE", "CST-3:00:00")
@@ -310,4 +344,4 @@ REFRESH_LIMIT = 64
 # How many devices a light refresh reads at once. This round only visits
 # devices that already answered, so no timeouts are expected and the same
 # width as scanning does not tire them.
-REFRESH_WORKERS = int(os.environ.get("REFRESH_WORKERS", SCAN_WORKERS))
+REFRESH_WORKERS = _int("REFRESH_WORKERS", SCAN_WORKERS)

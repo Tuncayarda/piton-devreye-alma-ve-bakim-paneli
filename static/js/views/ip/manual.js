@@ -11,7 +11,7 @@ import { api } from '../../core/api.js';
 import { state, patch } from '../../core/store.js';
 import { confirmWrite } from '../../components/confirm.js';
 import { showSuccess, notify } from '../../components/toast.js';
-import { local } from './state.js';
+import { local, redraw } from './state.js';
 import { isIpv4, parsePorts } from './ports.js';
 import { maskField, onMaskResult } from './validation.js';
 import { t } from '../../core/i18n.js';
@@ -106,7 +106,7 @@ export function startManual(plan) {
 }
 export async function runManual(plan) {
   local.manualBusy = true;
-  patch({ ipState: { ...state.ipState } });
+  redraw();
   try {
     const job = await api.ipLcdAssign({
       set: state.setNo,
@@ -123,7 +123,7 @@ export async function runManual(plan) {
   } finally {
     local.manualBusy = false;
     if (state.view === 'ip' && state.ipState) {
-      patch({ ipState: { ...state.ipState } });
+      redraw();
     }
   }
 }

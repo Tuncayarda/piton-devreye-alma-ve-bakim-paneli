@@ -6,7 +6,12 @@ Compartment LCD commissioning run (`panel.ip_assign.lcd_runner`), because that
 is where the rules were learned, and it was copied from there each time
 another screen needed a device command. Three copies meant three answers to
 "what happens when adb is missing" and three different timeouts; this is the
-one answer.
+one answer. The last two private copies — the probe's
+(`panel.probe.android`) and the APK install's
+(`panel.firmware.apk_install`) — ran their own ``subprocess`` with their
+own connect proofs, so the same display at the same moment could be red on
+the scan and green on the ADB screen. Both run on this file now, and a test
+scans their sources to keep it that way (tests/test_adb.py::OneTransport).
 
 The rules the run paid for, and which every caller now inherits:
 
@@ -31,6 +36,8 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import threading
+from contextlib import contextmanager
 
 from .. import clock, settings
 from ..errors import NotApplicableError, UnreachableError, VerificationError
@@ -66,16 +73,88 @@ def run(*args: str, timeout: float | None = None):
     except FileNotFoundError as exc:
         raise AdbUnavailable(i18n.t("error.adbMissing")) from exc
     except subprocess.TimeoutExpired as exc:
+        # The verb, not the routing flag: every command opens with
+        # `-s <serial>`, and naming that produced "adb -s timed out" for
+        # every timeout in the panel.
+        verb = "adb"
+        if args:
+            verb = (args[2] if args[0] == "-s" and len(args) > 2
+                    else args[0])
         raise AdbTimeout(i18n.t("error.adbCommandTimeout",
-                                command=args[0] if args else "adb")) from exc
+                                command=verb)) from exc
 
 
 def target(ip: str) -> str:
     return f"{ip}:{settings.ADB_PORT}"
 
 
-def disconnect(ip: str, *, timeout: float | None = None) -> None:
+# ── the connection lease ─────────────────────────────────────────────────
+# The transport to one serial is GLOBAL to this process's ADB server, and two
+# subsystems really do use the same one at the same time: the light refresh
+# reads a Compartment LCD while the firmware screen installs an APK on it.
+# Each side politely disconnects when it is done — which is exactly the tear
+# that was reported from the bench: the scan's cleanup pulled the transport
+# out from under an install that was half way through.
+#
+# A lease is a per-serial reference count. Whoever needs the transport to
+# SURVIVE for a span takes one (`with client.lease(ip):`), and `disconnect`
+# below declines to drop a serial while any lease on it is active. Nothing
+# else changes: a caller that never leases — the ADB screen's runner, the
+# commissioning run — keeps its explicit connect/disconnect behaviour to the
+# letter, because with no lease held the count is zero and `disconnect` does
+# what it always did.
+#
+# Deadlock-free by construction: the one lock guards only the dict of counts
+# and is never held across a subprocess call (or any other lock).
+_lease_lock = threading.Lock()
+_leases: dict[str, int] = {}
+
+
+@contextmanager
+def lease(ip: str):
+    """Keep the transport to `ip` alive for the length of the block.
+
+    Reentrant across threads and within one: every entry counts, every exit
+    uncounts, and only the count matters. The holder's own `disconnect`
+    calls are skipped too — so a caller that wants the serial really dropped
+    afterwards disconnects AFTER its `with` block, where the drop happens
+    unless somebody else still holds a lease.
+    """
+    serial = target(ip)
+    with _lease_lock:
+        _leases[serial] = _leases.get(serial, 0) + 1
+    try:
+        yield
+    finally:
+        with _lease_lock:
+            remaining = _leases.get(serial, 1) - 1
+            if remaining > 0:
+                _leases[serial] = remaining
+            else:
+                _leases.pop(serial, None)
+
+
+def leased(ip: str) -> bool:
+    """Is any lease on this serial active right now?"""
+    with _lease_lock:
+        return _leases.get(target(ip), 0) > 0
+
+
+def disconnect(ip: str, *, timeout: float | None = None,
+               force: bool = False) -> None:
     if not ip:
+        return
+    # An active lease means the transport is in use somewhere in this
+    # process — a scan tidying up after itself must not cut off the APK
+    # install sharing the same serial. Skipped, not deferred: the last
+    # lease-holder's own cleanup disconnect runs after its lease is
+    # released and really drops the serial then.
+    #
+    # `force` is the commissioning run's word: the LCD flow REQUIRES the
+    # old transport gone before the address changes — its safety proof
+    # depends on it — and it must not be vetoed by a background read that
+    # happened to lease the same serial a moment earlier.
+    if leased(ip) and not force:
         return
     try:
         run("disconnect", target(ip), timeout=timeout)
@@ -90,8 +169,20 @@ def connect_once(ip: str, *, timeout: float | None = None) -> bool:
     serial = target(ip)
     command_timeout = (min(settings.ADB_TIMEOUT, 5) if timeout is None
                        else timeout)
+    # Disconnect-first keeps a stale row from answering for the device. Under
+    # an active lease it is skipped (see `disconnect`), and that is the right
+    # trade: a leased serial is a transport this process is USING, which is
+    # better evidence of life than a fresh handshake — and `get-state` below
+    # still has to answer ``device`` on it either way.
     disconnect(ip, timeout=command_timeout)
-    connected = run("connect", serial, timeout=command_timeout)
+    try:
+        connected = run("connect", serial, timeout=command_timeout)
+    except AdbTimeout as exc:
+        # Named for what hung: "adb connect timed out" sends the operator to
+        # the device's network, where the generic per-command wording sends
+        # them to the adb server. The probe used to make this distinction in
+        # its own wrapper; it lives with the command now.
+        raise AdbTimeout(i18n.t("error.adbConnectTimeout")) from exc
     if getattr(connected, "returncode", 0) != 0:
         return False
     state = run("-s", serial, "get-state", timeout=command_timeout)
@@ -99,13 +190,20 @@ def connect_once(ip: str, *, timeout: float | None = None) -> bool:
             and str(getattr(state, "stdout", "") or "").strip() == "device")
 
 
-def connect(ip: str, cancelled=None, attempts: int = CONNECT_ATTEMPTS) -> bool:
-    """Bounded reconnect; stale ``adb devices`` rows are never consulted."""
+def connect(ip: str, cancelled=None, attempts: int = CONNECT_ATTEMPTS,
+            *, timeout: float | None = None) -> bool:
+    """Bounded reconnect; stale ``adb devices`` rows are never consulted.
+
+    `timeout` bounds each single adb command inside an attempt, not the
+    whole call — the shape the probe's read budget has always had ("the
+    ceiling on any single hang"). Left `None`, `connect_once` keeps its own
+    short per-command bound.
+    """
     for attempt in range(max(1, int(attempts))):
         if cancelled is not None and cancelled():
             return False
         try:
-            if connect_once(ip):
+            if connect_once(ip, timeout=timeout):
                 return True
         except AdbUnavailable:
             raise

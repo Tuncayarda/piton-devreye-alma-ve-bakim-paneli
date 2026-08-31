@@ -38,6 +38,40 @@ def resolve_groups(names, inventory: Inventory | None = None) -> list[dict]:
     return out
 
 
+def assignment_kind(names) -> str:
+    """Which runner family these group names select.
+
+    The rules the two kinds diverge on — per-device source addresses, APK
+    instead of .bin, physical-port planning, manual assignment — were each
+    re-derived in the route layer as `names == ["Compartment LCD"]`, four
+    times, so a change to what counts as the LCD flow had four homes. Group
+    NAMES rather than resolved groups, because two of the callers decide
+    before resolving.
+    """
+    cleaned = [str(name) for name in (
+        [names] if isinstance(names, str) else list(names or []))]
+    return "compartment-lcd" if cleaned == [_COMPARTMENT_LCD] else "intercom"
+
+
+def run_allowed_ports(inventory: Inventory, groups: list[dict],
+                      device_switch_id: str) -> set[int]:
+    """Which physical ports a run over these groups may touch.
+
+    The LCD flow's test wiring is physical — any PoE port can carry any one
+    of the canonical displays, so the whole PoE face is offered and the
+    device identity is proven later from the MAC table. Intercom port
+    semantics stay DeviceMap-bound. (`ports.allowed_ports` is the
+    narrower DeviceMap-per-switch list; this one is the RUN's rule, kind
+    included.) This expression lived three times in
+    the route layer, each reading `settings.SWITCH_POE_PORTS` on its own —
+    a switch with a different port count was configured in one place and
+    enforced in several.
+    """
+    if [group["name"] for group in groups] == [_COMPARTMENT_LCD]:
+        return set(range(1, settings.SWITCH_POE_PORTS + 1))
+    return set(devices_by_port(inventory, groups, device_switch_id))
+
+
 def devices_by_port(inventory: Inventory, groups: list[dict],
                     switch_id: str | None = None) -> dict[int, tuple]:
     """Port -> (device, group name). Several groups merge into one map.
@@ -129,7 +163,16 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
     project's, or the system default" (see `addressing.effective_prefix`).
     """
     from .runner import RUNNERS
+    from ..editions import runtime as editions
 
+    # STATED OR NOT is remembered before the number is resolved. The rows
+    # and the LCD flow need a concrete prefix either way (an Android write
+    # replaces the whole address, so /24 is the honest default there), but
+    # the INTERCOM run writes no mask at all when nobody stated one — and
+    # the screen prefilled its box from the resolved number, promising a
+    # 255.255.255.0 the run was not going to send. `maskStated` below is
+    # what lets the box say "the device keeps its own" instead.
+    mask_stated = bool(int(target_prefix or 0) or int(editions.prefix() or 0))
     # Resolved once, at the top: every row below and the summary at the
     # bottom quote this number, and the run itself resolves it the same way.
     target_prefix = effective_prefix(target_prefix)
@@ -220,6 +263,11 @@ def build_plan(inventory: Inventory, group_names, ports: list[int],
         "groups": [group["name"] for group in groups],
         "targetPrefix": int(target_prefix),
         "targetNetmask": netmask_for(target_prefix),
+        # False = nobody asked for a mask: not the operator, not the
+        # project. The intercom run then leaves the device's own mask alone
+        # (panel/ip_assign/runner.py), and the screen must not display the
+        # fallback above as "the mask that will be written".
+        "maskStated": mask_stated,
         # Zero means "the usual starting point"; a number means the run is a
         # transfer out of that set, or into it.
         "sourceSet": int(source_set),

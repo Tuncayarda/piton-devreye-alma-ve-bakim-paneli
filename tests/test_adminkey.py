@@ -26,8 +26,8 @@ from .support.base import PanelTest
 
 from panel import (adminkey, api, editions, i18n, jobs,
                    settings)
-from panel.adminkey import (handback, handoff, keyfile,
-                            media, pack, secret, volumes, watcher)
+from panel.adminkey import (handback, handoff, keyfile, media,
+                            pack, sealed, secret, volumes, watcher)
 
 SECRET = "a-build-secret-for-the-tests"
 
@@ -1244,6 +1244,102 @@ class Revocation(PanelTest):
         with mock.patch.object(volumes, "removable", return_value=[]):
             first = watcher.WATCH.observe()["generation"]
             self.assertEqual(watcher.WATCH.observe()["generation"], first)
+
+
+class SealedUnlockGate(PanelTest):
+    """Seeing the key is not being in admin mode.
+
+    The watcher used to unseal the other customers' device lists on mere
+    SIGHT of a recognised key, which bought nothing — the menu offers
+    extras only in admin mode — and cost the one thing the sealing exists
+    for: another customer's list sat decrypted in the temp directory of a
+    machine whose operator never entered admin mode at all.
+    """
+
+    ENTRY = keyfile.KeyFile(Path("/Volumes/KEY") / keyfile.FILENAME,
+                            True, label="Piton service 01",
+                            proof=b"\x11" * 32)
+
+    def setUp(self):
+        super().setUp()
+        pack.clear_session()
+        self.addCleanup(sealed.forget)
+        self.addCleanup(pack.clear_session)
+
+    def tearDown(self):
+        watcher.WATCH.reset()
+        editions.activate("vip-yatakli")
+        super().tearDown()
+
+    def observe(self) -> mock.Mock:
+        """One watcher beat over a recognised key, with `unlock` watched."""
+        with mock.patch.object(volumes, "searched",
+                               return_value=[Path("/Volumes/KEY")]), \
+                mock.patch.object(keyfile, "read",
+                                  return_value=self.ENTRY), \
+                mock.patch.object(sealed, "unlock") as unlock:
+            watcher.WATCH.observe()
+        return unlock
+
+    def test_in_field_mode_the_key_is_seen_and_nothing_is_unsealed(self):
+        as_shipped(self)
+        editions.activate("gdm")
+        self.assertFalse(editions.admin())
+        unlock = self.observe()
+        unlock.assert_not_called()
+        # And nothing was decrypted onto disk either — the empty session
+        # directory is what "not unsealed" means to the machine.
+        self.assertEqual(list(pack.session_dir().iterdir()), [])
+        # The key itself WAS seen: the gate is on the unsealing alone,
+        # and the poll still offers the way into admin mode.
+        self.assertTrue(watcher.WATCH.snapshot()["recognised"])
+
+    def test_in_admin_mode_the_beat_keeps_the_session_current(self):
+        """Entering the mode unseals once; the stick arriving AFTER the
+        fact is what this path exists for."""
+        as_shipped(self)
+        editions.activate("gdm")
+        editions.set_admin(True)
+        unlock = self.observe()
+        unlock.assert_called_once_with(self.ENTRY.proof)
+
+
+class SealedUnlockMemo(PanelTest):
+    """`sealed.unlock` runs on the watcher's two-second beat.
+
+    Resolving a project is a pure-Python decrypt and a rewrite of the same
+    file into the temp directory — megabytes every two seconds if the
+    answer is not remembered. The memo must also DIE with the registration
+    it stands for: leaving admin mode clears the extras, and honouring the
+    memo past that would leave every later admin session with an empty
+    menu.
+    """
+
+    def setUp(self):
+        super().setUp()
+        sealed.forget()
+        self.addCleanup(sealed.forget)
+        self.addCleanup(editions.activate, "vip-yatakli")
+
+    def test_a_registered_project_is_not_resolved_again(self):
+        editions.activate("vip-yatakli")
+        self.assertTrue(editions.admin())
+        key = b"\x22" * 32
+        foreign = sealed.foreign_projects()
+        self.assertTrue(foreign)
+        with mock.patch.object(
+                sealed, "_resolve",
+                side_effect=lambda project, key: (project, "")) as resolve:
+            self.assertEqual(sealed.unlock(key), len(foreign))
+            self.assertEqual(resolve.call_count, len(foreign))
+            # The second beat with the same key answers out of the memo.
+            self.assertEqual(sealed.unlock(key), len(foreign))
+            self.assertEqual(resolve.call_count, len(foreign))
+            # Leaving admin mode cleared the extras, so the same call must
+            # do the work again — the memo alone is not a registration.
+            editions.set_admin(False)
+            self.assertEqual(sealed.unlock(key), len(foreign))
+            self.assertEqual(resolve.call_count, 2 * len(foreign))
 
 
 if __name__ == "__main__":

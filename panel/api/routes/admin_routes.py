@@ -84,7 +84,7 @@ def post_key_write(body):
     except (OSError, RuntimeError) as exc:
         return respond(500, {"error": i18n.t("error.adminKeyWriteFailed",
                                              reason=str(exc))})
-    adminkey.WATCH.observe()
+    adminkey.WATCH.observe(wait=True)
     return respond(200, {"written": str(target),
                          "key": adminkey.WATCH.snapshot()})
 
@@ -129,7 +129,7 @@ def post_key_prepare(body):
     except OSError as exc:
         return respond(500, {"error": i18n.t("error.adminKeyWriteFailed",
                                              reason=str(exc))})
-    adminkey.WATCH.observe()
+    adminkey.WATCH.observe(wait=True)
     return respond(200, {"written": str(mounted), "drive": drive.name,
                          "key": adminkey.WATCH.snapshot()})
 
@@ -172,7 +172,7 @@ def post_mode(body):
     if not adminkey.usable():
         return respond(409, {"error": i18n.t("error.adminKeyUnavailable")})
 
-    state = adminkey.WATCH.observe()
+    state = adminkey.WATCH.observe(wait=True)
     if not state.get("recognised"):
         # A key that could not be READ is not a key that was refused: the
         # operating system gates removable volumes and the panel runs

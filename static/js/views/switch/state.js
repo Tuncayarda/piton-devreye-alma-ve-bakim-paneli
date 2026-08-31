@@ -22,7 +22,7 @@
 // straight into the API call (see `session.js`); `core/store.js` refuses
 // those keys anyway, and this object must not become the way around that.
 
-import { state } from '../../core/store.js';
+import { state, subscribe } from '../../core/store.js';
 import { clickSelect, pruneSelection as prune, selectionModifier }
   from '../../core/selection.js';
 
@@ -74,7 +74,38 @@ export function forgetTyped(ip) {
   delete local.credentials[ip];
 }
 
-export const live = { timer: null };
+// A refused sign-in. The PASSWORD goes the way an accepted one goes —
+// dropped from module memory, and with it from the row's box on the next
+// draw — while the username survives: it is not a secret, and the likeliest
+// next act is correcting the password beside it, not retyping both halves.
+export function forgetTypedPassword(ip) {
+  const user = (local.credentials[ip] || {}).user || '';
+  forgetTyped(ip);
+  if (user) typed(ip).user = user;
+}
+
+// Everything typed on every row, dropped at once. Called when the screen is
+// left (index.js stop()) and by the subscription below: a half-typed
+// credential must not outlive the context it was typed for.
+export function forgetAllTyped() {
+  // Emptied IN PLACE: the row inputs hold closures over THIS object
+  // (`typed(ip)` handed them the entry), and swapping in a fresh one left
+  // the typed password alive inside every closure the old rows still
+  // reference until the next full redraw.
+  for (const key of Object.keys(local.credentials)) {
+    delete local.credentials[key];
+  }
+}
+
+// `edition` is republished exactly when the panel changes what it is — a
+// project switch, admin mode entered or left, a remote session ending (see
+// app.js applyEdition) — and never on a poll beat, so this fires only on
+// those boundaries. It is the store subscription rather than a hook in every
+// caller because the callers must not have to know this screen keeps typed
+// credentials at all.
+subscribe((_state, changed) => {
+  if (Array.isArray(changed) && changed.includes('edition')) forgetAllTyped();
+});
 
 export function onScreen() {
   return state.view === 'switch';
@@ -184,7 +215,6 @@ export function compactRange(ids) {
 // that scrolled away when the window closed was not worth the space it took
 // under the port tables.
 
-export function stopPolling() {
-  clearTimeout(live.timer);
-  live.timer = null;
-}
+// NO TIMER HERE EITHER. The sweep poll is a core/poll.js handle owned by
+// index.js, armed on entering the screen and stopped by its stop() — this
+// module keeps only what the other files of the screen read.

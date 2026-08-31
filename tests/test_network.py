@@ -36,6 +36,7 @@ import os
 import threading
 import unittest
 from contextlib import ExitStack
+from pathlib import Path
 from unittest import mock
 
 from .support import fakes
@@ -901,6 +902,34 @@ class AliasRegistry(AllowsWrites, unittest.TestCase):
         with mock.patch.object(aliases.interfaces, "run_command", run):
             self.assertFalse(aliases.release("10.17.1.222"))
         self.assertEqual(run.calls, [])
+
+    def test_a_torn_write_cannot_take_the_record_file_with_it(self):
+        """The record is all that stands between an added address and a
+        stranded one (rule 2 in the module note), and it used to be
+        rewritten IN PLACE: a process killed — or a disk filling — halfway
+        through the write left half a JSON document behind, `_read_records`
+        read that as "no records at all", and every address in the file
+        stayed on the adapter with nothing left pointing at it. The write
+        now lands beside the file and is swapped in whole, so a torn write
+        tears the scratch copy and never the record."""
+        aliases._write_records([
+            {"ip": "10.1.1.225", "prefix": 24, "handle": "en5",
+             "adapter": "en5", "system": "Darwin", "pid": os.getpid()}])
+
+        real_write_text = Path.write_text
+
+        def torn(path, text, encoding=None):
+            # Half the document reaches the disk before the "crash".
+            real_write_text(path, text[:len(text) // 2], encoding=encoding)
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        with mock.patch.object(Path, "write_text", torn):
+            aliases._write_records([])          # any later rewrite
+
+        self.assertEqual(
+            [entry["ip"] for entry in aliases._read_records()],
+            ["10.1.1.225"],
+            "the half-written file must not replace the record")
 
     def test_the_record_holds_no_credential(self):
         run = FakeRun()

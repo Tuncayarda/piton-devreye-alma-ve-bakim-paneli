@@ -27,6 +27,7 @@ import * as dialog from '../components/dialog.js';
 import { confirmWrite } from '../components/confirm.js';
 import { showError, showSuccess, notify } from '../components/toast.js';
 import { value } from '../core/format.js';
+import { latest } from '../core/latest.js';
 import { t } from '../core/i18n.js';
 import { loadFailed, loading } from '../components/placeholder.js';
 
@@ -61,7 +62,7 @@ const SECTION_LABEL = {
 
 // `window`: the open device window ({device, body}) — see openDevice.
 const local = {
-  deviceId: null, errorText: '', needsCredentials: false, token: 0,
+  deviceId: null, errorText: '', needsCredentials: false,
   window: null,
 };
 
@@ -81,23 +82,23 @@ function targetDevices() {
 // changing group show the old group's fields for seconds (a device read is
 // slow, and a timeout long if the device is off).
 //
-// `token`: the user can move to another group while waiting. Every refresh
-// gets a sequence number so a late reply cannot overwrite the new selection.
-export async function refresh(fast = true) {
+// `latest`: the user can move to another group while waiting. Every refresh
+// gets a sequence number so a late reply cannot overwrite the new selection
+// — this used to be a hand-kept `local.token` counter, the same guard four
+// other screens each rolled for themselves.
+export const refresh = latest(async (fresh, fast = true) => {
   const devices = targetDevices();
   if (!devices.length) { patch({ configState: null }); return; }
   if (!devices.some(d => d.id === local.deviceId)) {
     local.deviceId = devices[0].id;
   }
-  const token = (local.token = (local.token || 0) + 1);
-  const current = () => token === local.token;
   const id = local.deviceId;
   const group = groupName();
 
   if (fast) {
     try {
       const preview = await api.configFields(state.setNo, id, group);
-      if (!current()) return;
+      if (!fresh()) return;
       local.errorText = '';
       local.needsCredentials = false;
       patch({ configState: preview });
@@ -106,16 +107,19 @@ export async function refresh(fast = true) {
 
   try {
     const body = await api.config(state.setNo, id, group);
-    if (!current()) return;
-    local.errorText = body.error || '';
-    local.needsCredentials = !!body.auth;
+    if (!fresh()) return;
+    // `deviceError`, not `error`: the request SUCCEEDED and carries the
+    // field list either way — what failed, when this is set, is the device
+    // read behind it (see panel/api/routes/config_routes.py:_error_body).
+    local.errorText = body.deviceError || '';
+    local.needsCredentials = !!body.needsCredentials;
     patch({ configState: body });
   } catch (e) {
-    if (!current()) return;
+    if (!fresh()) return;
     local.errorText = e.message;
     patch({ configState: { deviceId: id, rows: [] } });
   }
-}
+});
 
 export function render(root) {
   const devices = targetDevices();

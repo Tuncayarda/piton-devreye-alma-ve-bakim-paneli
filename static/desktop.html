@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-iR05sCOo+1LUvPKj9y6deofkZQ+klXRWYIjHMEwFuCQ=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-bnygpGv+AEMU404prZVifx+/Yr5vUGanDL9CZE+XoYE=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -4259,6 +4259,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
 
 <script>
 (() => {
+  var __defProp = Object.defineProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
   // static/js/core/dom.js
   function el(tag, attributes = {}, children = []) {
     const node = document.createElement(tag);
@@ -4300,20 +4306,20 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     }
     return node;
   }
-  function clear(root2) {
-    while (root2.firstChild) root2.removeChild(root2.firstChild);
-    return root2;
+  function clear(root4) {
+    while (root4.firstChild) root4.removeChild(root4.firstChild);
+    return root4;
   }
-  function fill(root2, children) {
-    clear(root2);
+  function fill(root4, children) {
+    clear(root4);
     for (const child of [].concat(children)) {
       if (child === null || child === void 0 || child === false) continue;
-      root2.append(child instanceof Node ? child : document.createTextNode(String(child)));
+      root4.append(child instanceof Node ? child : document.createTextNode(String(child)));
     }
-    return root2;
+    return root4;
   }
-  var $ = (selector, root2 = document) => root2.querySelector(selector);
-  function preserveScroll(outer, draw3) {
+  var $ = (selector, root4 = document) => root4.querySelector(selector);
+  function preserveScroll(outer, draw5) {
     const outerTop = outer ? outer.scrollTop : 0;
     const innerPositions = outer ? [
       ...outer.querySelectorAll(".table-wrap")
@@ -4321,7 +4327,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       e.scrollLeft,
       e.scrollTop
     ]) : [];
-    draw3();
+    draw5();
     if (!outer) return;
     const apply2 = () => {
       if (outerTop && outer.scrollHeight > outer.clientHeight) {
@@ -4336,6 +4342,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     };
     apply2();
     requestAnimationFrame(apply2);
+  }
+  function focusHeld(root4) {
+    const active = document.activeElement;
+    if (!active || !root4 || !root4.contains(active)) return false;
+    return active.matches('input:not([type="checkbox"]):not([type="radio"]):not([type="button"]), textarea, select, [contenteditable="true"]');
   }
   var SVG_NS = "http://www.w3.org/2000/svg";
   function svg(attributes = {}, children = []) {
@@ -4459,18 +4470,18 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       body: isObject(envelope.body) ? envelope.body : {}
     };
   }
-  function createTransport(root2 = globalThis) {
+  function createTransport(root4 = globalThis) {
     let bridgePromise = null;
-    const isBridgeMode = () => root2[TRANSPORT_FLAG] === BRIDGE_MODE;
+    const isBridgeMode = () => root4[TRANSPORT_FLAG] === BRIDGE_MODE;
     const bridgeCapability = () => {
-      const capability = root2[CAPABILITY_FLAG];
+      const capability = root4[CAPABILITY_FLAG];
       if (typeof capability !== "string" || !CAPABILITY_PATTERN.test(capability)) {
         throw new Error(t("error.bridgeCapabilityInvalid"));
       }
       return capability;
     };
     const bridgeApi = () => {
-      const api2 = root2.pywebview && root2.pywebview.api;
+      const api2 = root4.pywebview && root4.pywebview.api;
       return api2 && typeof api2.invoke === "function" ? api2 : null;
     };
     const awaitBridge = () => {
@@ -4480,10 +4491,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       bridgePromise = new Promise((resolve, reject) => {
         let settled = false;
         let timer = null;
-        const setTimer = (root2.setTimeout || globalThis.setTimeout).bind(root2);
-        const clearTimer = (root2.clearTimeout || globalThis.clearTimeout).bind(root2);
+        const setTimer = (root4.setTimeout || globalThis.setTimeout).bind(root4);
+        const clearTimer = (root4.clearTimeout || globalThis.clearTimeout).bind(root4);
         const cleanup = () => {
-          root2.removeEventListener("pywebviewready", onReady);
+          root4.removeEventListener("pywebviewready", onReady);
           if (timer !== null) clearTimer(timer);
         };
         const finish = (settle, value2) => {
@@ -4497,7 +4508,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           if (api2) finish(resolve, api2);
           else finish(reject, new Error(t("error.bridgeNotReady")));
         };
-        root2.addEventListener("pywebviewready", onReady, {
+        root4.addEventListener("pywebviewready", onReady, {
           once: true
         });
         const readyMeanwhile = bridgeApi();
@@ -4520,7 +4531,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         options.method = method;
         options.body = JSON.stringify(body || {});
       }
-      const response = await root2.fetch(path, options);
+      let response;
+      try {
+        response = await root4.fetch(path, options);
+      } catch {
+        throw new Error(t("error.serviceUnreachable"));
+      }
       let payload = {};
       const contentType = response.headers.get("Content-Type") || "";
       if (contentType.includes("application/json")) {
@@ -4563,8 +4579,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       let envelope;
       try {
         envelope = await carrier.request(method, path, payload);
-        if (!envelope || typeof envelope.ok !== "boolean" || !Number.isInteger(envelope.status)) throw new Error("invalid response");
-      } catch {
+      } catch (error) {
+        throw new ApiError(error && error.message || t("error.serviceUnreachable"), 0, {});
+      }
+      if (!envelope || typeof envelope.ok !== "boolean" || !Number.isInteger(envelope.status)) {
         throw new ApiError(t("error.serviceUnreachable"), 0, {});
       }
       const body = envelope.body && typeof envelope.body === "object" && !Array.isArray(envelope.body) ? envelope.body : {};
@@ -4600,8 +4618,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       // machine", "was it recognised", and a counter that moves when the
       // answer changes.
       adminKey: () => get("/api/admin/key"),
-      adminMode: (enter) => post("/api/admin/mode", {
-        enter
+      adminMode: (enter2) => post("/api/admin/mode", {
+        enter: enter2
       }),
       adminKeyVolumes: () => get("/api/admin/key/volumes"),
       adminKeyWrite: (volume, label) => post("/api/admin/key/write", {
@@ -4732,15 +4750,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       // switch-to-switch links. All found from MAC tables, none asked for.
       ipProtected: (set) => get("/api/ip/protected", {
         set
-      }),
-      // Diagnostics: which device sits on which candidate address. The device
-      // reports its own extension, so "whose address is this" is answered
-      // exactly. Read-only.
-      ipAddressMap: (set, sw, group, factoryIp) => get("/api/ip/address-map", {
-        set,
-        switch: sw,
-        group,
-        factoryIp
       }),
       // The image installed before an address is written. The path never
       // travels: the OS dialog opens on the server side and only the file's
@@ -4940,7 +4949,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     "adminKey",
     "remote",
     "setNo",
-    "project",
     "view",
     "category",
     "subtype",
@@ -4958,7 +4966,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     "lastScan",
     "scanRunning",
     "sidebarOpen",
-    "loading",
     "ipState",
     "configState",
     "firmwareState",
@@ -4995,7 +5002,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     // (/api/admin/remote). Never the code in full and never a signature.
     remote: null,
     setNo: 1,
-    project: null,
     meta: null,
     view: "overview",
     category: "all",
@@ -5022,7 +5028,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     // is a memory tax for anyone who uses the panel now and then. Whoever
     // wants the room back collapses it, and the choice sticks.
     sidebarOpen: true,
-    loading: false,
     ipState: null,
     configState: null,
     firmwareState: null,
@@ -5155,6 +5160,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     "failed",
     "unknown"
   ]);
+  function ownProjects(from = state) {
+    return (from.projects || []).filter((project) => project.origin !== "extra");
+  }
   function stateSpread() {
     const counts = state.counts;
     const settled = counts.ok + counts.auth + counts.failed;
@@ -5303,14 +5311,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     en: "English",
     tr: "T\xFCrk\xE7e"
   };
-  function applyStaticText(root2 = document) {
-    for (const node of root2.querySelectorAll("[data-i18n]")) {
+  function applyStaticText(root4 = document) {
+    for (const node of root4.querySelectorAll("[data-i18n]")) {
       node.textContent = t(node.dataset.i18n);
     }
-    for (const node of root2.querySelectorAll("[data-i18n-title]")) {
+    for (const node of root4.querySelectorAll("[data-i18n-title]")) {
       node.title = t(node.dataset.i18nTitle);
     }
-    for (const node of root2.querySelectorAll("[data-i18n-aria]")) {
+    for (const node of root4.querySelectorAll("[data-i18n-aria]")) {
       node.setAttribute("aria-label", t(node.dataset.i18nAria));
     }
     document.documentElement.lang = language();
@@ -5527,7 +5535,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })
     ]);
   }
-  function build(root2) {
+  function build(root4) {
     const list = areas();
     const buttons = list.map(menuButton);
     const content = [];
@@ -5556,7 +5564,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     }, [
       expandIcon
     ]);
-    fill(root2, [
+    fill(root4, [
       el("nav", {
         class: "sidebar-list",
         "aria-label": t("nav.mainAreas")
@@ -5577,13 +5585,13 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     built = null;
   }
   function render2() {
-    const root2 = $("#sidebar");
-    if (!root2 || !state.meta) return;
-    if (!built || built.signature !== signatureOf(areas()) || !root2.firstChild) {
-      build(root2);
+    const root4 = $("#sidebar");
+    if (!root4 || !state.meta) return;
+    if (!built || built.signature !== signatureOf(areas()) || !root4.firstChild) {
+      build(root4);
     }
     const wide = !!state.sidebarOpen;
-    root2.dataset.wide = wide ? "1" : "0";
+    root4.dataset.wide = wide ? "1" : "0";
     built.expand.setAttribute("aria-expanded", String(wide));
     built.expand.setAttribute("aria-label", wide ? t("nav.collapse") : t("nav.expand"));
     built.expand.title = wide ? t("nav.collapse") : t("nav.showNames");
@@ -5739,6 +5747,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     failed: "failed"
   };
   var lastSignature = null;
+  function reset2() {
+    lastSignature = null;
+  }
   var expandedRows = /* @__PURE__ */ new Set();
   function toggleRow(key) {
     if (expandedRows.has(key)) expandedRows.delete(key);
@@ -5779,7 +5790,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const stopping = active && job.cancelRequested;
     const outcomeColour = JOB_OUTCOME_COLOUR[job.outcome];
     const colour = stopping ? "auth" : !active && outcomeColour ? outcomeColour : JOB_COLOUR[job.state] || "unknown";
-    const label = stopping ? "Durduruluyor\u2026" : active ? `${jobStateLabel(job.state)} \xB7 %${percent2}` : jobOutcomeLabel(job.outcome, jobStateLabel(job.state));
+    const label = stopping ? t("queue.stoppingShort") : active ? `${jobStateLabel(job.state)} \xB7 %${percent2}` : jobOutcomeLabel(job.outcome, jobStateLabel(job.state));
     return el("div", {
       class: "job-card",
       dataset: {
@@ -6070,8 +6081,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       }
     }, [
       icon(reveal ? ICONS.folder : ICONS.open, 13),
+      // The word on the button, not only in its tooltip: the title above is
+      // unreadable by keyboard and screenshot alike, and a hardcoded word
+      // would be the one label the language switch cannot reach.
       el("span", {
-        text: reveal ? "Folder" : "Open"
+        text: t(reveal ? "queue.folder" : "queue.openFile")
       })
     ]);
   }
@@ -6122,6 +6136,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
 
   // static/js/components/dialog.js
+  var dialog_exports = {};
+  __export(dialog_exports, {
+    ask: () => ask,
+    close: () => close,
+    isOpen: () => isOpen,
+    pick: () => pick,
+    show: () => show
+  });
   var open = null;
   function close() {
     if (!open) return;
@@ -6293,6 +6315,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     onAccepted = fn;
   }
   var lastSignature2 = null;
+  function reset3() {
+    lastSignature2 = null;
+  }
   function render4() {
     const list = $("#locked-list");
     if (!list) return;
@@ -6973,7 +6998,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       deviceSearch: ""
     });
   }
-  function render6(root2, refreshNow2) {
+  function render6(root4, refreshNow2) {
     const devices2 = state.devices;
     const total = devices2.length;
     const counts = state.counts;
@@ -7214,7 +7239,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         historyCard
       ])
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
   }
 
   // static/js/components/table.js
@@ -7282,18 +7307,18 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       class: "pm-menu",
       role: "menu"
     });
-    let live4 = true;
-    const draw3 = () => {
-      const children = build2(draw3);
+    let live3 = true;
+    const draw5 = () => {
+      const children = build2(draw5);
       if (!children) {
-        live4 = false;
+        live3 = false;
         close3();
         return;
       }
       fill(node, children);
     };
-    draw3();
-    if (!live4) return;
+    draw5();
+    if (!live3) return;
     document.body.append(node);
     place(node, event);
     const onOutside = (e) => {
@@ -7306,7 +7331,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     };
     open3 = {
       node,
-      draw: draw3,
+      draw: draw5,
       onOutside,
       onKey
     };
@@ -7486,13 +7511,13 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     selected = /* @__PURE__ */ new Set();
     anchor = null;
   }
-  async function readDevices(ids, root2) {
+  async function readDevices(ids, root4) {
     try {
       await api.refresh(state.setNo, ids);
       if (ids.length > 1) showSuccess(t("devices.readCount", {
         count: ids.length
       }));
-      render7(root2);
+      render7(root4);
     } catch (e) {
       showError(e.message);
     }
@@ -7504,7 +7529,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       device.id
     ];
   }
-  function openRowMenu(device, event, root2) {
+  function openRowMenu(device, event, root4) {
     event.preventDefault();
     const targets = menuTargets(device);
     const many = targets.length > 1;
@@ -7515,12 +7540,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         }) : t("detail.readNow"), {
           onPick: () => {
             close3();
-            readDevices(targets, root2);
+            readDevices(targets, root4);
           }
         })
       ];
       if (!many) {
-        for (const action of deviceActions(device, () => render7(root2))) {
+        for (const action of deviceActions(device, () => render7(root4))) {
           if (action.label === t("detail.readNow")) continue;
           rows2.push(menuItem(action.label, {
             onPick: () => {
@@ -7566,7 +7591,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       labelKey: "state.unknown"
     }
   ];
-  function render7(root2) {
+  function render7(root4) {
     const categories = state.meta ? state.meta.categories : [];
     const category2 = categories.find((c) => c.id === state.category);
     const devices2 = visibleDevices();
@@ -7617,11 +7642,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
             text: t("devices.clearSelection"),
             onclick: () => {
               clearSelection();
-              render7(root2);
+              render7(root4);
             }
           })
         ]) : null,
-        searchBox(root2)
+        searchBox(root4)
       ])
     ]));
     const chipBar = (label, ariaKey, entries) => el("div", {
@@ -7717,9 +7742,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           });
           selected = result_.selected;
           anchor = result_.anchor;
-          render7(root2);
+          render7(root4);
         },
-        oncontextmenu: (event) => openRowMenu(device, event, root2)
+        oncontextmenu: (event) => openRowMenu(device, event, root4)
       }, [
         el("span", {
           class: "mono truncate t-base",
@@ -7769,13 +7794,13 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       template: COLUMNS,
       minWidth: 1e3,
       label: t("nav.devices"),
-      columns: headings.map((key, index) => sortHeader(root2, key, index)),
+      columns: headings.map((key, index) => sortHeader(root4, key, index)),
       rows: rows2,
       empty: t("devices.noDeviceMatchesTheseCriteria")
     }));
-    fill(root2, parts);
+    fill(root4, parts);
   }
-  function searchBox(root2) {
+  function searchBox(root4) {
     return searchField({
       id: "device-search",
       value: state.deviceSearch || "",
@@ -7786,8 +7811,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         patch({
           deviceSearch: event.target.value
         });
-        render7(root2);
-        const again = root2.querySelector("#device-search");
+        render7(root4);
+        const again = root4.querySelector("#device-search");
         if (!again) return;
         again.focus();
         again.setSelectionRange(caret, caret);
@@ -7807,7 +7832,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       return (left > right ? 1 : -1) * direction;
     });
   }
-  function sortHeader(root2, key, index) {
+  function sortHeader(root4, key, index) {
     const entry = SORTS[index];
     const label = key ? t(key) : "";
     if (!entry) return el("span", {
@@ -7830,7 +7855,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
             deviceSort: entry.id,
             deviceSortDesc: false
           });
-          render7(root2);
+          render7(root4);
         }
       }, [
         el("span", {
@@ -7843,6 +7868,47 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         })
       ])
     ]);
+  }
+
+  // static/js/core/latest.js
+  function latest(run) {
+    let round3 = 0;
+    return function call(...args) {
+      round3 += 1;
+      const mine = round3;
+      return run(() => mine === round3, ...args);
+    };
+  }
+
+  // static/js/core/poll.js
+  function poll({ run, interval, while: alive = () => true }) {
+    let timer = null;
+    function stop3() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    }
+    function arm() {
+      stop3();
+      if (!alive()) return;
+      timer = setTimeout(round3, interval);
+    }
+    async function round3() {
+      stop3();
+      if (!alive()) return;
+      try {
+        await run();
+      } catch {
+      }
+      arm();
+    }
+    return {
+      arm,
+      stop: stop3,
+      now: round3,
+      active: () => timer !== null
+    };
   }
 
   // static/js/components/action_tabs.js
@@ -7953,6 +8019,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       ]
     }));
   }
+  var screen = {
+    draw: null
+  };
+  function redraw() {
+    if (screen.draw) screen.draw();
+  }
   var local = {
     // Null until the operator picks one: which targets exist is the open
     // project's answer and is not known when this module is first evaluated.
@@ -8023,17 +8095,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var PROTECTED_INTERVAL = 3e4;
   var live = {
     enabled: true,
-    timer: null,
-    ticker: null,
-    protectedTimer: null,
     stack: null
   };
-  function stopPanels() {
-    clearTimeout(live.timer);
-    clearTimeout(live.ticker);
-    clearTimeout(live.protectedTimer);
-    live.timer = live.ticker = live.protectedTimer = null;
-  }
   function onScreen() {
     return state.view === "ip" && !!state.meta && !!(live.stack && live.stack.isConnected);
   }
@@ -8080,13 +8143,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
   async function refreshProtected() {
     await findProtected();
-    if (state.view === "ip" && state.ipState) {
-      patch({
-        ipState: {
-          ...state.ipState
-        }
-      });
-    }
   }
   function protectedPortsFor(plan) {
     const list = local.protected && local.protected.ports || [];
@@ -8865,7 +8921,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       error
     };
   }
-  function factoryResetCard(data, check) {
+  function factoryResetCard(_data, check) {
     const isExternal = local.factoryResetScope === "external";
     const initial = factoryResetSelection();
     const warning = el("p", {
@@ -8910,11 +8966,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         checked: local.factoryResetScope === scope,
         onchange: () => {
           local.factoryResetScope = scope;
-          patch({
-            ipState: {
-              ...data
-            }
-          });
+          redraw();
         }
       }),
       el("span", {
@@ -9023,11 +9075,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         checked: local.factoryResetScope === scope,
         onchange: () => {
           local.factoryResetScope = scope;
-          patch({
-            ipState: {
-              ...data
-            }
-          });
+          redraw();
         }
       }),
       el("span", {
@@ -9316,6 +9364,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   function maskField(data, check, showActionState, prefix = "ip-target-mask") {
     const { plan } = data;
     const defaultMask = plan.targetNetmask || "255.255.255.0";
+    const lcdFlow = plan.assignmentKind === "compartment-lcd" || plan.physicalPortMode;
+    const emptyMeansDefault = lcdFlow || plan.maskStated;
     const maskWarning = el("p", {
       id: `${prefix}-error`,
       class: "ip-field-error",
@@ -9326,7 +9376,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const input2 = el("input", {
       id: prefix,
       class: "field ip-medium-field",
-      value: local.targetMask ?? defaultMask,
+      value: local.targetMask ?? (emptyMeansDefault ? defaultMask : ""),
+      placeholder: emptyMeansDefault ? "" : t("ip.maskDeviceOwn"),
       autocomplete: "off",
       spellcheck: "false",
       "aria-invalid": String(!!check.maskError),
@@ -9378,14 +9429,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       disabled: true,
       onclick: () => startManual(plan)
     });
-    function review(latest = check) {
+    function review(latest2 = check) {
       const port = String(local.manualPort || "");
       const address = String(local.manualIp || "");
       const portError = port && !parsePorts(port, plan.allowedPorts || []).ports.length ? t("ip.lcdManualPortInvalid") : "";
       const addressError = address && !isIpv4(address) ? t("ip.lcdManualIpInvalid") : "";
       warning.textContent = portError || addressError;
       warning.hidden = !(portError || addressError);
-      startButton.disabled = local.manualBusy || !port || !address || !!portError || !!addressError || !!latest.maskError;
+      startButton.disabled = local.manualBusy || !port || !address || !!portError || !!addressError || !!latest2.maskError;
     }
     const field2 = (id, key, labelKey, extra = {}) => el("label", {
       class: "setting-row",
@@ -9455,11 +9506,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
   async function runManual(plan) {
     local.manualBusy = true;
-    patch({
-      ipState: {
-        ...state.ipState
-      }
-    });
+    redraw();
     try {
       const job = await api.ipLcdAssign({
         set: state.setNo,
@@ -9479,11 +9526,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     } finally {
       local.manualBusy = false;
       if (state.view === "ip" && state.ipState) {
-        patch({
-          ipState: {
-            ...state.ipState
-          }
-        });
+        redraw();
       }
     }
   }
@@ -9494,22 +9537,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
   function applySoftwareReply(plan, reply) {
     plan.software = mergedSoftware(plan, reply);
-    patch({
-      ipState: {
-        ...state.ipState
-      }
-    });
+    redraw();
   }
   async function pickApk(plan) {
     const ids = softwareDeviceIds(plan);
     if (!ids.length || local.apkPickerOpen) return;
     const setNo = state.setNo;
     local.apkPickerOpen = true;
-    patch({
-      ipState: {
-        ...state.ipState
-      }
-    });
+    redraw();
     try {
       const reply = await api.firmwarePick(setNo, LCD_GROUP, ids);
       if (!currentPlanIs(plan, setNo)) return;
@@ -9524,11 +9559,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     } finally {
       local.apkPickerOpen = false;
       if (state.view === "ip" && state.ipState) {
-        patch({
-          ipState: {
-            ...state.ipState
-          }
-        });
+        redraw();
       }
     }
   }
@@ -9639,11 +9670,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       onclick: () => {
         if (disabled) return;
         onToggle();
-        patch({
-          ipState: {
-            ...state.ipState
-          }
-        });
+        redraw();
       }
     }, [
       el("span", {
@@ -9726,11 +9753,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
                 const answer = await api.ipPreflashFile();
                 if (answer.cancelled) return;
                 plan.preflashFile = answer.preflashFile;
-                patch({
-                  ipState: {
-                    ...state.ipState
-                  }
-                });
+                redraw();
               } catch (e) {
                 showError(e.message);
               }
@@ -9744,11 +9767,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
               try {
                 const answer = await api.ipPreflashFile(true);
                 plan.preflashFile = answer.preflashFile;
-                patch({
-                  ipState: {
-                    ...state.ipState
-                  }
-                });
+                redraw();
               } catch (e) {
                 showError(e.message);
               }
@@ -9912,7 +9931,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
 
   // static/js/views/ip/index.js
-  var refreshToken = 0;
+  var root = null;
   async function refreshPanels() {
     const data = state.ipState;
     if (!data || !onScreen()) return;
@@ -9937,42 +9956,52 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     ]);
     writeFreshness();
   }
+  var panelRound = poll({
+    run: async () => {
+      try {
+        await refreshPanels();
+      } catch {
+      }
+    },
+    interval: REFRESH_INTERVAL,
+    while: () => onScreen() && live.enabled
+  });
+  var protectedRound = poll({
+    run: async () => {
+      await refreshProtected();
+      draw2();
+    },
+    interval: PROTECTED_INTERVAL,
+    while: () => onScreen() && live.enabled
+  });
+  var FRESHNESS_INTERVAL = 1e3;
+  var ticker = poll({
+    run: writeFreshness,
+    interval: FRESHNESS_INTERVAL,
+    while: onScreen
+  });
   function freshnessTick() {
-    clearTimeout(live.ticker);
-    live.ticker = null;
     if (!onScreen()) return;
     writeFreshness();
-    live.ticker = setTimeout(freshnessTick, 1e3);
+    ticker.arm();
   }
-  async function refreshRound() {
-    clearTimeout(live.timer);
-    live.timer = null;
-    if (!onScreen() || !live.enabled) return;
-    try {
-      await refreshPanels();
-    } catch {
-    }
-    if (!onScreen() || !live.enabled) return;
-    live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
-  }
-  async function protectedRound() {
-    clearTimeout(live.protectedTimer);
-    live.protectedTimer = null;
-    if (!onScreen() || !live.enabled) return;
-    try {
-      await refreshProtected();
-    } catch {
-    }
-    if (!onScreen() || !live.enabled) return;
-    live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
+  function stopRounds() {
+    panelRound.stop();
+    ticker.stop();
+    protectedRound.stop();
   }
   function startRefreshing() {
-    if (!live.ticker) freshnessTick();
+    if (!ticker.active()) freshnessTick();
     if (!live.enabled) return;
-    if (!live.timer) live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
-    if (!live.protectedTimer) {
-      live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
-    }
+    if (!panelRound.active()) panelRound.arm();
+    if (!protectedRound.active()) protectedRound.arm();
+  }
+  function enter() {
+    freshnessTick();
+    refresh2();
+  }
+  function leave() {
+    stopRounds();
   }
   function targetPicker() {
     const active = currentTarget();
@@ -10012,9 +10041,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })))
     ]);
   }
-  async function refresh2() {
-    stopPanels();
-    const token = ++refreshToken;
+  var refresh2 = latest(async (fresh) => {
+    panelRound.stop();
+    protectedRound.stop();
     const setNo = state.setNo;
     const groups = selectedGroups();
     local.errorText = "";
@@ -10023,7 +10052,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     try {
       const plan = await api.ipPlan(setNo, groups.join(","), local.portText || "", local.switchId || "");
-      if (token !== refreshToken || setNo !== state.setNo) return;
+      if (!fresh() || setNo !== state.setNo) return;
       local.errorText = "";
       resetProtectedForSet(setNo);
       patch({
@@ -10033,9 +10062,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           panelsLoading: true
         }
       });
-      if (!protectedFound()) refreshProtected();
+      if (!protectedFound()) refreshProtected().then(() => draw2());
       const panels = await Promise.all((plan.switches || []).map((entry) => api.ipPanel(setNo, entry.id).catch(() => null)));
-      if (token !== refreshToken || setNo !== state.setNo) return;
+      if (!fresh() || setNo !== state.setNo) return;
       patch({
         ipState: {
           plan,
@@ -10043,14 +10072,15 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           panelsLoading: false
         }
       });
+      startRefreshing();
     } catch (e) {
-      if (token !== refreshToken || setNo !== state.setNo) return;
+      if (!fresh() || setNo !== state.setNo) return;
       local.errorText = e.message;
       patch({
         ipState: null
       });
     }
-  }
+  });
   function runHeader(data, check) {
     const headerState = data ? check.ready ? "ready" : check.error ? "error" : "waiting" : local.errorText ? "error" : "waiting";
     const headerText = data ? t(check.ready ? "ip.planReady" : check.error ? "ip.checkTheSettings" : "ip.badgeWaiting") : t(local.errorText ? "ip.planUnusable" : "ip.preparingPlan");
@@ -10234,11 +10264,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         live.enabled = !live.enabled;
         e.currentTarget.setAttribute("aria-pressed", String(live.enabled));
         e.currentTarget.textContent = t(live.enabled ? "ip.refreshOn" : "ip.refreshPaused");
-        stopPanels();
+        stopRounds();
         freshnessTick();
         if (live.enabled) {
-          refreshRound();
-          protectedRound();
+          panelRound.now();
+          protectedRound.now();
         }
       },
       text: t(live.enabled ? "ip.refreshOn" : "ip.refreshPaused")
@@ -10278,7 +10308,17 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       panels.length ? legend() : null
     ]);
   }
-  function render9(root2) {
+  function render9(container) {
+    root = container;
+    screen.draw = draw2;
+    paint();
+  }
+  function draw2() {
+    if (!root || state.view !== "ip" || !state.meta) return;
+    if (focusHeld(root)) return;
+    preserveScroll($("#content"), paint);
+  }
+  function paint() {
     forgetMaskBoxes();
     const data = state.ipState;
     const check = data ? validateRun(data) : null;
@@ -10292,7 +10332,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     if (header.networkLink) parts.push(header.networkLink);
     if (!data) {
       parts.push(local.errorText ? loadFailed(local.errorText) : loading(t("ip.preparingPlanLong")));
-      fill(root2, parts);
+      fill(root, parts);
       return;
     }
     const { plan, panels } = data;
@@ -10306,7 +10346,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       panelSection(panels)
     ]));
     drawPanels(data);
-    if (!data.panelsLoading) startRefreshing();
     if (plan.factoryResetSupported === true) {
       parts.push(plan.factoryResetKind === "perDevice" ? lcdFactoryResetCard(data, check) : factoryResetCard(data, check));
     }
@@ -10314,7 +10353,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       parts.push(manualAssignCard(data, check));
     }
     parts.push(planTable(plan, check));
-    fill(root2, parts);
+    fill(root, parts);
   }
   function togglePort(number, context) {
     const plan = state.ipState && state.ipState.plan;
@@ -10689,7 +10728,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })
     ]);
   }
-  function render10(root2) {
+  function render10(root4) {
     const data = state.networkState;
     const parts = [
       el("div", {
@@ -10709,7 +10748,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           text: t("net.noAdapter")
         })
       ]));
-      fill(root2, parts);
+      fill(root4, parts);
       return;
     }
     if (!data.supported) {
@@ -10726,7 +10765,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       adapterCard(data),
       requiredCard(data)
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
   }
 
   // static/js/views/adb/state.js
@@ -10762,7 +10801,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     checkingAutostart: false
   };
   var live2 = {
-    timer: null,
     // The last runner generation drawn. The poll compares against this and
     // redraws only on a real change.
     generation: -1,
@@ -10808,10 +10846,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     local2.selected.clear();
     if (!on) return;
     for (const entry of devices()) local2.selected.add(entry.ip);
-  }
-  function stopPolling() {
-    clearTimeout(live2.timer);
-    live2.timer = null;
   }
   function togglePackage(name) {
     if (local2.packages.has(name)) local2.packages.delete(name);
@@ -11673,23 +11707,22 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
 
   // static/js/views/adb/index.js
-  var refreshToken2 = 0;
-  async function refresh4() {
-    const token = ++refreshToken2;
+  var root2 = null;
+  var refresh4 = latest(async (fresh) => {
     try {
       const body = await api.adb();
-      if (token !== refreshToken2) return;
+      if (!fresh()) return;
       live2.readFailed = false;
       apply(body);
     } catch {
-      if (token !== refreshToken2) return;
+      if (!fresh()) return;
       live2.readFailed = true;
       patch({
         adbState: null,
         adbBusy: false
       });
     }
-  }
+  });
   function apply(body) {
     const current2 = body && body.runner;
     patch({
@@ -11698,21 +11731,18 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     pruneSelection2();
     live2.generation = current2 ? current2.generation : -1;
-    schedulePoll();
+    round.arm();
   }
-  function schedulePoll() {
-    stopPolling();
-    if (!onScreen2() || !running()) return;
-    live2.timer = setTimeout(pollRound, POLL_INTERVAL);
-  }
+  var round = poll({
+    run: pollRound,
+    interval: POLL_INTERVAL,
+    while: () => onScreen2() && running()
+  });
   async function pollRound() {
-    live2.timer = null;
-    if (!onScreen2()) return;
     let current2 = null;
     try {
       current2 = await api.adbState();
     } catch {
-      schedulePoll();
       return;
     }
     if (!onScreen2()) return;
@@ -11733,7 +11763,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       });
     }
     if (!current2.running) finished(current2);
-    schedulePoll();
   }
   function finished(current2) {
     const rows2 = current2.rows || [];
@@ -11750,11 +11779,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var actions = {
     toggle(ip) {
       toggle3(ip);
-      redraw();
+      draw3();
     },
     selectAll(on) {
       selectAll(on);
-      redraw();
+      draw3();
     },
     async addDevice(ip, label) {
       local2.addError = "";
@@ -11774,7 +11803,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         }
       } catch (error) {
         local2.addError = error.message;
-        redraw();
+        draw3();
       }
     },
     async removeDevice(ip) {
@@ -11786,7 +11815,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     },
     async importList() {
       local2.importing = true;
-      redraw();
+      draw3();
       try {
         const body = await api.adbImport();
         if (body.cancelled) return;
@@ -11799,12 +11828,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         showError(error.message);
       } finally {
         local2.importing = false;
-        redraw();
+        draw3();
       }
     },
     async exportList() {
       local2.exporting = true;
-      redraw();
+      draw3();
       try {
         const body = await api.adbExport();
         if (body.cancelled) return;
@@ -11816,13 +11845,13 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         showError(error.message);
       } finally {
         local2.exporting = false;
-        redraw();
+        draw3();
       }
     },
     async search(keyword) {
       local2.keyword = keyword;
       local2.searching = true;
-      redraw();
+      draw3();
       try {
         local2.found = await api.adbPackages(selectedIps(), keyword);
         local2.packages = /* @__PURE__ */ new Set();
@@ -11831,17 +11860,17 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         showError(error.message);
       } finally {
         local2.searching = false;
-        redraw();
+        draw3();
       }
     },
     choosePackage(name) {
       togglePackage(name);
       local2.autostart = null;
-      redraw();
+      draw3();
     },
     async pickApk() {
       local2.pickerOpen = true;
-      redraw();
+      draw3();
       try {
         const body = await api.adbApk();
         if (!body.cancelled) local2.apk = {
@@ -11851,7 +11880,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         showError(error.message);
       } finally {
         local2.pickerOpen = false;
-        redraw();
+        draw3();
       }
     },
     async checkAutostart() {
@@ -11859,7 +11888,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       if (!targets.length) return;
       const first = targets[0];
       local2.checkingAutostart = true;
-      redraw();
+      draw3();
       try {
         const body = await api.adbAutostart([
           first.ip
@@ -11874,7 +11903,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         showError(error.message);
       } finally {
         local2.checkingAutostart = false;
-        redraw();
+        draw3();
       }
     },
     async autostartFiles(pkg) {
@@ -11928,17 +11957,18 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       }
     });
     pruneSelection2();
-    redraw();
+    draw3();
   }
-  function redraw() {
-    if (!onScreen2()) return;
-    patch({
-      adbState: {
-        ...state.adbState || {}
-      }
-    });
+  function draw3() {
+    if (!root2 || !onScreen2()) return;
+    if (focusHeld(root2)) return;
+    preserveScroll($("#content"), paint2);
   }
-  function render11(root2) {
+  function render11(container) {
+    root2 = container;
+    paint2();
+  }
+  function paint2() {
     const busy2 = running();
     fill(root2, [
       el("div", {
@@ -12009,7 +12039,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         ])
       ])
     ]);
-    if (busy2 && !live2.timer) schedulePoll();
+    if (busy2 && !round.active()) round.arm();
+  }
+  function stop() {
+    round.stop();
   }
 
   // static/js/views/switch/state.js
@@ -12051,25 +12084,35 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   function forgetTyped(ip) {
     delete local3.credentials[ip];
   }
-  var live3 = {
-    timer: null
-  };
+  function forgetTypedPassword(ip) {
+    const user = (local3.credentials[ip] || {}).user || "";
+    forgetTyped(ip);
+    if (user) typed(ip).user = user;
+  }
+  function forgetAllTyped() {
+    for (const key of Object.keys(local3.credentials)) {
+      delete local3.credentials[key];
+    }
+  }
+  subscribe((_state, changed) => {
+    if (Array.isArray(changed) && changed.includes("edition")) forgetAllTyped();
+  });
   function onScreen3() {
     return state.view === "switch";
   }
-  function screen() {
+  function screen2() {
     return state.switchState || null;
   }
   function discovered() {
-    const body = screen();
+    const body = screen2();
     return body && body.discovered || [];
   }
   function scanning() {
-    const body = screen();
+    const body = screen2();
     return !!(body && body.scanning);
   }
   function poeModes() {
-    const body = screen();
+    const body = screen2();
     return body && body.poeModes || [];
   }
   function selectedIp() {
@@ -12134,10 +12177,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       parts.push(start4 === end ? `${start4}` : `${start4}\u2013${end}`);
     }
     return parts.join(", ");
-  }
-  function stopPolling2() {
-    clearTimeout(live3.timer);
-    live3.timer = null;
   }
 
   // static/js/views/switch/discovery.js
@@ -13152,47 +13191,41 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
 
   // static/js/views/switch/index.js
-  var refreshToken3 = 0;
-  var root = null;
-  async function refresh6() {
-    const token = ++refreshToken3;
+  var root3 = null;
+  var refresh6 = latest(async (fresh) => {
     try {
       const body = await api.switchScreen();
-      if (token !== refreshToken3) return;
+      if (!fresh()) return;
       patch({
         switchState: body
       });
       seedCidr();
     } catch {
-      if (token !== refreshToken3) return;
+      if (!fresh()) return;
       patch({
         switchState: null
       });
     }
-    schedulePoll2();
-    draw2();
-  }
-  function schedulePoll2() {
-    stopPolling2();
-    if (!onScreen3() || !scanning()) return;
-    live3.timer = setTimeout(pollRound2, POLL_INTERVAL2);
-  }
-  async function pollRound2() {
-    live3.timer = null;
-    if (!onScreen3()) return;
-    try {
-      const body = await api.switchScreen();
-      patch({
-        switchState: body
-      });
-      draw2();
-    } catch {
-    }
-    schedulePoll2();
-  }
+    round2.arm();
+    draw4();
+  });
+  var round2 = poll({
+    run: async () => {
+      try {
+        const body = await api.switchScreen();
+        patch({
+          switchState: body
+        });
+        draw4();
+      } catch {
+      }
+    },
+    interval: POLL_INTERVAL2,
+    while: () => onScreen3() && scanning()
+  });
   async function loadSwitch(ip) {
     local3.loadingPorts = true;
-    draw2();
+    draw4();
     try {
       const info = await api.switchInfo(ip);
       const ports = await api.switchPorts(ip);
@@ -13217,7 +13250,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       }
     } finally {
       local3.loadingPorts = false;
-      draw2();
+      draw4();
     }
   }
   async function reloadPorts() {
@@ -13231,14 +13264,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     } catch (error) {
       if (!needsCredentials(error)) showError(error.message);
     }
-    draw2();
+    draw4();
   }
   async function write(describe, run, { reload = true } = {}) {
     if (state.switchBusy) return;
     patch({
       switchBusy: true
     });
-    draw2();
+    draw4();
     try {
       await run();
       showSuccess(describe);
@@ -13256,22 +13289,22 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       patch({
         switchBusy: false
       });
-      draw2();
+      draw4();
     }
   }
   var actions2 = {
-    redraw: () => draw2(),
+    redraw: () => draw4(),
     // The two fields are joined by the form; what arrives here is the
     // expression the server parses (panel/switch/discovery.py).
     discover: (expression) => {
       startDiscovery(expression, () => {
-        schedulePoll2();
-        draw2();
+        round2.arm();
+        draw4();
       });
     },
     cancelDiscover: () => stopDiscovery(() => {
-      schedulePoll2();
-      draw2();
+      round2.arm();
+      draw4();
     }),
     // ONE BUTTON FOR BOTH STEPS. Signing in and opening are two things to the
     // server and one to the operator: they typed a password to see the ports.
@@ -13283,12 +13316,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         patch({
           switchBusy: true
         });
-        draw2();
+        draw4();
         try {
           await signIn(ip, store.user, store.password);
           await refresh6();
         } catch (error) {
+          forgetTypedPassword(ip);
           showError(error.message);
+          draw4();
           return;
         } finally {
           patch({
@@ -13314,7 +13349,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     },
     clickPort: (id, event) => {
       clickPort(id, event);
-      draw2();
+      draw4();
     },
     // Right-click opens the port menu on the SELECTION, not just on the port
     // under the cursor — the operator who has just picked ports 5 to 12 means
@@ -13327,7 +13362,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           id
         ]);
         local3.anchor = id;
-        draw2();
+        draw4();
       }
       openMenu2([
         ...local3.selected
@@ -13416,10 +13451,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       });
     }
   };
-  function draw2() {
-    if (!root || !onScreen3()) return;
+  function draw4() {
+    if (!root3 || !onScreen3()) return;
     const busy2 = state.switchBusy;
-    fill(root, [
+    fill(root3, [
       el("div", {
         class: "page-head"
       }, [
@@ -13448,10 +13483,15 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     ]);
   }
   function render12(container) {
-    root = container;
+    root3 = container;
     seedCidr();
-    draw2();
-    if (scanning() && !live3.timer) schedulePoll2();
+    draw4();
+    if (scanning() && !round2.active()) round2.arm();
+  }
+  function stop2() {
+    round2.stop();
+    close4();
+    forgetAllTyped();
   }
 
   // static/js/views/config.js
@@ -13500,7 +13540,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     deviceId: null,
     errorText: "",
     needsCredentials: false,
-    token: 0,
     window: null
   };
   function groupName() {
@@ -13511,7 +13550,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const group = currentGroup("cfg");
     return group ? devicesIn(group) : [];
   }
-  async function refresh7(fast = true) {
+  var refresh7 = latest(async (fresh, fast = true) => {
     const devices2 = targetDevices();
     if (!devices2.length) {
       patch({
@@ -13522,14 +13561,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     if (!devices2.some((d) => d.id === local4.deviceId)) {
       local4.deviceId = devices2[0].id;
     }
-    const token = local4.token = (local4.token || 0) + 1;
-    const current2 = () => token === local4.token;
     const id = local4.deviceId;
     const group = groupName();
     if (fast) {
       try {
         const preview = await api.configFields(state.setNo, id, group);
-        if (!current2()) return;
+        if (!fresh()) return;
         local4.errorText = "";
         local4.needsCredentials = false;
         patch({
@@ -13540,14 +13577,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     }
     try {
       const body = await api.config(state.setNo, id, group);
-      if (!current2()) return;
-      local4.errorText = body.error || "";
-      local4.needsCredentials = !!body.auth;
+      if (!fresh()) return;
+      local4.errorText = body.deviceError || "";
+      local4.needsCredentials = !!body.needsCredentials;
       patch({
         configState: body
       });
     } catch (e) {
-      if (!current2()) return;
+      if (!fresh()) return;
       local4.errorText = e.message;
       patch({
         configState: {
@@ -13556,8 +13593,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         }
       });
     }
-  }
-  function render13(root2) {
+  });
+  function render13(root4) {
     const devices2 = targetDevices();
     const data = state.configState;
     const parts = [];
@@ -13581,12 +13618,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })
     ]));
     if (!devices2.length) {
-      fill(root2, parts);
+      fill(root4, parts);
       return;
     }
     if (!data) {
       parts.push(local4.errorText ? loadFailed(local4.errorText) : loading(t("config.readingSettings")));
-      fill(root2, parts);
+      fill(root4, parts);
       return;
     }
     const rows2 = data && data.rows || [];
@@ -13624,7 +13661,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         }, devices2.map(deviceItem))
       ])
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
     renderWindow();
   }
   function deviceItem(device) {
@@ -14009,27 +14046,25 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var local5 = {
     pickerOpen: false
   };
-  var refreshToken4 = 0;
   function groupName2() {
     const group = currentGroup("fw");
     return group ? group.name : "";
   }
-  async function refresh8() {
-    const token = ++refreshToken4;
+  var refresh8 = latest(async (fresh) => {
     const setNo = state.setNo;
     try {
       const body = await api.firmware(setNo, groupName2());
-      if (token !== refreshToken4 || setNo !== state.setNo) return;
+      if (!fresh() || setNo !== state.setNo) return;
       patch({
         firmwareState: body
       });
     } catch {
-      if (token !== refreshToken4) return;
+      if (!fresh()) return;
       patch({
         firmwareState: null
       });
     }
-  }
+  });
   function rows() {
     const data = state.firmwareState;
     return data && data.devices || [];
@@ -14041,9 +14076,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const types = [
       ...new Set(list.filter((d) => d.extension).map((d) => d.extension))
     ];
-    return types.map((t2) => `.${t2}`).join(" / ");
+    return types.map((type) => `.${type}`).join(" / ");
   }
-  function render14(root2) {
+  function render14(root4) {
     const list = rows();
     const selected2 = selectedCount(list);
     const installable = list.filter((d) => d.installable).length;
@@ -14106,7 +14141,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       rows: list.map(renderRow3),
       empty: t(state.firmwareState ? "firmware.noDeviceInGroup" : "firmware.loadingDevices")
     }));
-    fill(root2, parts);
+    fill(root4, parts);
   }
   function renderRow3(device) {
     const file = device.file || {
@@ -14582,14 +14617,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       ])
     ]);
   }
-  function render15(root2, refreshNow2) {
+  function render15(root4, refreshNow2) {
     if (refreshNow2) pullScanForward = refreshNow2;
     const data = state.checklistState;
     const parts = [];
     if (!data) {
       parts.push(pageHead(null));
       parts.push(readFailed ? loadFailed(t("checklist.theVerificationDataCouldNot")) : loading(t("checklist.readingVerification")));
-      fill(root2, parts);
+      fill(root4, parts);
       return;
     }
     const categories = state.meta ? state.meta.categories : [];
@@ -14636,7 +14671,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       text: t(labelKey),
       onclick: () => {
         reportTab = id;
-        render15(root2);
+        render15(root4);
       }
     }))));
     parts.push(el("div", {
@@ -14679,7 +14714,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     } else {
       parts.push(checkTable(rows2, data.columns));
     }
-    fill(root2, parts);
+    fill(root4, parts);
     startTicker();
   }
   function confirmExport() {
@@ -15115,7 +15150,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })
     })));
   }
-  function render16(root2) {
+  function render16(root4) {
     const eligible = (state.jobs || []).filter((job) => IN_PROGRESS.has(job.state) || FINISHED.has(job.state));
     const sorted2 = eligible.slice().sort((a, b) => (b.finishedAt || b.startedAt || b.createdAt || 0) - (a.finishedAt || a.startedAt || a.createdAt || 0));
     const active = sorted2.filter((job) => IN_PROGRESS.has(job.state));
@@ -15136,7 +15171,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     if (state.historyFilter !== "active") {
       parts.push(section(t("history.finishedTitle"), finished2, t("history.finishedEmpty")));
     }
-    fill(root2, parts);
+    fill(root4, parts);
   }
 
   // static/js/views/piscu.js
@@ -15151,7 +15186,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       });
     }
   }
-  function render17(root2) {
+  function render17(root4) {
     const data = state.piscuState;
     const parts = [];
     const extensionRows = data && data.extensions || [];
@@ -15198,7 +15233,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         class: "warning",
         text: t("piscu.piscuInformationCouldNotBe")
       }));
-      fill(root2, parts);
+      fill(root4, parts);
       return;
     }
     const card = (title, rows2, emptyText) => el("div", {
@@ -15305,7 +15340,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         ...clients
       ], t("piscu.piscuAndHmiNotRead"))
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
   }
 
   // static/js/views/mqtt.js
@@ -15320,7 +15355,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       });
     }
   }
-  function render18(root2) {
+  function render18(root4) {
     const data = state.mqttState || {
       running: false,
       topics: [],
@@ -15456,7 +15491,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         ]
       ])
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
   }
 
   // static/js/views/admin.js
@@ -15786,7 +15821,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       ]))
     ]);
   }
-  function searchBox2(redraw2, root2) {
+  function searchBox2(redraw2, root4) {
     return searchField({
       id: "map-search",
       value: search,
@@ -15796,17 +15831,17 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         const caret = event.target.selectionStart;
         search = event.target.value;
         redraw2();
-        const again = root2.querySelector("#map-search");
+        const again = root4.querySelector("#map-search");
         if (!again) return;
         again.focus();
         again.setSelectionRange(caret, caret);
       }
     }, "map-search");
   }
-  function render19(root2, openProject2) {
+  function render19(root4, openProject2) {
     const meta = state.meta;
     if (!meta) return;
-    const redraw2 = () => render19(root2, openProject2);
+    const redraw2 = () => render19(root4, openProject2);
     const parts = [];
     const needle = search.trim().toLowerCase();
     parts.push(el("div", {
@@ -15840,7 +15875,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       el("div", {
         class: "actions"
       }, [
-        searchBox2(redraw2, root2)
+        searchBox2(redraw2, root4)
       ])
     ]));
     const groups = visibleGroups(bySwitch(state.devices), needle);
@@ -15914,7 +15949,617 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         class: "map-rail"
       }, cards)
     ]));
-    fill(root2, parts);
+    fill(root4, parts);
+  }
+
+  // static/js/components/remote_session.js
+  var PAIR_SIDE = 224;
+  var PAIR_QUIET = 2;
+  function squareBox(modules, quiet) {
+    const across = Number(modules);
+    const margin = Number(quiet);
+    if (!(across > 0)) return {
+      side: PAIR_SIDE,
+      shown: PAIR_SIDE,
+      offset: 0
+    };
+    const kept = Math.min(margin, PAIR_QUIET);
+    const crop = margin - kept;
+    const shownModules = across - crop * 2;
+    const boxModules = shownModules + (PAIR_QUIET - kept) * 2;
+    const scale = Math.max(1, Math.floor(PAIR_SIDE / boxModules));
+    return {
+      side: across * scale,
+      shown: shownModules * scale,
+      offset: -crop * scale
+    };
+  }
+  var PAIR_RETRY = /* @__PURE__ */ new Set([
+    0,
+    429,
+    503
+  ]);
+  function createRemoteSession(overrides = {}) {
+    const {
+      el: el2,
+      fill: fill2,
+      t: t2,
+      api: api2,
+      state: state2,
+      patch: patch2,
+      dialog,
+      notify: notify2,
+      showSuccess: showSuccess2,
+      loadFailed: loadFailed2,
+      loading: loading2,
+      // What app.js alone owns: applying a whole edition body to the store
+      // and redrawing on a mode change. Passed in rather than imported so
+      // this module never has to know how the shell redraws itself.
+      applyEdition: applyEdition2,
+      // The timers, injectable so the tests can hold the beat in their hand
+      // instead of sleeping through it.
+      wait = (fn, ms) => setTimeout(fn, ms),
+      clearWait = (id) => clearTimeout(id)
+    } = {
+      el,
+      fill,
+      t,
+      api,
+      state,
+      patch,
+      dialog: dialog_exports,
+      notify,
+      showSuccess,
+      loadFailed,
+      loading,
+      ...overrides
+    };
+    function askForRemoteSession() {
+      const square = el2("div", {
+        class: "remote-square"
+      });
+      dialog.show({
+        title: t2("remote.title"),
+        // The account column, a rule, and the square's column. The square is
+        // what fixes the right-hand number; the left takes what is left, which
+        // is comfortably more than two fields and a button need.
+        width: "720px",
+        // The width the RIGHT-HAND column is drawn to, declared before the
+        // service is even asked. It is here rather than in the stylesheet
+        // because the window is what needs the number: the square's scale is
+        // worked out from it, in whole modules (see squareBox).
+        content: el2("div", {
+          class: "remote-ways",
+          style: `--remote-width:${PAIR_SIDE}px`
+        }, [
+          accountSide(),
+          el2("div", {
+            class: "remote-way remote-pair"
+          }, [
+            wayHead(t2("remote.wayQr")),
+            square
+          ])
+        ]),
+        actions: [
+          el2("button", {
+            type: "button",
+            class: "btn",
+            text: t2("locked.cancel"),
+            onclick: () => dialog.close()
+          })
+        ],
+        // Escape, the backdrop and the Cancel button all arrive here, which is
+        // the only place that knows the square is no longer being looked at.
+        onClose: stopPairing
+      });
+      startPairing(square);
+    }
+    function accountSide() {
+      const pane = el2("div", {
+        class: "remote-way remote-account"
+      });
+      showSignIn(pane, "");
+      return pane;
+    }
+    const wayHead = (caption) => el2("h4", {
+      class: "remote-way-head",
+      text: caption
+    });
+    const fieldLabel = (caption, field2) => el2("label", {
+      class: "field-label"
+    }, [
+      el2("span", {
+        class: "label",
+        text: caption
+      }),
+      field2
+    ]);
+    const aside = (sentence, link) => el2("p", {
+      class: "remote-aside"
+    }, [
+      el2("span", {
+        text: sentence
+      }),
+      link
+    ]);
+    function showSignIn(pane, address) {
+      const email = el2("input", {
+        class: "field",
+        type: "email",
+        autocomplete: "off",
+        value: address,
+        autocapitalize: "off",
+        spellcheck: "false",
+        inputmode: "email"
+      });
+      const password = el2("input", {
+        class: "field",
+        type: "password",
+        autocomplete: "new-password"
+      });
+      const warning = el2("p", {
+        class: "warning",
+        role: "alert",
+        hidden: true
+      });
+      const submit = el2("button", {
+        type: "submit",
+        class: "btn btn-primary remote-submit",
+        text: t2("remote.signIn")
+      });
+      fill2(pane, [
+        wayHead(t2("remote.wayAccount")),
+        el2("form", {
+          class: "remote-account-pane",
+          onsubmit: async (event) => {
+            event.preventDefault();
+            warning.hidden = true;
+            submit.disabled = true;
+            submit.textContent = t2("remote.signingIn");
+            try {
+              const answer = await api2.remoteSignin(email.value.trim(), password.value);
+              password.value = "";
+              dialog.close();
+              patch2({
+                remote: answer.remote
+              });
+              applyEdition2(answer);
+              showSuccess2(t2("remote.connected"));
+            } catch (e) {
+              password.value = "";
+              warning.textContent = e.message;
+              warning.hidden = false;
+              password.focus();
+            } finally {
+              submit.disabled = false;
+              submit.textContent = t2("remote.signIn");
+            }
+          }
+        }, [
+          fieldLabel(t2("remote.email"), email),
+          fieldLabel(t2("remote.password"), password),
+          warning,
+          submit,
+          aside(t2("remote.noAccount"), el2("button", {
+            type: "button",
+            class: "btn-link",
+            text: t2("remote.signUp"),
+            // What is typed already comes along. Somebody who filled the address
+            // in, was told there is no such account and pressed this should not
+            // be asked for it a second time.
+            onclick: () => showSignUp(pane, email.value.trim())
+          }))
+        ])
+      ]);
+      email.focus();
+    }
+    function showSignUp(pane, address) {
+      const name = el2("input", {
+        class: "field",
+        type: "text",
+        autocomplete: "off",
+        spellcheck: "false"
+      });
+      const email = el2("input", {
+        class: "field",
+        type: "email",
+        autocomplete: "off",
+        value: address,
+        autocapitalize: "off",
+        spellcheck: "false",
+        inputmode: "email"
+      });
+      const password = el2("input", {
+        class: "field",
+        type: "password",
+        autocomplete: "new-password"
+      });
+      const again = el2("input", {
+        class: "field",
+        type: "password",
+        autocomplete: "new-password"
+      });
+      const warning = el2("p", {
+        class: "warning",
+        role: "alert",
+        hidden: true
+      });
+      const submit = el2("button", {
+        type: "submit",
+        class: "btn btn-primary remote-submit",
+        text: t2("remote.signUp")
+      });
+      const refuse = (message, field2) => {
+        password.value = "";
+        again.value = "";
+        warning.textContent = message;
+        warning.hidden = false;
+        field2.focus();
+      };
+      fill2(pane, [
+        wayHead(t2("remote.signUp")),
+        el2("form", {
+          class: "remote-account-pane",
+          onsubmit: async (event) => {
+            event.preventDefault();
+            warning.hidden = true;
+            if (password.value !== again.value) {
+              refuse(t2("remote.passwordMismatch"), password);
+              return;
+            }
+            submit.disabled = true;
+            submit.textContent = t2("remote.signingUp");
+            const wanted = email.value.trim();
+            try {
+              await api2.remoteSignup(wanted, password.value, name.value.trim());
+              password.value = "";
+              again.value = "";
+              showSignedUp(pane, wanted);
+            } catch (e) {
+              refuse(e.message, password);
+            } finally {
+              submit.disabled = false;
+              submit.textContent = t2("remote.signUp");
+            }
+          }
+        }, [
+          fieldLabel(t2("remote.name"), name),
+          fieldLabel(t2("remote.email"), email),
+          fieldLabel(t2("remote.password"), password),
+          fieldLabel(t2("remote.passwordAgain"), again),
+          warning,
+          submit,
+          aside(t2("remote.haveAccount"), el2("button", {
+            type: "button",
+            class: "btn-link",
+            text: t2("remote.backToSignIn"),
+            onclick: () => showSignIn(pane, email.value.trim())
+          }))
+        ])
+      ]);
+      name.focus();
+    }
+    function showSignedUp(pane, address) {
+      const back = el2("button", {
+        type: "button",
+        class: "btn btn-primary remote-submit",
+        text: t2("remote.backToSignIn"),
+        // The address goes back with it, so the person who has just chosen a
+        // password can try it the moment somebody says yes.
+        onclick: () => showSignIn(pane, address)
+      });
+      fill2(pane, [
+        wayHead(t2("remote.signUp")),
+        el2("div", {
+          class: "remote-account-pane"
+        }, [
+          el2("p", {
+            class: "info",
+            role: "status",
+            text: t2("remote.signUpWaiting")
+          }),
+          back
+        ])
+      ]);
+      back.focus();
+    }
+    let pairRound = 0;
+    let pairTimer = null;
+    let pairingOpen = false;
+    function stopPairing() {
+      pairRound += 1;
+      if (pairTimer !== null) {
+        clearWait(pairTimer);
+        pairTimer = null;
+      }
+      if (!pairingOpen) return;
+      pairingOpen = false;
+      api2.remotePairCancel().catch(() => {
+      });
+    }
+    async function startPairing(square) {
+      const mine = pairRound += 1;
+      if (pairTimer !== null) {
+        clearWait(pairTimer);
+        pairTimer = null;
+      }
+      fill2(square, [
+        loading2("")
+      ]);
+      let answer;
+      try {
+        answer = await api2.remotePair();
+      } catch (e) {
+        if (mine === pairRound) fill2(square, [
+          pairFailed(square, e.message)
+        ]);
+        return;
+      }
+      if (mine !== pairRound) return;
+      pairingOpen = true;
+      const pair = answer.pair || {};
+      const box = squareBox(pair.modules, pair.quiet);
+      const inset = Math.round((PAIR_SIDE - box.shown) / 2);
+      fill2(square, [
+        el2("div", {
+          class: "remote-qr"
+        }, [
+          el2("img", {
+            src: pair.image,
+            alt: t2("remote.pairAlt"),
+            width: box.side,
+            height: box.side,
+            style: `left:${box.offset + inset}px;top:${box.offset + inset}px`
+          })
+        ]),
+        // ONE ROW, NOT TWO SENTENCES. What it is doing on the left, which
+        // request it is on the right, both ending where the square ends. The
+        // number is there because a square that will not scan is not the end
+        // of the road — the same request is waiting on the operator's own
+        // page under it — and it is a badge rather than a sentence because
+        // nobody reads it until they need it.
+        el2("div", {
+          class: "remote-status",
+          role: "status",
+          "aria-live": "polite"
+        }, [
+          el2("span", {
+            class: "remote-status-live"
+          }, [
+            el2("span", {
+              class: "dot",
+              "data-state": "busy",
+              "aria-hidden": "true"
+            }),
+            el2("span", {
+              text: t2("remote.pairWaiting")
+            })
+          ]),
+          el2("span", {
+            class: "badge",
+            title: t2("remote.pairNumber"),
+            text: pair.pairId || ""
+          })
+        ])
+      ]);
+      waitForPairing(square, pair.pollAfter, mine);
+    }
+    function waitForPairing(square, after, mine) {
+      const seconds = Number(after) > 0 ? Number(after) : 2;
+      pairTimer = wait(() => pollPairing(square, seconds, mine), seconds * 1e3);
+    }
+    async function pollPairing(square, seconds, mine) {
+      pairTimer = null;
+      let answer;
+      try {
+        answer = await api2.remotePairPoll();
+      } catch (e) {
+        if (mine !== pairRound) return;
+        if (!PAIR_RETRY.has(e.status)) {
+          pairingOpen = false;
+          fill2(square, [
+            pairFailed(square, e.message)
+          ]);
+          return;
+        }
+        waitForPairing(square, seconds, mine);
+        return;
+      }
+      if (mine !== pairRound) return;
+      if (answer.mode !== void 0) {
+        pairingOpen = false;
+        dialog.close();
+        patch2({
+          remote: answer.remote
+        });
+        applyEdition2(answer);
+        showSuccess2(t2("remote.connected"));
+        return;
+      }
+      const settled = (answer.pair || {}).state;
+      if (settled !== "pending") {
+        pairingOpen = false;
+        fill2(square, [
+          pairFailed(square, settled === "denied" ? answer.stateText || "" : "")
+        ]);
+        return;
+      }
+      waitForPairing(square, seconds, mine);
+    }
+    function pairFailed(square, message) {
+      return el2("div", {
+        class: "remote-pair-failed"
+      }, [
+        message ? loadFailed2(message) : null,
+        el2("button", {
+          type: "button",
+          class: "btn",
+          text: t2("remote.pairRetry"),
+          onclick: () => startPairing(square)
+        })
+      ]);
+    }
+    async function pollRemote() {
+      if (!(state2.edition && state2.edition.remoteAvailable)) return;
+      let seen;
+      try {
+        seen = await api2.remote();
+      } catch {
+        return;
+      }
+      const previous = state2.remote;
+      patch2({
+        remote: seen
+      });
+      if (!previous || previous.generation === seen.generation) return;
+      if (previous.active && !seen.active) {
+        try {
+          applyEdition2(await api2.edition());
+        } catch {
+        }
+        notify2(seen.reasonText || t2("remote.ended"));
+      }
+    }
+    return {
+      askForRemoteSession,
+      pollRemote
+    };
+  }
+
+  // static/js/components/admin_key.js
+  var ADMIN_KEY_INTERVAL = 1e3;
+  function createAdminKey(overrides = {}) {
+    const {
+      api: api2,
+      state: state2,
+      patch: patch2,
+      dialog,
+      t: t2,
+      notify: notify2,
+      showSuccess: showSuccess2,
+      showError: showError2,
+      // app.js's own: applying a whole edition body and redrawing on a mode
+      // change.
+      applyEdition: applyEdition2,
+      // On the same beat rather than a timer of its own: both questions are
+      // "has the way in gone away", both are cheap, and two timers would mean
+      // two answers arriving out of step about one mode. The remote session
+      // hands its poll in here so neither module has to import the other.
+      pollRemote = async () => {
+      },
+      wait = (fn, ms) => setTimeout(fn, ms),
+      clearWait = (id) => clearTimeout(id)
+    } = {
+      api,
+      state,
+      patch,
+      dialog: dialog_exports,
+      t,
+      notify,
+      showSuccess,
+      showError,
+      ...overrides
+    };
+    let timer = null;
+    let declinedGeneration = -1;
+    let askingAboutKey = false;
+    async function enterAdmin() {
+      try {
+        applyEdition2(await api2.adminMode(true));
+        showSuccess2(t2("adminkey.entered"));
+      } catch (e) {
+        showError2(e.message);
+      }
+    }
+    async function leaveAdmin() {
+      try {
+        applyEdition2(await api2.adminMode(false));
+        notify2(t2("adminkey.left"));
+      } catch (e) {
+        showError2(e.message);
+      }
+    }
+    function loop() {
+      clearWait(timer);
+      timer = wait(async () => {
+        try {
+          const seen = await api2.adminKey();
+          const previous = state2.adminKey;
+          patch2({
+            adminKey: seen
+          });
+          if (!previous || previous.generation !== seen.generation || previous.withoutKey !== seen.withoutKey) {
+            await onKeyChanged(seen, previous);
+          }
+        } catch {
+        }
+        await pollRemote();
+        loop();
+      }, ADMIN_KEY_INTERVAL);
+    }
+    function stop3() {
+      clearWait(timer);
+      timer = null;
+    }
+    async function onKeyChanged(seen, previous) {
+      if (state2.mode === "admin" && !seen.recognised && !seen.withoutKey) {
+        try {
+          applyEdition2(await api2.edition());
+        } catch {
+        }
+        if (state2.mode !== "admin") {
+          const pulled = !!(previous && previous.recognised);
+          notify2(t2(pulled ? "adminkey.removed" : "adminkey.closed"));
+        }
+        return;
+      }
+      if (state2.mode === "admin" || !seen.recognised) {
+        if (seen.present && !seen.recognised) {
+          if (seen.reason === "denied") notify2(t2("adminkey.denied"));
+          else if (previous) notify2(t2("adminkey.notRecognised"));
+        }
+        return;
+      }
+      if (seen.generation === declinedGeneration) return;
+      await askAboutKey(seen, !previous);
+    }
+    async function askAboutKey(seen, atLaunch) {
+      if (askingAboutKey) return;
+      askingAboutKey = true;
+      try {
+        const yes = await dialog.ask({
+          title: t2(atLaunch ? "adminkey.launchTitle" : "adminkey.switchTitle"),
+          body: t2(atLaunch ? "adminkey.launchLead" : "adminkey.switchLead", {
+            label: seen.label || t2("adminkey.unlabelled")
+          }),
+          confirm: t2(atLaunch ? "adminkey.startAdmin" : "adminkey.switchNow"),
+          cancel: t2(atLaunch ? "adminkey.continueNormal" : "adminkey.notNow")
+        });
+        if (yes) await enterAdmin();
+        else declinedGeneration = seen.generation;
+      } finally {
+        askingAboutKey = false;
+      }
+    }
+    async function checkAtLaunch() {
+      try {
+        const seen = await api2.adminKey();
+        patch2({
+          adminKey: seen
+        });
+        if (seen.recognised || seen.reason === "denied") {
+          await onKeyChanged(seen, null);
+        }
+      } catch {
+      }
+    }
+    return {
+      start: loop,
+      stop: stop3,
+      enterAdmin,
+      leaveAdmin,
+      checkAtLaunch
+    };
   }
 
   // static/js/app.js
@@ -15923,7 +16568,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var FIRST_SCAN_DELAY = 1500;
   var BLOCKED_RETRY = 3e3;
   var JOB_INTERVAL = 900;
-  var ADMIN_KEY_INTERVAL = 1e3;
   var stateGeneration = 0;
   var lightTimer = null;
   var jobTimer = null;
@@ -15962,7 +16606,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         try {
           const full = await api.job(state.openJob);
           jobs = jobs.map((j) => j.id === full.id ? full : j);
-        } catch {
+        } catch (error) {
+          if (error && error.status) patch({ openJob: null });
         }
       }
       const signature = JSON.stringify(jobs);
@@ -16040,26 +16685,45 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     }, LIGHT_INTERVAL);
   }
   var VIEWS = {
-    overview: ["#v-overview", (root2) => render6(root2, refreshNow)],
-    devices: ["#v-devices", (root2) => render7(root2)],
-    ip: ["#v-ip", (root2) => render9(root2)],
-    network: ["#v-network", (root2) => render10(root2)],
-    adb: ["#v-adb", (root2) => render11(root2)],
-    switch: ["#v-switch", (root2) => render12(root2)],
-    config: ["#v-config", (root2) => render13(root2)],
-    firmware: ["#v-firmware", (root2) => render14(root2)],
-    checklist: ["#v-checklist", (root2) => render15(root2, refreshNow)],
-    history: ["#v-history", (root2) => render16(root2)],
-    piscu: ["#v-piscu", (root2) => render17(root2)],
-    mqtt: ["#v-mqtt", (root2) => render18(root2)],
-    admin: ["#v-admin", (root2) => render19(root2, openProject)]
+    overview: ["#v-overview", (root4) => render6(root4, refreshNow)],
+    devices: ["#v-devices", (root4) => render7(root4)],
+    ip: ["#v-ip", (root4) => render9(root4)],
+    network: ["#v-network", (root4) => render10(root4)],
+    adb: ["#v-adb", (root4) => render11(root4)],
+    switch: ["#v-switch", (root4) => render12(root4)],
+    config: ["#v-config", (root4) => render13(root4)],
+    firmware: ["#v-firmware", (root4) => render14(root4)],
+    checklist: ["#v-checklist", (root4) => render15(root4, refreshNow)],
+    history: ["#v-history", (root4) => render16(root4)],
+    piscu: ["#v-piscu", (root4) => render17(root4)],
+    mqtt: ["#v-mqtt", (root4) => render18(root4)],
+    admin: ["#v-admin", (root4) => render19(root4, openProject)]
   };
   var lastView = null;
+  var VIEW_LIFECYCLE = {
+    ip: { enter: () => enter(), leave: () => leave() },
+    adb: { enter: () => refresh4(), leave: () => stop() },
+    switch: { enter: () => refresh6(), leave: () => stop2() },
+    checklist: { enter: () => refresh9() },
+    network: { enter: () => refresh3() },
+    config: { enter: () => refresh7() },
+    firmware: { enter: () => refresh8() },
+    piscu: { enter: () => refresh10() },
+    mqtt: { enter: () => refresh11() }
+  };
+  function enterView(name) {
+    const hooks = VIEW_LIFECYCLE[name];
+    if (hooks && hooks.enter) hooks.enter();
+  }
+  function leaveView(name) {
+    const hooks = VIEW_LIFECYCLE[name];
+    if (hooks && hooks.leave) hooks.leave();
+  }
   var PANEL_KEYS = /* @__PURE__ */ new Set(["openJob", "queueOpen", "lockedOpen"]);
   function renderMode() {
     const badge = $("#mode-badge");
-    const leave = $("#leave-admin-btn");
-    const enter = $("#enter-admin-btn");
+    const leave2 = $("#leave-admin-btn");
+    const enter2 = $("#enter-admin-btn");
     const remoteButton = $("#remote-admin-btn");
     const admin = state.mode === "admin";
     const pending = !!(state.adminKey && state.adminKey.revokePending);
@@ -16068,9 +16732,9 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     badge.hidden = !admin;
     badge.textContent = admin ? t(pending ? "topbar.adminModeEnding" : viaRemote ? "topbar.adminModeRemote" : "topbar.adminMode") : "";
     badge.dataset.pending = pending ? "1" : "0";
-    leave.hidden = !admin;
+    leave2.hidden = !admin;
     remoteButton.hidden = admin || !(state.edition && state.edition.remoteAvailable);
-    enter.hidden = admin || !canEnterAdmin();
+    enter2.hidden = admin || !canEnterAdmin();
   }
   function canEnterAdmin() {
     const key = state.adminKey;
@@ -16078,6 +16742,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
   function redrawEverything() {
     reset();
+    reset2();
+    reset3();
     lastView = null;
     close2();
     close();
@@ -16124,6 +16790,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     }
     const [selector, renderView] = VIEWS[state.view] || VIEWS.overview;
     const viewChanged = lastView !== state.view;
+    if (viewChanged && lastView) leaveView(lastView);
     if (viewChanged || !(focusInScreenField() || focusInDropdown())) {
       preserveScroll(
         viewChanged ? null : $("#content"),
@@ -16135,7 +16802,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       $("#content").scrollTop = 0;
       announceView();
       playTransition($(selector));
-      onViewEntered(state.view);
+      enterView(state.view);
     }
   }
   var VIEW_NAME = {
@@ -16231,11 +16898,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       })]
     });
   }
-  function playTransition(root2) {
-    if (!root2) return;
-    root2.classList.remove("view-enter");
-    void root2.offsetWidth;
-    root2.classList.add("view-enter");
+  function playTransition(root4) {
+    if (!root4) return;
+    root4.classList.remove("view-enter");
+    void root4.offsetWidth;
+    root4.classList.add("view-enter");
   }
   function focusInScreenField() {
     const active = document.activeElement;
@@ -16248,25 +16915,14 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const active = document.activeElement;
     if (!active || !active.matches("select")) return false;
     return [$("#content"), $("#dialog-slot")].some(
-      (root2) => root2 && root2.contains(active)
+      (root4) => root4 && root4.contains(active)
     );
-  }
-  function onViewEntered(name) {
-    if (name === "checklist") refresh9();
-    else if (name === "ip") refresh2();
-    else if (name === "network") refresh3();
-    else if (name === "adb") refresh4();
-    else if (name === "switch") refresh6();
-    else if (name === "config") refresh7();
-    else if (name === "firmware") refresh8();
-    else if (name === "piscu") refresh10();
-    else if (name === "mqtt") refresh11();
   }
   async function refreshNow() {
     const running2 = writingRunInProgress(state.jobs);
     try {
       const job = await api.scan(state.setNo);
-      patch({ openJob: job.id, scanRunning: true });
+      patch({ scanRunning: true });
       if (job.new === false) {
         notify(t("topbar.scanAlreadyQueued"));
       } else {
@@ -16348,7 +17004,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     try {
       await loadInitialData();
-      onViewEntered(state.view);
+      enterView(state.view);
       showSuccess(t("topbar.setLoaded", { set: next }));
     } catch (e) {
       showError(e.message);
@@ -16375,455 +17031,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     if (wasAdmin !== (body.mode === "admin")) redrawEverything();
     return body;
   }
-  async function enterAdmin() {
-    try {
-      applyEdition(await api.adminMode(true));
-      showSuccess(t("adminkey.entered"));
-    } catch (e) {
-      showError(e.message);
-    }
-  }
-  async function leaveAdmin() {
-    try {
-      applyEdition(await api.adminMode(false));
-      notify(t("adminkey.left"));
-    } catch (e) {
-      showError(e.message);
-    }
-  }
-  function askForRemoteSession() {
-    const square = el("div", { class: "remote-square" });
-    show({
-      title: t("remote.title"),
-      // The account column, a rule, and the square's column. The square is
-      // what fixes the right-hand number; the left takes what is left, which
-      // is comfortably more than two fields and a button need.
-      width: "720px",
-      // The width the RIGHT-HAND column is drawn to, declared before the
-      // service is even asked. It is here rather than in the stylesheet
-      // because the window is what needs the number: the square's scale is
-      // worked out from it, in whole modules (see squareBox).
-      content: el("div", {
-        class: "remote-ways",
-        style: `--remote-width:${PAIR_SIDE}px`
-      }, [
-        accountSide(),
-        el("div", { class: "remote-way remote-pair" }, [
-          wayHead(t("remote.wayQr")),
-          square
-        ])
-      ]),
-      actions: [
-        el("button", {
-          type: "button",
-          class: "btn",
-          text: t("locked.cancel"),
-          onclick: () => close()
-        })
-      ],
-      // Escape, the backdrop and the Cancel button all arrive here, which is
-      // the only place that knows the square is no longer being looked at.
-      onClose: stopPairing
-    });
-    startPairing(square);
-  }
-  function accountSide() {
-    const pane = el("div", { class: "remote-way remote-account" });
-    showSignIn(pane, "");
-    return pane;
-  }
-  var wayHead = (caption) => el("h4", {
-    class: "remote-way-head",
-    text: caption
+  var remoteSession = createRemoteSession({ applyEdition });
+  var adminKey = createAdminKey({
+    applyEdition,
+    pollRemote: remoteSession.pollRemote
   });
-  var fieldLabel = (caption, field2) => el("label", { class: "field-label" }, [
-    el("span", { class: "label", text: caption }),
-    field2
-  ]);
-  var aside = (sentence, link) => el("p", { class: "remote-aside" }, [
-    el("span", { text: sentence }),
-    link
-  ]);
-  function showSignIn(pane, address) {
-    const email = el("input", {
-      class: "field",
-      type: "email",
-      autocomplete: "off",
-      value: address,
-      autocapitalize: "off",
-      spellcheck: "false",
-      inputmode: "email"
-    });
-    const password = el("input", {
-      class: "field",
-      type: "password",
-      autocomplete: "new-password"
-    });
-    const warning = el("p", { class: "warning", role: "alert", hidden: true });
-    const submit = el("button", {
-      type: "submit",
-      class: "btn btn-primary remote-submit",
-      text: t("remote.signIn")
-    });
-    fill(pane, [wayHead(t("remote.wayAccount")), el("form", {
-      class: "remote-account-pane",
-      onsubmit: async (event) => {
-        event.preventDefault();
-        warning.hidden = true;
-        submit.disabled = true;
-        submit.textContent = t("remote.signingIn");
-        try {
-          const answer = await api.remoteSignin(
-            email.value.trim(),
-            password.value
-          );
-          password.value = "";
-          close();
-          patch({ remote: answer.remote });
-          applyEdition(answer);
-          showSuccess(t("remote.connected"));
-        } catch (e) {
-          password.value = "";
-          warning.textContent = e.message;
-          warning.hidden = false;
-          password.focus();
-        } finally {
-          submit.disabled = false;
-          submit.textContent = t("remote.signIn");
-        }
-      }
-    }, [
-      fieldLabel(t("remote.email"), email),
-      fieldLabel(t("remote.password"), password),
-      warning,
-      submit,
-      aside(t("remote.noAccount"), el("button", {
-        type: "button",
-        class: "btn-link",
-        text: t("remote.signUp"),
-        // What is typed already comes along. Somebody who filled the address
-        // in, was told there is no such account and pressed this should not be
-        // asked for it a second time.
-        onclick: () => showSignUp(pane, email.value.trim())
-      }))
-    ])]);
-    email.focus();
-  }
-  function showSignUp(pane, address) {
-    const name = el("input", {
-      class: "field",
-      type: "text",
-      autocomplete: "off",
-      spellcheck: "false"
-    });
-    const email = el("input", {
-      class: "field",
-      type: "email",
-      autocomplete: "off",
-      value: address,
-      autocapitalize: "off",
-      spellcheck: "false",
-      inputmode: "email"
-    });
-    const password = el("input", {
-      class: "field",
-      type: "password",
-      autocomplete: "new-password"
-    });
-    const again = el("input", {
-      class: "field",
-      type: "password",
-      autocomplete: "new-password"
-    });
-    const warning = el("p", { class: "warning", role: "alert", hidden: true });
-    const submit = el("button", {
-      type: "submit",
-      class: "btn btn-primary remote-submit",
-      text: t("remote.signUp")
-    });
-    const refuse = (message, field2) => {
-      password.value = "";
-      again.value = "";
-      warning.textContent = message;
-      warning.hidden = false;
-      field2.focus();
-    };
-    fill(pane, [wayHead(t("remote.signUp")), el("form", {
-      class: "remote-account-pane",
-      onsubmit: async (event) => {
-        event.preventDefault();
-        warning.hidden = true;
-        if (password.value !== again.value) {
-          refuse(t("remote.passwordMismatch"), password);
-          return;
-        }
-        submit.disabled = true;
-        submit.textContent = t("remote.signingUp");
-        const wanted = email.value.trim();
-        try {
-          await api.remoteSignup(wanted, password.value, name.value.trim());
-          password.value = "";
-          again.value = "";
-          showSignedUp(pane, wanted);
-        } catch (e) {
-          refuse(e.message, password);
-        } finally {
-          submit.disabled = false;
-          submit.textContent = t("remote.signUp");
-        }
-      }
-    }, [
-      fieldLabel(t("remote.name"), name),
-      fieldLabel(t("remote.email"), email),
-      fieldLabel(t("remote.password"), password),
-      fieldLabel(t("remote.passwordAgain"), again),
-      warning,
-      submit,
-      aside(t("remote.haveAccount"), el("button", {
-        type: "button",
-        class: "btn-link",
-        text: t("remote.backToSignIn"),
-        onclick: () => showSignIn(pane, email.value.trim())
-      }))
-    ])]);
-    name.focus();
-  }
-  function showSignedUp(pane, address) {
-    const back = el("button", {
-      type: "button",
-      class: "btn btn-primary remote-submit",
-      text: t("remote.backToSignIn"),
-      // The address goes back with it, so the person who has just chosen a
-      // password can try it the moment somebody says yes.
-      onclick: () => showSignIn(pane, address)
-    });
-    fill(pane, [
-      wayHead(t("remote.signUp")),
-      el("div", { class: "remote-account-pane" }, [
-        el("p", {
-          class: "info",
-          role: "status",
-          text: t("remote.signUpWaiting")
-        }),
-        back
-      ])
-    ]);
-    back.focus();
-  }
-  var pairRound = 0;
-  var pairTimer = null;
-  var pairingOpen = false;
-  var PAIR_RETRY = /* @__PURE__ */ new Set([0, 429, 503]);
-  var PAIR_SIDE = 224;
-  var PAIR_QUIET = 2;
-  function squareBox(modules, quiet) {
-    const across = Number(modules);
-    const margin = Number(quiet);
-    if (!(across > 0)) return { side: PAIR_SIDE, shown: PAIR_SIDE, offset: 0 };
-    const kept = Math.min(margin, PAIR_QUIET);
-    const crop = margin - kept;
-    const shownModules = across - crop * 2;
-    const boxModules = shownModules + (PAIR_QUIET - kept) * 2;
-    const scale = Math.max(1, Math.floor(PAIR_SIDE / boxModules));
-    return {
-      side: across * scale,
-      shown: shownModules * scale,
-      offset: -crop * scale
-    };
-  }
-  function stopPairing() {
-    pairRound += 1;
-    if (pairTimer !== null) {
-      clearTimeout(pairTimer);
-      pairTimer = null;
-    }
-    if (!pairingOpen) return;
-    pairingOpen = false;
-    api.remotePairCancel().catch(() => {
-    });
-  }
-  async function startPairing(square) {
-    const mine = pairRound += 1;
-    if (pairTimer !== null) {
-      clearTimeout(pairTimer);
-      pairTimer = null;
-    }
-    fill(square, [loading("")]);
-    let answer;
-    try {
-      answer = await api.remotePair();
-    } catch (e) {
-      if (mine === pairRound) fill(square, [pairFailed(square, e.message)]);
-      return;
-    }
-    if (mine !== pairRound) return;
-    pairingOpen = true;
-    const pair = answer.pair || {};
-    const box = squareBox(pair.modules, pair.quiet);
-    const inset = Math.round((PAIR_SIDE - box.shown) / 2);
-    fill(square, [
-      el("div", { class: "remote-qr" }, [
-        el("img", {
-          src: pair.image,
-          alt: t("remote.pairAlt"),
-          width: box.side,
-          height: box.side,
-          style: `left:${box.offset + inset}px;top:${box.offset + inset}px`
-        })
-      ]),
-      // ONE ROW, NOT TWO SENTENCES. What it is doing on the left, which
-      // request it is on the right, both ending where the square ends. The
-      // number is there because a square that will not scan is not the end of
-      // the road — the same request is waiting on the operator's own page
-      // under it — and it is a badge rather than a sentence because nobody
-      // reads it until they need it.
-      el("div", { class: "remote-status", role: "status", "aria-live": "polite" }, [
-        el("span", { class: "remote-status-live" }, [
-          el("span", { class: "dot", "data-state": "busy", "aria-hidden": "true" }),
-          el("span", { text: t("remote.pairWaiting") })
-        ]),
-        el("span", {
-          class: "badge",
-          title: t("remote.pairNumber"),
-          text: pair.pairId || ""
-        })
-      ])
-    ]);
-    waitForPairing(square, pair.pollAfter, mine);
-  }
-  function waitForPairing(square, after, mine) {
-    const seconds = Number(after) > 0 ? Number(after) : 2;
-    pairTimer = setTimeout(
-      () => pollPairing(square, seconds, mine),
-      seconds * 1e3
-    );
-  }
-  async function pollPairing(square, seconds, mine) {
-    pairTimer = null;
-    let answer;
-    try {
-      answer = await api.remotePairPoll();
-    } catch (e) {
-      if (mine !== pairRound) return;
-      if (!PAIR_RETRY.has(e.status)) {
-        pairingOpen = false;
-        fill(square, [pairFailed(square, e.message)]);
-        return;
-      }
-      waitForPairing(square, seconds, mine);
-      return;
-    }
-    if (mine !== pairRound) return;
-    if (answer.mode !== void 0) {
-      pairingOpen = false;
-      close();
-      patch({ remote: answer.remote });
-      applyEdition(answer);
-      showSuccess(t("remote.connected"));
-      return;
-    }
-    const settled = (answer.pair || {}).state;
-    if (settled !== "pending") {
-      pairingOpen = false;
-      fill(square, [pairFailed(
-        square,
-        settled === "denied" ? answer.stateText || "" : ""
-      )]);
-      return;
-    }
-    waitForPairing(square, seconds, mine);
-  }
-  function pairFailed(square, message) {
-    return el("div", { class: "remote-pair-failed" }, [
-      message ? loadFailed(message) : null,
-      el("button", {
-        type: "button",
-        class: "btn",
-        text: t("remote.pairRetry"),
-        onclick: () => startPairing(square)
-      })
-    ]);
-  }
-  async function pollRemote() {
-    if (!(state.edition && state.edition.remoteAvailable)) return;
-    let seen;
-    try {
-      seen = await api.remote();
-    } catch {
-      return;
-    }
-    const previous = state.remote;
-    patch({ remote: seen });
-    if (!previous || previous.generation === seen.generation) return;
-    if (previous.active && !seen.active) {
-      try {
-        applyEdition(await api.edition());
-      } catch {
-      }
-      notify(seen.reasonText || t("remote.ended"));
-    }
-  }
-  var adminKeyTimer = null;
-  var declinedGeneration = -1;
-  var askingAboutKey = false;
-  function adminKeyLoop() {
-    clearTimeout(adminKeyTimer);
-    adminKeyTimer = setTimeout(async () => {
-      try {
-        const seen = await api.adminKey();
-        const previous = state.adminKey;
-        patch({ adminKey: seen });
-        if (!previous || previous.generation !== seen.generation || previous.withoutKey !== seen.withoutKey) {
-          await onKeyChanged(seen, previous);
-        }
-      } catch {
-      }
-      await pollRemote();
-      adminKeyLoop();
-    }, ADMIN_KEY_INTERVAL);
-  }
-  async function onKeyChanged(seen, previous) {
-    if (state.mode === "admin" && !seen.recognised && !seen.withoutKey) {
-      try {
-        applyEdition(await api.edition());
-      } catch {
-      }
-      if (state.mode !== "admin") {
-        const pulled = !!(previous && previous.recognised);
-        notify(t(pulled ? "adminkey.removed" : "adminkey.closed"));
-      }
-      return;
-    }
-    if (state.mode === "admin" || !seen.recognised) {
-      if (seen.present && !seen.recognised) {
-        if (seen.reason === "denied") notify(t("adminkey.denied"));
-        else if (previous) notify(t("adminkey.notRecognised"));
-      }
-      return;
-    }
-    if (seen.generation === declinedGeneration) return;
-    await askAboutKey(seen, !previous);
-  }
-  async function askAboutKey(seen, atLaunch) {
-    if (askingAboutKey) return;
-    askingAboutKey = true;
-    try {
-      const yes = await ask({
-        title: t(atLaunch ? "adminkey.launchTitle" : "adminkey.switchTitle"),
-        body: t(
-          atLaunch ? "adminkey.launchLead" : "adminkey.switchLead",
-          { label: seen.label || t("adminkey.unlabelled") }
-        ),
-        confirm: t(atLaunch ? "adminkey.startAdmin" : "adminkey.switchNow"),
-        cancel: t(atLaunch ? "adminkey.continueNormal" : "adminkey.notNow")
-      });
-      if (yes) await enterAdmin();
-      else declinedGeneration = seen.generation;
-    } finally {
-      askingAboutKey = false;
-    }
-  }
-  var ownProjects = () => (state.projects || []).filter((project) => project.origin !== "extra");
   async function chooseProject() {
     const projects = ownProjects();
     const current2 = projects.find((p) => p.current);
@@ -16874,7 +17086,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     try {
       await loadInitialData();
-      onViewEntered(state.view);
+      enterView(state.view);
       showSuccess(t("admin.projectSwitched", { project: state.meta.project }));
     } catch (e) {
       showError(e.message);
@@ -16907,9 +17119,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     $("#queue-btn").addEventListener("click", toggle);
     $("#locked-btn").addEventListener("click", toggle2);
-    $("#leave-admin-btn").addEventListener("click", leaveAdmin);
-    $("#enter-admin-btn").addEventListener("click", enterAdmin);
-    $("#remote-admin-btn").addEventListener("click", askForRemoteSession);
+    $("#leave-admin-btn").addEventListener("click", adminKey.leaveAdmin);
+    $("#enter-admin-btn").addEventListener("click", adminKey.enterAdmin);
+    $("#remote-admin-btn").addEventListener(
+      "click",
+      remoteSession.askForRemoteSession
+    );
     $("#project-btn").addEventListener("click", () => {
       if (ownProjects().length > 1) chooseProject();
       else if ((state.views || []).includes("admin")) patch({ view: "admin" });
@@ -16949,7 +17164,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     });
     onCredentialsAccepted(() => {
       fetchJobs();
-      onViewEntered(state.view);
+      enterView(state.view);
     });
     subscribe(render20);
     try {
@@ -16960,23 +17175,16 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     jobLoop();
     lightLoop();
     scanLoop(FIRST_SCAN_DELAY);
-    adminKeyLoop();
+    adminKey.start();
     render20();
     $("#content").focus();
-    try {
-      const seen = await api.adminKey();
-      patch({ adminKey: seen });
-      if (seen.recognised || seen.reason === "denied") {
-        await onKeyChanged(seen, null);
-      }
-    } catch {
-    }
+    await adminKey.checkAtLaunch();
   }
   globalThis.addEventListener("pagehide", () => {
     clearTimeout(lightTimer);
     clearTimeout(jobTimer);
     clearTimeout(scanTimer);
-    clearTimeout(adminKeyTimer);
+    adminKey.stop();
   });
   start3();
 })();

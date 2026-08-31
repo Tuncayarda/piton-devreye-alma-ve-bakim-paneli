@@ -15,7 +15,6 @@ anything the UI can ask for it can ask for without being shown a button.
 from __future__ import annotations
 
 from ... import editions, i18n, jobs
-from ..presenters import WRITING_JOB_KINDS
 from ..response import respond
 
 
@@ -106,15 +105,14 @@ def post_project_select(body):
     if project is None:
         return respond(404, {"error": i18n.t("error.projectNotAvailable",
                                              project=key)})
-    if editions.is_extra(project) and not editions.admin():
-        return respond(403, {"error": i18n.t("error.adminModeRequired")})
+    # "An extra project needs admin mode" is enforced in panel.api.guard —
+    # the choke point every call passes — not here, where a second
+    # project-opening endpoint would silently miss it.
     if not editions.available(project):
         return respond(409, {"error": i18n.t("error.projectNotDelivered",
                                              project=project.label)})
 
-    blocking = next((job for job in jobs.QUEUE.list()
-                     if job.kind in WRITING_JOB_KINDS
-                     and job.state in (jobs.QUEUED, jobs.RUNNING)), None)
+    blocking = jobs.writing()
     if blocking is not None:
         return respond(409, {"error": i18n.t("error.projectSwitchBlocked",
                                              title=blocking.title)})

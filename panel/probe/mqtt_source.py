@@ -100,7 +100,8 @@ def from_app_status(device: Device, telemetry) -> dict:
         raise UnreachableError(
             i18n.t("error.brokerDisconnected",
                    prefix=settings.MQTT_APP_STATUS_PREFIX) + " "
-            f"son durumu \"{record.get('Status')}\"")
+            + i18n.t("error.brokerLastStatus",
+                     status=record.get("Status")))
     # Second signal: even for an old payload with no Status at all, a device
     # PISCU reports as faulty does not go green.
     if _reported_faulty(device, telemetry):

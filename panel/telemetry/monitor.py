@@ -27,6 +27,13 @@ class MqttMonitor:
         self._messages: list[dict] = []
         self._counts: dict[str, int] = {}
         self._client = None
+        # The slot is RESERVED before any I/O happens (see `start`). The
+        # check-then-connect used to release the lock across the broker
+        # connection, so two Start clicks landing together both passed the
+        # "not running" test and both connected — and the loser's paho
+        # client could never be stopped again while its closure went on
+        # feeding `_messages`.
+        self._starting = False
         self._broker: str | None = None
         self._error: str | None = None
         self._total = 0
@@ -37,13 +44,18 @@ class MqttMonitor:
     def start(self, broker: str, port: int | None = None,
               topic: str = "#") -> None:
         with self._lock:
-            if self._client is not None:
+            if self._client is not None or self._starting:
                 return
+            self._starting = True
             self._error = None
         try:
             client = build_client("commissioning_monitor")
         except MqttUnavailable as exc:
-            self._error = str(exc)
+            with self._lock:
+                # Roll the reservation back: nothing was started, and a
+                # stuck `_starting` would refuse every later Start.
+                self._error = str(exc)
+                self._starting = False
             return
 
         def on_connect(c, userdata, flags, rc, properties=None):
@@ -72,14 +84,33 @@ class MqttMonitor:
             client.connect(broker, port or settings.MQTT_PORT, keepalive=15)
             client.loop_start()
         except Exception:
-            self._error = i18n.t("error.mqttBrokerFailed", broker=broker)
+            with self._lock:
+                self._error = i18n.t("error.mqttBrokerFailed", broker=broker)
+                self._starting = False
             return
         with self._lock:
-            self._client, self._broker = client, broker
+            # A stop() that arrived while this start was mid-connect has
+            # revoked the reservation; installing the client anyway would
+            # hand shutdown a subscriber it already believes is gone.
+            if not self._starting:
+                installed = False
+            else:
+                self._client, self._broker = client, broker
+                self._starting = False
+                installed = True
+        if not installed:
+            try:
+                client.loop_stop()
+                client.disconnect()
+            except Exception:
+                pass
 
     def stop(self) -> None:
         with self._lock:
             client, self._client = self._client, None
+            # Revoke an in-flight start(): its tail checks the reservation
+            # before installing, and tears its fresh client down instead.
+            self._starting = False
         if client is not None:
             try:
                 client.loop_stop()

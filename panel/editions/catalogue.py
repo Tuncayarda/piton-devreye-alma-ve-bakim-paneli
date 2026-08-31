@@ -214,10 +214,14 @@ class Project:
     # network at 10.n.0.1, so nothing narrower than a /16 spans the train.
     #
     # ZERO MEANS UNSTATED, and that is not the same as 24. An unstated prefix
-    # leaves the device's own mask alone — the long-standing behaviour of the
-    # intercom run (`panel.ip_assign.runner`) — while a project that states
-    # one is making a claim the run should enforce. It is also what keeps
-    # Yatakli and VIP bit-for-bit on the behaviour they have today.
+    # leaves the device's own mask alone — the intercom run's own
+    # long-standing rule (`panel.ip_assign.runner`) — while a project that
+    # states one is making a claim the run should enforce. For a while the
+    # HTTP route materialised an empty mask box to 24 before the runner
+    # could look, so on Yatakli and VIP every run FORCED 255.255.255.0
+    # regardless of this field; the route passes "unstated" through now,
+    # and the screen's mask box says what an empty box means
+    # (`plan.maskStated`).
     prefix: int = 0
     #
     # THERE IS NO `expected_mask` BESIDE THIS, and there was briefly. The mask

@@ -36,7 +36,6 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-from pathlib import Path
 
 from ..system.files import as_console_user
 
@@ -85,7 +84,3 @@ def _run(command: list[str]) -> bytes | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return done.stdout if done.returncode == 0 else None
-
-
-def path_of(volume, name: str) -> Path:
-    return Path(volume) / name

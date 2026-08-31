@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from .. import settings
-from .client import (MqttUnavailable, fetch_app_status, fetch_device_map,
-                     fetch_sip_extensions)
+from .client import (MqttUnavailable, collect_all, parse_app_status,
+                     parse_device_map, parse_sip_extensions)
 from .. import i18n
 
 
@@ -28,18 +28,23 @@ class TelemetrySnapshot:
         if not self.broker:
             self.error = i18n.t("error.piscuNotFound")
             return self
+        # ONE connection for all three retained sources. Three used to be
+        # opened in sequence with two unconditional full-window sleeps —
+        # ~9 s on every scan's critical path for messages that arrive in
+        # the first fraction of a second (see client._collect's cutoff).
         try:
-            raw = fetch_device_map(self.broker)
+            inbox = collect_all(self.broker)
         except MqttUnavailable as exc:
             self.error = str(exc)
             return self
         except Exception:
             self.error = i18n.t("error.mqttUnreachable", broker=self.broker)
             return self
+        raw = parse_device_map(inbox)
 
         if not raw:
-            self.error = (f"the {settings.MQTT_DEVICE_MAP_TOPIC} retained message "
-                          "gelmedi")
+            self.error = i18n.t("error.deviceMapNotReceived",
+                                topic=settings.MQTT_DEVICE_MAP_TOPIC)
         else:
             for switch in raw.get("Switches") or []:
                 self.set_no = switch.get("TrainSet", self.set_no)
@@ -53,17 +58,12 @@ class TelemetrySnapshot:
                     and str(self.set_no) != str(expected_set)):
                 # Another set's telemetry must not leak into this set's rows.
                 self.records.clear()
-                self.error = (f"Broker set {self.set_no} bildiriyor, "
-                              f"istenen set {expected_set}")
+                self.error = i18n.t("error.brokerSetMismatch",
+                                    reported=self.set_no,
+                                    expected=expected_set)
 
-        try:
-            self.apps = fetch_app_status(self.broker)
-        except Exception:
-            pass
-        try:
-            self.sip = fetch_sip_extensions(self.broker)
-        except Exception:
-            pass
+        self.apps = parse_app_status(inbox)
+        self.sip = parse_sip_extensions(inbox)
         return self
 
     def sip_extension(self, ip: str) -> str:

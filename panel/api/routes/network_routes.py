@@ -9,7 +9,7 @@ guess; the picker on this screen is the answer to that.
 from __future__ import annotations
 
 from ... import network
-from ..presenters import inventory_for
+from ..presenters import inventory_for, inventory_for_write
 from ..response import respond
 from .helpers import single
 
@@ -22,7 +22,7 @@ def get_network(query):
 
 def post_prepare(body):
     """Add the missing addresses now, without waiting for a run."""
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     factory = str(body.get("factoryIp") or "").strip()
     result = network.ensure(inventory, {"factoryIp": factory})
     return respond(200, {**network.state(inventory, {"factoryIp": factory}),
@@ -36,7 +36,7 @@ def post_release(body):
     process put there can be released: the record is what says so, and nothing
     the panel did not add is ever removed.
     """
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     address = str(body.get("ip") or "").strip()
     released = (1 if network.release(address) else 0) if address \
         else network.release_all()
@@ -55,7 +55,7 @@ def post_settings(body):
     are now fixed backend policy (/24, the default host octet, always enabled),
     so legacy fields are harmlessly ignored.
     """
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     if "adapter" in body:
         result = network.select_adapter(inventory, body.get("adapter"))
     else:

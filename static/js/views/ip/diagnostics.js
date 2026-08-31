@@ -1,109 +1,16 @@
-// Diagnostics: the address map and the "return to the factory address" test
-// flow.
+// Diagnostics: the "return to the factory address" test flows.
 //
-// "Which device is on which address" is the most asked question in the field,
-// and until now it could only be answered with outside tools (arp-scan) and
-// only at MAC level. Because the device reports its own extension, the panel
-// can answer it exactly: "the device at 10.1.1.13 is actually port 22's".
+// The address-map dialog that used to live here (which device sits on which
+// candidate address) is gone: nothing in the UI opened it any more. The
+// server endpoint (/api/ip/address-map) stays for tooling.
 
 import { el, showFieldWarning } from '../../core/dom.js';
-import { dataTable } from '../../components/table.js';
 import { api } from '../../core/api.js';
 import { state, patch } from '../../core/store.js';
 import * as dialog from '../../components/dialog.js';
 import { showError, showSuccess, notify } from '../../components/toast.js';
-import { local, currentTarget, targetLabel } from './state.js';
+import { local, currentTarget, targetLabel, redraw } from './state.js';
 import { t } from '../../core/i18n.js';
-
-// Keys, not text: this table is built when the module loads, before the
-// catalogue has arrived, so the words are looked up at draw time.
-const MAP_STATE = {
-  empty: ['text-dim', 'ipmap.stateEmpty'],
-  expected: ['ok', 'ipmap.stateExpected'],
-  foreign: ['auth', 'ipmap.stateForeign'],
-  conflict: ['failed', 'ipmap.stateConflict'],
-  unknown: ['auth', 'ipmap.stateUnknown'],
-};
-
-const MAP_COLUMNS = '120px 1fr 1fr 90px';
-
-function mapRow(row) {
-  const [tone, labelKey] = MAP_STATE[row.state] || ['text-dim', ''];
-  const label = labelKey ? t(labelKey) : row.state;
-  const who = row.found.length
-    ? row.found.map(entry => (entry.port
-      ? t('ipmap.devicePort', {
-        name: entry.name || entry.extension, port: entry.port,
-      })
-      : t('ipmap.extensionOnly', { extension: entry.extension || '?' })))
-      .join(' + ')
-    : '—';
-  const expected = row.isFactory
-    ? t('ipmap.factoryAddress')
-    : (row.expectedPort
-      ? t('ipmap.devicePort', {
-        name: row.expectedName, port: row.expectedPort,
-      })
-      : '—');
-  return el('div', {
-    class: 'table-row', style: `--table-columns:${MAP_COLUMNS}`,
-  }, [
-    el('span', { class: 'mono', text: row.ip }),
-    el('span', { class: 'text-dim', text: expected }),
-    el('span', { class: row.found.length ? '' : 'text-dim', text: who }),
-    el('span', {}, [el('span', { class: `badge ${tone}`, text: label })]),
-  ]);
-}
-
-export async function showAddressMap(factoryIp) {
-  const data = state.ipState;
-  const plan = data && data.plan;
-  if (!plan) return;
-  const body = el('div', {}, [
-    el('p', { class: 'description', text: t('ipmap.probingTheAddresses') }),
-  ]);
-  dialog.show({
-    title: t('ipmap.addressMap'),
-    content: body,
-    actions: [
-      el('button', {
-        type: 'button', class: 'btn', text: t('detail.close'),
-        onclick: () => dialog.close(),
-      }),
-    ],
-  });
-  try {
-    const map = await api.ipAddressMap(
-      state.setNo, plan.switchId,
-      (plan.groups || [])[0] || 'Intercom', factoryIp);
-    const counts = map.counts || {};
-    body.replaceChildren(
-      el('p', { class: 'description' }, [
-        t('ipmap.counts', {
-          devices: counts.devices || 0, expected: counts.expected || 0,
-          foreign: counts.foreign || 0, conflict: counts.conflict || 0,
-        }),
-      ]),
-      dataTable({
-        template: MAP_COLUMNS, minWidth: 560, label: t('ipmap.addressMap'),
-        columns: ['col.address', 'col.whoseInDeviceMap', 'col.whoIsThereNow',
-                  'col.state'].map(key => (key ? t(key) : '')),
-        rows: (map.rows || []).map(mapRow),
-        empty: t('ipmap.stateEmpty'),
-      }),
-      // A collision does not show in a single probe; how many passes were
-      // made and whether the ARP flush worked decide how trustworthy the
-      // result is.
-      el('p', {
-        class: `${map.arpFlush ? 'info' : 'warning'} mt-3`,
-        text: t(map.arpFlush ? 'ipmap.arpFlushed'
-          : 'ipmap.arpNotFlushed'),
-      }),
-    );
-  } catch (e) {
-    body.replaceChildren(el('p', { class: 'warning', text: e.message }));
-  }
-}
 
 // The search area, shared by the run and the factory-reset flow.
 export function searchOptions(plan) {
@@ -269,7 +176,7 @@ export function factoryResetSelection() {
     ? '' : t('topbar.setOutOfRange', { min: 1, max: 254 });
   return { setNo, error };
 }
-export function factoryResetCard(data, check) {
+export function factoryResetCard(_data, check) {
   const isExternal = local.factoryResetScope === 'external';
   const initial = factoryResetSelection();
   const warning = el('p', {
@@ -305,7 +212,7 @@ export function factoryResetCard(data, check) {
       checked: local.factoryResetScope === scope,
       onchange: () => {
         local.factoryResetScope = scope;
-        patch({ ipState: { ...data } });
+        redraw();
       },
     }),
     el('span', { text: label }),
@@ -384,7 +291,7 @@ export function lcdFactoryResetCard(data, check) {
       checked: local.factoryResetScope === scope,
       onchange: () => {
         local.factoryResetScope = scope;
-        patch({ ipState: { ...data } });
+        redraw();
       },
     }),
     el('span', { text: label }),

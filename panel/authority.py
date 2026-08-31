@@ -43,6 +43,13 @@ REMOTE = "remote"
 _LOCK = threading.RLock()
 _LIVE: dict[str, bool] = {KEY: False, REMOTE: False}
 _PENDING = False
+# What actually unwinds admin mode. REGISTERED, NOT IMPORTED: the unwind
+# lives in panel.api.lifecycle, which imports this module at its top — so an
+# import from here back into it was a genuine cycle, held together by a lazy
+# import. lifecycle registers its own `leave_admin` when its module loads;
+# nothing else ever calls `settle()` before that, because the only callers
+# are the watchers lifecycle itself starts.
+_ON_LEAVE = None
 # `leave_admin` unwinds the session, and unwinding it ends the remote watch,
 # and ending the watch reports a source going away — which is a call back
 # into `settle()` from inside `settle()`. Guarded rather than untangled: the
@@ -85,6 +92,13 @@ def settle() -> bool:
     if _writing():
         return _set_pending(True)       # drop it when the queue clears
     with _LOCK:
+        # RE-CHECKED, because the first read was released lines ago and
+        # `_writing()` walks the queue in between. The window is narrow but
+        # it is exactly the moment the feature is used: a remote grant
+        # arriving as the stick's beat decides the old one has lapsed would
+        # be torn down within a second of connecting, with nothing recorded.
+        if any(_LIVE.values()):
+            return _set_pending(False)
         _SETTLING = True
     try:
         _leave_admin()
@@ -119,18 +133,25 @@ def reset() -> None:
         _SETTLING = False
 
 
+def on_leave(callback) -> None:
+    """Register what ends admin mode. Called once, by panel.api.lifecycle."""
+    global _ON_LEAVE
+    _ON_LEAVE = callback
+
+
 def _leave_admin() -> None:
-    # Imported here rather than at the top: lifecycle imports the packages
-    # that import this one, and it is lifecycle that knows what has to be put
-    # back — the project, the queue's device results, the configuration
-    # targets, and the remote watch itself.
-    from .api.lifecycle import leave_admin                 # noqa: PLC0415
-    leave_admin()
+    callback = _ON_LEAVE
+    if callback is None:
+        # Only reachable in a process that used this module without ever
+        # importing panel.api — no watcher runs in such a process, so there
+        # is no session to unwind either. Said on stderr rather than raised:
+        # settle() runs on watcher threads.
+        import sys                                         # noqa: PLC0415
+        sys.stderr.write("authority: no leave_admin registered\n")
+        return
+    callback()
 
 
 def _writing() -> bool:
     from . import jobs                                     # noqa: PLC0415
-    from .api.presenters import WRITING_JOB_KINDS          # noqa: PLC0415
-    return any(job.kind in WRITING_JOB_KINDS
-               and job.state in (jobs.QUEUED, jobs.RUNNING)
-               for job in jobs.QUEUE.list())
+    return jobs.writing() is not None

@@ -122,65 +122,31 @@ def ports(ip: str, credentials: tuple[str, str] | None = None,
           timeout: float | None = None) -> list[dict]:
     """Port list for the IP assignment screen's front panel.
 
-    Same endpoints and merge order as the switch panel (portMode + poePort +
-    poeStatus). All three are read so both apps colour the faceplate from the
-    same data: portMode alone cannot tell "powering" from "linked".
-
-    PoE endpoints do not exist on every model; when absent the fields stay
-    empty rather than being invented.
+    The merge itself is `panel.switch.ports.get_ports` — the SAME rows the
+    switch screen shows, including its tolerance for a model missing a PoE
+    table, so the two screens cannot disagree about what a switch's face
+    looks like. This module only projects them into the key names the IP
+    screen's front panel has always drawn from.
     """
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
+    try:
+        rows = switch.ports.get_ports(switch.CLIENT, ip, credentials,
+                                      timeout=limit)
+    except AuthError:                           # see read() on the wording
+        raise AuthError(i18n.t("error.probeAuth"))
+    except Exception as exc:
+        raise classify(exc)
 
-    def fetch(endpoint: str):
-        try:
-            return switch.CLIENT.get(ip, endpoint, timeout=limit,
-                                     credentials=credentials)
-        except AuthError:                       # see read() on the wording
-            raise AuthError(i18n.t("error.probeAuth"))
-        except Exception as exc:
-            raise classify(exc)
-
-    port_mode = fetch("stat/portMode")
-    rows = port_mode.get("portMode", []) if isinstance(port_mode, dict) else []
-    if not isinstance(rows, list):
-        raise VerificationError(i18n.t("error.switchPortList"))
-
-    def optional(endpoint: str, key: str) -> dict:
-        """PoE endpoints may be missing by model; auth errors still surface."""
-        try:
-            data = fetch(endpoint)
-        except AuthError:
-            raise
-        except Exception:
-            return {}
-        records = data.get(key, []) if isinstance(data, dict) else []
-        return {int(p["pid"]): p for p in records
-                if isinstance(p, dict) and str(p.get("pid", "")).isdigit()}
-
-    poe = optional("stat/poePort", "poePort")
-    power = optional("stat/poeStatus", "poeStatus")
-
-    out = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        pid = int(row.get("pid", 0))
-        poe_row = poe.get(pid, {})
-        power_row = power.get(pid, {})
-        watts = power_row.get("powerUsed")
-        out.append({
-            "pid": pid,
-            "type": row.get("type", ""),
-            "enabled": bool(row.get("adminStat")),
-            "link": row.get("linkStat", ""),
-            "poe": pid in poe,
-            "poeMode": str(poe_row.get("poeMode", "")),
-            "poeState": power_row.get("portStatus", ""),
-            # The switch reports power as an integer ten times too large.
-            "watts": (round(int(watts) / 10, 1)
-                      if str(watts).isdigit() else None),
-        })
-    return out
+    return [{
+        "pid": row["id"],
+        "type": row["portType"],
+        "enabled": row["enabled"],
+        "link": row["linkState"],
+        "poe": row["supportsPoe"],
+        "poeMode": row["poeMode"],
+        "poeState": row["poeState"],
+        "watts": row["powerWatts"],
+    } for row in rows]
 
 
 def mac_table(ip: str, credentials: tuple[str, str] | None = None,
@@ -199,10 +165,12 @@ def mac_table(ip: str, credentials: tuple[str, str] | None = None,
     """
     assign = script_loader.intercom_ip_assign()
     limit = timeout if timeout is not None else settings.PROBE_TIMEOUT
-    endpoints = getattr(assign, "MAC_ENDPOINTS", ["stat/macQuery"])
-    parse = getattr(assign, "_parse_mac_table", None)
-    if parse is None:
-        return {}
+    # Direct attribute reads, no getattr fallback: the loader has already
+    # verified both names (script_loader.CONTRACTS). The old fallback meant
+    # a rename in the script did not fail — it silently returned {} and
+    # switched MAC→port verification off for the whole run.
+    endpoints = assign.MAC_ENDPOINTS
+    parse = assign.parse_mac_table
 
     last_error = None
     for endpoint in endpoints:

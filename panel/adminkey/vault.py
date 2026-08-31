@@ -128,11 +128,3 @@ def unseal(key, blob) -> bytes | None:
     if not hmac.compare_digest(tag, _tag(bytes(key), nonce, ciphertext)):
         return None
     return _xor(ciphertext, _keystream(bytes(key), nonce, len(ciphertext)))
-
-
-def is_sealed(blob) -> bool:
-    """Does this look like a sealed file at all? Cheap, and decides nothing."""
-    try:
-        return bytes(blob[:len(MAGIC)]) == MAGIC
-    except (TypeError, ValueError, IndexError):
-        return False

@@ -2,6 +2,23 @@
 """Small shared helpers for route handlers."""
 from __future__ import annotations
 
+from ... import jobs
+from ..response import ApiResponse, respond
+
+
+def submit(job: jobs.Job, task) -> ApiResponse:
+    """Queue a job and answer the way every job endpoint answers.
+
+    200 = a new job; 202 = the same work was already queued or running and
+    THAT job is returned (the queue de-duplicates on `job.key`, so a double
+    click never starts a second scan — see jobs.queue.submit). Nine
+    endpoints used to spell these three lines out separately, which left
+    the 202 convention discoverable only by reading all nine.
+    """
+    job, is_new = jobs.QUEUE.submit(job, task)
+    return respond(200 if is_new else 202,
+                   {**job.dto(rows=False), "new": is_new})
+
 
 def single(query: dict, name: str, default=None):
     """One value out of a parsed query string."""

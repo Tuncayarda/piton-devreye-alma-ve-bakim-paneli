@@ -12,10 +12,9 @@
 
 import { el } from '../../core/dom.js';
 import { api } from '../../core/api.js';
-import { state, patch } from '../../core/store.js';
 import { showError } from '../../components/toast.js';
 import { value } from '../../core/format.js';
-import { local } from './state.js';
+import { local, redraw } from './state.js';
 import { apkFields } from './apk.js';
 import { isCompartmentPlan, softwareRows } from './software.js';
 import { maskField, validateRun } from './validation.js';
@@ -29,7 +28,7 @@ export function optionToggle(pressed, label, title, onToggle, disabled = false) 
     onclick: () => {
       if (disabled) return;
       onToggle();
-      patch({ ipState: { ...state.ipState } });
+      redraw();
     },
   }, [
     el('span', { class: 'box', 'aria-hidden': 'true' }),
@@ -91,7 +90,7 @@ export function preflashFields(plan) {
               const answer = await api.ipPreflashFile();
               if (answer.cancelled) return;
               plan.preflashFile = answer.preflashFile;
-              patch({ ipState: { ...state.ipState } });
+              redraw();
             } catch (e) { showError(e.message); }
           },
         }),
@@ -102,7 +101,7 @@ export function preflashFields(plan) {
             try {
               const answer = await api.ipPreflashFile(true);
               plan.preflashFile = answer.preflashFile;
-              patch({ ipState: { ...state.ipState } });
+              redraw();
             } catch (e) { showError(e.message); }
           },
         }),

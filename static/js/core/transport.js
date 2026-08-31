@@ -119,7 +119,17 @@ export function createTransport(root = globalThis) {
       options.method = method;
       options.body = JSON.stringify(body || {});
     }
-    const response = await root.fetch(path, options);
+    let response;
+    try {
+      response = await root.fetch(path, options);
+    } catch {
+      // The browser's own network-failure wording ("Failed to fetch",
+      // locale of the BROWSER, not of the panel) is not a sentence this
+      // application wrote. api.js passes transport messages through to the
+      // screen now — deliberately, for the bridge's four packaging
+      // failures — so what leaves here must already be catalogue text.
+      throw new Error(t("error.serviceUnreachable"));
+    }
     let payload = {};
     const contentType = response.headers.get("Content-Type") || "";
     if (contentType.includes("application/json")) {

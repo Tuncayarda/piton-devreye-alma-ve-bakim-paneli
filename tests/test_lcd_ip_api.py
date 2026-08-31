@@ -229,6 +229,41 @@ class LcdIpApi(PanelTest):
         self.assertEqual(queued_job.key, "ip:7:sw2")
         self.assertIs(queued_task, task)
 
+    def test_an_empty_mask_reaches_the_runner_as_unstated_not_as_24(self):
+        """The route must not materialise /24 before the runner can decide.
+
+        `effective_prefix` asks the operator, then the PROJECT, then falls
+        to 24 — but the route used to parse an empty mask box straight to
+        24, so the project branch (Gaziray's stated /16) was unreachable
+        and every HTTP-driven run wrote 255.255.255.0. The runner-side
+        halves of this contract are pinned in tests/test_data.py
+        (`test_a_project_that_states_a_mask_has_it_written` and
+        neighbours); this is the route-side half.
+        """
+        self.two_switches()
+        inventory = device_map.load(7, self.map_path)
+        lcds = inventory.by_type("LCD", "Compartment")
+        firmware.select_file(
+            [device.id for device in lcds], self.apk(), set_no=7)
+        task = object()
+
+        with (mock.patch.object(ip_routes.ip_assign, "protected_ports",
+                                return_value={"ports": []}),
+              mock.patch.object(ip_routes, "ip_assign_task",
+                                return_value=task) as make_task,
+              mock.patch.object(ip_routes.jobs.QUEUE, "submit",
+                                side_effect=lambda job, work: (job, True))):
+            response = api.call("POST", "/api/ip/run", body={
+                "set": 7,
+                "switch": "sw2",
+                "groups": ["Compartment LCD"],
+                "ports": "13-14",
+                "targetMask": "",
+            })
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(make_task.call_args.args[-1]["targetPrefix"], 0)
+
     def test_a_device_id_cannot_be_used_as_the_physical_switch(self):
         with mock.patch.object(ip_routes.jobs.QUEUE, "submit") as submit:
             response = api.call("POST", "/api/ip/run", body={
@@ -339,7 +374,11 @@ class LcdIpApi(PanelTest):
         options = make_task.call_args.args[-1]
         self.assertEqual(options["sourceSet"], 7)
         self.assertEqual(options["targetSet"], 1)
-        self.assertEqual(options["targetPrefix"], 24)
+        # 0 = the operator stated no mask. The route no longer materialises
+        # /24 here; `lcd_runner` resolves 0 through `effective_prefix`, which
+        # asks the project first — the /24 default used to make a project's
+        # stated /16 unreachable.
+        self.assertEqual(options["targetPrefix"], 0)
 
     def test_the_bench_flow_writes_the_address_the_operator_typed(self):
         queued = {}

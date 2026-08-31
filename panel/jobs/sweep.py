@@ -29,16 +29,21 @@ def sweep_devices(job: Job, devices, read, workers: int | None = None) -> None:
     """
     pool = ThreadPoolExecutor(max_workers=workers or settings.SCAN_WORKERS)
     view = view_for(job.set_no)
+    # Captured with the view: the object survives a project switch, but the
+    # results this sweep is about to produce belong to the device list open
+    # NOW. A clear() in between bumps the epoch and the writes below become
+    # no-ops instead of the old project's rows in the new project's view.
+    epoch = view.epoch
 
     def one(device):
         if job.cancel.is_set():
             job.update_row(device.id, ROW_SKIPPED, i18n.lazy("row.cancelled"))
             return
-        job.update_row(device.id, RUNNING, "Okunuyor")
+        job.update_row(device.id, RUNNING, i18n.lazy("row.reading"))
         generation = next_generation()
         result = read(device)
         result.generation = generation
-        stored = view.write(device.id, result)
+        stored = view.write(device.id, result, epoch=epoch)
         note = result.detail
         if not stored:
             note = i18n.lazy("row.newerResult", note=note)
@@ -48,4 +53,9 @@ def sweep_devices(job: Job, devices, read, workers: int | None = None) -> None:
         list(pool.map(one, devices))
     finally:
         pool.shutdown(wait=True)
-    view.last_scan = time.time()
+    # Only a sweep that RAN dates the view. A cancelled one skipped its
+    # remaining devices, and `lastScan` is what the checklist staleness
+    # banner trusts — stamping here would make data the scan never touched
+    # look freshly verified.
+    if not job.cancel.is_set():
+        view.last_scan = time.time()

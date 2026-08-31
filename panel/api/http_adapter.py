@@ -25,6 +25,18 @@ class Handler(BaseHTTPRequestHandler):
     server_version = f"{settings.APP_SLUG}/1.0"
     protocol_version = "HTTP/1.1"
 
+    # Browser/diagnostic mode only — the desktop bundle carries its own,
+    # stricter CSP baked into the single file (panel/desktop/bundle.py; the
+    # bundler injects it, which is why this one is a HEADER and not a meta
+    # tag in index.html: the source page must carry exactly one). 'self'
+    # everywhere: the page is served from 127.0.0.1 and has no business
+    # loading from or talking to anywhere else. style-src keeps
+    # 'unsafe-inline' for index.html's handful of inline style attributes.
+    CSP = ("default-src 'self'; script-src 'self'; "
+           "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+           "connect-src 'self'; font-src 'self'; object-src 'none'; "
+           "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+
     def _send(self, status: int, payload,
               content_type="application/json; charset=utf-8"):
         body = (json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -34,11 +46,41 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store, must-revalidate")
         self.send_header("X-Content-Type-Options", "nosniff")
+        if content_type.startswith("text/html"):
+            self.send_header("Content-Security-Policy", self.CSP)
         self.end_headers()
         try:
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
             pass
+
+    def _cross_origin(self) -> bool:
+        """Is this POST coming from a page that is not ours?
+
+        The bind is 127.0.0.1, but a BROWSER on this machine reaches it too
+        — and a browser carries every page the operator has open. A hostile
+        page can fire a "simple" cross-origin POST (text/plain, no
+        preflight) at /api/scan or /api/ip/run without ever reading the
+        answer; the side effect IS the attack. Three checks close it:
+
+          · Host must be the loopback name the server answers on — a DNS
+            rebinding page reaches the socket with its own hostname here;
+          · an Origin (or, absent that, a Referer) that is not loopback is
+            another site's page, whatever the Host says;
+          · the body must CLAIM to be JSON. Our own pages always send it
+            (core/api.js), and requiring it forces any cross-origin caller
+            into a CORS preflight — which this server never answers.
+        """
+        host = (self.headers.get("Host") or "").split(":", 1)[0].lower()
+        if host not in ("127.0.0.1", "localhost"):
+            return True
+        source = self.headers.get("Origin") or self.headers.get("Referer")
+        if source:
+            netloc = urlparse(source).hostname or ""
+            if netloc.lower() not in ("127.0.0.1", "localhost"):
+                return True
+        declared = (self.headers.get("Content-Type") or "").split(";")[0]
+        return declared.strip().lower() != "application/json"
 
     def _read_body(self) -> dict:
         """Read the POST body through type and size checks."""
@@ -65,9 +107,9 @@ class Handler(BaseHTTPRequestHandler):
             path = (root / unquote(relative).lstrip("/")).resolve()
             path.relative_to(root)
         except (OSError, ValueError):
-            return self._send(404, {"error": "yok"})
+            return self._send(404, {"error": i18n.t("error.unknownPath")})
         if not path.is_file():
-            return self._send(404, {"error": "yok"})
+            return self._send(404, {"error": i18n.t("error.unknownPath")})
         content_type, _ = mimetypes.guess_type(path.name)
         if path.suffix == ".js":
             content_type = "text/javascript; charset=utf-8"
@@ -100,6 +142,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if self._cross_origin():
+            # The refusal answers BEFORE the body is read, so the bytes are
+            # still on the wire — and this is an HTTP/1.1 keep-alive server,
+            # where the next parse would start inside them. The connection
+            # is not worth keeping: it belongs to a caller this server just
+            # refused to talk to.
+            self.close_connection = True
+            return self._send(403,
+                              {"error": i18n.t("error.crossOriginRefused")})
         try:
             body = self._read_body()
         except ValueError as exc:

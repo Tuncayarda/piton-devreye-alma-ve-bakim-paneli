@@ -8,10 +8,10 @@ from ...inventory import catalog
 from ...probe import reader
 from ...system import files
 from ..presenters import (credentials_for, device_dto, find_device,
-                          inventory_for, state_body)
+                          inventory_for, inventory_for_write, state_body)
 from ..response import respond
 from ..tasks import scan_task
-from .helpers import single
+from .helpers import single, submit
 
 
 def get_version(query):
@@ -125,7 +125,7 @@ def get_device(query):
 
 
 def post_scan(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     # `auto`: the UI's minute-long discovery round. It does the same work;
     # it is only flagged so it does not pile up in the queue history and can
     # be told apart from a manually started scan.
@@ -136,9 +136,7 @@ def post_scan(body):
                    inventory.set_no, key=f"scan:{inventory.set_no}", auto=auto)
     for device in inventory.devices:
         job.add_device_row(device)
-    job, is_new = jobs.QUEUE.submit(job, scan_task(inventory))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, scan_task(inventory))
 
 
 def post_job_cancel(body):

@@ -21,11 +21,25 @@ export function createApi(carrier = transport) {
     let envelope;
     try {
       envelope = await carrier.request(method, path, payload);
-      if (
-        !envelope || typeof envelope.ok !== "boolean" ||
-        !Number.isInteger(envelope.status)
-      ) throw new Error("invalid response");
-    } catch {
+    } catch (error) {
+      // The transport words its own failures — an invalid bridge envelope,
+      // a missing capability, pywebview never appearing, the 15 s handshake
+      // timeout (core/transport.js) — and each points at a different fix.
+      // A single generic sentence here used to swallow all four, so the
+      // transport's message survives when it has one; the generic line stays
+      // the fallback for a bare network failure with no words of its own.
+      throw new ApiError(
+        (error && error.message) || t("error.serviceUnreachable"),
+        0,
+        {},
+      );
+    }
+    if (
+      !envelope || typeof envelope.ok !== "boolean" ||
+      !Number.isInteger(envelope.status)
+    ) {
+      // The carrier answered, but not with an envelope: from the caller's
+      // side that is the service being gone, and it is reported as such.
       throw new ApiError(t("error.serviceUnreachable"), 0, {});
     }
     const body = envelope.body && typeof envelope.body === "object" &&
@@ -157,11 +171,6 @@ export function createApi(carrier = transport) {
     // Ports the run must not touch: the computer's location and the
     // switch-to-switch links. All found from MAC tables, none asked for.
     ipProtected: (set) => get("/api/ip/protected", { set }),
-    // Diagnostics: which device sits on which candidate address. The device
-    // reports its own extension, so "whose address is this" is answered
-    // exactly. Read-only.
-    ipAddressMap: (set, sw, group, factoryIp) =>
-      get("/api/ip/address-map", { set, switch: sw, group, factoryIp }),
     // The image installed before an address is written. The path never
     // travels: the OS dialog opens on the server side and only the file's
     // name comes back. `clear` forgets the choice.

@@ -9,9 +9,10 @@
 #       release/dabp-gdm-1.0.0-linux-x86_64.AppImage 1.0.0 \
 #       "Devreye Alma ve Bakim Paneli - GDM"
 #
-# The appimagetool version is pinned (APPIMAGETOOL_VERSION below). Give a
-# sha256 and the download is verified; leave it empty and the sha256 of what
-# was downloaded is printed — put that in APPIMAGETOOL_SHA256 to pin it.
+# The appimagetool version AND its sha256 are pinned together below; bump
+# them as a pair. Export APPIMAGETOOL_SHA256= (explicitly empty) to build
+# with an unverified or hand-provided tool — the digest of what was used is
+# printed either way.
 set -euo pipefail
 
 DIST_DIR="${1:?dist directory is required}"
@@ -36,9 +37,13 @@ DISPLAY_NAME="${4:-Commissioning and Maintenance Panel}"
 
 APPIMAGETOOL_VERSION="1.9.1"
 APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
-# When empty only a warning is printed; once filled in, verification is
-# mandatory.
-APPIMAGETOOL_SHA256="${APPIMAGETOOL_SHA256:-}"
+# The digest of the 1.9.1 x86_64 release, confirmed against the downloaded
+# bytes and the release's published size. Verification is mandatory while
+# this is set; the pin sits NEXT TO the version because the two can only be
+# bumped together. `-` rather than `:-`: an explicitly empty
+# APPIMAGETOOL_SHA256 opts out (offline build with a different tool), while
+# an unset one gets the pin.
+APPIMAGETOOL_SHA256="${APPIMAGETOOL_SHA256-ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0}"
 
 WORK_DIR="$(mktemp -d)"
 cleanup() { rm -rf "$WORK_DIR"; }
@@ -124,7 +129,7 @@ if [ -n "$APPIMAGETOOL_SHA256" ]; then
     echo "   actual  : $ACTUAL_SHA256"
     exit 1
   fi
-  echo "   sha256 verified"
+  echo "   sha256 verified ($ACTUAL_SHA256)"
 else
   echo "!! APPIMAGETOOL_SHA256 is empty — nothing was verified."
   echo "   To pin it, use this value: $ACTUAL_SHA256"

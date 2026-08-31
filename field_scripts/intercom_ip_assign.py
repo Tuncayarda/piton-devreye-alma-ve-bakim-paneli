@@ -422,6 +422,35 @@ def _parse_mac_table(data) -> dict:
     return table
 
 
+# ─────────────────────────────────────────────── the panel's contract ────
+# The panel imports this script at runtime (panel/script_loader.py) and,
+# besides the run entry points, reaches for these three names:
+#
+#     MAC_ENDPOINTS     panel/probe/switch.py — the endpoints that may
+#                       serve the MAC table
+#     parse_mac_table   panel/probe/switch.py — the one parser for KYLAND's
+#                       reply shapes; a second copy would drift from this one
+#     reset_mac_cache   panel/ip_assign/lcd_runner.py — the LCD run swaps
+#                       the powered display every port, so each run starts
+#                       with a fresh table
+#
+# They are part of the contract script_loader verifies at load (its
+# CONTRACTS table): rename one only together with that table, or the panel
+# refuses to load this script.
+parse_mac_table = _parse_mac_table
+
+
+def reset_mac_cache() -> None:
+    """Forget the learned MAC endpoint and table, and re-arm discovery.
+
+    The cache assumes one run talks to one unchanging switch. The panel's
+    LCD run breaks that: a table learned for the previous display is already
+    stale when the next port powers up. `dead` is cleared too — one failed
+    read in an earlier run must not keep MAC verification off forever.
+    """
+    _MAC_CACHE.update(endpoint=None, table={}, at=0.0, dead=False)
+
+
 def switch_mac_table(cfg) -> dict:
     """The switch's MAC table: {mac: port}.
 

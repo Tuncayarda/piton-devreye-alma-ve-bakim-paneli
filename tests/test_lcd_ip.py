@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
+import tempfile
 from contextlib import ExitStack
+from pathlib import Path
 from unittest import mock
 
-from panel import credentials
+from panel import credentials, i18n, script_loader
 from panel.adb import client as adb_client
 from panel.errors import AuthError
 from panel.inventory import catalog, device_map
 from panel.ip_assign import lcd_runner, runner
 from panel.ip_assign.plan import build_plan
+from panel.probe import switch as switch_probe
 
 from .support import fakes
 from .support.base import PanelTest
@@ -101,7 +105,15 @@ class FakeSwitch:
         self.adb = adb
         self.ports = tuple(ports)
         self.poe_calls: list[set[int]] = []
-        self._MAC_CACHE = {}
+        self.mac_resets = 0
+
+    def reset_mac_cache(self):
+        # Part of the loaded script's contract (script_loader.CONTRACTS):
+        # the runner clears the field script's MAC cache through this public
+        # name before touching any port. Counted so a test can insist the
+        # reset actually happened — it used to be a getattr on a private
+        # dict, which a rename turned into a silent no-op.
+        self.mac_resets += 1
 
     def poe_read(self, _cfg):
         return [{"pid": port, "poeMode": "1", "priority": "0",
@@ -344,6 +356,8 @@ class CompartmentLcdRun(CompartmentLcdPlan):
         self.assertEqual(code, 0)
         self.assertEqual(set(adb.live), {"10.7.1.40", "10.7.1.41"})
         self.assertEqual(adb.live["10.7.1.40"]["cidr"], "10.7.1.40/24")
+        # The stale-table reset ran, and before any port was powered.
+        self.assertEqual(switch_api.mac_resets, 1)
         # close all -> open 13 -> keep 13 while opening 14 -> final all open
         self.assertEqual(switch_api.poe_calls,
                          [set(), {13}, {13, 14}, {13, 14}])
@@ -565,6 +579,8 @@ class CompartmentLcdRun(CompartmentLcdPlan):
         self.assertEqual(code, 0)
         self.assertEqual(adb.live["10.9.1.44"]["cidr"], "10.9.1.44/8")
         self.assertIn("write:10.1.1.41->10.9.1.44/8", adb.timeline)
+        # The bench flow starts from a fresh MAC table too.
+        self.assertEqual(switch_api.mac_resets, 1)
         # Only the selected port is powered, and it is reopened afterwards.
         self.assertEqual(switch_api.poe_calls, [set(), {8}, {8}])
         summary = [e for e in events(lines) if e["event"] == "summary_row"]
@@ -627,6 +643,38 @@ class CompartmentLcdRun(CompartmentLcdPlan):
         failed = [e for e in events(lines) if e["event"] == "port_failed"]
         self.assertIn("serial changed", failed[0]["reason"])
 
+    def test_run_and_run_manual_share_the_port_engine(self):
+        """Both flows must route every port through `_commission_port`.
+
+        The two runs used to carry private copies of the same ~130-line
+        procedure, and a safety fix applied to one could silently miss the
+        other.  Stub the shared engine once and both flows must go through
+        it — the set run with the completed-ports power set, the bench run
+        with its typed target as the cleanup hint.
+        """
+        inventory = self.inventory(7, count=1)
+        seen = []
+
+        def engine(module, cfg, state, port, **kwargs):
+            seen.append((port, kwargs["powered"],
+                         kwargs.get("target_hint", "")))
+            return False, "engine stub"
+
+        with mock.patch.object(lcd_runner, "_commission_port",
+                               side_effect=engine):
+            code_run, _switch, run_lines = self.run_lcd(
+                inventory, FakeAdb({}), ports=(13,))
+            code_manual, _switch2, manual_lines = self.run_manual(
+                inventory, FakeAdb({}), port=8,
+                options={"targetIp": "10.9.1.44"})
+
+        self.assertEqual((code_run, code_manual), (1, 1))
+        self.assertEqual(seen, [(13, {13}, ""), (8, {8}, "10.9.1.44")])
+        for lines in (run_lines, manual_lines):
+            summary = [e for e in events(lines)
+                       if e["event"] == "summary_row"]
+            self.assertEqual(summary[0]["reason"], "engine stub")
+
     def test_a_device_learned_on_another_switch_port_is_never_written(self):
         inventory = self.inventory(7, count=1)
         adb = FakeAdb({
@@ -640,6 +688,67 @@ class CompartmentLcdRun(CompartmentLcdPlan):
         self.assertFalse(any("su" in call for call in adb.calls))
         failed = [e for e in events(lines) if e["event"] == "port_failed"]
         self.assertIn("port 14", failed[0]["reason"])
+
+
+class ScriptContract(PanelTest):
+    """The panel's grip on the runtime-loaded field script.
+
+    The LCD run's identity guarantee leans on names inside
+    field_scripts/intercom_ip_assign.py — the MAC endpoints, the table
+    parser, the cache reset. These tests pin the shape of that lean: the
+    loader refuses a script that lost one of the names, and the probe reads
+    the MAC table through the public parser, never the private one.
+    """
+
+    def test_the_real_field_script_carries_every_contract_name(self):
+        # Loading at all means the loader's own check passed; the loop below
+        # is the readable list of what that check covered.
+        module = script_loader.intercom_ip_assign()
+        for name in script_loader.CONTRACTS["field_ip_assign"]:
+            self.assertTrue(hasattr(module, name), name)
+
+    def test_a_script_missing_one_name_is_refused_at_load(self):
+        """A renamed helper fails the LOAD, loudly — not the run, quietly."""
+        required = script_loader.CONTRACTS["field_ip_assign"]
+        # The exact accident this guards: everything is still there except
+        # the cache reset, which someone renamed on the script side.
+        source = "".join(f"{name} = None\n" for name in required
+                         if name != "reset_mac_cache")
+        path = Path(tempfile.mkdtemp(prefix="panel-test-")) / "renamed.py"
+        path.write_text(source, encoding="utf-8")
+        # Same table, same code path as the real scripts — only under a name
+        # of its own, so the cached real module is left alone.
+        with mock.patch.dict(script_loader.CONTRACTS,
+                             {"field_ip_assign_renamed": required}):
+            with self.assertRaises(RuntimeError) as caught:
+                script_loader.load_module("field_ip_assign_renamed", path,
+                                          "test script")
+        self.assertEqual(
+            str(caught.exception),
+            i18n.t("error.scriptContractBroken", description="test script",
+                   missing="reset_mac_cache"))
+        # A retry must reload the file, not find the rejected module cached.
+        self.assertNotIn("field_ip_assign_renamed", sys.modules)
+
+    def test_the_mac_table_is_read_through_the_public_parser(self):
+        """probe.switch parses a canned KYLAND reply via `parse_mac_table`.
+
+        The private name is poisoned to prove the probe no longer reaches
+        for it: with `_parse_mac_table` raising, the read still succeeds.
+        """
+        module = script_loader.intercom_ip_assign()
+        payload = {"macQueryList": [
+            {"mac": "5C-01-3B-8A-76-43", "portList": [{"pid": 11}]},
+            {"mac": "5c01.3b8a.7644", "pid": "12"},
+        ]}
+        poison = mock.Mock(side_effect=AssertionError(
+            "the probe read the private parser name"))
+        with (mock.patch.object(module, "_parse_mac_table", poison),
+              mock.patch.object(switch_probe.switch.CLIENT, "get",
+                                return_value=payload)):
+            table = switch_probe.mac_table("10.7.1.101", ("admin", "pw"))
+        self.assertEqual(table, {"5c:01:3b:8a:76:43": 11,
+                                 "5c:01:3b:8a:76:44": 12})
 
 
 if __name__ == "__main__":

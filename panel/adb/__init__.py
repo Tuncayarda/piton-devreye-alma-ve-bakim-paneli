@@ -6,9 +6,16 @@ Two different things live here and they are deliberately kept apart.
 **The transport** (`binary`, `client`) is the panel's only way of running
 ``adb``. It was written for the Compartment LCD commissioning run and grew
 three uncoordinated copies — one per screen that needed a device command —
-each with its own idea of what a timeout or a missing executable means. There
-is one now, and every caller gets the same bounded wait, the same
-``-s <ip>:5555`` scoping and the same two error classes.
+each with its own idea of what a timeout or a missing executable means, and
+worse, its own connect proof: the probe inferred reachability from a getprop
+answer while the ADB screen demanded ``get-state`` say ``device``, so one
+display could be red on the scan and green on the ADB screen at the same
+moment. There is one transport now — `panel.probe.android` and
+`panel.firmware.apk_install` run on it too, pinned by a source scan in
+tests/test_adb.py — and every caller gets the same bounded wait, the same
+``-s <ip>:5555`` scoping, the same connect proof and the same two error
+classes. Callers sharing one display at one moment take a `client.lease` so
+neither tears down the transport under the other.
 
 **The ADB screen** (`pool`, `packages`, `apps`, `autostart`, `runner`) is a
 tool in its own right and knows nothing about DeviceMap. Its devices are a

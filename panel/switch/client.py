@@ -102,6 +102,13 @@ class SwitchClient:
         self._device_locks_guard = threading.Lock()
         self._scan_lock = threading.Lock()
         self._scan_cancel = threading.Event()
+        # Which IP-assignment run currently OWNS a switch, by address. The
+        # run drives PoE through the field script, which does not take the
+        # per-write lock above — it cannot, the lock would be held for
+        # minutes and every switch-screen request would hang instead of
+        # being told why. So ownership is a claim the routes consult and
+        # answer 409 from, not a mutex (see panel.api.routes.switch_routes).
+        self._run_owners: dict[str, str] = {}
 
     def lock(self, ip: str) -> threading.Lock:
         """The write lock for one switch.
@@ -135,6 +142,38 @@ class SwitchClient:
     @property
     def scan_cancel_event(self) -> threading.Event:
         return self._scan_cancel
+
+    # ── the run claim ────────────────────────────────────────────────────
+    # The IP-assignment run and the switch screen write to the same switch
+    # through two different clients — the panel's (this one, per-write lock)
+    # and the field script's own (`switch_request`, no lock). The PoE and
+    # portMode endpoints rewrite a WHOLE table, so a screen write landing
+    # mid-run would overwrite ports with values read before the run changed
+    # them. The queue serialises runs against each other; this claim is what
+    # tells the SCREEN's request threads a run owns the switch right now.
+
+    def claim_run(self, ip: str, owner: str) -> bool:
+        """Claim a switch for a run. False if another run already holds it."""
+        with self._device_locks_guard:
+            holder = self._run_owners.get(ip)
+            if holder and holder != owner:
+                return False
+            self._run_owners[ip] = owner
+            return True
+
+    def release_run(self, ip: str) -> None:
+        with self._device_locks_guard:
+            self._run_owners.pop(ip, None)
+
+    def run_owner(self, ip: str) -> str:
+        """Which run holds this switch, or empty."""
+        with self._device_locks_guard:
+            return self._run_owners.get(ip, "")
+
+    def clear_runs(self) -> None:
+        """Forget every claim. Shutdown and tests."""
+        with self._device_locks_guard:
+            self._run_owners.clear()
 
     @staticmethod
     def _authentication(credentials: tuple[str, str] | None):

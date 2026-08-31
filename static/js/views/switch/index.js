@@ -24,12 +24,15 @@
 
 import { el, fill } from '../../core/dom.js';
 import { api } from '../../core/api.js';
+import { latest } from '../../core/latest.js';
+import { poll } from '../../core/poll.js';
 import { state, patch } from '../../core/store.js';
 import { notify, showError, showSuccess } from '../../components/toast.js';
 import { t } from '../../core/i18n.js';
 import {
-  POLL_INTERVAL, clearSelection, clickPort, live, local, onScreen, poeModes,
-  pruneSelection, scanning, selectedIp, stopPolling, typed,
+  POLL_INTERVAL, clearSelection, clickPort, forgetAllTyped,
+  forgetTypedPassword, local, onScreen, poeModes,
+  pruneSelection, scanning, selectedIp, typed,
 } from './state.js';
 import {
   discoveryCard, seedCidr, startDiscovery, stopDiscovery,
@@ -40,47 +43,47 @@ import { portsCard } from './ports.js';
 import { networkCard } from './network.js';
 import * as contextMenu from './context_menu.js';
 
-let refreshToken = 0;
 let root = null;
 
 // ── talking to the server ───────────────────────────────────────────────
 
-export async function refresh() {
-  const token = ++refreshToken;
+// `latest` retires a reload overtaken by a newer one. Deliberately NOT
+// set-scoped: like the ADB bench, this screen's switches belong to no train
+// set (see the header), so there is no `setNo` to re-check here the way the
+// IP and firmware refreshes must.
+export const refresh = latest(async (fresh) => {
   try {
     const body = await api.switchScreen();
-    if (token !== refreshToken) return;
+    if (!fresh()) return;
     patch({ switchState: body });
     seedCidr();
   } catch {
-    if (token !== refreshToken) return;
+    if (!fresh()) return;
     patch({ switchState: null });
   }
-  schedulePoll();
+  round.arm();
   draw();
-}
+});
 
-// setTimeout AFTER the reply, never setInterval — the house rule, so a slow
-// reply cannot make requests pile up.
-function schedulePoll() {
-  stopPolling();
-  if (!onScreen() || !scanning()) return;
-  live.timer = setTimeout(pollRound, POLL_INTERVAL);
-}
-
-async function pollRound() {
-  live.timer = null;
-  if (!onScreen()) return;
-  try {
-    const body = await api.switchScreen();
-    patch({ switchState: body });
-    draw();
-  } catch {
-    // A failed poll is not worth a message: the next one will say so, and
-    // this runs once a second.
-  }
-  schedulePoll();
-}
+// The poll that follows a running sweep, once a second (core/poll.js —
+// setTimeout chained after the reply, the house rule). `while` also ends
+// the beat: the round that fetches the finished sweep's body finds
+// `scanning` false when it re-arms, so the final results land and the poll
+// stops itself.
+const round = poll({
+  run: async () => {
+    try {
+      const body = await api.switchScreen();
+      patch({ switchState: body });
+      draw();
+    } catch {
+      // A failed poll is not worth a message: the next one will say so, and
+      // this runs once a second.
+    }
+  },
+  interval: POLL_INTERVAL,
+  while: () => onScreen() && scanning(),
+});
 
 // Everything about one switch: its identity, its network, and its ports.
 // Read together because the screen shows them together — two round trips
@@ -165,10 +168,10 @@ const actions = {
   // The two fields are joined by the form; what arrives here is the
   // expression the server parses (panel/switch/discovery.py).
   discover: (expression) => {
-    startDiscovery(expression, () => { schedulePoll(); draw(); });
+    startDiscovery(expression, () => { round.arm(); draw(); });
   },
 
-  cancelDiscover: () => stopDiscovery(() => { schedulePoll(); draw(); }),
+  cancelDiscover: () => stopDiscovery(() => { round.arm(); draw(); }),
 
   // ONE BUTTON FOR BOTH STEPS. Signing in and opening are two things to the
   // server and one to the operator: they typed a password to see the ports.
@@ -183,7 +186,14 @@ const actions = {
         await signIn(ip, store.user, store.password);
         await refresh();          // the row stops saying it is locked
       } catch (error) {
+        // The switch said no. The password must not wait around for a retry
+        // — signIn only erases it on the SUCCESS path, so without this it
+        // sat in typed(ip) and in the row's box for the rest of the session.
+        // The username stays; draw() rebuilds the row from typed(ip), which
+        // is what empties the password input on screen.
+        forgetTypedPassword(ip);
         showError(error.message);
+        draw();
         return;
       } finally {
         patch({ switchBusy: false });
@@ -319,19 +329,23 @@ function draw() {
 // DRAWING ONLY. `app.js` calls this on every store publish — the job queue
 // alone republishes once a second — so a fetch in here would be a request per
 // second for a screen that is merely on display. The data comes from
-// `refresh()`, which `onViewEntered` calls once when the screen opens, and
+// `refresh()`, which `the VIEW_LIFECYCLE table's enter hook` calls once when the screen opens, and
 // from the poll below while a sweep runs. (Same division as the ADB screen;
 // getting it wrong there is what the note in its render() is about.)
 export function render(container) {
   root = container;
   seedCidr();
   draw();
-  // The poll owns its timer and stops itself when the screen goes; it is not
-  // rebuilt on every render, or it would never elapse.
-  if (scanning() && !live.timer) schedulePoll();
+  // The poll owns its timer and stops itself when the sweep ends; it is not
+  // rebuilt on every render, or it would never elapse — `active()` first.
+  if (scanning() && !round.active()) round.arm();
 }
 
 export function stop() {
-  stopPolling();
+  round.stop();
   contextMenu.close();
+  // Leaving the screen abandons whatever was half-typed into the rows'
+  // boxes: the inputs are about to be torn down, and the module copy must
+  // not outlive them.
+  forgetAllTyped();
 }

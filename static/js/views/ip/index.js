@@ -14,8 +14,10 @@
 // state.refreshProtected and panel/ip_assign/ports.py). Manual entry opens
 // only when the search returns nothing.
 
-import { el, fill } from '../../core/dom.js';
+import { $, el, fill, focusHeld, preserveScroll } from '../../core/dom.js';
 import { api } from '../../core/api.js';
+import { latest } from '../../core/latest.js';
+import { poll } from '../../core/poll.js';
 import { state, patch } from '../../core/store.js';
 import * as actionTabs from '../../components/action_tabs.js';
 import { confirmWrite } from '../../components/confirm.js';
@@ -25,8 +27,8 @@ import { value } from '../../core/format.js';
 import {
   PROTECTED_INTERVAL, REFRESH_INTERVAL, currentTarget, ipTargets, live,
   local, onScreen, protectedFound,
-  refreshProtected, resetProtectedForSet, selectedGroups,
-  stopPanels, selectAssignmentSwitch, targetLabel,
+  refreshProtected, resetProtectedForSet, screen, selectedGroups,
+  selectAssignmentSwitch, targetLabel,
 } from './state.js';
 import { formatPorts, parsePorts, validatePorts } from './ports.js';
 import { legend, panelCard, writeFreshness } from './panel.js';
@@ -42,7 +44,9 @@ import {
 } from './software.js';
 import { t } from '../../core/i18n.js';
 
-let refreshToken = 0;
+// The container app.js hands to render(). Captured so the screen can redraw
+// ITSELF (see draw below) without a round trip through the store.
+let root = null;
 
 // Redraws ONLY the panel cards after re-reading them.
 async function refreshPanels() {
@@ -72,52 +76,88 @@ function drawPanels(data) {
   writeFreshness();
 }
 
-// The rounds are chained with setTimeout: if a read takes long, the next
-// round does not start before it and requests cannot pile up.
+// The three rounds this screen keeps while it is open, as core/poll.js
+// handles (setTimeout chained after each round — the house rule — so
+// requests cannot pile up). They are armed by the lifecycle below and by
+// refresh(), NEVER from render: timers rebuilt on every render never
+// elapse, which is exactly the double-timer bug this screen had (neither
+// the 5 s panel round nor the 30 s verification round ever ran again).
+const panelRound = poll({
+  run: async () => {
+    try {
+      await refreshPanels();
+    } catch { /* the "x s ago" indicator already reports staleness */ }
+  },
+  interval: REFRESH_INTERVAL,
+  while: () => onScreen() && live.enabled,
+});
+
+const protectedRound = poll({
+  run: async () => {
+    await refreshProtected();
+    // The finding shows as an amber port, in the run summary and in the
+    // readiness header, so the whole screen redraws — through the screen's
+    // OWN draw, not an identity-swap patch (see state.refreshProtected).
+    draw();
+  },
+  interval: PROTECTED_INTERVAL,
+  while: () => onScreen() && live.enabled,
+});
+
+// The per-second tick that rewrites "x s ago". Not gated on `live.enabled`:
+// while the refresh is paused the age of what is on screen is the one thing
+// that must keep counting.
+const FRESHNESS_INTERVAL = 1000;
+const ticker = poll({
+  run: writeFreshness,
+  interval: FRESHNESS_INTERVAL,
+  while: onScreen,
+});
+
+// Write the freshness now and keep the beat — what the tick's callers want
+// is never "in one second" (the pause button flips the label immediately).
 function freshnessTick() {
-  clearTimeout(live.ticker);
-  live.ticker = null;
   if (!onScreen()) return;
   writeFreshness();
-  live.ticker = setTimeout(freshnessTick, 1000);
+  ticker.arm();
 }
 
-async function refreshRound() {
-  clearTimeout(live.timer);
-  live.timer = null;
-  if (!onScreen() || !live.enabled) return;
-  try {
-    await refreshPanels();
-  } catch { /* the "x s ago" indicator already reports staleness */ }
-  if (!onScreen() || !live.enabled) return;
-  live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
+function stopRounds() {
+  panelRound.stop();
+  ticker.stop();
+  protectedRound.stop();
 }
 
-async function protectedRound() {
-  clearTimeout(live.protectedTimer);
-  live.protectedTimer = null;
-  if (!onScreen() || !live.enabled) return;
-  try {
-    await refreshProtected();
-  } catch { /* retried on the next round */ }
-  if (!onScreen() || !live.enabled) return;
-  live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
-}
-
-// An established round is LEFT IN PLACE, not rebuilt.
-//
-// `render` runs on every device refresh — the light refresh redraws the whole
-// screen every few seconds. Tearing the timers down and rebuilding them on
-// every render meant none of them ever elapsed: neither the 5 s panel round
-// nor the 30 s verification round ever ran again. The rounds stop themselves
-// on leaving the screen (see onScreen), so there is nothing to stop here.
+// An established round is LEFT IN PLACE, not rebuilt — `active()` is asked
+// first. Called from refresh() once the first panel read has landed; the
+// rounds stop themselves when their `while` goes false (screen left, pause
+// pressed), and leave() below stops them the moment the view changes.
 function startRefreshing() {
-  if (!live.ticker) freshnessTick();
+  if (!ticker.active()) freshnessTick();
   if (!live.enabled) return;
-  if (!live.timer) live.timer = setTimeout(refreshRound, REFRESH_INTERVAL);
-  if (!live.protectedTimer) {
-    live.protectedTimer = setTimeout(protectedRound, PROTECTED_INTERVAL);
-  }
+  if (!panelRound.active()) panelRound.arm();
+  if (!protectedRound.active()) protectedRound.arm();
+}
+
+// ── lifecycle ───────────────────────────────────────────────────────────
+// Called by app.js from its VIEW_LIFECYCLE table. enter() fetches and arms,
+// leave() disarms, render() only draws — the division that keeps a timer
+// from ever being armed twice by a redraw.
+export function enter() {
+  // The freshness tick has no request behind it and starts at once. The two
+  // data rounds are armed by refresh() only after the first panel read has
+  // landed: armed here, the 5 s round could duplicate the initial read of a
+  // slow or unreachable switch that is still in flight.
+  freshnessTick();
+  refresh();
+}
+
+export function leave() {
+  // The 5 s panel round, the 1 s freshness tick and the 30 s protected-port
+  // verification all stop with the screen. They used to stop themselves one
+  // fire later (each round re-checked onScreen); stopping them here means a
+  // slow switch is never read again for a screen nobody is looking at.
+  stopRounds();
 }
 
 // The target type picker. It stays visible even with one option: the user
@@ -163,11 +203,17 @@ function targetPicker() {
   ]);
 }
 
-export async function refresh() {
-  // A fresh plan starts its own initial panel request. Retire any older live
-  // rounds first so they cannot read the same slow switch in parallel.
-  stopPanels();
-  const token = ++refreshToken;
+// `latest` retires an overtaken refresh; the reply is also dropped when the
+// TRAIN SET moved underneath it — the plan is derived per set, and a set
+// change mid-request must not land the old set's plan (the same rule
+// firmware.js follows; the adb and switch screens are set-free on purpose).
+export const refresh = latest(async (fresh) => {
+  // A fresh plan starts its own initial panel request. Retire the older DATA
+  // rounds first so they cannot read the same slow switch in parallel — but
+  // only those two: the freshness ticker has no request behind it, and
+  // stopping it here silently undid enter()'s "starts at once".
+  panelRound.stop();
+  protectedRound.stop();
   const setNo = state.setNo;
   const groups = selectedGroups();
   local.errorText = '';
@@ -177,7 +223,7 @@ export async function refresh() {
   try {
     const plan = await api.ipPlan(
       setNo, groups.join(','), local.portText || '', local.switchId || '');
-    if (token !== refreshToken || setNo !== state.setNo) return;
+    if (!fresh() || setNo !== state.setNo) return;
     local.errorText = '';
     // Protected-port findings belong to one set. Clear an old set's finding
     // before publishing the new plan so even the first render cannot use it.
@@ -196,7 +242,7 @@ export async function refresh() {
     // refreshes this screen, but "we already have a finding" meant it was
     // never searched again and the port was never found. A successful finding
     // is not renewed; the PROTECTED_INTERVAL round keeps it fresh.
-    if (!protectedFound()) refreshProtected();
+    if (!protectedFound()) refreshProtected().then(() => draw());
 
     // Each switch's panel comes from its own endpoint; if one cannot be read
     // (no credentials, unreachable) the others are still drawn. This happens
@@ -204,16 +250,20 @@ export async function refresh() {
     const panels = await Promise.all(
       (plan.switches || []).map(entry => api.ipPanel(setNo, entry.id)
         .catch(() => null)));
-    if (token !== refreshToken || setNo !== state.setNo) return;
+    if (!fresh() || setNo !== state.setNo) return;
     patch({
       ipState: { plan, panels: panels.filter(Boolean), panelsLoading: false },
     });
+    // The initial panel request has just landed, so the five-second loop can
+    // no longer duplicate it — this is the one safe moment to arm the
+    // rounds, which is why refresh() owns it and render never did it well.
+    startRefreshing();
   } catch (e) {
-    if (token !== refreshToken || setNo !== state.setNo) return;
+    if (!fresh() || setNo !== state.setNo) return;
     local.errorText = e.message;
     patch({ ipState: null });
   }
-}
+});
 
 // The header: the readiness indicator and the start button, plus the one
 // function that keeps them in step.
@@ -399,11 +449,11 @@ function panelSection(panels) {
       e.currentTarget.setAttribute('aria-pressed', String(live.enabled));
       e.currentTarget.textContent = t(live.enabled ? 'ip.refreshOn'
         : 'ip.refreshPaused');
-      stopPanels();
+      stopRounds();
       freshnessTick();
       if (live.enabled) {
-        refreshRound();                 // read once as soon as it resumes
-        protectedRound();               // re-verify the protected ports too
+        panelRound.now();               // read once as soon as it resumes
+        protectedRound.now();           // re-verify the protected ports too
       }
     },
     text: t(live.enabled ? 'ip.refreshOn' : 'ip.refreshPaused'),
@@ -431,7 +481,31 @@ function panelSection(panels) {
   ]);
 }
 
-export function render(root) {
+// DRAWING ONLY. app.js calls this on every store publish — the job queue
+// alone republishes once a second — so nothing here fetches and nothing
+// here arms a timer: the data comes from refresh() (called by enter() when
+// the screen opens) and the rounds are armed there too. (Same division as
+// the switch and adb screens; the note above the poll handles records what
+// arming timers from render cost this screen.)
+export function render(container) {
+  root = container;
+  // The sub-modules' repaint hook — see state.screen.
+  screen.draw = draw;
+  paint();
+}
+
+// The screen redrawing ITSELF, for changes only it can see (the
+// protected-port finding lives in `local`, not in the store). The guards
+// are the ones app.js applies before ITS renders, or this path would lose
+// the protection those have: never over a box being typed in, and the
+// scroll position survives.
+function draw() {
+  if (!root || state.view !== 'ip' || !state.meta) return;
+  if (focusHeld(root)) return;
+  preserveScroll($('#content'), paint);
+}
+
+function paint() {
   forgetMaskBoxes();
   const data = state.ipState;
   const check = data ? validateRun(data) : null;
@@ -455,12 +529,11 @@ export function render(root) {
     settingsCard(data, check, header, { switchArea, portArea }),
     panelSection(panels),
   ]));
-  // The panels are filled in and their refresh loop started only once the
-  // stack node exists (panelSection publishes it as live.stack).
+  // The panels are filled in only once the stack node exists (panelSection
+  // publishes it as live.stack). Their refresh loop is NOT started here:
+  // refresh() arms it when the initial panel request lands, so a slow
+  // switch's in-flight read can never be duplicated by the 5 s round.
   drawPanels(data);
-  // The initial panel request is already in flight. Starting the five-second
-  // loop before it finishes can duplicate a slow/unreachable switch read.
-  if (!data.panelsLoading) startRefreshing();
 
   if (plan.factoryResetSupported === true) {
     parts.push(plan.factoryResetKind === 'perDevice'

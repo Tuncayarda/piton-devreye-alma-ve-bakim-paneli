@@ -95,7 +95,9 @@ def address_map(inventory: Inventory, switch_id: str, groups,
     seen: dict[str, dict[str, dict]] = {ip: {} for ip in candidates}
     for index in range(max(1, passes)):
         if index:
-            module.arp_forget(candidates)
+            # The config rides along so the script's `--no-arp-flush`
+            # opt-out is honoured here as everywhere else in the run.
+            module.arp_forget(candidates, config)
             clock.sleep(PASS_INTERVAL)
         for ip, device_settings in module.probe_all(candidates, config).items():
             extension = extension_of(device_settings)
@@ -177,8 +179,9 @@ def audit_identities(inventory: Inventory, switch_id: str, ports: list[int],
     for index in range(max(1, passes)):
         if index:
             # A second device on the same address only appears once the entry
-            # turns over (see address_map).
-            module.arp_forget(addresses)
+            # turns over (see address_map). Config passed for the same
+            # reason as there: the arp_flush opt-out applies to this flush.
+            module.arp_forget(addresses, config)
             clock.sleep(PASS_INTERVAL)
         for ip, device_settings in module.probe_all(addresses, config).items():
             extension = extension_of(device_settings)

@@ -28,6 +28,25 @@ def prepare_network(job: jobs.Job, inventory, options=None) -> dict:
     operation's own message says far more than a guess made here.
     """
     result = network.ensure(inventory, options)
+    _report(job, result)
+    return result
+
+
+def prepare_expression(job: jobs.Job, target) -> dict:
+    """The same preparation for a job that has a NETWORK, not a DeviceMap.
+
+    The switch-discovery sweep is the one caller: its target is whatever the
+    operator typed into the CIDR box. It used to carry its own copy of the
+    row emission below — which had already drifted, dropping the
+    stranded-route warning that exists precisely because a stranded network
+    fails every probe with the same wording as dead hardware.
+    """
+    result = network.ensure_network(target)
+    _report(job, result)
+    return result
+
+
+def _report(job: jobs.Job, result: dict) -> None:
     for record in result["added"]:
         job.add_row(f"net:{record['ip']}",
                     f"{record['ip']}/{record['prefix']}", state="done",
@@ -56,4 +75,3 @@ def prepare_network(job: jobs.Job, inventory, options=None) -> dict:
                     state="warning",
                     note=i18n.lazy("job.networkAddressFailed",
                                    detail=failure["error"]))
-    return result

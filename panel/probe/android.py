@@ -5,15 +5,20 @@ Reaching adb is not enough for the device to count as "up": the panel app's
 version must be readable too. A device shown green with no data would fill
 the checklist with empty columns and call it verified — in the field that
 means reporting an app that was never installed as installed.
+
+The TRANSPORT is `panel.adb.client` and nothing else. This file used to run
+its own ``subprocess`` with its own connect proof, and the ADB screen ran the
+client's; the two proofs disagreed, so the same display at the same moment
+could be red on the scan and green on the ADB screen. What lives here now is
+only what this probe knows: which fields to extract and how to parse them.
 """
 from __future__ import annotations
 
 import re
-import subprocess
 
 from .. import editions, settings
-from ..adb.binary import adb_path
-from ..errors import (NotApplicableError, UnreachableError, VerificationError)
+from ..adb import client
+from ..errors import UnreachableError, VerificationError
 from .. import i18n
 
 
@@ -94,66 +99,79 @@ def app_required() -> bool:
         return True
 
 
-def read(ip: str, timeout: int | None = None) -> dict:
+def read(ip: str, timeout: float | None = None) -> dict:
+    # Applied to EACH adb invocation below, not to the read as a whole —
+    # callers passing a budget (the light refresh's few seconds) get it as
+    # the ceiling on any single hang, which is the failure the budget is
+    # there to bound.
     limit = timeout or settings.ADB_TIMEOUT
-    target = f"{ip}:{settings.ADB_PORT}"
 
-    def run(*args) -> str:
-        result = subprocess.run([adb_path(), "-s", target, *args],
-                                capture_output=True, text=True, timeout=limit,
-                                check=False)
-        return result.stdout.strip()
-
-    try:
-        subprocess.run([adb_path(), "connect", target], capture_output=True,
-                       text=True, timeout=limit, check=False)
-    except FileNotFoundError:
-        raise NotApplicableError(
-            i18n.t("error.adbMissing"))
-    except subprocess.TimeoutExpired:
-        raise UnreachableError(i18n.t("error.adbConnectTimeout"))
+    def shell(*args: str) -> str:
+        # stdout, exit code ignored — the shape this probe has always read:
+        # a command that failed leaves its field empty rather than aborting
+        # the whole read, and the checks below decide what an empty field
+        # means.
+        result = client.shell_result(ip, *args, timeout=limit)
+        return str(getattr(result, "stdout", "") or "").strip()
 
     try:
-        serial = run("shell", "getprop", "ro.serialno")
-        if not serial:
-            # A failed adb connect leaves stdout empty; that is a device
-            # access problem, not an "unexpected error".
-            raise UnreachableError(
-                i18n.t("error.adbNoConnection"))
-        timezone = run("shell", "getprop", "persist.sys.timezone")
-        uptime_raw = run("shell", "cat", "/proc/uptime")
+        # The lease keeps this read from tearing a transport out from under
+        # a concurrent APK install on the same display — and the other way
+        # round (see panel/adb/client.py, "the connection lease").
+        with client.lease(ip):
+            # THE CONNECT PROOF IS THE CLIENT'S: disconnect-first, then
+            # `adb connect`, then `get-state` must answer ``device``. This
+            # file used to fire one bare `adb connect` and infer
+            # reachability from `getprop ro.serialno` coming back non-empty
+            # — a proof no other screen shared, which is how one display got
+            # two verdicts at once (scan red, ADB screen green), and one
+            # that `adb connect`'s cheerful answer to a mere TCP handshake
+            # could fool. One attempt, not the client's default twelve: the
+            # scan revisits on its own beat, and its budget is per command,
+            # not per campaign.
+            if not client.connect(ip, attempts=1, timeout=limit):
+                raise UnreachableError(i18n.t("error.adbNoConnection"))
 
-        package = package_info(run("shell", "dumpsys", "package",
-                                   settings.ADB_PACKAGE))
-        if not package["version"] and app_required():
-            # On a train this is the fault being looked for: the display is
-            # there to run this application. On a stand it is not — see
-            # `app_required` below. Either way the display had to ANSWER to
-            # get this far; what is in question is only what is on it.
-            raise VerificationError(
-                i18n.t("error.adbVersionUnreadable",
-                       package=settings.ADB_PACKAGE))
+            serial = shell("getprop", "ro.serialno")
+            if not serial:
+                # No longer the connect proof (the client's is, above), but
+                # still a failed read: a transport that answers ``device``
+                # and yields no serial gives this probe nothing to report,
+                # and an empty row shown green is the original complaint.
+                raise UnreachableError(i18n.t("error.adbNoConnection"))
+            timezone = shell("getprop", "persist.sys.timezone")
+            uptime_raw = shell("cat", "/proc/uptime")
 
-        sip = sip_log(run("logcat", "-d", "-s",
-                          f"{settings.ADB_LOG_TAG}:I", "*:S"))
+            package = package_info(shell("dumpsys", "package",
+                                         settings.ADB_PACKAGE))
+            if not package["version"] and app_required():
+                # On a train this is the fault being looked for: the display
+                # is there to run this application. On a stand it is not —
+                # see `app_required` above. Either way the display had to
+                # ANSWER to get this far; what is in question is only what
+                # is on it.
+                raise VerificationError(
+                    i18n.t("error.adbVersionUnreadable",
+                           package=settings.ADB_PACKAGE))
 
-        return {
-            "serial": serial,
-            "timezone": timezone,
-            "uptime": uptime_raw.split()[0] if uptime_raw else None,
-            "package": settings.ADB_PACKAGE,
-            **package,
-            **sip,
-        }
-    except subprocess.TimeoutExpired:
-        raise UnreachableError(i18n.t("error.adbTimeout"))
+            # logcat is a device command, not a shell command, so it goes
+            # through `client.run` with the same explicit serial.
+            logcat = client.run("-s", client.target(ip), "logcat", "-d",
+                                "-s", f"{settings.ADB_LOG_TAG}:I", "*:S",
+                                timeout=limit)
+            sip = sip_log(str(getattr(logcat, "stdout", "") or "").strip())
+
+            return {
+                "serial": serial,
+                "timezone": timezone,
+                "uptime": uptime_raw.split()[0] if uptime_raw else None,
+                "package": settings.ADB_PACKAGE,
+                **package,
+                **sip,
+            }
     finally:
-        try:
-            # `adb_path()`, not the bare name: this module resolves it for
-            # every other call and a disconnect that quietly does nothing
-            # leaves the transport attached for the next read to trip over.
-            subprocess.run([adb_path(), "disconnect", target],
-                           capture_output=True, text=True, timeout=limit,
-                           check=False)
-        except Exception:
-            pass
+        # AFTER the lease is released, so it really drops the serial when
+        # this read was the transport's only user — and is skipped by
+        # `client.disconnect` itself when an install still holds a lease.
+        # A transport left attached is what the next read trips over.
+        client.disconnect(ip, timeout=limit)

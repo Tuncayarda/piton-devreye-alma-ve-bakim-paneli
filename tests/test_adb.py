@@ -18,7 +18,6 @@ import importlib.util
 import json
 import os
 import re
-import shlex
 import threading
 import time
 from contextlib import contextmanager
@@ -32,399 +31,12 @@ from panel.adb.runner import RUNNER
 from panel.errors import DeviceError, VerificationError
 from panel.system import files
 
+# The one fake ADB (tests/support/adb.py). It grew up in this file and moved
+# out when the probe and the APK install joined the shared transport: three
+# suites faking the same `subprocess.run` seam three ways would be the test
+# suite repeating the exact bug the consolidation removed.
+from .support.adb import FakeAdb, Result
 from .support.base import PanelTest
-
-
-class Result:
-    def __init__(self, stdout="", stderr="", returncode=0):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.returncode = returncode
-
-
-class FakeAdb:
-    """An ADB server holding a few Android devices with a file system.
-
-    Only the commands this screen actually sends are answered. Anything else
-    comes back as a failure rather than as an empty success — a command
-    nobody wrote a case for should show up as a broken test, not as a silent
-    pass.
-    """
-
-    LAUNCHER = "com.example.gebze/.MainActivity"
-
-    def __init__(self, devices=None, *, system_writable=True,
-                 push_to_system=True, start_fails=False, unlisted=(),
-                 no_launcher=(), monkey_fails=(),
-                 uninstall_fails=False, refuse=(), magisk_su=False,
-                 reboot_refused=False, reboot_downtime=3,
-                 drops_content=False, adb_root_allowed=True,
-                 overlay_allowed=True, wedged=False):
-        # ip -> {"packages": [...], "files": {path: text},
-        #        "modes": {path: mode}}
-        self.live = {ip: {"packages": list(record.get("packages", [])),
-                          "files": dict(record.get("files", {})),
-                          "modes": {}}
-                     for ip, record in (devices or {}).items()}
-        self.connected: set[str] = set()
-        # The daemon on this computer, as opposed to any display. `wedged`
-        # clears itself on the first restart, which is what lets a test say
-        # "it was broken and the panel fixed it" rather than only one of the two.
-        self.wedged = wedged
-        self.server_restarts = 0
-        self.calls: list[list[str]] = []
-        self.timeline: list[str] = []
-        # Which of the three write routes this device allows.
-        self.system_writable = system_writable
-        self.push_to_system = push_to_system
-        self.start_fails = start_fails
-        # Addresses that connect but never show up in `adb devices`.
-        self.unlisted = set(unlisted)
-        # Packages with no resolvable launcher activity — the case the
-        # `monkey` fallback exists for.
-        self.no_launcher = set(no_launcher)
-        # ...and the ones monkey cannot start either.
-        self.monkey_fails = set(monkey_fails)
-        self.uninstall_fails = uninstall_fails
-        # Paths the device ACCEPTS AND THEN DOES NOT KEEP: the command
-        # reports success and the file is not there afterwards. That is the
-        # failure the read-back exists to catch.
-        self.refuse = set(refuse)
-        # Does this image carry a Magisk-style `su` that takes `-c`? The
-        # Compartment LCDs do; the AOSP displays do not. Off by default so
-        # the harder of the two is what the suite exercises.
-        self.magisk_su = magisk_su
-        self.staged: dict[str, str] = {}
-        # Rebooting, as the ADB server actually experiences it: the address
-        # stops answering for a while and then answers again. `down` counts
-        # the remaining refusals per address, so a test can say "comes back
-        # after three knocks" or "never comes back" with one number.
-        # What the autostart diagnosis asks the device about. Defaults
-        # describe a display that booted an hour ago with nothing installed.
-        # THE FAULT THE FIELD REPORTED. On a display whose /system sits on a
-        # verity-backed device-mapper volume, remounting it read-write
-        # appears to work and `cp` exits 0 — and the file arrives with the
-        # right owner, mode and label and ZERO BYTES. Only an overlay makes
-        # a write real. `drops_content` models exactly that.
-        self.drops_content = drops_content
-        self.adb_root_allowed = adb_root_allowed
-        self.overlay_allowed = overlay_allowed
-        self.adbd_root = False
-        self.overlay = False
-        self.props: dict[str, str] = {}
-        self.now = 10_000
-        self.uptime = 3600
-        self.mtimes: dict[str, int] = {}
-        self.logcat: list[str] = []
-        self.app_running: set[str] = set()
-        self.reboot_refused = reboot_refused
-        self.reboot_downtime = reboot_downtime
-        self.down: dict[str, int] = {}
-
-    # ── plumbing ────────────────────────────────────────────────────────
-    @staticmethod
-    def ip_of(target: str) -> str:
-        return target.rsplit(":", 1)[0]
-
-    def __call__(self, args, **_kwargs):
-        args = list(args)
-        self.calls.append(args)
-        verb = args[1]
-        if verb == "disconnect":
-            self.connected.discard(self.ip_of(args[2]))
-            return Result("disconnected\n")
-        if verb == "connect":
-            ip = self.ip_of(args[2])
-            # A wedged server refuses everything, whatever is on the bench.
-            # That is the shape the panel reads as "restart the server, not
-            # the displays" (panel/adb/runner._should_recover).
-            if self.wedged:
-                return Result("", "cannot connect to daemon\n", 1)
-            pending = self.down.get(ip, 0)
-            if pending:
-                self.down[ip] = pending - 1
-                return Result(f"failed to connect to {args[2]}\n",
-                              returncode=1)
-            if ip in self.live:
-                self.connected.add(ip)
-                return Result(f"connected to {args[2]}\n")
-            return Result(f"failed to connect to {args[2]}\n", returncode=1)
-        if verb in ("kill-server", "start-server"):
-            # A restart drops every transport, which is the whole point of it
-            # — and it is what makes a wedged server usable again.
-            if verb == "kill-server":
-                self.connected.clear()
-            self.wedged = False
-            # Counted on the second half only: one restart is kill+start.
-            if verb == 'start-server':
-                self.server_restarts += 1
-            return Result("")
-        if verb == "devices":
-            if self.wedged:
-                return Result("", "cannot connect to daemon\n", 1)
-            # The real listing: a header line, then "<serial>\t<state>".
-            # `unlisted` is the case worth having — a display that answers
-            # the handshake and still does not appear here.
-            rows = "".join(
-                f"{ip}:{settings.ADB_PORT}\tdevice\n"
-                for ip in sorted(self.connected) if ip not in self.unlisted)
-            return Result("List of devices attached\n" + rows)
-
-        assert verb == "-s", args
-        ip = self.ip_of(args[2])
-        if ip not in self.connected or ip not in self.live:
-            return Result("", "device offline\n", 1)
-        action = args[3]
-        if action == "get-state":
-            return Result("device\n")
-        if action == "push":
-            return self._push(ip, args[4], args[5])
-        if action == "uninstall":
-            return self._uninstall(ip, args[4])
-        if action == "reboot":
-            return self._reboot(ip)
-        if action == "root":
-            if not self.adb_root_allowed:
-                return Result("", "adbd cannot run as root in production "
-                                  "builds\n")
-            self.adbd_root = True
-            return Result("restarting adbd as root\n")
-        if action == "remount":
-            if not self.overlay_allowed or not self.adbd_root:
-                return Result("", "remount failed\n", 1)
-            self.overlay = True
-            return Result("Using overlayfs for /system\nremount succeeded\n")
-        if action == "shell":
-            return self._shell(ip, args[4:])
-        return Result("", f"unexpected command {action}\n", 1)
-
-    # ── the device ──────────────────────────────────────────────────────
-    def _push(self, ip, local, remote):
-        from pathlib import Path as _Path
-
-        text = _Path(local).read_text(encoding="utf-8")
-        # An overlay is exactly what makes a /system push land, so a device
-        # that refused one before `adb remount` accepts it afterwards.
-        if (remote.startswith("/system/")
-                and not (self.push_to_system or self.overlay)):
-            return Result("", "adb: error: failed to copy: Read-only file "
-                              "system\n", 1)
-        self.timeline.append(f"push:{remote}")
-        if remote not in self.refuse:
-            self.live[ip]["files"][remote] = self._landed(remote, text)
-            # A pushed file is not marked runnable; `_write_file` chmods it
-            # afterwards, which this fake grants unconditionally.
-            self.live[ip]["modes"][remote] = "0755"
-        return Result("1 file pushed\n")
-
-    def _reboot(self, ip):
-        if self.reboot_refused:
-            return Result("", "error: closed\n", 1)
-        self.timeline.append(f"reboot:{ip}")
-        self.connected.discard(ip)
-        self.down[ip] = self.reboot_downtime
-        return Result("")
-
-    def _uninstall(self, ip, package):
-        if self.uninstall_fails:
-            return Result("Failure [DELETE_FAILED_INTERNAL_ERROR]\n")
-        self.timeline.append(f"uninstall:{package}")
-        record = self.live[ip]
-        record["packages"] = [name for name in record["packages"]
-                              if name != package]
-        return Result("Success\n")
-
-    def _shell(self, ip, command):
-        record = self.live[ip]
-        joined = " ".join(command)
-        # A SCRIPT, not a word list. `adb shell` hands its arguments to the
-        # device's shell unquoted, so anything with a space in it arrives
-        # here already quoted by the caller (see client.script) — and is
-        # taken apart again the same way the device's shell would.
-        if command[:2] == ["sh", "-c"]:
-            return self._script(record, _unquote(command[2]), root=False)
-        if command[0] == "su":
-            return self._su(record, command)
-        if command[:3] == ["pm", "list", "packages"]:
-            return Result("".join(f"package:{name}\n"
-                                  for name in record["packages"]))
-        if command[:2] == ["am", "force-stop"]:
-            self.timeline.append(f"stop:{command[2]}")
-            return Result("")
-        if command[:3] == ["am", "start", "-n"]:
-            if self.start_fails:
-                return Result("Starting: Intent\n"
-                              "Error: Activity class does not exist.\n")
-            self.timeline.append(f"start:{command[3]}")
-            return Result(
-                f"Starting: Intent {{ cmp={command[3]} }}\n")
-        if command[0] == "monkey":
-            name = command[2]
-            if name in self.monkey_fails or name not in record["packages"]:
-                return Result("** No activities found to run, "
-                              "monkey aborted.\n")
-            self.timeline.append(f"monkey:{name}")
-            return Result("Events injected: 1\n")
-        if command[:4] == ["cmd", "package", "resolve-activity", "--brief"]:
-            if (command[4] in record["packages"]
-                    and command[4] not in self.no_launcher):
-                return Result(f"priority=0\n{self.LAUNCHER}\n")
-            return Result("No activity found\n")
-        if command[:2] == ["dumpsys", "package"]:
-            if command[2] in self.no_launcher:
-                return Result("")
-            return Result(_DUMPSYS if command[2] in record["packages"] else "")
-        if command[0] == "chmod":
-            return Result("")
-        if command == ["id"]:
-            # Asked directly on the transport, which is how `restart_as_root`
-            # proves adbd really came back as root rather than trusting the
-            # command's own cheerful answer.
-            return Result("uid=0(root) gid=0(root)\n" if self.adbd_root
-                          else "uid=2000(shell) gid=2000(shell)\n")
-        if command[0] == "getprop":
-            return Result(self.props.get(command[1], "") + "\n")
-        if command[:2] == ["cat", "/proc/uptime"]:
-            return Result(f"{self.uptime} 0.0\n")
-        if command[:2] == ["date", "+%s"]:
-            return Result(f"{self.now}\n")
-        if command[:2] == ["stat", "-c"]:
-            return Result(f"{self.mtimes.get(command[3], 0)}\n")
-        if command[0] == "logcat":
-            return Result("".join(f"I/{line}\n" for line in self.logcat))
-        if command[0] == "pidof":
-            return Result("4711\n" if command[1] in self.app_running else "")
-        return Result("", f"unexpected shell {joined}\n", 1)
-
-    # ── the `su` this image carries ──────────────────────────────────────
-    def _su(self, record, command):
-        """Toybox `su`, which is what the field displays actually have.
-
-        Its usage is `su [WHO [COMMAND...]]`, so it reads `-c` as a USER
-        NAME and answers "invalid uid/gid". Modelled rather than smoothed
-        over: a panel that only knows the Magisk `su -c` form reports a
-        perfectly rootable display as unwritable, which is the bug this
-        fake now makes impossible to reintroduce unnoticed.
-        """
-        if len(command) >= 2 and command[1] == "-c":
-            if self.magisk_su:
-                return self._script(record, _unquote(command[2]), root=True)
-            return Result("", "su: invalid uid/gid '-c'\n", 1)
-        if command[1:4] in (["0", "sh", "-c"], ["root", "sh", "-c"]):
-            return self._script(record, _unquote(command[4]), root=True)
-        return Result("", "usage: su [WHO [COMMAND...]]\n", 1)
-
-    # ── the device's shell ───────────────────────────────────────────────
-    def _script(self, record, text, *, root):
-        parts = shlex.split(text)
-        if text == "id":
-            return Result("uid=0(root) gid=0(root)\n" if root
-                          else "uid=2000(shell) gid=2000(shell)\n")
-        if parts[:2] in (["[", "-e"], ["[", "-x"]):
-            path = parts[2]
-            # `[ -e p ] && echo YES || echo NO` — the branches are whatever
-            # the caller chose to print, read off the script rather than
-            # written down twice.
-            said = [parts[i + 1] for i, word in enumerate(parts)
-                    if word == "echo"]
-            held = (path in record["files"] if parts[1] == "-e"
-                    else record["modes"].get(path) == "0755")
-            if held:
-                return Result(f"{said[0]}\n")
-            return Result(f"{said[1]}\n" if len(said) > 1 else "\n")
-        if parts[:2] == ["stat", "-c"]:
-            # `stat -c %s p 2>/dev/null || echo -1`. The size is the whole
-            # point: this device answers it truthfully even when the write
-            # that produced the file silently dropped its contents.
-            path = parts[3]
-            if path not in record["files"]:
-                return Result("-1\n")
-            return Result(f"{len(record['files'][path].encode())}\n")
-        if parts[0] == "chmod":
-            if parts[2] in record["files"]:
-                record["modes"][parts[2]] = parts[1]
-            return Result("")
-        if parts[:2] == ["rm", "-f"]:
-            self._unlink(record, parts[2], root=root)
-            return Result("")
-        if "mount -o rw,remount" in text:
-            return self._transaction(record, text, root=root)
-        return Result("", f"unexpected script {text}\n", 1)
-
-    def _unlink(self, record, path, *, root):
-        if path.startswith("/system/") and not (root and self.system_writable):
-            return
-        record["files"].pop(path, None)
-        record["modes"].pop(path, None)
-
-    def _transaction(self, record, text, *, root):
-        r"""The remount-and-copy, run statement by statement.
-
-        Taken apart the way a shell would rather than with one regex over
-        the whole string: `rm -f /system/x; sync` matched by `rm -f (\S+)`
-        captures `/system/x;`, semicolon included, and the removal then
-        silently does nothing. That is a fake that passes while the product
-        is broken, which is worse than no fake at all.
-        """
-        self.timeline.append("su")
-        if not root:
-            return Result("", "mount: Operation not permitted\n", 1)
-        for statement in re.split(r"[;\n]|&&|\|\|", text):
-            parts = shlex.split(statement.strip(" ()"))
-            if not parts:
-                continue
-            if parts[0] == "cp" and len(parts) >= 3:
-                self._copy(record, parts[1], parts[2])
-            elif parts[0] == "chmod" and len(parts) >= 3:
-                if parts[2] in record["files"]:
-                    record["modes"][parts[2]] = parts[1]
-            elif parts[0] == "rm":
-                self._unlink(record, parts[-1], root=True)
-        return Result("")
-
-    def _copy(self, record, source, target):
-        if target.startswith("/system/") and not self.system_writable:
-            return
-        if target in self.refuse:
-            return
-        if source not in record["files"]:
-            return
-        record["files"][target] = self._landed(target,
-                                               record["files"][source])
-        record["modes"][target] = record["modes"].get(source, "0644")
-        self.timeline.append(f"copy:{target}")
-
-    def _landed(self, target: str, text: str) -> str:
-        """What the filesystem really keeps of a write to `target`.
-
-        Everything, unless this display drops the contents of a /system
-        write that did not go through an overlay — which is the whole fault
-        being modelled, and the reason the panel now reads a file's SIZE
-        back rather than asking whether it exists.
-        """
-        if (self.drops_content and target.startswith("/system/")
-                and not self.overlay):
-            return ""
-        return text
-
-
-def _unquote(token: str) -> str:
-    """What the device's shell would make of one quoted argument."""
-    parts = shlex.split(token)
-    return parts[0] if parts else ""
-
-
-_DUMPSYS = """
-  Activity Resolver Table:
-    Non-Data Actions:
-      android.intent.action.MAIN:
-        com.example.gebze/.MainActivity filter 8f2
-          Action: "android.intent.action.MAIN"
-          Category: "android.intent.category.LAUNCHER"
-
-    versionCode=3 minSdk=21 targetSdk=35
-    versionName=1.2.0
-"""
 
 
 class AdbTest(PanelTest):
@@ -624,14 +236,20 @@ class Binary(AdbTest):
 
         workflow = (settings.ROOT / ".github" / "workflows"
                     / "build-app.yml").read_text(encoding="utf-8")
-        self.assertIn("platform-tools-latest-", workflow,
+        # Pinned and verified now, not "-latest-": the archive is copied
+        # into every package, so the shipped adb must not change on
+        # Google's schedule (tests/test_edition_packaging.py pins the
+        # digests themselves).
+        self.assertIn("platform-tools_${PT_VERSION}-${ARCHIVE}.zip", workflow,
                       "CI does not fetch the adb tools")
         # ...and it must not hand itself the opt-out. Matched as a YAML
         # assignment, so the name may still be explained in a comment.
         self.assertNotIn("DAP_ALLOW_NO_ADB:", workflow,
                          "CI sets the escape hatch it exists to not need")
-        for archive in ("windows", "linux", "darwin"):
-            self.assertIn(archive, workflow, f"no {archive} archive in CI")
+        # The case tokens as they are written, so a renamed one fails here
+        # rather than matching some unrelated mention of the word.
+        for archive in ("ARCHIVE=win", "ARCHIVE=linux", "ARCHIVE=darwin"):
+            self.assertIn(archive, workflow, f"no {archive} case in CI")
 
     def test_the_packaged_self_test_fails_without_a_bundled_adb(self):
         """The second net, on the artifact rather than on the build.
@@ -1053,6 +671,16 @@ class Apps(AdbTest):
         self.assertEqual(result["action"], "restart")
         self.assertLess(adb.timeline.index("stop:com.example.gebze"),
                         adb.timeline.index(f"start:{FakeAdb.LAUNCHER}"))
+
+    def test_a_restart_proves_the_transport_once(self):
+        """One `_require`, not three. `restart` calling the public `stop`
+        and `start` re-proved the same transport per step — three connect
+        rounds, ~nine adb processes — and the answer cannot change between
+        a stop and the start half a second later."""
+        adb = self.with_adb(FakeAdb(self.one_device()))
+        apps.restart("10.1.1.40", "com.example.gebze")
+        self.assertEqual(
+            sum(1 for call in adb.calls if call[1] == "connect"), 1)
 
     def test_a_package_name_from_outside_is_checked(self):
         for bad in ("", "not a package", "com.example; rm -rf /"):
@@ -1902,3 +1530,161 @@ class AttachingTheWholeBench(AdbTest):
         """It addresses the DEVICE, so two bundles must not mean two rows."""
         self.assertIn("connect", apps.DEVICE_OPERATIONS)
         self.assertIn("connect", apps.OPERATIONS)
+
+
+# ─────────────────────────────────────── the one transport, pinned ────
+class OneTransport(AdbTest):
+    """`panel.adb.client` claims to be the only place adb is executed.
+
+    The claim was false once already: the probe and the APK install each
+    grew a private `subprocess` wrapper with its own connect proof, and the
+    same display at the same moment was red on the scan and green on the
+    ADB screen. The wrappers are gone; this scan is what keeps a fourth
+    copy from growing back quietly.
+    """
+
+    # The two files that carried private copies of the transport.
+    FORMER_COPIES = (("panel", "probe", "android.py"),
+                     ("panel", "firmware", "apk_install.py"))
+
+    def test_the_former_private_wrappers_stay_deleted(self):
+        """No `subprocess` outside comments — import, call or alias."""
+        pattern = re.compile(r"\bsubprocess\s*\.|"
+                             r"^\s*import\s+subprocess|"
+                             r"^\s*from\s+subprocess\b")
+        offenders = []
+        for parts in self.FORMER_COPIES:
+            path = settings.ROOT.joinpath(*parts)
+            for number, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), start=1):
+                # Outside comments. The docstrings naming the old wrappers
+                # mention the word without the dot or the import form, so
+                # they do not match; running code cannot avoid both.
+                if pattern.search(line.split("#")[0]):
+                    offenders.append(f"{'/'.join(parts)}:{number}")
+        self.assertEqual(offenders, [],
+                         "these run their own subprocess instead of "
+                         f"panel.adb.client: {offenders}")
+
+    def test_both_former_copies_import_the_shared_client(self):
+        """The positive half: the transport they use is the client."""
+        for parts in self.FORMER_COPIES:
+            text = settings.ROOT.joinpath(*parts).read_text(encoding="utf-8")
+            self.assertIn("from ..adb import client", text,
+                          f"{'/'.join(parts)} does not use panel.adb.client")
+
+
+# ───────────────────────────────────── the connection lease ───────────
+class Lease(AdbTest):
+    """Two subsystems, one serial: neither may tear the other down.
+
+    The tear this removes was reported from the bench: the light refresh
+    read a Compartment LCD, politely disconnected afterwards — and pulled
+    the transport out from under the APK install that was half way through
+    on the same display. A lease is a per-serial reference count that
+    `client.disconnect` respects; with none held, nothing changes at all,
+    which is what keeps the runner's and the commissioning run's explicit
+    disconnects exactly as they were.
+    """
+
+    def test_disconnect_is_skipped_while_a_lease_is_active(self):
+        adb = self.with_adb(FakeAdb(self.one_device()))
+        self.assertTrue(adb_client.connect("10.1.1.40", attempts=1))
+        with adb_client.lease("10.1.1.40"):
+            adb_client.disconnect("10.1.1.40")
+            self.assertIn("10.1.1.40", adb.connected,
+                          "the leased transport was dropped")
+        # The lease is gone, so the ordinary rule is back.
+        adb_client.disconnect("10.1.1.40")
+        self.assertNotIn("10.1.1.40", adb.connected)
+
+    def test_leases_are_counted_not_boolean(self):
+        """Two holders, two releases: the transport survives the first."""
+        adb = self.with_adb(FakeAdb(self.one_device()))
+        self.assertTrue(adb_client.connect("10.1.1.40", attempts=1))
+        with adb_client.lease("10.1.1.40"):
+            with adb_client.lease("10.1.1.40"):
+                pass                      # the first holder finished
+            adb_client.disconnect("10.1.1.40")
+            self.assertIn("10.1.1.40", adb.connected,
+                          "one release must not void the other holder")
+        adb_client.disconnect("10.1.1.40")
+        self.assertNotIn("10.1.1.40", adb.connected)
+
+    def test_a_scan_read_does_not_drop_a_leased_install_transport(self):
+        """The documented tear, end to end.
+
+        An install holds its lease on the display; the probe reads the same
+        display through the same client, finishes, tidies up after itself —
+        and the install's transport is still there.
+        """
+        from panel.probe import android
+
+        adb = self.with_adb(FakeAdb(
+            {"10.1.1.40": {"packages": [settings.ADB_PACKAGE]}}))
+        adb.props["ro.serialno"] = "rk3568r0001"
+        with adb_client.lease("10.1.1.40"):        # the install's span
+            self.assertTrue(adb_client.connect("10.1.1.40", attempts=1))
+            data = android.read("10.1.1.40")
+            self.assertEqual(data["serial"], "rk3568r0001")
+            self.assertIn("10.1.1.40", adb.connected,
+                          "the read disconnected a transport in use")
+        adb_client.disconnect("10.1.1.40")
+        self.assertNotIn("10.1.1.40", adb.connected)
+
+    def test_a_lone_read_still_hands_the_transport_back(self):
+        """The lease must not turn every read into `connect`'s exception:
+        with nobody else holding the serial, a read that leaves it attached
+        is a serial the next operation reaches by accident."""
+        from panel.probe import android
+
+        adb = self.with_adb(FakeAdb(
+            {"10.1.1.40": {"packages": [settings.ADB_PACKAGE]}}))
+        adb.props["ro.serialno"] = "rk3568r0001"
+        android.read("10.1.1.40")
+        self.assertNotIn("10.1.1.40", adb.connected)
+        # And the connect proof really was the client's: the serial was
+        # asked for its state, not inferred from a property read.
+        self.assertTrue(any("get-state" in call for call in adb.calls))
+
+
+# ─────────────────────────── the probe's adb branch ───────────────────
+class ProbeTimeout(PanelTest):
+    """The caller's read budget must reach the adb commands."""
+
+    def test_the_callers_timeout_reaches_android_read(self):
+        """`read_device`'s `timeout` was dropped on the adb branch alone —
+        every other protocol passed it through — so the light refresh's
+        3-second budget never bounded an unresponsive display: the refresh
+        sat out the full default while the working devices' data went
+        stale behind it. `android.read` applies the budget per adb
+        invocation (its documented shape), so it is forwarded as-is."""
+        from types import SimpleNamespace
+
+        from panel import status
+        from panel.probe import reader
+
+        seen = {}
+
+        def fake_read(ip, timeout=None):
+            seen["ip"], seen["timeout"] = ip, timeout
+            return {"serial": "SER123", "timezone": "Europe/Istanbul",
+                    "uptime": "120", "version": "1.0.5", "versionCode": "7",
+                    "targetSdk": "35", "updatedAt": "2026-07-07",
+                    "package": settings.ADB_PACKAGE, "sipExtension": "6001",
+                    "sipPbx": "10.1.1.1", "sipRegistration": "registered",
+                    "sipCode": "200"}
+
+        device = SimpleNamespace(read_method="adb", ip="10.1.1.40")
+        with mock.patch.object(reader.android, "read", fake_read):
+            result = reader.read_device(device, timeout=3.0)
+
+        self.assertEqual(seen["ip"], "10.1.1.40")
+        self.assertEqual(seen["timeout"], 3.0)
+        self.assertEqual(result.state, status.OK)
+
+        # Without a budget the default must survive: `android.read` falls
+        # back to settings.ADB_TIMEOUT only when it is handed None.
+        with mock.patch.object(reader.android, "read", fake_read):
+            reader.read_device(device)
+        self.assertIsNone(seen["timeout"])

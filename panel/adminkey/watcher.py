@@ -50,6 +50,15 @@ class KeyWatch:
 
     def __init__(self):
         self._lock = threading.RLock()
+        # `observe` only — and deliberately NOT the RLock above. The scan
+        # must run without holding `_lock` (it spawns subprocesses, and the
+        # window's poll must not block behind them), and it must never run
+        # twice at once: the beat thread, `fresh()` callers and the admin
+        # routes all call `observe`, and on macOS each copy is a launchctl
+        # run PER VOLUME in the operator's session. A plain Lock taken with
+        # `acquire(blocking=False)` gives exactly the wanted shape — one
+        # scanner, and every latecomer handed the answer already in hand.
+        self._observing = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._present = False
@@ -140,12 +149,35 @@ class KeyWatch:
             self._seen_at = time.monotonic()
 
     # ── one look at the machine ──────────────────────────────────────────
-    def observe(self) -> dict:
+    def observe(self, wait: bool = False) -> dict:
         """Scan the volumes once and record what was found.
 
         Called by the thread, and directly at start-up so the first answer is
         ready before the window asks for it.
+
+        ONE SCAN AT A TIME, and two kinds of caller. The beat and `fresh()`
+        do not queue up behind a scan already running — a second look at the
+        same volumes could only say the same thing — and are handed the
+        current answer instead; what they miss is younger than FRESH, which
+        is exactly the staleness `fresh()` already accepts. A caller about
+        to GRANT something on the answer cannot accept that: losing the
+        race there returned the snapshot from BEFORE the concurrent scan,
+        and a stick pulled in that instant could still open admin mode on
+        its ghost. Those callers pass `wait=True` and block for the scan —
+        they are a few user-initiated requests per session, not a poll
+        (panel/api/routes/admin_routes.py).
         """
+        if wait:
+            with self._observing:
+                return self._observe()
+        if not self._observing.acquire(blocking=False):
+            return self.snapshot()
+        try:
+            return self._observe()
+        finally:
+            self._observing.release()
+
+    def _observe(self) -> dict:
         found = None
         rejected = None
         for volume in volumes.searched():
@@ -168,10 +200,16 @@ class KeyWatch:
             self._record(True, entry.recognised, entry.label, entry.reason,
                          volume, len(projects), entry.proof)
             # The stick carries the key that opens the device lists sealed
-            # into this package (see `vault.py`). Opened here, on the same
-            # observation that recognised the key, so that a project the
-            # engineer can open is a project the menu can already list.
-            if entry.recognised:
+            # into this package (see `vault.py`). Opened IN ADMIN MODE ONLY:
+            # the menu offers extras only there (`editions.projects`), so
+            # unsealing on mere sight of the key bought nothing — and cost
+            # the one thing the sealing exists for, because it left another
+            # customer's list decrypted in the temp directory of a machine
+            # whose operator never entered admin mode at all. Entering the
+            # mode unseals too (`editions.set_admin` → `unlock_sealed`), so
+            # this call only keeps an already-admin session current when the
+            # stick arrives after the fact.
+            if entry.recognised and editions.admin():
                 sealed.unlock(entry.proof)
         self._apply_mode()
         return self.snapshot()
@@ -280,14 +318,3 @@ class KeyWatch:
 
 
 WATCH = KeyWatch()
-
-
-def wait_for_change(previous: int, timeout: float = 0.0) -> dict:
-    """Block until the observation moves past `previous`. Tests only —
-    the UI polls instead, and nothing in the panel waits on a stick."""
-    deadline = time.monotonic() + timeout
-    while True:
-        state = WATCH.snapshot()
-        if state["generation"] != previous or time.monotonic() >= deadline:
-            return state
-        time.sleep(0.05)

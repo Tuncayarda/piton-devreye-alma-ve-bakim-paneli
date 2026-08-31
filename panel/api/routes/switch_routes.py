@@ -29,10 +29,11 @@ from ... import credentials, i18n, jobs, switch
 # THIS MACHINE'S network, not the switch's. Both appear in this
 # file — `network` below is the switch's own management address —
 # and one of them has to say which it is.
-from ... import network as host_network
 from ...switch import device, network, ports, validation
 from ...switch.discovery import DEFAULT_DISCOVERY_CIDR
 from ..response import respond
+from ..tasks.network_prepare import prepare_expression
+from .helpers import submit
 
 # What the last scan found, and the job that is filling it. Module level
 # because the screen is one screen however many times it is opened, and a
@@ -127,21 +128,11 @@ def _prepare_network(job: jobs.Job, expression: str) -> None:
     target = switch.target_network(expression)
     if target is None:
         return
-    result = host_network.ensure_network(target)
-    for record in result["added"]:
-        job.add_row(f"net:{record['ip']}",
-                    f"{record['ip']}/{record['prefix']}", state="done",
-                    note=i18n.lazy("job.networkAddressAdded",
-                                   adapter=record["adapter"]),
-                    ip=record["ip"])
-    if result.get("needsAdapter"):
-        # Not a failure: the panel declined to guess which cable reaches the
-        # switches. The Network screen is where that is answered.
-        job.add_row("net:adapter", i18n.lazy("job.networkNoAdapter"),
-                    state="warning", note=i18n.lazy("job.networkPickAdapter"))
-    for failure in result["failed"]:
-        job.add_row(f"net:{failure['network']}", str(failure["network"]),
-                    state="warning", note=failure["error"])
+    # The shared reporter, not a private copy: the copy that lived here had
+    # already drifted — it dropped the stranded-route warning, which exists
+    # precisely because a stranded network fails every probe with the same
+    # wording as "there are no switches here".
+    prepare_expression(job, target)
 
 
 def _discover_task(expression: str):
@@ -152,19 +143,30 @@ def _discover_task(expression: str):
         _prepare_network(job, expression)
         if not switch.CLIENT.start_scan():
             raise RuntimeError(i18n.t("switch.errorScanInProgress"))
-        try:
-            # The job's own cancel flag drives the client's, so pressing stop
-            # in the queue stops the sweep rather than only unlisting the job.
-            def watch():
-                job.cancel.wait()
-                switch.CLIENT.scan_cancel_event.set()
+        # The job's own cancel flag drives the client's, so pressing stop in
+        # the queue stops the sweep rather than only unlisting the job. The
+        # watcher must also END with the sweep: it used to block on
+        # `job.cancel.wait()` alone, and on a successful sweep nothing ever
+        # sets that flag — one OS thread plus a pinned Job (rows and all)
+        # leaked per discovery, on a screen made for sweeping repeatedly.
+        # (Setting the flag from the finally instead would mark a finished
+        # job CANCELLED — the queue reads it right after the body returns.)
+        done = threading.Event()
 
+        def watch():
+            while not job.cancel.wait(0.25):
+                if done.is_set():
+                    return
+            switch.CLIENT.scan_cancel_event.set()
+
+        try:
             watcher = threading.Thread(target=watch, daemon=True)
             watcher.start()
             result = switch.CLIENT.discover(
                 expression, cancel_event=switch.CLIENT.scan_cancel_event)
         finally:
             switch.CLIENT.finish_scan()
+            done.set()
         _store(result["switches"])
         job.add_row(
             "scan", i18n.lazy("switch.jobDiscoveryRow"),
@@ -189,11 +191,12 @@ def post_discover(body):
     job = jobs.Job("switchscan",
                    i18n.lazy("switch.jobDiscoveryTitle", network=expression),
                    0, key="switchscan")
-    job, is_new = jobs.QUEUE.submit(job, _discover_task(expression))
+    response = submit(job, _discover_task(expression))
     with _LOCK:
-        _JOB_ID = job.id
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+        # The QUEUED job's id, which on a 202 is the EXISTING sweep's, not
+        # the duplicate the screen just asked for.
+        _JOB_ID = response.body["id"]
+    return response
 
 
 def post_discover_cancel(_body):
@@ -252,9 +255,27 @@ def post_logout(body):
 
 # ---- writes ------------------------------------------------------------
 
+def _owned_by_run(ip: str):
+    """The 409 for a switch an IP-assignment run holds right now, or None.
+
+    The run drives PoE through the field script's own HTTP client, outside
+    `switch.CLIENT`'s per-write lock — it holds the switch for MINUTES, and
+    a lock held that long would hang every request here instead of
+    answering. So the run leaves a claim (`panel.api.tasks.ip_task`) and
+    the write endpoints refuse over it: a PoE or port-table write landing
+    mid-run would overwrite the very ports the run just changed, with
+    values this screen read before it started.
+    """
+    owner = switch.CLIENT.run_owner(ip)
+    if not owner:
+        return None
+    return respond(409, {"error": i18n.t("switch.errorRunOwnsSwitch"),
+                         "waiting": True})
+
+
 def post_poe(body):
     ip = validation.body_ip(body)
-    return respond(200, ports.set_poe(
+    return _owned_by_run(ip) or respond(200, ports.set_poe(
         switch.CLIENT, ip, validation.port_id(body),
         validation.text(body, "mode"), _credentials(ip)))
 
@@ -267,6 +288,9 @@ def post_port(body):
     has always done it.
     """
     ip = validation.body_ip(body)
+    refused = _owned_by_run(ip)
+    if refused is not None:
+        return refused
     port = validation.port_id(body)
     if "enabled" in body:
         return respond(200, ports.set_port_enabled(
@@ -279,6 +303,9 @@ def post_port(body):
 
 def post_batch(body):
     ip = validation.body_ip(body)
+    refused = _owned_by_run(ip)
+    if refused is not None:
+        return refused
     poe = validation.port_mapping(body, "poe", str)
     selected = validation.port_mapping(body, "ports",
                                        validation.boolean_value)
@@ -290,7 +317,7 @@ def post_batch(body):
 
 def post_network(body):
     ip = validation.body_ip(body)
-    return respond(200, network.set_network(
+    return _owned_by_run(ip) or respond(200, network.set_network(
         switch.CLIENT, ip,
         validation.text(body, "address"),
         validation.text(body, "prefix"),
@@ -300,13 +327,14 @@ def post_network(body):
 
 def post_config_save(body):
     ip = validation.body_ip(body)
-    return respond(200, device.save_configuration(switch.CLIENT, ip,
-                                                  _credentials(ip)))
+    return _owned_by_run(ip) or respond(200, device.save_configuration(
+        switch.CLIENT, ip, _credentials(ip)))
 
 
 def post_reboot(body):
     ip = validation.body_ip(body)
-    return respond(200, device.reboot(switch.CLIENT, ip, _credentials(ip)))
+    return _owned_by_run(ip) or respond(200, device.reboot(
+        switch.CLIENT, ip, _credentials(ip)))
 
 
 def post_factory_reset(body):
@@ -319,8 +347,8 @@ def post_factory_reset(body):
     ip = validation.body_ip(body)
     if validation.text(body, "confirm", "").strip() != ip:
         raise ValueError(i18n.t("switch.errorConfirmationFailed"))
-    return respond(200, device.factory_reset(switch.CLIENT, ip,
-                                             _credentials(ip)))
+    return _owned_by_run(ip) or respond(200, device.factory_reset(
+        switch.CLIENT, ip, _credentials(ip)))
 
 
 GET = {

@@ -78,8 +78,16 @@ jobs:
           echo "edition=$EDITION" >> "$GITHUB_OUTPUT"
           echo "Building the '$EDITION' package."
 
+  # The Release must not publish over a failing credential scan: the
+  # DeviceMap the scan inspects is the file dabp.spec compiles into the
+  # package. ci.yml runs the same checks (same file), but it runs in
+  # PARALLEL with this workflow on a tag push and cannot block it — this
+  # `needs:` edge is what does.
+  checks:
+    uses: ./.github/workflows/repo-checks.yml
+
   package:
-    needs: resolve
+    needs: [resolve, checks]
     uses: ./.github/workflows/build-app.yml
     permissions:
       contents: write            # for the Release step

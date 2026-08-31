@@ -20,12 +20,13 @@ from unittest import mock
 import zipfile
 
 from panel import firmware, jobs, settings
+from panel.adb import client as adb_client
 from panel.errors import NotApplicableError, VerificationError
-from panel.firmware import apk_install
 from panel.firmware.apk_metadata import ApkMetadataError, read_apk_metadata
 from panel.system import files
 
 from .support import fakes
+from .support.adb import FakeAdb, Result
 from .support.base import PanelTest, ServiceTest
 
 
@@ -466,40 +467,22 @@ DUMPSYS_OLD = "    versionCode=1 minSdk=21 targetSdk=35\n    versionName=0.0.5"
 DUMPSYS_NEW = "    versionCode=2 minSdk=21 targetSdk=35\n    versionName=0.0.6"
 
 
-class FakeAdbInstall:
-    """Stands in for subprocess.run; imitates the adb install flow.
+def install_adb(install_output=None, versions=None, install_stderr="",
+                install_returncode=0):
+    """The shared fake (tests/support/adb.py), dressed for an APK install.
 
-    `install_output` sets the device's answer, `versions` the versions dumpsys
-    returns in succession.
+    One live display at the address the LCD fixture resolves to, and the
+    dumpsys answers scripted: the version BEFORE the install and the version
+    read back afterwards, in that order. The old `FakeAdbInstall` here was
+    the third private stand-in for the same subprocess seam — one per suite,
+    exactly the drift the shared transport exists to end.
     """
-
-    def __init__(self, install_output="Success\n", versions=None,
-                 install_stderr="", install_returncode=0):
-        self.install_output = install_output
-        self.install_stderr = install_stderr
-        self.install_returncode = install_returncode
-        self.versions = list(versions or [DUMPSYS_OLD, DUMPSYS_NEW])
-        self.calls: list[list[str]] = []
-
-    def __call__(self, args, **kwargs):
-        self.calls.append(list(args))
-        out, err, code = "", "", 0
-        if "install" in args:
-            out, err = self.install_output, self.install_stderr
-            code = self.install_returncode
-        elif "dumpsys" in args:
-            out = self.versions.pop(0) if self.versions else DUMPSYS_NEW
-        elif "connect" in args:
-            out = "connected"
-
-        class Result:
-            stdout = out
-            stderr = err
-            returncode = code
-        return Result()
-
-    def command(self, name: str) -> list[str] | None:
-        return next((c for c in self.calls if name in c), None)
+    return FakeAdb(
+        {"10.1.1.40": {"packages": ["com.piton.train_lcd_panel"]}},
+        install_output=install_output, install_stderr=install_stderr,
+        install_returncode=install_returncode,
+        dumpsys_answers=list(versions if versions is not None
+                             else [DUMPSYS_OLD, DUMPSYS_NEW]))
 
 
 class ApkMetadata(PanelTest):
@@ -531,10 +514,13 @@ class ApkInstall(PanelTest):
         return inventory, inventory.by_type("LCD")[0]
 
     def patch(self, fake_adb):
-        previous = apk_install.subprocess.run
-        apk_install.subprocess.run = fake_adb
-        self.addCleanup(
-            lambda: setattr(apk_install.subprocess, "run", previous))
+        # The one subprocess seam there is: the shared transport's. This
+        # suite used to patch a private wrapper inside apk_install, which is
+        # gone (see tests/test_adb.py::OneTransport).
+        patcher = mock.patch.object(adb_client.subprocess, "run",
+                                    side_effect=fake_adb)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         return fake_adb
 
     def test_an_lcd_expects_an_apk(self):
@@ -546,7 +532,7 @@ class ApkInstall(PanelTest):
         _, device = self.build()
         path = apk("panel-0.0.6.apk")
         firmware.select_file([device.id], path)
-        adb = self.patch(FakeAdbInstall())
+        adb = self.patch(install_adb())
 
         result = firmware.install(device)
 
@@ -566,7 +552,7 @@ class ApkInstall(PanelTest):
     def test_an_install_error_becomes_a_clear_message(self):
         _, device = self.build()
         firmware.select_file([device.id], apk("bozuk.apk"))
-        self.patch(FakeAdbInstall(
+        self.patch(install_adb(
             install_output="Failure [INSTALL_FAILED_INVALID_APK]"))
         with self.assertRaises(VerificationError) as caught:
             firmware.install(device)
@@ -575,8 +561,8 @@ class ApkInstall(PanelTest):
     def test_success_text_with_a_failed_exit_status_is_not_accepted(self):
         _, device = self.build()
         firmware.select_file([device.id], apk("bozuk.apk"))
-        self.patch(FakeAdbInstall(install_output="Success\n",
-                                  install_returncode=1))
+        self.patch(install_adb(install_output="Success\n",
+                               install_returncode=1))
         with self.assertRaises(VerificationError):
             firmware.install(device)
 
@@ -586,20 +572,20 @@ class ApkInstall(PanelTest):
         firmware.select_file([device.id], apk("panel-0.0.4.apk",
                                               version="0.0.5"))
 
-        class Downgrade(FakeAdbInstall):
-            def __init__(self):
-                super().__init__(versions=[DUMPSYS_NEW, DUMPSYS_OLD])
-                self.attempt = 0
+        class Downgrade(FakeAdb):
+            """The documented `_install` extension point of the shared fake:
+            a device that answers differently per attempt."""
 
-            def __call__(self, args, **kwargs):
-                if "install" in args:
-                    self.attempt += 1
-                    self.install_output = (
-                        "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]"
-                        if self.attempt == 1 else "Success")
-                return super().__call__(args, **kwargs)
+            def _install(self, ip, tail):
+                super()._install(ip, tail)          # counts the attempt
+                if self.install_attempts == 1:
+                    return Result(
+                        "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]")
+                return Result("Success")
 
-        adb = self.patch(Downgrade())
+        adb = self.patch(Downgrade(
+            {"10.1.1.40": {"packages": ["com.piton.train_lcd_panel"]}},
+            dumpsys_answers=[DUMPSYS_NEW, DUMPSYS_OLD]))
         result = firmware.install(device)
         self.assertEqual(result["current"], "0.0.5")
         installs = [c for c in adb.calls if "install" in c]
@@ -614,7 +600,7 @@ class ApkInstall(PanelTest):
                    version="1.112.0")
         firmware.select_file([device.id], path)
         current = "    versionCode=7\n    versionName=1.112.0"
-        adb = self.patch(FakeAdbInstall(versions=["", current]))
+        adb = self.patch(install_adb(versions=["", current]))
 
         result = firmware.install(device)
 
@@ -630,7 +616,7 @@ class ApkInstall(PanelTest):
         firmware.select_file([device.id], apk(
             "temple-run.apk", package="com.imangi.templerun2",
             version="1.112.0"))
-        self.patch(FakeAdbInstall(versions=["", ""]))
+        self.patch(install_adb(versions=["", ""]))
         with self.assertRaises(VerificationError) as caught:
             firmware.install(device)
         self.assertIn("version could not be read", str(caught.exception))
@@ -644,7 +630,7 @@ class ApkInstall(PanelTest):
         _, device = self.build()
         firmware.select_file([device.id], apk("panel-0.0.9.apk",
                                               version="0.0.9"))
-        self.patch(FakeAdbInstall())
+        self.patch(install_adb())
         with self.assertRaises(VerificationError) as caught:
             firmware.install(device)
         self.assertIn("0.0.6", str(caught.exception))
@@ -663,7 +649,7 @@ class ApkInstall(PanelTest):
     def test_a_file_named_apk_but_not_an_apk_never_reaches_adb(self):
         _, device = self.build()
         firmware.select_file([device.id], image("fake.apk"))
-        adb = self.patch(FakeAdbInstall())
+        adb = self.patch(install_adb())
 
         with self.assertRaises(VerificationError) as caught:
             firmware.install(device)
@@ -1011,8 +997,14 @@ class FirmwareEndpoints(ServiceTest):
                                {"set": 1, "devices": [devices[0].id]})
         self.assertEqual(code, 200)
         self.assertEqual(body["selectedCount"], 1)
-        code, body = self.call(base, "/api/firmware/remove", {"all": True})
+        # "All" clears the OPEN SET's selections, so the set is required like
+        # on every writing endpoint now: a missing one used to fall back to
+        # set 1 silently, which is the retargeting the strict resolver ends.
+        code, body = self.call(base, "/api/firmware/remove",
+                               {"set": 1, "all": True})
         self.assertEqual(body["selectedCount"], 0)
+        code, body = self.call(base, "/api/firmware/remove", {"all": True})
+        self.assertEqual(code, 400)
 
 
 if __name__ == "__main__":

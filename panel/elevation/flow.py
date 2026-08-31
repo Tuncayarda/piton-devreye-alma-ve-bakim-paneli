@@ -38,10 +38,10 @@ def require_elevation(write=print) -> int:
         # In this folder the elevated process cannot read the app's own files
         # (see PROTECTED_FOLDERS). Said BEFORE the attempt so the password is
         # not asked for nothing.
-        hint = (f"The application is in the {protected} folder. macOS does "
-                "not allow an application in a protected folder to be "
-                "started from an administrator prompt: move it out of that "
-                "folder.")
+        # Through the catalogue like every other sentence this flow prints:
+        # the person reading this failure is the person the language switch
+        # exists for.
+        hint = i18n.t("elevate.protectedFolderHint", folder=protected)
     write("[ERROR] " + explanation().replace("\n\n", " "))
     for reason in reasons():
         write(f"        - {reason}")

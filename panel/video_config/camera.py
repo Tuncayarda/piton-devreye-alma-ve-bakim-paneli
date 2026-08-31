@@ -25,7 +25,7 @@ channel 103 is retried until it answers.
 from __future__ import annotations
 
 from .. import i18n
-from . import channels, isapi, payloads
+from . import channels, isapi, payloads, procedure
 
 # The stream profiles are written as one unit: any of these differing means
 # all three channels are sent, because a profile is only meaningful whole.
@@ -85,39 +85,6 @@ def read_state(device, inventory, credentials) -> dict:
     }
 
 
-def _format_storage(device, credentials, say) -> bool:
-    """Format the SD card only when it is unusable as it stands.
-
-    A card that is formatted and recording is left alone: applying a setting
-    must never wipe footage (see isapi.needs_format).
-    """
-    summary, disks = isapi.storage_status(
-        isapi.read(device.ip, "ContentMgmt/Storage/hdd", credentials))
-    if not disks:
-        say(i18n.lazy("video.stepNoStorage"), "info")
-        return False
-    formatted = False
-    for hdd_id, status in disks:
-        if not isapi.needs_format(status):
-            continue
-        isapi.write(device.ip, f"ContentMgmt/Storage/hdd/{hdd_id}/format",
-                    credentials, "", timeout=15)
-        say(i18n.lazy("video.stepStorageFormatted", id=hdd_id,
-                      status=status or "?"), "written")
-        formatted = True
-    if not formatted:
-        say(i18n.lazy("video.stepStorageOk", detail=summary), "info")
-    return formatted
-
-
-def _reboot(device, credentials) -> None:
-    """Ask for a reboot. A dropped connection means it started."""
-    try:
-        isapi.request("PUT", device.ip, "System/reboot", credentials)
-    except Exception:
-        pass
-
-
 def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     """Write the targets that differ, and report what was done.
 
@@ -134,23 +101,12 @@ def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     say = report or isapi.no_report
     ip = device.ip
     state = read_state(device, inventory, credentials)
-    written: list[str] = []
 
     def differs(name: str) -> bool:
-        return (name in targets
-                and str(state.get(name.lower(), "")) != str(targets[name]))
+        return procedure.differs(state, targets, name)
 
-    if differs("timeZone"):
-        isapi.write(ip, "System/time", credentials,
-                    payloads.time_body(targets["timeZone"]))
-        say(i18n.lazy("video.stepTimeZone", value=targets["timeZone"]),
-            "written")
-        written.append("timeZone")
-    if differs("ntpServer"):
-        isapi.write(ip, "System/time/ntpServers/1", credentials,
-                    payloads.ntp_body(targets["ntpServer"]))
-        say(i18n.lazy("video.stepNtp", value=targets["ntpServer"]), "written")
-        written.append("ntpServer")
+    written = procedure.apply_time_targets(ip, state, targets, credentials,
+                                           say)
 
     ir_changed = differs("irLight")
     if ir_changed:
@@ -159,7 +115,7 @@ def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
         say(i18n.lazy("video.stepIr", value=targets["irLight"]), "written")
         written.append("irLight")
 
-    if _format_storage(device, credentials, say):
+    if procedure.format_storage(device, credentials, say):
         written.append("storageStatus")
 
     stream_changed = any(differs(name) for name in STREAM_FIELDS)
@@ -190,7 +146,7 @@ def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     rebooted = ir_changed or third_changed
     if rebooted:
         say(i18n.lazy("video.stepRebooting"), "info")
-        _reboot(device, credentials)
+        procedure.reboot(device, credentials)
         back = isapi.wait_until_back(device.ip, credentials)
         say(i18n.lazy("video.stepBack" if back else "video.stepNotBack"),
             "done" if back else "warning")

@@ -21,10 +21,11 @@ from __future__ import annotations
 
 from .. import i18n
 from ..errors import NotApplicableError
-from . import camera, channels, defaults, health, isapi, nvr, payloads
+from . import (camera, channels, defaults, health, isapi, nvr, payloads,
+               procedure)
 
 __all__ = ["apply", "audio_default", "camera", "channels", "defaults",
-           "health", "isapi", "nvr", "payloads", "read_state"]
+           "health", "isapi", "nvr", "payloads", "procedure", "read_state"]
 
 audio_default = channels.audio_default
 

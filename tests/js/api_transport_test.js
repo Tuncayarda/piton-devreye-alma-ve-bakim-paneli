@@ -25,7 +25,7 @@ applyCatalogue({
 const ok = (body = {}) => ({ ok: true, status: 200, body });
 const CAPABILITY = "A".repeat(43);
 
-Deno.test("the api surface keeps its 83 methods", () => {
+Deno.test("the api surface keeps its 82 methods", () => {
   const api = createApi({ request: () => ok() });
   const methods = Object.keys(api).filter((name) => name !== "ApiError").sort();
   assert.deepEqual(
@@ -63,7 +63,6 @@ Deno.test("the api surface keeps its 83 methods", () => {
       "firmwareRemove",
       "forgetAllCredentials",
       "forgetCredentials",
-      "ipAddressMap",
       "ipFactoryReset",
       "ipLcdAssign",
       "ipPanel",
@@ -177,6 +176,44 @@ Deno.test("a failing envelope becomes an ApiError carrying the body", async () =
       assert.equal(error.status, 409);
       assert.equal(error.message, "A scan is running");
       assert.equal(error.body, body);
+      return true;
+    },
+  );
+});
+
+Deno.test("a transport-thrown message survives to the ApiError", async () => {
+  // The transport words its own failures (an invalid bridge envelope, a
+  // missing capability, pywebview absent, the handshake timeout). The api
+  // layer used to flatten every one of them into the generic "service
+  // unreachable" line; the wording has to reach the caller.
+  const api = createApi({
+    request: () => {
+      throw new Error(t("error.bridgeReadyTimeout"));
+    },
+  });
+
+  await assert.rejects(
+    () => api.version(),
+    (error) => {
+      assert.equal(error.constructor, api.ApiError);
+      assert.equal(error.status, 0);
+      assert.equal(error.message, t("error.bridgeReadyTimeout"));
+      assert.deepEqual(error.body, {});
+      return true;
+    },
+  );
+});
+
+Deno.test("a wordless transport failure falls back to the generic line", async () => {
+  const api = createApi({
+    request: () => Promise.reject(new Error("")),
+  });
+
+  await assert.rejects(
+    () => api.version(),
+    (error) => {
+      assert.equal(error.status, 0);
+      assert.equal(error.message, t("error.serviceUnreachable"));
       return true;
     },
   );

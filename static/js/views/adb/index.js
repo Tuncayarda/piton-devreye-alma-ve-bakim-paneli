@@ -11,7 +11,7 @@
 // divide it. The division is the same one that screen ended up with: state
 // and the polling round here, and one file per card.
 //
-//   state.js       what is selected, what was searched for, the poll's timer
+//   state.js       what is selected, what was searched for
 //   fields.js      the one text-box shape — a tag in front, no placeholder
 //   pool.js        the address list and the row selection
 //   packages.js    the keyword search and the bundle choice
@@ -25,15 +25,17 @@
 // session_routes.py) and the browser stops asking for it (core/schedule.js);
 // `state.adbBusy` is what carries that fact from one to the other.
 
-import { el, fill } from '../../core/dom.js';
+import { $, el, fill, focusHeld, preserveScroll } from '../../core/dom.js';
 import { api } from '../../core/api.js';
+import { latest } from '../../core/latest.js';
+import { poll } from '../../core/poll.js';
 import { state, patch } from '../../core/store.js';
 import { showError, showSuccess, notify } from '../../components/toast.js';
 import { t } from '../../core/i18n.js';
 import { loadFailed, loading } from '../../components/placeholder.js';
 import {
   POLL_INTERVAL, live, local, onScreen, operationTargets,
-  pruneSelection, running, selectAll, selectedIps, stopPolling, toggle,
+  pruneSelection, running, selectAll, selectedIps, toggle,
   togglePackage,
 } from './state.js';
 import { poolCard } from './pool.js';
@@ -41,24 +43,30 @@ import { packagesCard } from './packages.js';
 import { applicationCard, installCard, serverCard } from './operations.js';
 import { statusCard } from './status.js';
 
-let refreshToken = 0;
+// The container app.js hands to render(). Captured so the screen can redraw
+// ITSELF (see draw below) without a round trip through the store.
+let root = null;
 
 // ── talking to the server ───────────────────────────────────────────────
-export async function refresh() {
-  const token = ++refreshToken;
+// `latest` retires a reload overtaken by a newer one. Deliberately NOT
+// set-scoped, and worth saying because the IP and firmware refreshes beside
+// it do re-check `setNo`: this screen's bench belongs to no train set (see
+// the header), so there is no set for a late reply to be wrong about — the
+// token alone is the whole guard.
+export const refresh = latest(async (fresh) => {
   try {
     const body = await api.adb();
-    if (token !== refreshToken) return;
+    if (!fresh()) return;
     live.readFailed = false;
     apply(body);
   } catch {
-    if (token !== refreshToken) return;
+    if (!fresh()) return;
     // `adbState: null` is also the screen before the first round, so which
     // of the two this is has to be remembered separately.
     live.readFailed = true;
     patch({ adbState: null, adbBusy: false });
   }
-}
+});
 
 // One place writes the store, so `adbBusy` cannot fall out of step with the
 // runner it is derived from. A screen that stopped the refresh rounds and
@@ -68,32 +76,28 @@ function apply(body) {
   patch({ adbState: body, adbBusy: !!(current && current.running) });
   pruneSelection();
   live.generation = current ? current.generation : -1;
-  schedulePoll();
+  round.arm();
 }
 
-// The runner's state alone, once a second while something is running. The
-// device list is not re-read: it cannot have changed, and re-sending it sixty
-// times a minute to redraw an identical table is the cost this endpoint
-// exists to avoid.
-//
-// setTimeout AFTER the reply, never setInterval — the house rule, so a slow
-// device cannot make requests pile up.
-function schedulePoll() {
-  stopPolling();
-  if (!onScreen() || !running()) return;
-  live.timer = setTimeout(pollRound, POLL_INTERVAL);
-}
+// The runner's state alone, once a second while something is running
+// (core/poll.js — setTimeout chained after the reply, the house rule). The
+// device list is not re-read: it cannot have changed, and re-sending it
+// sixty times a minute to redraw an identical table is the cost this
+// endpoint exists to avoid. `while` also ends the beat: the round that
+// fetches the finished run's state finds `running` false when it re-arms.
+const round = poll({
+  run: pollRound,
+  interval: POLL_INTERVAL,
+  while: () => onScreen() && running(),
+});
 
 async function pollRound() {
-  live.timer = null;
-  if (!onScreen()) return;
   let current = null;
   try {
     current = await api.adbState();
   } catch {
     // A dropped poll is not worth a message: the next one is a second away
     // and the table on screen is still the last thing that was true.
-    schedulePoll();
     return;
   }
   if (!onScreen()) return;
@@ -113,7 +117,6 @@ async function pollRound() {
     patch({ adbBusy: !!current.running });
   }
   if (!current.running) finished(current);
-  schedulePoll();
 }
 
 // Saying how it went, once, when the run ends. The table stays on screen with
@@ -130,12 +133,12 @@ function finished(current) {
 const actions = {
   toggle(ip) {
     toggle(ip);
-    redraw();
+    draw();
   },
 
   selectAll(on) {
     selectAll(on);
-    redraw();
+    draw();
   },
 
   async addDevice(ip, label) {
@@ -155,7 +158,7 @@ const actions = {
       // Beside the field rather than in the toast strip: the mistake is in
       // the box the user is looking at, and the correction happens there.
       local.addError = error.message;
-      redraw();
+      draw();
     }
   },
 
@@ -166,7 +169,7 @@ const actions = {
 
   async importList() {
     local.importing = true;
-    redraw();
+    draw();
     try {
       const body = await api.adbImport();
       if (body.cancelled) return;
@@ -181,13 +184,13 @@ const actions = {
       showError(error.message);
     } finally {
       local.importing = false;
-      redraw();
+      draw();
     }
   },
 
   async exportList() {
     local.exporting = true;
-    redraw();
+    draw();
     try {
       const body = await api.adbExport();
       // A cancelled save dialog is not a failure and gets no toast: the
@@ -204,14 +207,14 @@ const actions = {
       showError(error.message);
     } finally {
       local.exporting = false;
-      redraw();
+      draw();
     }
   },
 
   async search(keyword) {
     local.keyword = keyword;
     local.searching = true;
-    redraw();
+    draw();
     try {
       local.found = await api.adbPackages(selectedIps(), keyword);
       // NOTHING IS SELECTED BY THE SEARCH. It used to tick every answer, on
@@ -228,19 +231,19 @@ const actions = {
       showError(error.message);
     } finally {
       local.searching = false;
-      redraw();
+      draw();
     }
   },
 
   choosePackage(name) {
     togglePackage(name);
     local.autostart = null;             // it was about another selection
-    redraw();
+    draw();
   },
 
   async pickApk() {
     local.pickerOpen = true;
-    redraw();
+    draw();
     try {
       // Only the NAME comes back. The path stays on the server, which is
       // also where the install reads it from — see panel/api/routes/
@@ -251,7 +254,7 @@ const actions = {
       showError(error.message);
     } finally {
       local.pickerOpen = false;
-      redraw();
+      draw();
     }
   },
 
@@ -260,7 +263,7 @@ const actions = {
     if (!targets.length) return;
     const first = targets[0];
     local.checkingAutostart = true;
-    redraw();
+    draw();
     try {
       // ONE pair, on purpose: the answer labels a button, and asking twelve
       // displays over ADB to decide what one button says is not a trade
@@ -273,7 +276,7 @@ const actions = {
       showError(error.message);
     } finally {
       local.checkingAutostart = false;
-      redraw();
+      draw();
     }
   },
 
@@ -316,19 +319,33 @@ function patchDevices(body) {
   const data = state.adbState || {};
   patch({ adbState: { ...data, devices: body.devices || [] } });
   pruneSelection();
-  redraw();
+  draw();
 }
 
-// The screen is redrawn from the store, so a change that lives only in
-// `local` still has to ask for a render. A new object reference is passed so
-// the store publishes even when nothing it can see has changed.
-function redraw() {
-  if (!onScreen()) return;
-  patch({ adbState: { ...(state.adbState || {}) } });
+// The screen redrawing ITSELF, for changes that live only in `local` (a
+// ticked row, a search result, a file-dialog lock). This used to be an
+// identity-swap `patch({ adbState: { ...state.adbState } })` — a new object
+// reference forcing a publish for content the store could not see change —
+// which defeated the store's changed-keys contract (core/store.js:117,
+// written so one screen's tick does not rebuild the whole shell). The view
+// draws itself instead, the pattern switch/index.js established. The guards
+// are the ones app.js applies before ITS renders: never over a box being
+// typed in, and the scroll position survives.
+function draw() {
+  if (!root || !onScreen()) return;
+  if (focusHeld(root)) return;
+  preserveScroll($('#content'), paint);
 }
 
 // ── drawing ─────────────────────────────────────────────────────────────
-export function render(root) {
+// DRAWING ONLY — data comes from refresh() (called by app.js's lifecycle
+// table on entering the screen), and the poll owns its own timer.
+export function render(container) {
+  root = container;
+  paint();
+}
+
+function paint() {
   const busy = running();
   fill(root, [
     el('div', { class: 'page-head' }, [
@@ -385,12 +402,12 @@ export function render(root) {
       ]),
     ]),
   ]);
-  // The poll owns its own timer and stops itself when the screen goes; it is
+  // The poll owns its own timer and stops itself when the run ends; it is
   // not rebuilt on every render (the IP screen's lesson: tearing the timers
-  // down each round meant none of them ever elapsed).
-  if (busy && !live.timer) schedulePoll();
+  // down each round meant none of them ever elapsed) — `active()` first.
+  if (busy && !round.active()) round.arm();
 }
 
 export function stop() {
-  stopPolling();
+  round.stop();
 }

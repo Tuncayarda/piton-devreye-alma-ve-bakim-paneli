@@ -171,6 +171,16 @@ def stop(ip: str, package: str) -> dict:
     """Force-stop the application. Stopping one that is not running is fine."""
     name = clean_package(package)
     _require(ip)
+    return _stop_connected(ip, name)
+
+
+def _stop_connected(ip: str, name: str) -> dict:
+    """The stop itself, on a transport `_require` has already proved.
+
+    Split out so `restart` proves the transport ONCE: with `stop` and
+    `start` each proving their own, a restart ran three `connect` rounds —
+    roughly nine adb processes — where one answers the same question.
+    """
     result = client.shell_result(ip, "am", "force-stop", name)
     detail = _failed(client.output(result))
     if detail:
@@ -217,6 +227,14 @@ def start(ip: str, package: str, activity: str = "") -> dict:
     """
     name = clean_package(package)
     _require(ip)
+    return _start_connected(ip, name, activity)
+
+
+def _start_connected(ip: str, name: str, activity: str = "") -> dict:
+    """The launch itself, on a transport `_require` has already proved.
+
+    See `_stop_connected` for why the proof is not repeated here.
+    """
     component = str(activity or "").strip()
     if not component:
         try:
@@ -244,14 +262,19 @@ def restart(ip: str, package: str, activity: str = "") -> dict:
     The stop is not allowed to fail the restart: force-stopping an
     application that is not running is normal and is how a restart is used
     after a crash.
+
+    THE TRANSPORT IS PROVED ONCE, here. Calling the public `stop` and
+    `start` proved it three times — once per function plus this one — which
+    on a slow display tripled the slowest step of the whole operation for
+    no better answer.
     """
     name = clean_package(package)
     _require(ip)
     try:
-        stop(ip, name)
+        _stop_connected(ip, name)
     except VerificationError:
         pass
-    started = start(ip, name, activity)
+    started = _start_connected(ip, name, activity)
     return {**started, "action": "restart"}
 
 

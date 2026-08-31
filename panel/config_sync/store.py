@@ -16,11 +16,4 @@ import threading
 DEVICE_TARGETS: dict[tuple[int, str], dict] = {}
 GROUP_TARGETS: dict[tuple[int, str], dict] = {}
 
-# Format 1 carried no set number. Those records are not attached to a set by
-# guesswork; they are validated and held here during migration but never
-# counted towards any target. Nothing is lost and nothing lands on the wrong
-# set.
-UNSCOPED_DEVICE: dict[str, dict] = {}
-UNSCOPED_GROUP: dict[str, dict] = {}
-
 LOCK = threading.Lock()

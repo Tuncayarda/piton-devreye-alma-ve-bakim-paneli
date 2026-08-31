@@ -118,7 +118,7 @@ def parse_csp(csp: str) -> dict[str, tuple[str, ...]]:
         if name in directives:
             raise BundleError(f"Duplicated CSP directive: {name}")
         if not tokens:
-            raise BundleError(f"CSP direktifi tokensiz: {name}")
+            raise BundleError(f"CSP directive has no tokens: {name}")
         if len(tokens) != len(set(tokens)):
             raise BundleError(f"Duplicated CSP token: {name}")
         directives[name] = tokens

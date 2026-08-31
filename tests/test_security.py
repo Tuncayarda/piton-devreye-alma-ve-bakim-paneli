@@ -205,6 +205,43 @@ class Security(ServiceTest):
             self.assertTrue(settings.SET_MIN <= body["setNo"]
                             <= settings.SET_MAX)
 
+    def test_17d_a_writing_post_refuses_a_bad_set_instead_of_retargeting(self):
+        """The lenient fallback belongs to READ screens only.
+
+        Turning an invalid set into set 1 on a POST would direct the
+        operation at a different train — the exact case
+        `device_map.required_set` was written for, and for a while only the
+        IP-assignment routes used it. Every POST that resolves a set from
+        its body must refuse rather than guess; none of these may reach
+        their handler's own logic (or a device, or a file dialog) first.
+        """
+        self.build_map(_topology())
+        base = self.start_service()
+        posts = (
+            ("/api/scan", {}),
+            ("/api/refresh", {}),
+            ("/api/credentials", {"deviceId": "x", "username": "u",
+                                  "password": "p"}),
+            ("/api/credentials/forget", {"deviceId": "x"}),
+            ("/api/config/target", {}),
+            ("/api/config/reset", {}),
+            ("/api/config/apply", {}),
+            ("/api/firmware/file", {}),
+            ("/api/firmware/remove", {"all": True}),
+            ("/api/firmware/install", {}),
+            ("/api/network/prepare", {}),
+            ("/api/network/release", {}),
+            ("/api/network/settings", {}),
+            ("/api/mqtt/start", {}),
+            ("/api/checklist/export", {}),
+        )
+        for path, extra in posts:
+            for bad in ("8x", 0, 999, None):
+                with self.subTest(path=path, set=bad):
+                    code, body = self.call(
+                        base, path, {**extra, "set": bad})
+                    self.assertEqual(code, 400, (path, bad, body))
+
     # ── general API hardening ─────────────────────────────────────────
     def test_static_files_cannot_escape_the_directory(self):
         self.build_map(_topology())
@@ -247,13 +284,51 @@ class Security(ServiceTest):
         import urllib.request
         oversized = (b'{"set":1,"deviceId":"'
                      + b"a" * (settings.BODY_LIMIT + 10) + b'"}')
-        request = urllib.request.Request(base + "/api/credentials",
-                                         data=oversized, method="POST")
+        request = urllib.request.Request(
+            base + "/api/credentials", data=oversized, method="POST",
+            # Declared as JSON so the SIZE check is what answers — an
+            # undeclared body is refused earlier now, as cross-origin.
+            headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(request, timeout=10):
                 self.fail("an oversized body was accepted")
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 400)
+
+    def test_a_cross_origin_post_is_refused(self):
+        """A hostile page in the operator's browser must not reach a POST.
+
+        The bind is loopback, but every page the operator has open reaches
+        loopback too, and a "simple" cross-origin POST (text/plain, no
+        preflight) carries its side effect whether or not the page can read
+        the answer. Three doors, all closed: a foreign Origin, a foreign
+        Host (DNS rebinding), and a body that does not claim to be JSON —
+        the last forces any cross-origin caller into a preflight this
+        server never answers.
+        """
+        import urllib.error
+        import urllib.request
+        self.build_map(_topology())
+        base = self.start_service()
+        body = b'{"set": 1}'
+        cases = (
+            {"Content-Type": "application/json",
+             "Origin": "http://evil.example"},
+            {"Content-Type": "application/json",
+             "Host": "panel.evil.example"},
+            {"Content-Type": "text/plain"},
+            {},
+        )
+        for headers in cases:
+            with self.subTest(headers=headers):
+                request = urllib.request.Request(
+                    base + "/api/scan", data=body, method="POST",
+                    headers=headers)
+                try:
+                    with urllib.request.urlopen(request, timeout=10):
+                        self.fail("a cross-origin POST was accepted")
+                except urllib.error.HTTPError as e:
+                    self.assertEqual(e.code, 403)
 
     def test_cors_is_not_opened(self):
         import urllib.request

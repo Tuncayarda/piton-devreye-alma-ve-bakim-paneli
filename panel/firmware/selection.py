@@ -5,7 +5,9 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from ..config_sync.validation import scope_key
+# From the neutral module, NOT from config_sync: this import used to be the
+# one edge that closed the ip_assign → firmware → config_sync import cycle.
+from ..scoping import scope_key
 from .. import i18n
 
 # Announcement-controller images are small, but ordinary Android applications

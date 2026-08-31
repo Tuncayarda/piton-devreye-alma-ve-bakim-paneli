@@ -24,6 +24,14 @@ const JOB_COLOUR = {
 // time.
 let lastSignature = null;
 
+// Drops the signature so the next render rebuilds unconditionally. A
+// language switch changes every word without changing the data, so the
+// comparison above would keep the old catalogue's rows on an open panel;
+// redrawEverything (app.js) calls this beside sidebar.reset().
+export function reset() {
+  lastSignature = null;
+}
+
 // Rows whose steps are expanded — `${jobId}:${rowId}`. CLOSED BY DEFAULT: an
 // IP assignment run has twelve ports with eight to ten steps under each; all
 // open, the queue would be a hundred-row dump. When the user wonders where a
@@ -75,8 +83,8 @@ function jobCard(job) {
   const percent = Math.round((job.progress || 0) * 100);
   const active = job.state === 'queued' || job.state === 'running';
   // Stopping is not instant: the worker may be waiting out a device timeout.
-  // In that gap the status reads "Durduruluyor…" and the button is disabled —
-  // otherwise the user thinks nothing happened and presses again.
+  // In that gap the status says so and the button is disabled — otherwise
+  // the user thinks nothing happened and presses again.
   const stopping = active && job.cancelRequested;
   const outcomeColour = JOB_OUTCOME_COLOUR[job.outcome];
   const colour = stopping ? 'auth'
@@ -84,7 +92,7 @@ function jobCard(job) {
       ? outcomeColour
       : (JOB_COLOUR[job.state] || 'unknown'));
   const label = stopping
-    ? 'Durduruluyor…'
+    ? t('queue.stoppingShort')
     : (active
       ? `${jobStateLabel(job.state)} · %${percent}`
       : (jobOutcomeLabel(job.outcome, jobStateLabel(job.state))));
@@ -297,7 +305,10 @@ function fileButton(label, jobId, rowId, reveal) {
     },
   }, [
     icon(reveal ? ICONS.folder : ICONS.open, 13),
-    el('span', { text: reveal ? 'Folder' : 'Open' }),
+    // The word on the button, not only in its tooltip: the title above is
+    // unreadable by keyboard and screenshot alike, and a hardcoded word
+    // would be the one label the language switch cannot reach.
+    el('span', { text: t(reveal ? 'queue.folder' : 'queue.openFile') }),
   ]);
 }
 

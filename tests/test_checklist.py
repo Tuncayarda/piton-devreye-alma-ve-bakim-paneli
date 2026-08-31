@@ -11,7 +11,7 @@ from __future__ import annotations
 import unittest
 from typing import ClassVar
 
-from panel import checklist, jobs, script_loader, settings
+from panel import checklist, editions, i18n, jobs, script_loader, settings
 from panel.editions import catalogue
 from panel.checklist import columns as cols
 from panel.inventory import device_map
@@ -135,6 +135,57 @@ class ChecklistPreview(ServiceTest):
                 break
         self.assertEqual(on_screen, in_file)
         self.assertEqual(on_screen, "9.9.9")
+
+    def test_a_malformed_template_fails_the_same_way_on_both_paths(self):
+        """Preview and export refuse a broken template with the SAME sentence.
+
+        The export always validated the sheet and the required headings up
+        front and translated; the preview used to crash rows deep with a
+        bare KeyError into a generic 500. Both now share
+        `workbook.resolve_columns`, so a template defect the operator can
+        fix reads identically wherever it is hit first.
+        """
+        import openpyxl
+        import tempfile
+        from pathlib import Path
+
+        inventory = self.inventory()
+        workdir = Path(tempfile.mkdtemp(prefix="checklist-broken-"))
+        source = editions.checklist_path()
+        verify = script_loader.device_verify()
+
+        # (a) The sheet itself is missing.
+        book = openpyxl.load_workbook(source)
+        book[checklist.workbook.SHEET_NAME].title = "Elsewhere"
+        missing_sheet = workdir / "missing-sheet.xlsx"
+        book.save(missing_sheet)
+
+        # (b) A required heading was reworded, so its id resolves nowhere.
+        book = openpyxl.load_workbook(source)
+        sheet = book[checklist.workbook.SHEET_NAME]
+        for index in range(1, sheet.max_column + 1):
+            cell = sheet.cell(verify.HEADER_ROW, index)
+            if cell.value == verify.COLUMN_HEADINGS[verify.COL_VERSION]:
+                cell.value = "Software build"
+        reworded = workdir / "reworded-heading.xlsx"
+        book.save(reworded)
+
+        cases = [
+            (missing_sheet, i18n.t("error.excelSheetMissing",
+                                   sheet=checklist.workbook.SHEET_NAME)),
+            (reworded, i18n.t("error.excelColumnMissing",
+                              columns=[cols.VERSION])),
+        ]
+        for template, message in cases:
+            for path_name, attempt in (
+                ("preview", lambda t: checklist.template_layout(template=t)),
+                ("export", lambda t: checklist.export(
+                    inventory, {}, output=workdir / "out.xlsx", template=t)),
+            ):
+                with self.assertRaises(ValueError) as caught:
+                    attempt(template)
+                self.assertEqual(str(caught.exception), message,
+                                 f"{path_name} on {template.name}")
 
     def test_api_endpoint_works(self):
         base = self.start_service()
@@ -261,6 +312,49 @@ class EveryShippedWorkbookStatesAVersion(unittest.TestCase):
                          "VERSIONS_BY_PROJECT in "
                          "tools/make_checklist_template.py, or a reason to "
                          "VERSIONLESS above")
+
+
+class EveryMappedDeviceHasAChecklistRow(unittest.TestCase):
+    """The map -> workbook direction the row-walking tests cannot see.
+
+    Every other checklist test starts from the sheet's rows, so a device
+    that LOST its row — a regenerated workbook that dropped a section, a
+    DeviceMap that gained a device nobody added to the template — is
+    invisible to them: the scan reads the device and its results simply
+    never land anywhere. This walks each shipped DeviceMap instead and
+    demands a workbook row for every device it names, matched the way the
+    panel matches them: by IP template.
+    """
+
+    def test_every_mapped_device_has_a_row_to_land_in(self):
+        import openpyxl                                    # noqa: PLC0415
+
+        verify = script_loader.device_verify()
+        key_heading = verify.COLUMN_HEADINGS[verify.COL_IP_TEMPLATE]
+        missing = []
+        for project in catalogue.ALL_PROJECTS:
+            book = settings.ROOT.joinpath(*project.checklist_source)
+            source = settings.ROOT.joinpath(*project.source_path)
+            if not (book.is_file() and source.is_file()):
+                continue
+            sheet = openpyxl.load_workbook(book)["Checklist"]
+            key_column = next(
+                (index for index in range(1, sheet.max_column + 1)
+                 if sheet.cell(verify.HEADER_ROW, index).value
+                 == key_heading), None)
+            self.assertIsNotNone(key_column, book.name)
+            rows = {str(sheet.cell(row, key_column).value)
+                    for row in range(verify.HEADER_ROW + 1,
+                                     sheet.max_row + 1)
+                    if sheet.cell(row, key_column).value}
+            inventory = device_map.load(1, path=source, cache=False)
+            missing.extend(
+                f"{book.name}: {device.name} ({device.ip_template})"
+                for device in inventory.devices
+                if device.ip_template not in rows)
+        self.assertEqual(missing, [],
+                         "a DeviceMap device has no checklist row for its "
+                         "scan results to land in")
 
 
 if __name__ == "__main__":

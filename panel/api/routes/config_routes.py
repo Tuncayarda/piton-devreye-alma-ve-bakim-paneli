@@ -6,18 +6,29 @@ from ... import config_sync, jobs
 from ...errors import AuthError, DeviceError, user_message
 from ...inventory import catalog
 from ..presenters import (config_field_context, credentials_for, find_device,
-                          inventory_for, target_devices)
+                          inventory_for, inventory_for_write, target_devices)
 from ..response import respond
 from ..tasks import config_task
-from .helpers import single
+from .helpers import single, submit
 from ... import i18n
 
 
 def _error_body(device, group: str, exc: DeviceError) -> dict:
+    """A 200 whose DEVICE could not be read — deliberately not a 502.
+
+    The screen still needs the field list and the targets to stay usable
+    while the device is dark (targets get prepared in the field against
+    unreachable hardware), so the request SUCCEEDS and carries the device's
+    failure as data. Named `deviceError`, never `error`: everywhere else in
+    the API `error` means "this request failed", and the bridge envelope
+    computes `ok` from the status — a third meaning under the same name is
+    how a client-side helper mistakes a dark device for a good read.
+    """
     return {"deviceId": device.id, "group": group, "rows": [],
             "subtype": device.subtype or "",
-            "error": user_message(exc),
-            "auth": isinstance(exc, AuthError)}
+            "reading": False,
+            "deviceError": user_message(exc),
+            "needsCredentials": isinstance(exc, AuthError)}
 
 
 def get_fields(query):
@@ -52,7 +63,7 @@ def get_config(query):
 
 
 def post_target(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     device = find_device(inventory, body.get("deviceId"))
     group = str(body.get("group") or "")
     field = str(body.get("field", ""))
@@ -93,7 +104,7 @@ def post_target(body):
 def post_reset(body):
     # Saved defaults are removed; the DeviceMap project values stay and the
     # screen falls back to them.
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     device = find_device(inventory, body.get("deviceId"))
     group = str(body.get("group") or "")
     config_sync.clear_saved_defaults(inventory.set_no)
@@ -107,7 +118,7 @@ def post_reset(body):
 
 
 def post_apply(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     devices = target_devices(inventory, body, "cfg")
     group = str(body.get("group") or "")
     # The queue will not take a second job with the same key. Applying to one
@@ -119,10 +130,8 @@ def post_apply(body):
              else i18n.lazy("job.configMany", count=len(devices)))
     job = jobs.Job("config", title, inventory.set_no,
                    key=f"config:{inventory.set_no}:{scope}")
-    job, is_new = jobs.QUEUE.submit(job, config_task(inventory, devices,
+    return submit(job, config_task(inventory, devices,
                                                      group))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
 
 
 GET = {

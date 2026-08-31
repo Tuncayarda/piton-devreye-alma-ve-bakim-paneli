@@ -541,5 +541,43 @@ class ProjectSwitching(PanelTest):
         self.assertIsNone(jobs.view_for(1).get("sw1.d3"))
 
 
+class ServiceKeyExtras(PanelTest):
+    """Projects delivered on the stick, next to the ones built in."""
+
+    def tearDown(self):
+        editions.activate("vip-yatakli")
+        super().tearDown()
+
+    def test_a_stick_carrying_an_own_project_does_not_shadow_the_built_in(self):
+        """`add_extra` refuses a key the edition already owns.
+
+        A stick carrying the customer's own map is the natural thing for an
+        engineer to carry, and it used to SHADOW the built-in row:
+        `projects()` filtered built-ins out of the extras it appended, but
+        `is_extra`/`current_is_extra` did not — so selecting the project
+        then demanded admin mode, with a 403 that made no sense on the
+        customer's own project.
+        """
+        editions.activate("vip-yatakli")
+        self.assertTrue(editions.admin())
+        built_in = catalogue.YATAKLI
+        # Exactly how a map off the stick names itself: the catalogue row
+        # re-pointed at the session copy (see panel.adminkey.pack).
+        off_the_stick = dataclasses.replace(
+            built_in,
+            path="/media/KEY/dabp-projects/DeviceMap_Yatakli.json")
+        editions.add_extra(off_the_stick)
+
+        # The menu offers the BUILT-IN row, once, and not the stick's copy.
+        offered = [p for p in editions.projects() if p.key == built_in.key]
+        self.assertEqual(offered, [built_in])
+        self.assertFalse(editions.is_extra(off_the_stick))
+
+        # Opening it is an ordinary field act, not an admin one.
+        opened = editions.use_project(built_in.key)
+        self.assertEqual(opened, built_in)
+        self.assertFalse(editions.current_is_extra())
+
+
 if __name__ == "__main__":
     unittest.main()

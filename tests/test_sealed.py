@@ -127,9 +127,9 @@ class SealedProjects(PanelTest):
         self.seal_into_bundle()
         with unittest.mock.patch.object(sealed, "foreign_projects",
                                         self.foreign_without_plaintext):
-            opened = sealed._resolve(self.foreign_without_plaintext()[0],
-                                     key_for())
-        self.assertIsNotNone(opened)
+            opened, reason = sealed._resolve(
+                self.foreign_without_plaintext()[0], key_for())
+        self.assertIsNotNone(opened, reason)
         self.assertEqual(Path(opened.path).read_bytes(), self.body)
         # The row keeps everything that makes it that project — the broker
         # and the width are not decoration, a run reads them.
@@ -147,26 +147,34 @@ class SealedProjects(PanelTest):
         self.seal_into_bundle()
         with unittest.mock.patch.object(secret, "content_key",
                                         return_value=None):
-            self.assertIsNone(
-                sealed._resolve(self.foreign_without_plaintext()[0], b""))
+            opened, reason = sealed._resolve(
+                self.foreign_without_plaintext()[0], b"")
+        self.assertIsNone(opened)
+        # The reason is for stderr, not the UI — but it must SAY something,
+        # because five silent causes used to present identically.
+        self.assertIn("key material", reason)
 
     def test_the_wrong_key_does_not_open_it(self):
         self.seal_into_bundle()
-        self.assertIsNone(sealed._resolve(
-            self.foreign_without_plaintext()[0], key_for(b"someone-else")))
+        opened, reason = sealed._resolve(
+            self.foreign_without_plaintext()[0], key_for(b"someone-else"))
+        self.assertIsNone(opened)
+        self.assertIn("would not open", reason)
 
     def test_a_project_with_no_sealed_file_is_not_offered(self):
         """A package built without the secret ships no sealed files at all."""
-        self.assertIsNone(
-            sealed._resolve(self.foreign_without_plaintext()[0], key_for()))
+        opened, reason = sealed._resolve(
+            self.foreign_without_plaintext()[0], key_for())
+        self.assertIsNone(opened)
+        self.assertIn("no sealed copy", reason)
 
     def test_the_checklist_travels_with_the_map(self):
         self.seal_into_bundle()
         sheet = b"PK\x03\x04 not really a workbook, but bytes are bytes"
         (self.bundle / f"{self.project.checklist_name}.sealed").write_bytes(
             vault.seal(key_for(), sheet))
-        opened = sealed._resolve(self.foreign_without_plaintext()[0],
-                                 key_for())
+        opened, _reason = sealed._resolve(self.foreign_without_plaintext()[0],
+                                          key_for())
         self.assertEqual(Path(opened.checklist_file).read_bytes(), sheet)
         self.assertEqual(editions.checklist_path(opened),
                          Path(opened.checklist_file))
@@ -180,8 +188,8 @@ class SealedProjects(PanelTest):
         self.seal_into_bundle()
         (self.bundle / f"{self.project.checklist_name}.sealed").write_bytes(
             b"not a sealed file at all")
-        opened = sealed._resolve(self.foreign_without_plaintext()[0],
-                                 key_for())
+        opened, _reason = sealed._resolve(self.foreign_without_plaintext()[0],
+                                          key_for())
         self.assertIsNotNone(opened)
         self.assertEqual(opened.checklist_file, "")
         self.assertEqual(editions.checklist_path(opened),

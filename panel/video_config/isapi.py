@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""The ISAPI transport used for WRITING camera / NVR configuration.
+"""THE ISAPI transport — every camera / NVR request goes through here.
 
-`panel.probe.camera` reads a device's identity over the same protocol; this
-module is the write side of it, and the rules are the same:
+`panel.probe.camera` reads a device's identity over this module and the
+procedures in `camera.py` / `nvr.py` write through it, so the rules are the
+same on both sides (the same reason `panel.switch.client` is the one switch
+client):
 
   · digest authentication, 401/403 (or a WWW-Authenticate header) is an
     AuthError — the fix is a password, not a cable;
@@ -16,16 +18,86 @@ The endpoints themselves are listed in `panel/video_config/camera.py` and
 """
 from __future__ import annotations
 
+import threading
 import xml.etree.ElementTree as ET
 
 import requests
 import urllib3
+from requests.adapters import HTTPAdapter
 from requests.auth import HTTPDigestAuth
 
 from .. import clock, i18n, settings
 from ..errors import AuthError, VerificationError, classify
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+def _create_session(pool_size: int = 8) -> requests.Session:
+    """One pooled session for all camera and recorder traffic.
+
+    `trust_env = False` is the important line, exactly as it is for the
+    switch client (panel/switch/client.py): a camera on 10.1.1.x is on the
+    cable in front of the operator, and routing its requests through
+    whatever HTTP_PROXY the machine happens to have set makes every video
+    device unreachable for a reason nothing on screen can explain — while
+    the switch screens, which already ignored the proxy, keep working.
+
+    The pool is what makes a device read cheap: one camera read is about
+    seven GETs, and without a session each one paid a fresh TCP handshake.
+    The pool is small because a run talks to a handful of devices at a time,
+    not a /24. `max_retries=0` — the procedures decide their own retries
+    (see `wait_until_back`).
+    """
+    session = requests.Session()
+    session.trust_env = False
+    adapter = HTTPAdapter(pool_connections=pool_size, pool_maxsize=pool_size,
+                          max_retries=0)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+_SESSION = _create_session()
+
+# One digest handler per (device, account), shared across requests. Not a
+# micro-optimisation: HTTPDigestAuth remembers the device's challenge, so a
+# reused handler authenticates pre-emptively and a read stops paying a 401
+# round trip per GET (fourteen requests for seven reads). The state inside
+# is thread-local, so sharing a handler between worker threads is safe; the
+# key includes the address because nonces belong to one device.
+_AUTH_HANDLERS: dict[tuple[str, str, str], HTTPDigestAuth] = {}
+_AUTH_GUARD = threading.Lock()
+
+
+def reset() -> None:
+    """Forget every cached digest handler, and the session's cookies with
+    them. Called when the in-memory credentials go (shutdown, "forget all",
+    a project switch): the handlers hold the passwords they were built
+    from, and a store that outlived `credentials.forget_all()` would keep
+    camera passwords in memory that the operator believes are gone. The
+    session is rebuilt too — per-host cookies a device set under the old
+    account must not ride into the new one.
+    """
+    global _SESSION
+    with _AUTH_GUARD:
+        _AUTH_HANDLERS.clear()
+        old_session, _SESSION = _SESSION, _create_session()
+    try:
+        old_session.close()
+    except Exception:
+        pass
+
+
+def _auth(ip: str, credentials) -> HTTPDigestAuth | None:
+    if not credentials:
+        return None
+    username, password = credentials
+    key = (ip, username, password)
+    with _AUTH_GUARD:
+        handler = _AUTH_HANDLERS.get(key)
+        if handler is None:
+            handler = _AUTH_HANDLERS[key] = HTTPDigestAuth(username, password)
+        return handler
 
 # Default for camera and recorder ISAPI resources whose bodies are XML.
 HEADERS = {"Content-Type": "application/xml; charset=UTF-8"}
@@ -69,10 +141,9 @@ def request(method: str, ip: str, path: str, credentials, *, data=None,
             timeout: float | None = None,
             headers: dict[str, str] | None = None) -> requests.Response:
     """One ISAPI request. Network problems come back as DeviceError."""
-    auth = HTTPDigestAuth(*credentials) if credentials else None
     try:
-        return requests.request(
-            method, url(ip, path), auth=auth, data=data,
+        return _SESSION.request(
+            method, url(ip, path), auth=_auth(ip, credentials), data=data,
             headers=headers or HEADERS,
             timeout=timeout if timeout is not None else settings.PROBE_TIMEOUT,
             verify=False)
@@ -80,7 +151,12 @@ def request(method: str, ip: str, path: str, credentials, *, data=None,
         raise classify(exc)
 
 
-def _check_auth(response: requests.Response) -> None:
+def check_auth(response: requests.Response) -> None:
+    """The one rule for "this device wants a password".
+
+    Shared with the read side (`panel.probe.camera`): a scan and a
+    configuration run must not disagree about what counts as locked.
+    """
     if (response.status_code in (401, 403)
             or "WWW-Authenticate" in response.headers):
         raise AuthError(i18n.t("error.probeAuth"))
@@ -92,7 +168,7 @@ def ok(response: requests.Response) -> bool:
     Verbatim from the field script's `isapi_ok`: a 200 whose body carries a
     ResponseStatus counts only when that status says OK.
     """
-    _check_auth(response)
+    check_auth(response)
     if response.status_code not in (200, 201):
         return False
     text = (response.text or "").strip()
@@ -112,7 +188,7 @@ def read(ip: str, path: str, credentials,
     way and "no SD card" would be a lie.
     """
     response = request("GET", ip, path, credentials, timeout=timeout)
-    _check_auth(response)
+    check_auth(response)
     if response.status_code >= 400:
         return None
     try:

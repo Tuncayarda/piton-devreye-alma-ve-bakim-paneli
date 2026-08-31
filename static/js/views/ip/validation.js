@@ -13,13 +13,13 @@
 // silently do nothing.
 
 import { el, showFieldWarning } from '../../core/dom.js';
+import { t } from '../../core/i18n.js';
 import { currentTarget, local, protectedWaitText, targetLabel } from './state.js';
 import {
   activePanelError, formatPorts, isIpv4, parsePorts, validatePorts,
   validateSearch, validateTargetMask,
 } from './ports.js';
 import { isCompartmentPlan, missingSoftwareRows } from './software.js';
-import { t } from '../../core/i18n.js';
 
 const maskBoxes = [];
 const maskWatchers = [];
@@ -134,16 +134,26 @@ export function forgetMaskBoxes() {
 export function maskField(data, check, showActionState, prefix = 'ip-target-mask') {
   const { plan } = data;
   const defaultMask = plan.targetNetmask || '255.255.255.0';
+  // Does an empty box mean a mask at all? For the Android flow it does —
+  // the write replaces the whole address, so the plan's default really is
+  // written. For the intercom flow it only does when somebody STATED one
+  // (the operator, or the project): unstated, the run leaves the device's
+  // own mask alone, and prefilling 255.255.255.0 here promised a write
+  // that was never sent (plan.maskStated, panel/ip_assign/runner.py).
+  const lcdFlow = plan.assignmentKind === 'compartment-lcd'
+    || plan.physicalPortMode;
+  const emptyMeansDefault = lcdFlow || plan.maskStated;
   const maskWarning = el('p', {
     id: `${prefix}-error`, class: 'ip-field-error', role: 'alert',
     text: check.maskError, hidden: !check.maskError,
   });
-  // The box carries the mask that WILL be written, not a ghost of it. An
-  // empty box still means "the plan's default" — the value shown is that
-  // default, so the two say the same thing.
+  // The box carries the mask that WILL be written, not a ghost of it: the
+  // plan's default when an empty box resolves to one, and otherwise empty
+  // with the placeholder saying what empty means.
   const input = el('input', {
     id: prefix, class: 'field ip-medium-field',
-    value: local.targetMask ?? defaultMask,
+    value: local.targetMask ?? (emptyMeansDefault ? defaultMask : ''),
+    placeholder: emptyMeansDefault ? '' : t('ip.maskDeviceOwn'),
     autocomplete: 'off', spellcheck: 'false',
     'aria-invalid': String(!!check.maskError),
     'aria-describedby': `${prefix}-error`,

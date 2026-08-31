@@ -7,10 +7,10 @@
 
 import { el } from '../../core/dom.js';
 import { api } from '../../core/api.js';
-import { state, patch } from '../../core/store.js';
+import { state } from '../../core/store.js';
 import { showError, showSuccess } from '../../components/toast.js';
 import { fileSize } from '../../core/format.js';
-import { LCD_GROUP, local } from './state.js';
+import { LCD_GROUP, local, redraw } from './state.js';
 import {
   deviceMapName, isCompartmentPlan, mergedSoftware, softwareDeviceIds,
   softwareFiles, softwareRows,
@@ -25,14 +25,14 @@ export function currentPlanIs(plan, setNo) {
 }
 export function applySoftwareReply(plan, reply) {
   plan.software = mergedSoftware(plan, reply);
-  patch({ ipState: { ...state.ipState } });
+  redraw();
 }
 export async function pickApk(plan) {
   const ids = softwareDeviceIds(plan);
   if (!ids.length || local.apkPickerOpen) return;
   const setNo = state.setNo;
   local.apkPickerOpen = true;
-  patch({ ipState: { ...state.ipState } });
+  redraw();
   try {
     const reply = await api.firmwarePick(setNo, LCD_GROUP, ids);
     if (!currentPlanIs(plan, setNo)) return;
@@ -45,7 +45,7 @@ export async function pickApk(plan) {
   } finally {
     local.apkPickerOpen = false;
     if (state.view === 'ip' && state.ipState) {
-      patch({ ipState: { ...state.ipState } });
+      redraw();
     }
   }
 }

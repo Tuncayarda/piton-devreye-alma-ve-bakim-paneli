@@ -122,6 +122,13 @@ ls platform-tools/adb        # macOS/Linux
 ls platform-tools/adb.exe    # Windows
 ```
 
+CI bu indirmeyi **sürüme sabitleyip sha256 ile doğrular**
+(`build-app.yml`, "Fetch the ADB tools": `platform-tools_r37.0.1` + işletim
+sistemi başına özet). Arşiv pakete kopyalandığı için "latest" orada kabul
+edilmez; sürüm yükseltilecekse üç özet de birlikte güncellenir. Elle
+derlemede yukarıdaki serbest indirme yeterlidir — spec klasörde ne varsa onu
+paketler.
+
 **`dabp.spec` eksik adb ile derlemeyi durdurur.** Uyarı basıp devam etmez;
 servis anahtarındaki kalıbın aynısı. Sebebi: adb'siz bir paket derlenir,
 açılır, çalışır — ve sahada sağlam bir ekran "okunamıyor" der. Bu, arızanın
@@ -565,7 +572,7 @@ kapı, kapı değildir.
 
 Testler ve `--self-test` `vip-yatakli` paketi olarak koşar; suite build
 sırrını dışa aktardığı için admin modunda çalışır ve mühendis ekranları da
-sınanır (bkz. `tests/support/base.py`).
+sınanır (bkz. `tests/__init__.py`).
 Üçüncü bir denetim, çıplak `python app.py` çağrısının **sıfırdan farklı**
 çıktığını doğrular.
 
@@ -604,7 +611,15 @@ Her derleme işi sırasıyla depoyu alır, Python 3.12 ile bağımlılıkları k
 sürümü belirler, varsa birim testleri ve kaynak `--self-test` denetimini
 çalıştırır. Ardından temiz bir PyInstaller derlemesi yapar, paketlenmiş
 uygulamada `--self-test` çalıştırır, çıktıyı paketleyip doğrular ve GitHub
-Actions çıktı arşivi olarak yükler.
+Actions çıktı arşivi olarak yükler. Paketlenmiş `--self-test` çıktısı
+**dört hedefte de** aynı ortak adımla geri okunur ("Verify the packaged
+self-test output"): paket kendini doğru edition olarak bildirmeli, sır
+değil yalnız özet taşımalı ve secret'lı bir build'de mühürlü (`.sealed`)
+proje dosyaları gerçekten pakette olmalıdır. Yayın işi ayrıca depo hijyen
+kontrollerine bağlıdır: `build-commissioning-panel.yml` içindeki `checks`
+işi (`repo-checks.yml`) kimlik taraması başarısızsa paketi ve Release'i
+durdurur — ci.yml aynı dosyayı çağırır ama etiketle paralel koştuğu için
+tek başına yayını engelleyemezdi.
 
 Linux paketi Ubuntu 22.04 üzerinde derlenir. Daha yeni bir sistemde derlenen
 ikili eski bir `glibc` sürümünde çalışmayabileceğinden, bu seçim desteklenen
@@ -626,9 +641,16 @@ durur.
 
 **Secret.** `DAP_ADMIN_KEY_SECRET` deponun Actions secret'ları arasında
 tanımlı olmalıdır. Yeniden kullanılabilir workflow'lar secret'ları miras
-almaz; `secrets: inherit` satırı bu yüzden vardır. Secret tanımsızsa build
+almaz; `secrets: inherit` satırı bu yüzden vardır. Secret tanımsızken **bir
+dal ref'inden** çalıştırılan `workflow_dispatch` (yalnız arşiv üreten deneme)
 yine tamamlanır, ama çıkan paketin admin modu **hiç açılmaz** — `--self-test`
-çıktısında `Admin key material — none` yazar.
+çıktısında `Admin key material — none` yazar. **Ref'i etiket olan her koşu
+ise yayın sayılır** — ha etiket gönderimiyle ha listeden etiket seçilerek
+başlatılmış olsun — ve secret tanımsızsa hiç başlamaz: hiçbir servis
+anahtarını tanıyamayacak bir paketi sahaya yollamaktansa build ilk adımda
+durur ("A tagged build must carry the key secret"). Kaçış kapısı
+`DAP_ALLOW_NO_ADMIN_KEY` de artık koşulludur: yalnız secret gerçekten yokken
+açılır.
 
 Switch Yönetim Paneli, `syp` dalındaki kendi `build-switch.yml` dosyasıyla
 ayrı derlenir. İki uygulamanın akışları birbirini beklemez ve birbirinin

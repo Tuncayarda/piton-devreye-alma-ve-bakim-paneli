@@ -16,8 +16,7 @@ import json
 
 from .. import settings
 from .fields import FIELDS
-from .store import (DEVICE_TARGETS, GROUP_TARGETS, LOCK, UNSCOPED_DEVICE,
-                    UNSCOPED_GROUP)
+from .store import DEVICE_TARGETS, GROUP_TARGETS, LOCK
 from .validation import scope_key, validate
 
 FORMAT = 3
@@ -45,15 +44,6 @@ def save() -> None:
             if groups or devices:
                 sets[str(number)] = {"groups": groups, "devices": devices}
         body = {"format": FORMAT, "sets": sets}
-        unscoped_groups = {key: cleaned
-                           for key, values in UNSCOPED_GROUP.items()
-                           if (cleaned := _storable(values))}
-        unscoped_devices = {key: cleaned
-                            for key, values in UNSCOPED_DEVICE.items()
-                            if (cleaned := _storable(values))}
-        if unscoped_groups or unscoped_devices:
-            body["unscoped"] = {"groups": unscoped_groups,
-                                "devices": unscoped_devices}
     path = settings.config_defaults_file()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,13 +96,7 @@ def load_saved_defaults() -> int:
     with LOCK:
         DEVICE_TARGETS.clear()
         GROUP_TARGETS.clear()
-        UNSCOPED_DEVICE.clear()
-        UNSCOPED_GROUP.clear()
         loaded += _load_sets(body.get("sets"))
-        unscoped = body.get("unscoped")
-        if isinstance(unscoped, dict):
-            _load_block(unscoped.get("groups"), UNSCOPED_GROUP)
-            _load_block(unscoped.get("devices"), UNSCOPED_DEVICE)
     return loaded
 
 
@@ -169,11 +153,11 @@ def saved_defaults_summary(set_no: int = 1) -> dict:
         device_values = sum(len(_storable(values))
                             for (set_number, _name), values
                             in DEVICE_TARGETS.items() if set_number == number)
-        unscoped_values = sum(len(_storable(values)) for values in
-                              (*UNSCOPED_GROUP.values(),
-                               *UNSCOPED_DEVICE.values()))
+    # The "unscoped" quarantine that used to be counted here was VERIFIED
+    # DEAD: its only writer read the same always-empty dicts back from the
+    # file its only producer wrote. Format-1 files, if any still exist in
+    # the field, were never actually routed into it.
     return {"file": str(settings.config_defaults_file()),
             "saved": bool(group_values + device_values),
             "setNo": number, "groupValues": group_values,
-            "deviceValues": device_values,
-            "unscopedValues": unscoped_values}
+            "deviceValues": device_values}

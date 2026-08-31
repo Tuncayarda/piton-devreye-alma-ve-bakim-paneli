@@ -13,26 +13,19 @@
 // on the screen the switch had been made from.
 import assert from "node:assert/strict";
 
-const APP = new URL("../../static/js/app.js", import.meta.url);
+// `ownProjects` is a real import now: it moved out of self-starting app.js
+// into core/store.js as a selector precisely so this file could stop
+// rebuilding it from source text with `new Function`. It takes the state to
+// read as an argument, the way core/schedule.js's predicates do, so the
+// fixtures below drive it directly.
+import { ownProjects } from "../../static/js/core/store.js";
+
 const ADMIN = new URL("../../static/js/views/admin.js", import.meta.url);
 
-// `ownProjects` out of app.js, and `otherProjects`' filter out of admin.js.
-// Read from the files rather than restated here: a restatement keeps passing
-// after the original changes, which is the one thing this must not do.
-const appText = await Deno.readTextFile(APP);
+// `otherProjects`' filter is still read out of admin.js rather than
+// restated here: a restatement keeps passing after the original changes,
+// which is the one thing this must not do.
 const adminText = await Deno.readTextFile(ADMIN);
-
-// `\r?\n`, not `\n`: a Windows checkout converts this repository's line
-// endings, so the terminating `;` is followed by CR there and a pattern
-// anchored on the bare newline finds nothing — which reads as "the function
-// was renamed" on one platform out of three.
-const ownSource = appText.match(
-  /const ownProjects = \(\) =>\s*\r?\n?([\s\S]*?);\r?\n/);
-assert.ok(ownSource, "ownProjects was not found in app.js");
-// The captured text is the arrow function's BODY — an expression over
-// `state` — so it is evaluated, not called.
-const ownProjects = (state) =>
-  new Function("state", `return (${ownSource[1].trim()})`)(state);
 
 // The card no longer filters at all — it lists everything and marks the
 // open row — so what is checked here is the whole function's shape: the

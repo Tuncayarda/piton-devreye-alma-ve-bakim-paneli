@@ -19,6 +19,9 @@ written only once it has been read back off the device.
 """
 from __future__ import annotations
 
+import os
+import threading
+import unittest
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -29,6 +32,8 @@ from panel.config_sync import fields as field_table
 from panel.errors import AuthError, VerificationError
 from panel.editions import runtime as editions
 from panel.probe import camera as camera_probe
+from panel.telemetry import client as telemetry_client
+from panel.telemetry import monitor as monitor_module
 from panel.video_config import health
 from panel.video_config import isapi as video_isapi
 from panel.video_config import nvr as nvr_config
@@ -646,6 +651,70 @@ class NvrPayloadSafety(PanelTest):
         self.assertNotIn("device-secret", str(caught.exception))
 
 
+# A proxy address nothing listens on. If any video request consults the
+# environment it goes here, fails at once, and the SharedTransport reads
+# below error — which is exactly what used to happen in the field with a
+# real proxy. NO_PROXY is cleared so requests cannot bypass the proxy for
+# localhost behind the test's back: the read must succeed because the
+# session ignores the environment, not because an exclusion list happened
+# to cover the fake.
+DEAD_PROXY = {"HTTP_PROXY": "http://127.0.0.1:9",
+              "http_proxy": "http://127.0.0.1:9",
+              "HTTPS_PROXY": "http://127.0.0.1:9",
+              "https_proxy": "http://127.0.0.1:9",
+              "NO_PROXY": "", "no_proxy": ""}
+
+
+class SharedTransport(VideoTest):
+    """One ISAPI client for reads and writes (panel.video_config.isapi).
+
+    `panel.probe.camera` used to be a second client written by hand —
+    module-level requests calls, its own digest auth, and no
+    `trust_env=False` — so an HTTP_PROXY set on the machine broke every
+    camera and NVR read while the switch path (which pins the proxy out in
+    panel.switch.client.create_session) kept working.
+    """
+
+    def test_a_machine_proxy_does_not_break_a_camera_read(self):
+        """The trust_env pin, and the shared-session pin in one.
+
+        The read is spied through the module session: a probe read that
+        quietly went back to its own requests calls would pass the proxy
+        check on some platforms (localhost bypass) — the spy makes the
+        route itself the assertion.
+        """
+        with fakes.video_camera(third_stream=True, ir="close",
+                                hdd={"1": "ok"}) as fake:
+            settings.VIDEO_PORT = fake.port
+            original = video_isapi._SESSION.request
+            with mock.patch.dict(os.environ, DEAD_PROXY), \
+                    mock.patch.object(video_isapi._SESSION, "request",
+                                      side_effect=original) as spy:
+                result = camera_probe.read("127.0.0.1", ACCOUNT,
+                                           expected_ntp="10.1.1.1")
+
+        self.assertEqual(result["serial"], "SN-TEST-0001")
+        self.assertEqual(result["version"], "V5.7.3")
+        # Every request of the read went through the one proxy-free session.
+        self.assertGreater(spy.call_count, 0)
+        self.assertFalse(video_isapi._SESSION.trust_env)
+
+    def test_a_machine_proxy_does_not_break_a_configuration_run(self):
+        """The write side rides the same session as the read side."""
+        inventory = self.build_map(fakes.device_map(
+            [{**CAMERAS[0], "IP": "127.0.0.1"}, PISCU]))
+        device = inventory.by_type("Camera")[0]
+        with fakes.video_camera() as fake:
+            settings.VIDEO_PORT = fake.port
+            with mock.patch.dict(os.environ, DEAD_PROXY):
+                result = config_sync.apply_targets(device, inventory,
+                                                   ACCOUNT, "Camera")
+            state = dict(fake.state)
+
+        self.assertTrue(result["rebooted"])
+        self.assertEqual(state["timezone"], settings.EXPECTED_TIMEZONE)
+
+
 class Scopes(PanelTest):
     """Which fields a video device has is decided by its Type."""
 
@@ -826,3 +895,119 @@ class VerificationChecks(VideoTest):
                                       timeout=0.2)
         self.assertIn("HDD unreadable", unreachable)
         self.assertIn("buzzer unreadable", unreachable)
+
+
+# ─────────────────────────── the live MQTT monitoring screen ───────────────
+class FakePahoClient:
+    """What `build_client` hands back, reduced to what the monitor calls."""
+
+    def __init__(self, client_id: str = ""):
+        self.client_id = client_id
+        self.connected: list[tuple] = []
+        self.stopped = False
+        self.on_connect = None
+        self.on_message = None
+
+    def connect(self, broker, port, keepalive=15):
+        self.connected.append((broker, port))
+
+    def loop_start(self):
+        pass
+
+    def loop_stop(self):
+        self.stopped = True
+
+    def disconnect(self):
+        pass
+
+
+class MonitorStart(unittest.TestCase):
+    """Starting the monitoring screen's subscriber, twice at once."""
+
+    def test_two_simultaneous_starts_leak_no_client(self):
+        """`start` used to release the lock between the "already running?"
+        check and the assignment at the end, with the broker connection in
+        between. Two Start clicks landing together both passed the check
+        and both connected — and the loser's paho client was unreachable
+        for ever after: `stop` only knew the winner, while the loser's
+        closures went on feeding the message buffer. The slot is now
+        reserved under the lock before any I/O, so the second caller
+        returns without building anything."""
+        made = []
+        entered, release = threading.Event(), threading.Event()
+
+        def build(client_id):
+            entered.set()
+            release.wait(5)
+            client = FakePahoClient(client_id)
+            made.append(client)
+            return client
+
+        monitor = monitor_module.MqttMonitor()
+        with mock.patch.object(monitor_module, "build_client", build):
+            first = threading.Thread(
+                target=lambda: monitor.start("127.0.0.1"))
+            first.start()
+            self.assertTrue(entered.wait(5), "the first start never began")
+            second = threading.Thread(
+                target=lambda: monitor.start("127.0.0.1"))
+            second.start()
+            # The second click must come straight back without building.
+            # Under the old code it was inside the gate beside the first,
+            # and this join timed out.
+            second.join(2)
+            release.set()
+            first.join(5)
+            second.join(5)
+
+        self.assertEqual(len(made), 1, "the second start built a client too")
+        self.assertTrue(monitor.running())
+        monitor.stop()
+        self.assertTrue(made[0].stopped,
+                        "stop() must reach the one client that was started")
+
+    def test_a_failed_start_leaves_the_door_open_for_the_next(self):
+        """Both failure paths must roll the reservation back, or one bad
+        broker address would refuse every later Start until restart."""
+        monitor = monitor_module.MqttMonitor()
+        with mock.patch.object(
+                monitor_module, "build_client",
+                side_effect=monitor_module.MqttUnavailable("no paho")):
+            monitor.start("127.0.0.1")
+        self.assertFalse(monitor.running())
+        self.assertEqual(monitor.state()["error"], "no paho")
+
+        broken = FakePahoClient()
+        broken.connect = mock.Mock(side_effect=OSError("no route"))
+        with mock.patch.object(monitor_module, "build_client",
+                               return_value=broken):
+            monitor.start("203.0.113.1")
+        self.assertFalse(monitor.running())
+        self.assertTrue(monitor.state()["error"])
+
+        with mock.patch.object(monitor_module, "build_client",
+                               return_value=FakePahoClient()):
+            monitor.start("127.0.0.1")
+        self.assertTrue(monitor.running())
+        monitor.stop()
+
+
+class MonitorClientIds(unittest.TestCase):
+    """Two panels on one bench must not share MQTT client ids."""
+
+    def test_the_id_keeps_its_prefix_and_gains_a_process_suffix(self):
+        """The broker keys sessions by client id and answers a duplicate by
+        evicting its holder — with the ids fixed, two panels collecting at
+        once disconnected each other mid-scan. Every id built here carries
+        this process's suffix; the readable prefix survives for the
+        broker's log."""
+        try:
+            import paho.mqtt.client  # noqa: F401
+        except ImportError:
+            self.skipTest("paho-mqtt is not installed")
+        built = telemetry_client.build_client("commissioning_devicemap")
+        client_id = built._client_id.decode("utf-8")
+        self.assertTrue(client_id.startswith("commissioning_devicemap_"),
+                        client_id)
+        self.assertEqual(client_id.rsplit("_", 1)[1],
+                         telemetry_client._INSTANCE)

@@ -111,7 +111,8 @@ class FactoryResetProgress:
             key = port_key(port)
             self._states[key] = "queued"
             job.add_row(key, f"Port {port} · {device.name}", state="queued",
-                        note=f"{device.ip} → fabrika", ip=device.ip,
+                        note=i18n.lazy("row.factoryTarget", ip=device.ip),
+                        ip=device.ip,
                         counted=True)
         self._publish()
 
@@ -241,7 +242,13 @@ class PortResolver:
         self._disabled = False
 
     def _refresh(self) -> None:
-        if self._disabled or (self._table
+        # The TTL guards "when was the table READ", not "is it non-empty".
+        # A switch that answers with an empty MAC learning table — every
+        # port down, or a table still filling after a reboot — is a real
+        # answer; guarding on `self._table` treated it as "never asked" and
+        # re-read the switch on EVERY lookup, ~120 pointless HTTP round
+        # trips over a ten-pass reset.
+        if self._disabled or (self._read_at
                               and time.time() - self._read_at < self._ttl):
             return
         credentials = credential_store.lookup(self._switch.id,
@@ -320,7 +327,10 @@ def _probe(module, config, candidates: list[str], cancelled=None) -> dict:
         found = module.probe_all(candidates, config)
         if found:
             return found
-        module.arp_forget(candidates)
+        # The config rides along so the script's own `--no-arp-flush`
+        # opt-out holds here too; without it the flush ran regardless of
+        # what the run was told.
+        module.arp_forget(candidates, config)
         if attempt + 1 < PROBE_ATTEMPTS and not _wait(PROBE_INTERVAL,
                                                       cancelled):
             return {}
@@ -355,7 +365,9 @@ def _address_freed(module, config, ip: str, trace: str,
             silent += 1
             if silent >= 2:
                 return True
-            module.arp_forget([ip])
+            # With the config: its arp_flush opt-out must reach every
+            # flush this run performs, not only lcd_runner's.
+            module.arp_forget([ip], config)
         if clock.monotonic() >= deadline:
             return silent > 0
         clock.sleep(getattr(config, "poll_interval", 1.0))

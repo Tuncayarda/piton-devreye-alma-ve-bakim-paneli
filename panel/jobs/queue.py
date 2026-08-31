@@ -6,6 +6,7 @@ import threading
 import time
 
 from ..errors import DeviceError
+from . import access
 from .job import (CANCELLED, DONE, FAILED, Job, QUEUED, ROW_SKIPPED, RUNNING)
 from .. import i18n
 
@@ -37,7 +38,6 @@ class JobQueue:
         self._lock = threading.RLock()
         self._pending: list[Job] = []
         self._wake = threading.Condition(self._lock)
-        self._running: Job | None = None
         self._shutdown = threading.Event()
         self._bodies: dict[str, callable] = {}
         self._worker: threading.Thread | None = None
@@ -164,13 +164,39 @@ class JobQueue:
                     return
                 job = self._pending.pop(0)
                 body = self._bodies.get(job.id)
-                self._running = job
-            if job.cancel.is_set():
+                # The cancel decision and the RUNNING stamp stay under the
+                # SAME lock that popped the job. Outside it there was a
+                # window in which `cancel()` still saw QUEUED and took the
+                # "not started" branch — rows marked skipped, job marked
+                # CANCELLED — while this thread went on to run the body to
+                # DONE anyway. With the stamp inside the lock, `cancel()`
+                # sees either QUEUED (and the job is still in `_pending`,
+                # so it really is stopped before starting) or RUNNING (and
+                # only the flag is set, for the body to honour).
+                if job.cancel.is_set():
+                    job.state = CANCELLED
+                    job.finished_at = time.time()
+                    continue
+                job.state = RUNNING
+                job.started_at = time.time()
+            # THE DEVICE CLAIM, for the whole body. Outside the queue lock —
+            # the wait can be long (the ADB screen may hold the claim through
+            # an install) and submit/cancel must stay answerable meanwhile.
+            # A cancel during the wait abandons it: the job ends CANCELLED
+            # having touched nothing, exactly like a cancel while QUEUED.
+            claim = f"job:{job.id}"
+            # Said on the card while the wait lasts: the job is stamped
+            # RUNNING before the claim (cancel() must see one truth), and a
+            # silent RUNNING behind an ADB-screen operation read as a hang.
+            job.phase = i18n.lazy("job.waitingForDevices")
+            if not access.acquire(claim, cancelled=job.cancel.is_set):
                 job.state = CANCELLED
                 job.finished_at = time.time()
+                for row in job.rows():
+                    job.update_row(row["deviceId"], ROW_SKIPPED,
+                                   i18n.lazy("row.cancelled"))
                 continue
-            job.state = RUNNING
-            job.started_at = time.time()
+            job.phase = ""
             try:
                 if body is None:
                     # The job was queued and its body pruned (or removed).
@@ -199,9 +225,8 @@ class JobQueue:
                 # Not re-raised: the dispatcher survives and the next job
                 # runs. Shutdown handles the cancel flag separately.
             finally:
+                access.release(claim)
                 job.finished_at = time.time()
-                with self._lock:
-                    self._running = None
 
     def close(self, timeout: float | None = None) -> bool:
         """Stop the queue: no new jobs, running ones cancelled.

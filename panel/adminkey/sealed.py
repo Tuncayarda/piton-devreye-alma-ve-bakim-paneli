@@ -27,6 +27,9 @@ projects, same labels, no temporary files.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import sys
+import threading
 from pathlib import Path
 
 from .. import settings
@@ -35,6 +38,24 @@ from . import pack, secret, vault
 
 # The suffix a sealed file carries in the bundle. `dabp.spec` writes them.
 SUFFIX = ".sealed"
+
+# What `unlock` has already settled, per (project, key fingerprint). The USB
+# watcher calls `unlock` on its two-second beat for as long as a recognised
+# key sits in an admin-mode machine, and without this every beat re-derived
+# the same answer — a pure-Python decrypt and a rewrite of the same file to
+# the temp directory, megabytes every two seconds. True = registered (still
+# honoured only while the project really is registered — leaving admin mode
+# clears the extras and the session copies, and the check below notices);
+# False = failed and already reported, so the reason is written to stderr
+# once rather than on every beat.
+_DONE: dict[tuple[str, bytes], bool] = {}
+_DONE_LOCK = threading.Lock()
+
+
+def forget() -> None:
+    """Drop the unlock memo. Shutdown and tests."""
+    with _DONE_LOCK:
+        _DONE.clear()
 
 
 def sealed_name(name: str) -> str:
@@ -78,27 +99,57 @@ def unlock(key: bytes | None = None) -> int:
 
     Returns how many were registered. NEVER RAISES: this is called from the
     watcher's thread and from the path that enters admin mode, and a bundle
-    with one unreadable file in it must leave both working.
+    with one unreadable file in it must leave both working. Failures are not
+    silent any more, though: five different causes used to present
+    identically as "nothing extra in the menu", so each skipped project now
+    writes its reason to stderr — once, not on every watcher beat.
     """
     registered = 0
+    material = _key(key)
+    fingerprint = hashlib.sha256(material).digest() if material else b""
+    from .. import editions                                # noqa: PLC0415
     for project in foreign_projects():
-        try:
-            opened = _resolve(project, key)
-        except Exception:
-            opened = None
-        if opened is None:
-            continue
-        try:
-            from .. import editions                        # noqa: PLC0415
-            editions.add_extra(opened)
+        memo = (project.key, fingerprint)
+        # THE WHOLE DECISION UNDER THE LOCK, not just the memo reads: the
+        # watcher beat and the admin route both land here, and a
+        # check-then-resolve let the pair decrypt and rewrite the same file
+        # twice — the very duplication the memo exists to end. The work
+        # held under it is one unseal of a device map, milliseconds; and
+        # `add_extra` only nests the editions lock, which never calls back
+        # in here.
+        with _DONE_LOCK:
+            done = _DONE.get(memo)
+            # Honoured only while the registration is still standing:
+            # leaving admin mode clears the extras and the session copies,
+            # and the memo must not stop the next admin session from
+            # re-opening them.
+            if done is True and editions.is_extra(project):
+                registered += 1
+                continue
+            try:
+                opened, reason = _resolve(project, key)
+            except Exception as error:
+                opened, reason = None, f"unexpected: {type(error).__name__}"
+            if opened is None:
+                report = done is not False
+                _DONE[memo] = False
+                if report:
+                    sys.stderr.write(
+                        f"[adminkey] sealed project not offered: "
+                        f"{project.key} — {reason}\n")
+                continue
+            try:
+                editions.add_extra(opened)
+            except Exception:
+                continue
+            _DONE[memo] = True
             registered += 1
-        except Exception:
-            continue
     return registered
 
 
-def _resolve(project: Project, key: bytes | None) -> Project | None:
-    """This project as something openable, or None if it cannot be opened.
+def _resolve(project: Project,
+             key: bytes | None) -> tuple[Project | None, str]:
+    """This project as something openable, or (None, why not).
 
     Three answers, in the order they are cheap:
 
@@ -106,30 +157,32 @@ def _resolve(project: Project, key: bytes | None) -> Project | None:
         is used as it stands, and nothing is decrypted or copied;
       * a sealed blob is in the bundle and K is in hand — decrypted into the
         session directory, and the row is re-pointed at the copy;
-      * anything else — None, and the project is simply not offered.
+      * anything else — None with the reason, and the project is simply not
+        offered. The reason goes to stderr (see `unlock`), never to the UI:
+        which drive holds what is the panel's own business.
     """
     plain = settings.data_file(project.map_name, *project.source_path)
     try:
         if plain.is_file():
-            return project
+            return project, ""
     except OSError:
         pass
 
     blob = _sealed_bytes(project.map_name, project.source_path)
     if blob is None:
-        return None
+        return None, "no sealed copy in this package"
     material = _key(key)
     if not material:
-        return None
+        return None, "no key material in hand"
     opened = vault.unseal(material, blob)
     if opened is None:
-        return None
+        return None, "the sealed copy would not open (wrong key, or tampered)"
 
     target = pack.session_dir() / project.map_name
     try:
         target.write_bytes(opened)
     except OSError:
-        return None
+        return None, "could not write the session copy"
 
     return dataclasses.replace(
         project,
@@ -139,7 +192,7 @@ def _resolve(project: Project, key: bytes | None) -> Project | None:
         # halves disagree is a trap for whoever reads it next.
         source_path=(project.map_name,),
         **_checklist(project, material),
-    )
+    ), ""
 
 
 def _checklist(project: Project, material: bytes) -> dict:

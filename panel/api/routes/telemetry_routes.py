@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ... import telemetry
 from ...editions import runtime as editions
-from ..presenters import inventory_for, piscu_body
+from ..presenters import inventory_for, inventory_for_write, piscu_body
 from ..response import respond
 from .helpers import single
 from ... import i18n
@@ -19,7 +19,7 @@ def get_mqtt(query):
 
 
 def post_mqtt_start(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     broker = editions.broker_ip(inventory)
     if not broker:
         return respond(400, {"error": i18n.t("error.piscuAddressNotFound")})

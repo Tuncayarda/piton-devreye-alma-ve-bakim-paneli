@@ -1,7 +1,7 @@
 # Geliştirici Kılavuzu — İçerik Planı
 
 Bu dosya **Word dokümanının kendisi değil**, onu doldurmak için yazılmış bir
-plandır. `document.docx` şablonundaki bölüm iskeleti esas alınmıştır; her
+plandır. bölüm iskeleti mevcut geliştirici kılavuzundan (`docs/DABP_Geliştirici_Kılavuzu.docx`) esas alınmıştır; her
 başlığın altında **ne anlatılacağı**, **hangi tablonun gireceği**, **hangi
 görselin nereye konacağı** ve **bilginin kaynağı** yazılıdır.
 
@@ -14,7 +14,7 @@ metinde `[GÖRSEL-n]` olarak işaretlendi.
 |---|---|
 | Doküman Adı | Devreye Alma ve Bakım Paneli – Yazılım Tasarım Dokümanı |
 | Dosya Adı | DABP_Gelistirici_Kilavuzu.docx |
-| Şablon | `document.docx` (kapak, künye tabloları, üstbilgi/altbilgi, stiller) |
+| Şablon | `docs/DABP_Geliştirici_Kılavuzu.docx` (kapak, künye tabloları, üstbilgi/altbilgi, stiller) |
 | Hedef okuyucu | Kaynak koda ilk kez bakan geliştirici; bakımı devralacak ekip |
 | Yazım dili | Türkçe. Kod, dosya adı, sınıf/fonksiyon adları İngilizce kalır |
 
@@ -552,7 +552,7 @@ Bu panelde bilinçli olarak **yapılmayan** şeyler ve sebepleri. Yeni gelenin
 
 ## Word'e Geçerken
 
-1. Şablon `document.docx`; kapak, künye tabloları, üstbilgi/altbilgi ve
+1. Şablon `docs/DABP_Geliştirici_Kılavuzu.docx`; kapak, künye tabloları, üstbilgi/altbilgi ve
    stiller korunacak. Künye alanları (doküman adı, dosya adı, tarih,
    hazırlayan, versiyon) ve **sayfa üstbilgisi** güncellenecek — şablonun
    üstbilgisi hâlâ eski projeyi yazıyor.

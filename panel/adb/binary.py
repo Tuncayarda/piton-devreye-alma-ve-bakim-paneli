@@ -95,14 +95,3 @@ def adb_path() -> str:
     # traceback and in the job log; "adb" alone tells nobody which adb ran.
     return shutil.which("adb") or "adb"
 
-
-def available() -> bool:
-    """Is there an adb this machine can actually run?
-
-    For screens that want to say so BEFORE offering a button, rather than
-    letting every selected device fail with the same message.
-    """
-    path = adb_path()
-    if os.path.sep in path or (os.path.altsep and os.path.altsep in path):
-        return os.access(path, os.X_OK)
-    return shutil.which(path) is not None

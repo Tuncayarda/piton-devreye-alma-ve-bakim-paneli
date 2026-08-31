@@ -24,6 +24,12 @@ export function onCredentialsAccepted(fn) { onAccepted = fn; }
 // Same reasoning as the queue panel: the list is only rebuilt when it changed.
 let lastSignature = null;
 
+// Same reasoning as queue.reset(): a language switch changes the words, not
+// the data, and an open panel would otherwise keep the old catalogue's rows.
+export function reset() {
+  lastSignature = null;
+}
+
 export function render() {
   const list = $('#locked-list');
   if (!list) return;

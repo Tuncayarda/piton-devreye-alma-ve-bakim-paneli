@@ -17,7 +17,8 @@ Three of KYLAND's habits are load-bearing here and none of them are obvious:
 from __future__ import annotations
 
 from .. import i18n
-from ..errors import AuthError, DeviceError
+from ..errors import (AuthError, DeviceError, UnreachableError,
+                      VerificationError)
 
 # The modes a PoE port can be in, as CATALOGUE KEYS rather than words. The
 # sibling application spelled the words out here — it had one language and no
@@ -35,38 +36,69 @@ BOOLEAN_PORT_CONFIG_FIELDS = {"enabled", "autoNegotiation", "fullDuplex",
                               "flowControl"}
 
 
-def get_ports(client, ip: str, credentials=None) -> list[dict]:
+def get_ports(client, ip: str, credentials=None, *,
+              timeout: float | None = None) -> list[dict]:
     """Merge portMode, poePort and poeStatus into one row per port.
 
-    All three are read because none of them is the whole answer: portMode
-    knows whether a port is up, poePort knows what it is configured to
-    deliver, and only poeStatus can tell "powering" from merely "linked".
+    THE one merge. The switch screen consumes these rows as they are; the
+    IP assignment screen's front panel projects them into its own key names
+    (`panel.probe.switch.ports`). It used to be written twice, and the two
+    copies disagreed about a model whose PoE table is missing: the front
+    panel rendered it, the switch screen failed the whole list.
 
-    poeStatus does not exist on every model. When it is missing the live
-    fields stay empty rather than being invented — but an AuthError still
-    travels, because "you must sign in" is not the same as "this model has no
-    such table".
+    All three endpoints are read because none of them is the whole answer:
+    portMode knows whether a port is up, poePort knows what it is configured
+    to deliver, and only poeStatus can tell "powering" from merely "linked".
+
+    NEITHER PoE endpoint exists on every model — poeStatus is the one seen
+    missing most, but a switch without PoE hardware has no poePort either.
+    A missing table leaves its fields empty rather than invented: the ports
+    themselves still come back, because that switch still has a faceplate to
+    draw and ports to bring up or down. An AuthError still travels — "you
+    must sign in" is not the same as "this model has no such table".
     """
-    port_modes = client.get(ip, "stat/portMode",
-                            credentials=credentials).get("portMode", [])
-    poe_ports = {
-        int(port["pid"]): port
-        for port in client.get(ip, "stat/poePort",
-                               credentials=credentials).get("poePort", [])}
-    try:
-        live = {
-            int(port["pid"]): port
-            for port in client.get(
-                ip, "stat/poeStatus",
-                credentials=credentials).get("poeStatus", [])}
-    except AuthError:
-        raise
-    except Exception:
-        live = {}
+    def fetch(endpoint: str):
+        if timeout is None:                 # the client's own default
+            return client.get(ip, endpoint, credentials=credentials)
+        return client.get(ip, endpoint, timeout=timeout,
+                          credentials=credentials)
+
+    def optional(endpoint: str, key: str) -> dict:
+        """{pid: row} for a table that may not exist on this model.
+
+        ONLY "not here" is optional. A timeout or a dropped connection on
+        the same switch that just answered portMode is a transport fault,
+        and swallowing it drew the whole PoE face as a switch with no PoE —
+        a lie the operator would act on. UnreachableError and AuthError
+        travel; what stays is the model answering "no such endpoint"
+        (the client's 404 → VerificationError shape) and a malformed body.
+        """
+        try:
+            data = fetch(endpoint)
+        except (AuthError, UnreachableError):
+            raise
+        except Exception:
+            return {}
+        records = data.get(key, []) if isinstance(data, dict) else []
+        return {int(record["pid"]): record for record in records
+                if isinstance(record, dict)
+                and str(record.get("pid", "")).isdigit()}
+
+    data = fetch("stat/portMode")
+    port_modes = data.get("portMode", []) if isinstance(data, dict) else []
+    # portMode is NOT optional: without it there are no ports at all, and a
+    # reply of the wrong shape is not a switch port list.
+    if not isinstance(port_modes, list):
+        raise VerificationError(i18n.t("error.switchPortList"))
+
+    poe_ports = optional("stat/poePort", "poePort")
+    live = optional("stat/poeStatus", "poeStatus")
 
     output = []
     for port in port_modes:
-        pid = int(port["pid"])
+        if not isinstance(port, dict):
+            continue
+        pid = int(port.get("pid", 0))
         poe = poe_ports.get(pid, {})
         status = live.get(pid, {})
         power = status.get("powerUsed")

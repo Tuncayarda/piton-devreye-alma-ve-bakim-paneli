@@ -335,8 +335,19 @@ def prefix() -> int:
 
 
 def add_extra(project: Project) -> None:
-    """Register a project delivered on the service key (admin mode only)."""
+    """Register a project delivered on the service key (admin mode only).
+
+    NEVER ONE OF THE PACKAGE'S OWN. `projects()` filters built-ins out of
+    the extras it appends, but `is_extra`/`current_is_extra` do not — so a
+    stick carrying the customer's own map (the natural thing for an
+    engineer to carry) used to shadow the built-in row: selecting the
+    project then demanded admin mode, and the 403 said so in a sentence
+    that made no sense on the customer's own project.
+    """
     with _LOCK:
+        if _ACTIVE is not None and any(built.key == project.key
+                                       for built in _ACTIVE.projects):
+            return
         _EXTRA[project.key] = project
 
 
@@ -358,6 +369,18 @@ def find_project(key: str) -> Project | None:
 def is_extra(project: Project) -> bool:
     with _LOCK:
         return project.key in _EXTRA
+
+
+def is_extra_key(key: str) -> bool:
+    """Is this key a service-key project — WHATEVER the current mode is.
+
+    `find_project` cannot answer this for the guard: it walks `projects()`,
+    which hides extras outside admin mode, so outside admin mode the lookup
+    returned None and the refusal it was meant to feed never fired. The
+    registry is consulted directly here, mode or no mode.
+    """
+    with _LOCK:
+        return str(key or "").strip().lower() in _EXTRA
 
 
 def current_project() -> Project:

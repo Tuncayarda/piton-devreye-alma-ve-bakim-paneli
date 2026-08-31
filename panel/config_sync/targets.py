@@ -9,8 +9,7 @@ from ..editions import runtime as editions
 from ..inventory.device_map import Device, Inventory
 from ..video_config import defaults as video_defaults
 from .fields import FIELDS, config_scope, writable_for_scope
-from .store import DEVICE_TARGETS, GROUP_TARGETS, LOCK, UNSCOPED_DEVICE, \
-    UNSCOPED_GROUP
+from .store import DEVICE_TARGETS, GROUP_TARGETS, LOCK
 from .validation import scope_key, validate
 
 
@@ -74,8 +73,6 @@ def forget_targets(set_no: int | None = None) -> None:
         if set_no is None:
             DEVICE_TARGETS.clear()
             GROUP_TARGETS.clear()
-            UNSCOPED_DEVICE.clear()
-            UNSCOPED_GROUP.clear()
             return
         number, _ = scope_key(set_no, "_")
         for store in (DEVICE_TARGETS, GROUP_TARGETS):

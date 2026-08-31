@@ -15,6 +15,18 @@ from . import status
 from . import i18n
 
 
+class NotFoundError(LookupError):
+    """Something the client NAMED is not there — a device id, a job id.
+
+    Its own class, and the only LookupError the API maps to a 404: a bare
+    KeyError from a handler bug is a LookupError too, and mapping the whole
+    family used to report a programming error to the operator as "not
+    found" — a state the UI renders calmly — with a quoted Python key as
+    the explanation and nothing in any log. Raisers carry a translated
+    sentence; a KeyError never does.
+    """
+
+
 class DeviceError(Exception):
     """Common ancestor for a single device failing to be read."""
 

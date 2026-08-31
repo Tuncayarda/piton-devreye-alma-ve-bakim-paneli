@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from ... import checklist, jobs
-from ..presenters import inventory_for
+from ..presenters import inventory_for, inventory_for_write
 from ..response import respond
 from ..tasks import checklist_export_task
-from .helpers import single
+from .helpers import single, submit
 from ... import i18n
 
 
@@ -22,13 +22,11 @@ def get_checklist(query):
 
 
 def post_export(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     job = jobs.Job("checklist", i18n.lazy("job.checklist",
                                           set=inventory.set_no),
                    inventory.set_no, key=f"checklist:{inventory.set_no}")
-    job, is_new = jobs.QUEUE.submit(job, checklist_export_task(inventory))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, checklist_export_task(inventory))
 
 
 GET = {

@@ -6,7 +6,8 @@ from ... import jobs
 from ...editions import runtime as editions
 from ...probe import reader
 from ...telemetry import TelemetrySnapshot
-from ..presenters import collect_telemetry, credentials_for, store_telemetry
+from ..presenters import (collect_telemetry, credentials_for,
+                          probe_context, store_telemetry)
 from .network_prepare import prepare_network
 from ... import i18n
 
@@ -16,13 +17,10 @@ def scan_task(inventory):
         # The broker, the clock source and the PBX, which are roles rather
         # than devices: on most projects all three are the single PISCU, and
         # on Gaziray and GDM none of them is (see
-        # `panel.editions.catalogue.Project.broker`).
+        # `panel.editions.catalogue.Project.broker`). The read contract
+        # itself is assembled once, in presenters.probe_context.
         broker = editions.broker_ip(inventory)
-        expected_ntp = editions.ntp_ip(inventory)
-        pbx = editions.pbx_ip(inventory)
-        # How far this project reaches, from the DeviceMap. A camera whose
-        # own mask does not cover it cannot see the rest of the train.
-        span = str(inventory.span(broker) or "")
+        context = probe_context(inventory)
 
         # A scan of a set whose network the computer is not on finds nothing
         # at all, and the empty result looks like dead hardware. Telemetry is
@@ -54,10 +52,7 @@ def scan_task(inventory):
         def read(device):
             return reader.read_device(device,
                                       credentials=credentials_for(device),
-                                      telemetry=snapshot,
-                                      expected_ntp=expected_ntp,
-                                      pbx_ip=pbx,
-                                      project_span=span)
+                                      telemetry=snapshot, **context)
 
         jobs.sweep_devices(job, inventory.devices, read)
 

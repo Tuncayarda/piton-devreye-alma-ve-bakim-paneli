@@ -308,7 +308,7 @@ yazabilir. Paketlenmiş build ne ortam değişkenine ne o dosyaya bakar.
 | `media.py` | Belleği silip FAT32 kurma (panelin veri yok eden tek işlemi) |
 | `pack.py` | Bellekte taşınan ek proje cihaz listeleri |
 | `vault.py` | Bir dosyayı yalnız `K` açacak biçimde mühürleme (şifrele-sonra-MAC, yalnız stdlib) |
-| `sealed.py` | Pakete gömülü mühürlü haritaları admin modda açma |
+| `sealed.py` | Pakete gömülü mühürlü haritaları admin modda açma — YALNIZ admin modda: anahtarın görülmesi yetmez, alan kipinde başka müşterinin haritası geçici dizine hiç çözülmez; açılanlar (proje, anahtar) başına bir kez çözülür |
 | `watcher.py` | Belleğin takılı olup olmadığını **bildirme** (§2.3, `authority.py`) |
 
 **Bellek çıkarılınca admin modu kapanır** — anahtarı anahtar yapan da budur.
@@ -317,7 +317,9 @@ taşındı: her izleyici yalnız kendi gördüğünü **bildiriyor** (`report("k
 …)`, `report("remote", …)`) ve `settle()` hiçbirinin tek başına
 cevaplayamadığı soruyu cevaplıyor — kapıyı hâlâ tutan var mı? USB izleyicisi
 uzaktan oturumdan habersiz olduğu için, bu ayrım olmadan az önce açılan bir
-uzaktan oturumu iki saniye içinde kapatıyordu.
+uzaktan oturumu iki saniye içinde kapatıyordu. `settle()` kararı vermeden
+hemen önce kaynakları kilit altında bir kez daha okur: karar ile uygulama
+arasında bağlanan bir uzak oturum, bir saniye içinde geri kapatılmaz.
 
 `authority.py` **asla açmaz**, yalnız kapatır. Giriş, kanıtı denetleyebilen
 yerde hak edilir — birimin yeniden okunduğu `admin_routes.post_mode`,
@@ -648,17 +650,22 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
 - Tam tarama sürerken hafif yenileme çalışmaz; sunucu `409` döner.
 - **Cihaza yazan koşu** (IP atama, konfigürasyon, yazılım yükleme)
   sürerken kendiliğinden tarama başlatılmaz; hafif yenileme de `409`
-  alır (`panel_api.YAZAN_ISLER`). Kuyruk tek işçili olduğu için tam tarama
+  alır (`panel.jobs.writing`; kuyrukta BEKLEYEN yazan iş de sayılır —
+  tek işçi bir sonraki saniye ona başlayacaktır). Kuyruk tek işçili olduğu
+  için tam tarama
   bu koşularla zaten çakışamaz — elle istenen tarama kuyrukta bekler ve
   koşudan **sonra** çalışır. Hafif yenileme ise kuyruğa girmeden okuma
   yaptığı için tek çakışabilen yol odur, ayrıca engellenir.
 - Tur başına en fazla `HAFIF_SINIR` (64) cihaz okunur, `HAFIF_WORKER`
   kadarı aynı anda.
-- **MQTT telemetrisi tur başına toplanmaz.** `Telemetri.topla()` üç MQTT
-  bağlantısı açıp saklanan mesajları bekliyor (yaklaşık 9 sn); bu, turun kendisini
-  dokuz saniyeye çıkarıyor ve "birkaç saniyede bir yenileme"yi anlamsız
-  kılıyordu. Keşif turunun topladığı görüntü `TELEMETRI_TTL` (90 sn)
-  boyunca önbellekte tutulur, hafif turlar oradan okur.
+- **MQTT telemetrisi tur başına toplanmaz.** Toplama artık TEK bağlantıdır
+  ve saklanan mesaj patlaması durulunca biter (`telemetry.client`,
+  IDLE_CUTOFF; tavan `MQTT_TIMEOUT`) — eskiden üç bağlantı ve iki dolu
+  pencereyle ~9 sn tutuyordu. Önbellek yine de durur: saniyenin altındaki
+  bir toplama bile 2 sn'lik hafif turun tekrarlayacağı bir broker gidiş
+  gelişidir ve ulaşılamayan broker her seferinde bağlantı zaman aşımını
+  ödetir. Keşif turunun topladığı görüntü `TELEMETRI_TTL` (90 sn) boyunca
+  önbellekte tutulur, hafif turlar oradan okur.
   **Sonucu:** yalnız telemetriden beslenen cihazlar (`mqtt`, `app`) hafif
   turda en fazla bir keşif turu kadar eski veriyle görünür; asıl doğrulama
   onlarda dakikalık turdur. Doğrudan okunan cihazlar (`http`, `isapi`,
@@ -677,6 +684,11 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
   ayıklama kapalıdır.
 - Yalnız açıkça seçilen tarayıcı/tanı kipinde `127.0.0.1` dinlenir;
   `panel.api.http_adapter.serve()` başka bir arayüz isteğini reddeder ve CORS açılmaz.
+- Tanı kipinde POST'lar çapraz-kaynaklıysa reddedilir (Host/Origin geri
+  döngü olmalı, gövde `application/json` beyan etmeli — ön uçtaki her sayfa
+  127.0.0.1'e erişebilir ve "simple" bir POST'un yan etkisi cevabı okumadan
+  gerçekleşir); HTML yanıtlarına `'self'` CSP başlığı eklenir. Masaüstü
+  paketi kendi, daha sıkı CSP'sini taşır.
 - Okuma, kimlik doğrulama, konfigürasyon ve yazılım yükleme uçlarında
   **istemci keyfî bağlantı hedefi seçemez**. Gövdeye `ip` ya da `type`
   eklemek hedefi değiştirmez; cihaz, DeviceMap'ten `cihazId` ile bulunur.
@@ -684,7 +696,13 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
   başlangıç-bitiş aralığı alır. Bu alanlar sunucuda IPv4 ve aday sayısı
   sınırından geçirilir; switch ve hedef cihazlar yine DeviceMap'ten seçilir.
 - Tren seti `1..254` aralığına zorlanır (şablondaki `n` doğrudan IP'nin
-  ikinci oktetine gider).
+  ikinci oktetine gider). **Gövdesinden set çözen her POST katı çözücüden
+  geçer** (`inventory_for_write`): geçersiz ya da eksik set 400 alır, sessizce
+  Set 1'e düşmez — düşse işlem başka bir trene yönelirdi. Hoşgörülü çözücü
+  yalnız GET ekranlarının açılışında kalır.
+- "Bulunamadı" yalnız panelin kendi `NotFoundError`'ıdır; bir handler
+  hatasından sızan çıplak `KeyError` 404 maskesine girmez, 500 olarak
+  günlüklenir.
 - POST gövdesi tip ve boyut denetiminden geçer (üst sınır 64 KB).
 - Statik dosya servisi `resolve()` sonrası `static/` kökü altında olmayan
   her yolu reddeder.
@@ -692,6 +710,10 @@ beklenir. Her turda bütün haritayı taramak, çalışan cihazların verisini
   gizli alanları veya `Authorization` başlığı bulunmaz.
 - Ham yığın izi yalnız sunucunun kendi hata çıktısına gider; kullanıcı
   "Panelde beklenmeyen bir sorun oluştu" görür.
+- **IP atama koşusu sürerken o switch'e ekrandan yazılamaz.** Koşu, switch'i
+  saha betiğinin kendi istemcisiyle sürer ve `switch.CLIENT`'ın yazma
+  kilidini dakikalarca tutamazdı; bunun yerine koşu bir sahiplik bırakır
+  (`claim_run`) ve Switch ekranının yazma uçları 409 ile bekletir.
 
 ---
 
@@ -737,7 +759,7 @@ cihazlar gösterilir. 23 sütun sığmadığı için tablo kendi içinde yatay
 kayar; sayfa gövdesi kaymaz.
 
 Liste **kendiliğinden tazelenir**: cihaz durumları her değiştiğinde
-`/api/checklist` yeniden okunur (bkz. `app.js onViewEntered`; imza
+`/api/checklist` yeniden okunur (bkz. `app.js`'teki `VIEW_LIFECYCLE` tablosunun enter kancası; imza
 değişmediyse istek yapılmaz). Başlığın altında verinin yaşı yazar —
 saniyede bir kendini yeniler ve `BAYAT_SN`'i (120 sn) geçince turuncuya
 döner.
@@ -1117,9 +1139,13 @@ bulunduğu seti, `targetSet` gidecekleri seti söyler. Varsayılanları set 1 ve
 açık settir; **fabrika sıfırlama ikisini yer değiştirir** (`targetSet=1`) ve
 tek kullanıcısı odur. Arayüzde "cihazları şu setten şu sete taşı" diye bir
 seçenek yoktur; sahada işe yaramadığı için kaldırıldı. Hedef önek ayrı bir
-seçenektir: varsayılanı `/24`, `targetPrefix` ile değiştirilebilir ve koşu
-sonundaki doğrulama da o öneki arar (`panel/ip_assign/addressing.py`,
-`parse_prefix`).
+seçenektir ve **boş bırakılması "belirtilmedi" demektir** (`parse_prefix`
+uçlarda `default=0` ile çağrılır): kararı `effective_prefix` verir —
+operatörün yazdığı, yoksa projenin beyanı (Gaziray `/16`), en son `/24`.
+Uçların boş kutuyu doğrudan 24'e çevirmesi projenin dalını erişilmez
+kılıyordu; Intercom koşusunda ise belirtilmemiş maske hiç yazılmaz, cihaz
+kendi maskesini korur (`panel/ip_assign/runner.py`). Koşu sonundaki
+doğrulama da aynı öneki arar (`panel/ip_assign/addressing.py`).
 
 `panel/ip_assign/runner.py` grup bazındaki koşucuyu
 `RUNNERS["Compartment LCD"]` üzerinden `lcd_runner.py`'ye yollar. Akış her
@@ -1231,10 +1257,13 @@ kanala birden gider, 3. akış **kapalıyken 103 numaralı kanal yoktur**, onu
 açmak cihazı yeniden başlatır ve profil ancak cihaz geri geldikten sonra
 yazılabilir. Sıra, işin kendisidir.
 
-Bu yüzden prosedür `panel/video_config/` paketindedir: `isapi.py` (digest
-taşıma katmanı ve "yazma kabul edildi mi" kuralı), `payloads.py` (sahada
-kanıtlanmış XML gövdeler), `channels.py` (NVR kanal listesi), `camera.py`,
-`nvr.py`, `defaults.py`.
+Bu yüzden prosedür `panel/video_config/` paketindedir: `isapi.py` (TEK
+ISAPI taşıma katmanı — oturum `trust_env=False`, digest ve "yazma kabul
+edildi mi" kuralı; tarama tarafı `probe/camera.py` de buradan geçer),
+`procedure.py` (kamera ile NVR'ın paylaştığı sıralı adımlar: saat/NTP
+yazımı, disk biçimlendirme, yeniden başlatma; `WRITE_TIMEOUT` 10 sn),
+`payloads.py` (sahada kanıtlanmış XML gövdeler), `channels.py` (NVR kanal
+listesi), `camera.py`, `nvr.py`, `defaults.py`, `health.py`.
 
 Ekran, hedef değerler, kimlik bilgileri ve iş kuyruğu yine `config_sync`'in:
 `fetch()` ve `apply_targets()` cihazın okuma yöntemine göre dallanıyor
@@ -1610,7 +1639,7 @@ uçtan uca çalıştırıldığı ve bu işler başlarken ağı hazırladığı 
 `ifconfig alias` gerçekten çalıştı: `unittest discover` bir geliştiricinin
 canlı arayüzüne dört adres bıraktı. `panel.network.aliases.WRITES_ALLOWED`
 (çevre değişkeni `PANEL_NETWORK_WRITES`) bunun için var; test paketi
-`tests/support/base.py` içinde kapatır, yazma yolunu sınayan testler sahte
+`tests/__init__.py` içinde kapatır (paket modülü her `tests.<ad>` importundan önce koşar; `panel`'i `support.base`'den önce import eden bir test modülü base'deki ayarı atlıyordu), yazma yolunu sınayan testler sahte
 komutun etrafında yeniden açar.
 
 ### Tren seti değiştirme

@@ -1,54 +1,32 @@
 #!/usr/bin/env python3
-"""Shared setup for the tests."""
+"""Shared setup for the tests.
+
+THE ENVIRONMENT IS NOT PINNED HERE. The temp data directories, the
+network-write ban, the edition and the build secret are all set in
+tests/__init__.py, and the split is deliberate: this module is imported by
+choice, while the package module provably runs before any test module does.
+A test module that imported ``panel`` before importing this one bypassed
+everything set here for the flags the panel reads at import time
+(PANEL_NETWORK_WRITES), which is how the suite once wrote real IP aliases
+onto a developer's network interface. What stays here is everything that
+needs ``panel`` importable and imported: the language pin, the edition
+activation, and the test base classes.
+"""
 from __future__ import annotations
 
 import json
-import sys
+import os
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# Defined by the package module along with the environment (see above);
+# re-exported because half the suite reads checkout files relative to it.
+from .. import ROOT
 
-# The panel's persistent data (configuration defaults) is written to a temp
-# directory in tests: they neither read nor damage the user's real settings.
-import os  # noqa: E402
-os.environ["PANEL_DATA_DIR"] = tempfile.mkdtemp(prefix="panel-data-")
-# And the digests a service key written from source is remembered by: those
-# live in the CHECKOUT (panel.adminkey.secret), so without this a test that
-# writes a key would leave a file in the working tree and teach the developer's
-# own panel to accept a key made up by the suite.
-os.environ["DAP_ADMIN_KEY_STORE"] = tempfile.mkdtemp(
-    prefix="panel-adminkey-")
-
-# THE SUITE MUST NOT RECONFIGURE THIS COMPUTER. Scans and IP runs are
-# exercised end to end against fake devices, and those jobs prepare the
-# network before they start (see panel.api.tasks.network_prepare) — which ran
-# `ifconfig alias` for real and left four addresses on a developer's live
-# interface. Set before `panel` is imported, because the flag is read once at
-# import. tests/test_network.py turns it back on around a faked subprocess.
-os.environ["PANEL_NETWORK_WRITES"] = "0"
-
-# Which package is under test. Every edition is a customer's now, so the
-# suite runs as one of them; `setdefault`, so a run can be pointed at another
-# on purpose (see tests/test_editions.py).
-os.environ.setdefault("DAP_EDITION", "vip-yatakli")
-
-# ...AND IT RUNS IN ADMIN MODE, which is what the secret below is for. The
-# suite exercises every screen, and the admin screens exist only in admin
-# mode; without the secret it would test the field half of the product and
-# never the other. The secret is the bootstrap standing in for the first USB
-# key, which cannot exist before it is written (see
-# panel.editions.opens_as_admin). tests/test_adminkey.py takes it away again
-# where the absence is the thing under test.
-os.environ.setdefault("DAP_ADMIN_KEY_SECRET",
-                      "a-build-secret-for-the-tests")
-
-from panel import i18n  # noqa: E402
+from panel import i18n
 
 # Assertions in this suite are written against the English wording, so the
 # language is pinned rather than read from the machine: on a Turkish desktop

@@ -33,7 +33,9 @@ const COLUMNS = '58px 110px minmax(120px,1fr) 96px 118px 84px';
 // screen's. The sibling application coloured these dots with class names of
 // its own — `.dot.up`, `.dot.data` — and those rules never came across, so
 // every dot fell back to `.dot`'s plain grey whatever the port was doing.
-function dotState(port) {
+// Exported for tests/js/switch_ports_test.js; tests/test_frontend.py also
+// reads the body to check every answer against the declared vocabulary.
+export function dotState(port) {
   if (!port.enabled) return 'failed';
   if (Number(port.powerWatts)) return 'ok';
   return port.linkState === 'up' ? 'link' : 'unknown';

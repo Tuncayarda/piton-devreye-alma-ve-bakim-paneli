@@ -16,6 +16,8 @@ switch.
 """
 from __future__ import annotations
 
+import base64
+import json
 import threading
 import time
 import unittest
@@ -24,12 +26,42 @@ import requests
 
 from panel import switch
 from panel.errors import AuthError, DeviceError, UnreachableError
+from panel.probe import switch as switch_probe
 from panel.switch import device, network, ports
 
 from .support import fakes
 from .support.base import PanelTest
 
 ACCOUNT = ("admin", "123")
+
+
+def kyland_without_poe_tables(username="admin", password="123"):
+    """A KYLAND model that serves portMode and NO PoE table at all.
+
+    `fakes.kyland` can only drop `stat/poeStatus`; this switch answers 404 on
+    `stat/poePort` too — the model the two port merges used to disagree
+    about, before they became one (panel.switch.ports.get_ports): the IP
+    screen's front panel rendered it, the switch screen failed the whole
+    list.
+    """
+    expected = "Basic " + base64.b64encode(
+        f"{username}:{password}".encode()).decode()
+
+    def send(self):
+        self.fake.request_count += 1
+        if self.headers.get("Authorization") != expected:
+            return self.write(401, b'{"error":"auth"}', "application/json",
+                              {"WWW-Authenticate": 'Basic realm="switch"'})
+        path = self.path.split("?")[0]
+        if path == "/stat/basicInfo":
+            return self.write(200, json.dumps(fakes.BASIC_INFO).encode(),
+                              "application/json")
+        if path == "/stat/portMode":
+            return self.write(200, json.dumps(fakes.PORT_MODE).encode(),
+                              "application/json")
+        return self.write(404, b'{"error":"missing"}', "application/json")
+
+    return fakes._Server(fakes._base_handler("NoPoeTableHandler", send))
 
 
 class PortReads(PanelTest):
@@ -119,6 +151,67 @@ class PortReads(PanelTest):
         # The whole 28-row table went out, uplinks included.
         for pid in (1, 24, 25, 27, 28):
             self.assertEqual(form[f"adminStat_{pid}"], "1", pid)
+
+    def test_a_model_without_a_poe_table_lists_ports_on_both_screens(self):
+        """The Kyland merge exists ONCE now, so its tolerance does too.
+
+        Two copies of this merge used to fail differently on a model with no
+        `stat/poePort`: the front panel tolerated it while the switch screen
+        raised and lost the whole list. The front panel's answer is the right
+        one — a switch without PoE tables still has ports to draw, to bring
+        up and down, and to assign devices to — and after the consolidation
+        both consumers must give it.
+        """
+        with kyland_without_poe_tables(password="123") as fake:
+            self.switch_port(fake.port)
+            rows = ports.get_ports(switch.CLIENT, "127.0.0.1", ACCOUNT)
+            front = switch_probe.ports("127.0.0.1", ACCOUNT)
+
+        self.assertEqual(len(rows), 24)
+        self.assertEqual(len(front), 24)
+        # No PoE fields are invented on either screen.
+        self.assertFalse(any(row["supportsPoe"] for row in rows))
+        self.assertFalse(any(row["poe"] for row in front))
+        self.assertEqual(rows[0]["poeMode"], "")
+        self.assertEqual(rows[0]["poeState"], "")
+        self.assertIsNone(rows[0]["powerWatts"])
+        # The non-PoE half of the table is intact on both.
+        self.assertEqual([row["id"] for row in rows],
+                         [row["pid"] for row in front])
+        self.assertEqual(rows[0]["linkState"], "up")
+        self.assertEqual(front[0]["link"], "up")
+
+    def test_the_front_panel_is_a_projection_of_the_switch_screens_rows(self):
+        """`probe.switch.ports` renames fields; it must not re-merge them.
+
+        Row for row, the front panel's dict is the switch screen's row under
+        the IP screen's key names — the pin that keeps the second merge from
+        growing back.
+        """
+        with fakes.kyland(password="123", uplinks=4) as fake:
+            self.switch_port(fake.port)
+            rows = ports.get_ports(switch.CLIENT, "127.0.0.1", ACCOUNT)
+            front = switch_probe.ports("127.0.0.1", ACCOUNT)
+
+        self.assertEqual(front, [{
+            "pid": row["id"],
+            "type": row["portType"],
+            "enabled": row["enabled"],
+            "link": row["linkState"],
+            "poe": row["supportsPoe"],
+            "poeMode": row["poeMode"],
+            "poeState": row["poeState"],
+            "watts": row["powerWatts"],
+        } for row in rows])
+
+    def test_a_locked_switch_with_no_poe_table_still_asks_to_sign_in(self):
+        """Tolerance for a missing table must not swallow "sign in first"."""
+        with kyland_without_poe_tables(password="123") as fake:
+            self.switch_port(fake.port)
+            with self.assertRaises(AuthError):
+                ports.get_ports(switch.CLIENT, "127.0.0.1", ("admin", "no"))
+            with self.assertRaises(AuthError):
+                switch_probe.ports("127.0.0.1", ("admin", "no"))
 
     def test_a_locked_switch_is_not_reported_as_a_model_without_poe(self):
         """"Sign in" and "this model has no such table" are different.

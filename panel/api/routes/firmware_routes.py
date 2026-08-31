@@ -7,10 +7,11 @@ from pathlib import Path
 from ... import firmware, jobs, settings
 from ...inventory import catalog
 from ...system import files
-from ..presenters import (inventory_for, reported_version,
+from ..presenters import (inventory_for, inventory_for_write,
+                          reported_version,
                           target_devices)
 from ..response import respond
-from .helpers import single
+from .helpers import single, submit
 from ... import i18n
 
 _NO_TARGET = "error.firmwareNotDefined"
@@ -90,7 +91,7 @@ def post_pick(body):
     # device(s). The path does not come from the client: the browser does not
     # reveal the real path and the user should not have to type it. The
     # request blocks until the user closes the window.
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     targets = _installable(inventory, body)
     # The filter follows what the device expects: an image (.bin) for
     # announcement equipment, an app package (.apk) for the Compartment LCD.
@@ -117,7 +118,7 @@ def post_file(body):
     # Assign by path directly. The UI does not use this (there the file comes
     # from the OS picker, see /api/firmware/pick); this is the endpoint for
     # headless runs and tests. Target: one device (devices: [id]) or a group.
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     path = body.get("path")
     if not isinstance(path, str) or not path.strip():
         return respond(400, {"error": i18n.t("error.filePathRequired")})
@@ -135,7 +136,7 @@ def post_file(body):
 
 
 def post_remove(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     if body.get("all") is True:
         # "All" is not project-wide but every selection in the open set.
         # Other sets' preparation is untouched.
@@ -152,7 +153,7 @@ def post_remove(body):
 
 
 def post_install(body):
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     devices = target_devices(inventory, body, "fw")
     # Only devices with an image selected enter the queue: queueing one
     # without a file means a run that fills the row with an error and does
@@ -166,9 +167,7 @@ def post_install(body):
     job = jobs.Job("firmware", i18n.lazy("job.firmware", count=len(targets)),
                    inventory.set_no, key=f"firmware:{inventory.set_no}")
     from ..tasks import firmware_task
-    job, is_new = jobs.QUEUE.submit(job, firmware_task(inventory, targets))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, firmware_task(inventory, targets))
 
 
 GET = {

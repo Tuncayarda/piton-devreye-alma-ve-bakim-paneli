@@ -13,6 +13,13 @@ from ..errors import AuthError, VerificationError, classify
 from . import fields
 from .. import i18n
 
+# Proxy-free, like every other device transport in this panel (see
+# panel/switch/client.py on why trust_env=False is the important line): an
+# HTTP_PROXY set on the machine must not route traffic for a device that is
+# on the cable in front of the operator.
+_SESSION = requests.Session()
+_SESSION.trust_env = False
+
 # The verified endpoint every announcement device serves.
 MAIN_ENDPOINT = "system/settings"
 # Extras vary by device type. A Handset exposes its gain fields under
@@ -35,7 +42,7 @@ def read(ip: str, credentials=None, timeout: float | None = None,
     auth = tuple(credentials) if credentials else None
 
     try:
-        response = requests.get(f"{base}/{MAIN_ENDPOINT}", timeout=limit,
+        response = _SESSION.get(f"{base}/{MAIN_ENDPOINT}", timeout=limit,
                                 auth=auth)
     except Exception as exc:
         raise classify(exc)
@@ -60,7 +67,7 @@ def read(ip: str, credentials=None, timeout: float | None = None,
     for endpoint in (EXTRA_ENDPOINTS if extra_endpoints is None
                      else extra_endpoints):
         try:
-            extra = requests.get(f"{base}/{endpoint}",
+            extra = _SESSION.get(f"{base}/{endpoint}",
                                  timeout=min(limit, 2.5), auth=auth)
             if extra.ok:
                 flat.update(fields.flatten(extra.json()))

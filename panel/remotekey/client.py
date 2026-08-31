@@ -28,6 +28,8 @@ longer to notice, and noticing quickly is the entire promise of the feature.
 """
 from __future__ import annotations
 
+import threading
+
 import requests
 
 from . import verify
@@ -44,6 +46,12 @@ MAX_BODY = 16 * 1024
 MAX_PAIR_BODY = 128 * 1024
 
 _SESSION: requests.Session | None = None
+# Guards the build and the teardown of that one Session. The first connect
+# races the first beat here — three threads can arrive within a second of
+# each other — and an unguarded lazy build let two of them each make a
+# Session: one won the global, the other lived on inside whichever call had
+# already taken it, its connection pool never closed by any later `reset`.
+_SESSION_LOCK = threading.Lock()
 
 
 class ServiceError(Exception):
@@ -152,18 +160,22 @@ DISCRIMINATED = {
 
 def _session() -> requests.Session:
     global _SESSION
-    if _SESSION is None:
-        session = requests.Session()
-        session.headers.update({"content-type": "application/json",
-                                "accept": "application/json"})
-        _SESSION = session
-    return _SESSION
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            session = requests.Session()
+            session.headers.update({"content-type": "application/json",
+                                    "accept": "application/json"})
+            _SESSION = session
+        return _SESSION
 
 
 def reset() -> None:
     """Drop the pooled connection. Shutdown, and tests."""
     global _SESSION
-    session, _SESSION = _SESSION, None
+    with _SESSION_LOCK:
+        session, _SESSION = _SESSION, None
+    # Closed OUTSIDE the lock: close() can wait on sockets, and nothing
+    # about an already-detached Session needs the guard.
     if session is not None:
         try:
             session.close()

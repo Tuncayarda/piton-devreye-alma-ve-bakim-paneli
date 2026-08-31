@@ -27,6 +27,36 @@ from .. import i18n
 SHEET_NAME = "Checklist"
 
 
+def resolve_columns(workbook, verify, sheet: str = SHEET_NAME):
+    """The named sheet and its id -> column-index map, validated up front.
+
+    The export and the on-screen preview read the same template, and they
+    must fail the same way on the same defect: a missing sheet or a reworded
+    required heading is a template problem the operator can fix, so both get
+    the translated sentence here instead of one path crashing into a generic
+    500. Anything the template carries that this code does not know about
+    simply has no id and is left alone.
+
+    Returns ``(worksheet, indexes)``; indexes are 1-based openpyxl columns.
+    """
+    if sheet not in workbook.sheetnames:
+        raise ValueError(i18n.t("error.excelSheetMissing", sheet=sheet))
+    worksheet = workbook[sheet]
+
+    indexes = {}
+    for index in range(1, worksheet.max_column + 1):
+        column = cols.column_for_heading(
+            worksheet.cell(verify.HEADER_ROW, index).value)
+        if column:
+            indexes[column] = index
+
+    required = set(verify.FILLABLE) | {cols.IP_TEMPLATE}
+    missing = sorted(column for column in required if column not in indexes)
+    if missing:
+        raise ValueError(i18n.t("error.excelColumnMissing", columns=missing))
+    return worksheet, indexes
+
+
 def export(inventory: Inventory, results: dict, output: Path | None = None,
            template: Path | None = None,
            sheet: str = SHEET_NAME) -> Path:
@@ -48,23 +78,7 @@ def export(inventory: Inventory, results: dict, output: Path | None = None,
     output.parent.mkdir(parents=True, exist_ok=True)
 
     workbook = openpyxl.load_workbook(template)
-    if sheet not in workbook.sheetnames:
-        raise ValueError(i18n.t("error.excelSheetMissing", sheet=sheet))
-    worksheet = workbook[sheet]
-
-    # heading -> index, then id -> index. Anything the template carries that
-    # this code does not know about simply has no id and is left alone.
-    indexes = {}
-    for index in range(1, worksheet.max_column + 1):
-        column = cols.column_for_heading(
-            worksheet.cell(verify.HEADER_ROW, index).value)
-        if column:
-            indexes[column] = index
-
-    required = set(verify.FILLABLE) | {cols.IP_TEMPLATE}
-    missing = sorted(column for column in required if column not in indexes)
-    if missing:
-        raise ValueError(i18n.t("error.excelColumnMissing", columns=missing))
+    worksheet, indexes = resolve_columns(workbook, verify, sheet)
 
     by_template = {device.ip_template: device for device in inventory.devices}
     for row in range(verify.HEADER_ROW + 1, worksheet.max_row + 1):

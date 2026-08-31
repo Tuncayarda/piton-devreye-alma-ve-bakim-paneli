@@ -38,7 +38,7 @@ def read_device(device: Device, credentials=None, telemetry=None,
         if method == "http":
             return _read_announcement(device, credentials, timeout)
         if method == "adb":
-            return _read_android(device, telemetry, pbx_ip)
+            return _read_android(device, telemetry, pbx_ip, timeout)
         if method in ("mqtt", "app"):
             return _read_mqtt(device, telemetry, method)
         return result.not_applicable(
@@ -90,8 +90,15 @@ def _read_announcement(device, credentials, timeout):
     }, "http")
 
 
-def _read_android(device, telemetry, pbx_ip):
-    data = android.read(device.ip)
+def _read_android(device, telemetry, pbx_ip, timeout=None):
+    # The caller's budget reaches adb as-is. `android.read` applies it to
+    # EACH adb invocation rather than to the read as a whole — that is its
+    # documented shape, and it is the right one here too: what the light
+    # refresh's short budget exists to bound is a display that stops
+    # answering, and that shows up as one command hanging, not as many
+    # quick ones adding up. Dropping it (as this branch used to) meant the
+    # 3-second refresh waited out the full default on a dead display.
+    data = android.read(device.ip, timeout=timeout)
     registration = data["sipRegistration"]
     # The extension is written to the device log only at app start; after the
     # buffer wraps it is gone. The same number sits retained on the broker

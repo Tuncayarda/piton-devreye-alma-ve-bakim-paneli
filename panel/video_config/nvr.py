@@ -33,7 +33,7 @@ from .. import credentials as credential_store
 from .. import i18n
 from ..errors import AuthError, VerificationError
 from ..inventory.catalog import READ_METHODS
-from . import channels, health, isapi, payloads
+from . import channels, health, isapi, payloads, procedure
 
 # One EventTriggerNotification block whose method is "beep". Removing the
 # block is how the device's own page turns the buzzer off; there is no
@@ -250,26 +250,6 @@ def _write_channels(device, inventory, credentials, say) -> int:
     return written
 
 
-def _format_storage(device, credentials, say) -> bool:
-    summary, disks = isapi.storage_status(
-        isapi.read(device.ip, "ContentMgmt/Storage/hdd", credentials))
-    if not disks:
-        say(i18n.lazy("video.stepNoStorage"), "info")
-        return False
-    formatted = False
-    for hdd_id, status in disks:
-        if not isapi.needs_format(status):
-            continue
-        isapi.write(device.ip, f"ContentMgmt/Storage/hdd/{hdd_id}/format",
-                    credentials, "", timeout=15)
-        say(i18n.lazy("video.stepStorageFormatted", id=hdd_id,
-                      status=status or "?"), "written")
-        formatted = True
-    if not formatted:
-        say(i18n.lazy("video.stepStorageOk", detail=summary), "info")
-    return formatted
-
-
 def _silence_buzzer(device, credentials, say) -> bool:
     """Strip the beep block from every trigger that carries one."""
     changed = 0
@@ -294,15 +274,6 @@ def _silence_buzzer(device, credentials, say) -> bool:
     return bool(changed)
 
 
-def _reboot(device, credentials) -> None:
-    try:
-        isapi.request("PUT", device.ip, "System/reboot", credentials,
-                      timeout=10)
-    except Exception:
-        # The NVR drops the connection as it goes down; that IS the reboot.
-        pass
-
-
 def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     """Write the NVR's configuration.
 
@@ -318,27 +289,12 @@ def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     say = report or isapi.no_report
     ip = device.ip
     state = read_state(device, inventory, credentials)
-    written: list[str] = []
-
-    def differs(name: str) -> bool:
-        return (name in targets
-                and str(state.get(name.lower(), "")) != str(targets[name]))
-
-    if differs("timeZone"):
-        isapi.write(ip, "System/time", credentials,
-                    payloads.time_body(targets["timeZone"]), timeout=10)
-        say(i18n.lazy("video.stepTimeZone", value=targets["timeZone"]),
-            "written")
-        written.append("timeZone")
-    if differs("ntpServer"):
-        isapi.write(ip, "System/time/ntpServers/1", credentials,
-                    payloads.ntp_body(targets["ntpServer"]), timeout=10)
-        say(i18n.lazy("video.stepNtp", value=targets["ntpServer"]), "written")
-        written.append("ntpServer")
+    written = procedure.apply_time_targets(ip, state, targets, credentials,
+                                           say)
 
     if _write_channels(device, inventory, credentials, say):
         written.append("proxyChannels")
-    if _format_storage(device, credentials, say):
+    if procedure.format_storage(device, credentials, say):
         written.append("storageStatus")
     wants_silence = str(targets.get("buzzer", "0")) == "0"
     if (wants_silence and state.get("buzzer") == "1"
@@ -351,7 +307,7 @@ def apply(device, inventory, targets: dict, credentials, report=None) -> dict:
     # taken off air for a run that changed nothing.
     if written:
         say(i18n.lazy("video.stepNvrRebooting"), "info")
-        _reboot(device, credentials)
+        procedure.reboot(device, credentials)
     else:
         say(i18n.lazy("video.stepNothingToDo"), "info")
     return {"written": written, "rebooted": bool(written), "state": final}

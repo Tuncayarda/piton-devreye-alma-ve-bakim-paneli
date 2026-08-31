@@ -19,28 +19,23 @@ from __future__ import annotations
 import ipaddress
 import xml.etree.ElementTree as ET
 
-import requests
-from requests.auth import HTTPDigestAuth
-import urllib3
-
 from .. import settings
 from ..errors import AuthError, VerificationError, classify
 from .. import i18n
+# The transport is `panel.video_config.isapi` — THE one ISAPI client, shared
+# with the write side, so the session (pooled, proxy-free: trust_env=False),
+# the digest handling and the "401/403/WWW-Authenticate means sign in" rule
+# cannot drift between a scan and a configuration run. This module keeps only
+# the READ semantics: a scan treats an HTTP error or a non-XML page as its
+# own verification failure, where the write side's `read()` treats an absent
+# endpoint as "the device has no such resource".
+from ..video_config import isapi
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-def _tag(root, name):
-    for element in root.iter():
-        if element.tag.rsplit("}", 1)[-1] == name:
-            return (element.text or "").strip()
-    return None
+_tag = isapi.first
 
 
 def _request(ip: str, path: str, credentials, timeout: float):
-    auth = HTTPDigestAuth(*credentials) if credentials else None
-    return requests.get(f"http://{ip}:{settings.VIDEO_PORT}/ISAPI/{path}",
-                        auth=auth, timeout=timeout, verify=False)
+    return isapi.request("GET", ip, path, credentials, timeout=timeout)
 
 
 def _xml(response):
@@ -49,9 +44,7 @@ def _xml(response):
     Hikvision devices return 401 unauthenticated. Some firmware answers 200
     with an HTML login page instead — unparseable XML is not success either.
     """
-    if (response.status_code in (401, 403)
-            or "WWW-Authenticate" in response.headers):
-        raise AuthError(i18n.t("error.probeAuth"))
+    isapi.check_auth(response)
     if response.status_code >= 400:
         raise VerificationError(
             i18n.t("error.probeHttp", code=response.status_code))
@@ -109,11 +102,11 @@ def read(ip: str, credentials: tuple[str, str] | None = None,
     if mask and not _mask_reaches(ip, mask, project_span):
         problems.append(i18n.t("video.checkMask"))
 
-    # The recording-side checks. Imported here rather than at module level:
-    # video_config reaches back into the inventory and the credential store,
-    # and this module is imported by the probe dispatcher.
-    from ..video_config import health
+    # The recording-side checks live beside the writing side of the same
+    # settings (panel.video_config.health), so the screen and the scan read
+    # one truth about the disk, the buzzer, the IR lamp and the third stream.
     from ..editions import runtime as editions
+    from ..video_config import health
     problems.extend(health.problems(ip, credentials, is_nvr=is_nvr,
                                     storage=editions.storage_checked(),
                                     timeout=limit))
@@ -163,7 +156,6 @@ def _subnet_mask(ip: str, credentials, timeout: float) -> str:
     and deliberately so: a scan that reports one interface's mask while a run
     writes another's would flag a device the panel had just configured.
     """
-    from ..video_config import isapi as video_isapi
     try:
         root = _xml(_request(ip, "System/Network/interfaces", credentials,
                              timeout))
@@ -171,4 +163,4 @@ def _subnet_mask(ip: str, credentials, timeout: float) -> str:
         raise
     except Exception:
         return ""
-    return video_isapi.interface_mask(root, ip)
+    return isapi.interface_mask(root, ip)

@@ -6,10 +6,10 @@
 
 const KEYS = new Set([
   'edition', 'mode', 'views', 'projects', 'adminKey', 'remote',
-  'setNo', 'project', 'view', 'category', 'subtype', 'filter',
+  'setNo', 'view', 'category', 'subtype', 'filter',
   'devices', 'counts', 'locked', 'jobs', 'openJob', 'queueOpen',
   'lockedOpen', 'detailId', 'targetGroup', 'version', 'lastScan',
-  'scanRunning', 'sidebarOpen', 'loading', 'ipState',
+  'scanRunning', 'sidebarOpen', 'ipState',
   'configState', 'firmwareState', 'mqttState', 'piscuState', 'meta',
   'checklistState', 'checklistCategory', 'historyFilter', 'networkState',
   'autoRefresh', 'deviceSearch', 'deviceSort', 'deviceSortDesc',
@@ -34,7 +34,6 @@ export const state = {
   // (/api/admin/remote). Never the code in full and never a signature.
   remote: null,
   setNo: 1,
-  project: null,
   meta: null,
   view: 'overview',
   category: 'all',
@@ -56,7 +55,6 @@ export const state = {
   // is a memory tax for anyone who uses the panel now and then. Whoever
   // wants the room back collapses it, and the choice sticks.
   sidebarOpen: true,
-  loading: false,
   ipState: null,
   configState: null,
   firmwareState: null,
@@ -228,6 +226,20 @@ export function visibleDevices() {
 }
 
 const STATE_FILTERS = new Set(['ok', 'auth', 'failed', 'unknown']);
+
+// The projects THIS PACKAGE was built for — what the top bar's project name
+// switches between. The ones admin mode adds (`origin: 'extra'`, another
+// customer's trains) are deliberately not in it: they are switched to from
+// the admin screen, and another customer's train must never be one click
+// from the name of the one on screen (see app.js "project switching").
+//
+// A selector here rather than a helper in app.js so it can be imported by
+// its test (tests/js/project_switch_test.js) — app.js starts the whole
+// application on import. `from` defaults to the live state; the test hands
+// in fixtures, the way core/schedule.js's predicates take theirs.
+export function ownProjects(from = state) {
+  return (from.projects || []).filter(project => project.origin !== 'extra');
+}
 
 // The four states, always summing to the device list.
 //

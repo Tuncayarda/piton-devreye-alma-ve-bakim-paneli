@@ -30,6 +30,7 @@ import * as actionTabs from '../components/action_tabs.js';
 import { confirmWrite } from '../components/confirm.js';
 import { showError, showSuccess, notify } from '../components/toast.js';
 import { value, fileSize } from '../core/format.js';
+import { latest } from '../core/latest.js';
 import { t } from '../core/i18n.js';
 
 const COLUMNS = 'minmax(150px,1.1fr) 112px 92px minmax(210px,1.6fr) '
@@ -37,25 +38,26 @@ const COLUMNS = 'minmax(150px,1.1fr) 112px 92px minmax(210px,1.6fr) '
 
 const local = { pickerOpen: false };
 
-let refreshToken = 0;
-
 function groupName() {
   const group = groupBar.currentGroup('fw');
   return group ? group.name : '';
 }
 
-export async function refresh() {
-  const token = ++refreshToken;
+// `latest` retires a reload overtaken by a newer one; the reply is ALSO
+// dropped when the train set moved underneath it — the file list is a list
+// of device ids, and ids repeat across sets. The catch keeps the token-only
+// check it always had: clearing the screen is right whichever set failed.
+export const refresh = latest(async (fresh) => {
   const setNo = state.setNo;
   try {
     const body = await api.firmware(setNo, groupName());
-    if (token !== refreshToken || setNo !== state.setNo) return;
+    if (!fresh() || setNo !== state.setNo) return;
     patch({ firmwareState: body });
   } catch {
-    if (token !== refreshToken) return;
+    if (!fresh()) return;
     patch({ firmwareState: null });
   }
-}
+});
 
 // The rows from the server are the device list itself; they come from
 // DeviceMap even without a scan (the version column stays empty then).
@@ -74,7 +76,9 @@ function selectedCount(list) {
 function typeText(list) {
   const types = [...new Set(
     list.filter(d => d.extension).map(d => d.extension))];
-  return types.map(t => `.${t}`).join(' / ');
+  // `type`, not `t`: the obvious one-letter name shadows the translator
+  // imported above, and a t('...') added inside this map would fail quietly.
+  return types.map(type => `.${type}`).join(' / ');
 }
 
 export function render(root) {

@@ -7,12 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from ... import credentials as credential_store
 from ... import jobs, settings, status
 from ...adb.runner import RUNNER as ADB_RUNNER
-from ...editions import runtime as editions
 from ...probe import reader
-from ..presenters import (WRITING_JOB_KINDS, cached_telemetry,
+from ..presenters import (cached_telemetry,
                           collect_telemetry, credentials_for, device_dto,
-                          find_device, inventory_for, state_body,
-                          store_telemetry)
+                          find_device, inventory_for_write, probe_context,
+                          state_body, store_telemetry)
 from ..response import respond
 from ... import i18n
 
@@ -39,22 +38,37 @@ def post_refresh(body):
     global ADB server, and a refresh landing mid-install takes the transport
     out from under it.
     """
-    inventory = inventory_for(body.get("set"))
-    if jobs.QUEUE.active(f"scan:{inventory.set_no}"):
-        return respond(409, {"error": i18n.t("error.fullScanRunning"),
-                             "waiting": True})
-    running = next((job for job in jobs.QUEUE.list()
-                    if job.kind in WRITING_JOB_KINDS
-                    and job.set_no == inventory.set_no
-                    and job.state == jobs.RUNNING), None)
-    if running is not None:
-        return respond(409, {"error": i18n.t("error.jobRunning",
-                                             title=running.title),
-                             "waiting": True})
-    if ADB_RUNNER.busy():
-        return respond(409, {"error": i18n.t("error.adbRunnerBusy"),
-                             "waiting": True})
+    inventory = inventory_for_write(body.get("set"))
+    # THE CLAIM, NOT A GLANCE. Three separate looks used to guard this round
+    # (an active scan, a writing job, the ADB runner) and every one was
+    # check-then-act: a job the single worker was one tick from starting
+    # passed all three and then owned the devices this thread was reading.
+    # The round now holds the same process-wide claim the workers hold
+    # (panel/jobs/access.py) for the whole of its reads; the looks below
+    # only choose the words a refusal is delivered in.
+    if not jobs.access.try_acquire("refresh"):
+        if jobs.QUEUE.active(f"scan:{inventory.set_no}"):
+            return respond(409, {"error": i18n.t("error.fullScanRunning"),
+                                 "waiting": True})
+        writing = jobs.writing(inventory.set_no)
+        if writing is not None:
+            return respond(409, {"error": i18n.t("error.jobRunning",
+                                                 title=writing.title),
+                                 "waiting": True})
+        if ADB_RUNNER.busy() or jobs.access.holder() == "adb-screen":
+            return respond(409, {"error": i18n.t("error.adbRunnerBusy"),
+                                 "waiting": True})
+        # Anything else — another set's job, a claim mid-handover — is
+        # named by the claim's own translator.
+        return respond(409, {"error": jobs.busy_error(), "waiting": True})
+    try:
+        return _refresh_locked(inventory, body)
+    finally:
+        jobs.access.release("refresh")
 
+
+def _refresh_locked(inventory, body):
+    """The round itself, run while this thread holds the device claim."""
     view = jobs.view_for(inventory.set_no)
     requested = body.get("devices")
     if requested is not None and not isinstance(requested, list):
@@ -86,11 +100,11 @@ def post_refresh(body):
             except Exception:
                 snapshot = None
 
-    # The clock source and the PBX every device is checked against. Roles,
-    # not the PISCU device — see `panel.editions.catalogue.Project.broker`.
-    expected_ntp = editions.ntp_ip(inventory)
-    pbx = editions.pbx_ip(inventory)
-    span = str(inventory.span(editions.broker_ip(inventory)) or "")
+    # The read contract in one place — see presenters.probe_context.
+    context = probe_context(inventory)
+    # Same fence as the full sweep (jobs/sweep.py): the view object survives
+    # a project switch, this round's results must not.
+    epoch = view.epoch
 
     # Read in parallel. Serially, the round ITSELF grew with the device count
     # (~7 s for 17 devices); the UI refreshing every two seconds then meant
@@ -101,10 +115,9 @@ def post_refresh(body):
         generation = jobs.next_generation()
         result = reader.read_device(
             device, credentials=credentials_for(device), telemetry=snapshot,
-            timeout=min(settings.PROBE_TIMEOUT, 3.0),
-            expected_ntp=expected_ntp, pbx_ip=pbx, project_span=span)
+            timeout=min(settings.PROBE_TIMEOUT, 3.0), **context)
         result.generation = generation
-        view.write(device.id, result)
+        view.write(device.id, result, epoch=epoch)
 
     if targets:
         pool = ThreadPoolExecutor(
@@ -124,7 +137,7 @@ def post_credentials(body):
     A filled-in form does not count as proof; a credential is only stored once
     verified data really came back from the device.
     """
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     device = find_device(inventory, body.get("deviceId"))
     username = body.get("username", "")
     password = body.get("password", "")
@@ -141,10 +154,7 @@ def post_credentials(body):
     generation = jobs.next_generation()
     result = reader.read_device(
         device, credentials=(username, password), telemetry=None,
-        timeout=settings.AUTH_TIMEOUT,
-        expected_ntp=editions.ntp_ip(inventory),
-        pbx_ip=editions.pbx_ip(inventory),
-        project_span=str(inventory.span(editions.broker_ip(inventory)) or ""))
+        timeout=settings.AUTH_TIMEOUT, **probe_context(inventory))
     result.generation = generation
     view = jobs.view_for(inventory.set_no)
 
@@ -181,8 +191,12 @@ def post_credentials(body):
 def post_credentials_forget(body):
     if body.get("all") is True:
         credential_store.forget_all()
+        # The video transport's digest handlers were built from these
+        # credentials; forgetting means forgetting there too.
+        from ...video_config import isapi                  # noqa: PLC0415
+        isapi.reset()
         return respond(200, {"forgotten": "all"})
-    inventory = inventory_for(body.get("set"))
+    inventory = inventory_for_write(body.get("set"))
     device = find_device(inventory, body.get("deviceId"))
     credential_store.forget(device.id, device.ip)
     return respond(200, {"forgotten": device.id})

@@ -8,7 +8,7 @@ import traceback
 from urllib.parse import parse_qs, urlparse
 
 from .. import i18n, settings
-from ..errors import AuthError, DeviceError, user_message
+from ..errors import AuthError, DeviceError, NotFoundError, user_message
 from .guard import refusal
 from .lifecycle import start
 from .response import ApiResponse, respond
@@ -68,7 +68,14 @@ class PanelService:
                 checked = self._validate_body(body)
                 return refusal(url.path, checked) or handler(checked)
             return respond(405, {"error": "unsupported method"})
-        except LookupError as exc:
+        except NotFoundError as exc:
+            # NOT the whole LookupError family: a bare KeyError from a
+            # handler bug is a LookupError too, and catching it here used to
+            # report a programming error as a calm 404 whose body quoted a
+            # Python key — with no trace anywhere. Only the class our own
+            # raisers use (panel.errors.NotFoundError, always a translated
+            # sentence) means "not found"; the rest fall through to the 500
+            # handler below, which logs.
             return respond(404, {"error": str(exc)})
         except ValueError as exc:
             return respond(400, {"error": str(exc)})

@@ -7,6 +7,7 @@ import time
 
 from .. import credentials as credential_store
 from .. import jobs, status
+from ..errors import NotFoundError
 from ..editions import runtime as editions
 from ..inventory import catalog
 from ..inventory import device_map as inventory_module
@@ -14,10 +15,9 @@ from ..probe import reader, result as probe_result
 from ..telemetry import TelemetrySnapshot
 from .. import i18n
 
-# Job kinds that WRITE to devices — kept apart from the reading kinds (scan,
-# light refresh), because while they run whatever a device reports is
-# temporary.
-WRITING_JOB_KINDS = ("ip", "ipfactory", "config", "firmware")
+# Moved to panel.jobs, where the kinds are defined; re-exported because this
+# module's readers found it here for a long while.
+from ..jobs import WRITING_JOB_KINDS  # noqa: F401
 
 
 def inventory_for(set_no) -> inventory_module.Inventory:
@@ -39,7 +39,7 @@ def find_device(inventory: inventory_module.Inventory, device_id):
         raise ValueError(i18n.t("error.invalidDeviceId"))
     device = inventory.find(device_id)
     if device is None:
-        raise LookupError(i18n.t("error.deviceNotInSet"))
+        raise NotFoundError(i18n.t("error.deviceNotInSet"))
     return device
 
 
@@ -54,28 +54,45 @@ def collect_telemetry(inventory) -> TelemetrySnapshot:
         expected_set=inventory.set_no)
 
 
+def probe_context(inventory) -> dict:
+    """The per-read keyword arguments every probe call needs, built once.
+
+    `reader.read_device` takes the clock source, the PBX and the project
+    span as keywords, and all of them have to be right for the verification
+    verdict to mean anything. Three call sites used to assemble the trio by
+    hand; a fourth keyword — or a change to how the span is derived — had
+    to be found in three files across two packages. Roles, not the PISCU
+    device: see `panel.editions.catalogue.Project.broker`.
+    """
+    return {
+        "expected_ntp": editions.ntp_ip(inventory),
+        "pbx_ip": editions.pbx_ip(inventory),
+        "project_span": str(
+            inventory.span(editions.broker_ip(inventory)) or ""),
+    }
+
+
 # Telemetry cache, per set.
 #
-# `TelemetrySnapshot.collect()` opens three MQTT connections and waits for
-# retained messages; measured at ~9 seconds in the field. Because the light
-# refresh re-collected it every round, the round ITSELF took nine seconds
-# while the devices answered in milliseconds — which made the UI's
-# few-second refresh pointless.
-#
-# The values sit retained on the broker and the minute-long discovery round
-# already collects them; for light rounds that picture is fresh enough. The
-# TTL is longer than the discovery interval, so on a normally running panel a
-# light round always finds the cache warm and never touches MQTT.
+# `TelemetrySnapshot.collect()` is one MQTT connection now, ended when the
+# retained burst goes quiet (see telemetry.client) — typically well under a
+# second, with MQTT_TIMEOUT as the ceiling. The cache is still worth
+# keeping: even a sub-second collect is a broker round-trip the two-second
+# light refresh has no business repeating (the values sit retained and the
+# minute-long discovery round refreshes them anyway), and an UNREACHABLE
+# broker still costs its full connect timeout every time. The TTL is longer
+# than the discovery interval, so on a normally running panel a light round
+# always finds the cache warm and never touches MQTT.
 TELEMETRY_TTL = 90.0
 _telemetry_cache: dict[int, tuple[float, TelemetrySnapshot]] = {}
 _telemetry_lock = threading.Lock()
 
 
 def store_telemetry(set_no: int, snapshot: TelemetrySnapshot) -> None:
-    # A failed snapshot is stored too: if MQTT really is unreachable, there is
-    # no point in the light round spending nine seconds finding the same error
-    # every time. Telemetry-backed devices are not green, so they are not
-    # light-round targets anyway.
+    # A failed snapshot is stored too: if MQTT really is unreachable, there
+    # is no point in the light round paying the connect timeout to find the
+    # same error every time. Telemetry-backed devices are not green, so they
+    # are not light-round targets anyway.
     with _telemetry_lock:
         _telemetry_cache[int(set_no)] = (time.monotonic(), snapshot)
 

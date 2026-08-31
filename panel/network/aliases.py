@@ -77,8 +77,19 @@ def _write_records(entries: list[dict]) -> None:
     path = record_file()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"aliases": entries}, indent=2),
-                        encoding="utf-8")
+        # Written beside and swapped in, never written in place (the same
+        # discipline as panel/config_sync/storage.py). This file is the
+        # WHOLE of rule 2: a write torn by a kill or a full disk would
+        # leave half a JSON document where the record was, `_read_records`
+        # would read that as "no records", and every address in it would be
+        # stranded on the adapter with nothing left pointing at it — the
+        # exact outcome the record exists to prevent. The rename is atomic,
+        # so the file on disk is always the previous record or the new one,
+        # never something in between.
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"aliases": entries}, indent=2),
+                             encoding="utf-8")
+        temporary.replace(path)
     except OSError:
         # Losing the record does not justify losing the address that is
         # already on the adapter; the session teardown still holds it in

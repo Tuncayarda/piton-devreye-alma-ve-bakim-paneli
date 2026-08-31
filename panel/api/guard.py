@@ -53,23 +53,24 @@ def restricted_view(path: str) -> str | None:
     return None
 
 
-# Paths only admin mode may reach at all, whatever the edition's view list
-# says. The service key's own endpoints: reading the key state is open (the
-# field UI has to know whether to offer the question), but changing anything
-# is not.
-ADMIN_ONLY = (
-    "/api/admin/key/volumes",
-    "/api/admin/key/write",
-    "/api/admin/key/drives",
-    "/api/admin/key/prepare",
-)
+# The subtree only admin mode may reach at all, whatever the edition's view
+# list says: the service key's own endpoints. MATCHED BY PREFIX, for the
+# reason the RESTRICTED table above already wrote down — a per-path list
+# develops silent gaps, and this file spent thirty lines arguing that while
+# keeping one. The single deliberately-open path is the exception list:
+# reading the key STATE is field work (the UI has to know whether to offer
+# the question); changing anything under it is not.
+ADMIN_ONLY_PREFIX = "/api/admin/key"
+ADMIN_OPEN = ("/api/admin/key",)
 
 
 def refusal(path: str, body=None):
     """The response that refuses this call, or None to let it through."""
     if not editions.is_active():
         return None                      # nothing to enforce against yet
-    if path in ADMIN_ONLY and not editions.admin():
+    under_key = (path == ADMIN_ONLY_PREFIX
+                 or path.startswith(ADMIN_ONLY_PREFIX + "/"))
+    if under_key and path not in ADMIN_OPEN and not editions.admin():
         return _denied()
     view = restricted_view(path)
     if view is not None and view not in editions.views():
@@ -79,6 +80,17 @@ def refusal(path: str, body=None):
     # password they mistyped, and that must keep working.
     if (path == "/api/credentials/forget" and isinstance(body, dict)
             and body.get("all") is True and not editions.admin()):
+        return _denied()
+    # A project that came off the service key opens in admin mode only. This
+    # used to live in the route handler — an admin decision outside the one
+    # module whose whole job is holding them, and the exact "second
+    # project-opening path would be open until somebody remembered" gap the
+    # prefix table exists to close. Asked of the EXTRA REGISTRY directly:
+    # `find_project` hides extras outside admin mode, so a lookup through it
+    # answered None in exactly the mode this refusal exists for.
+    if (path == "/api/project/select" and isinstance(body, dict)
+            and editions.is_extra_key(str(body.get("key") or ""))
+            and not editions.admin()):
         return _denied()
     return None
 

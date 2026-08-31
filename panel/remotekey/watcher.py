@@ -100,6 +100,17 @@ class RemoteWatch:
         self._lock = threading.RLock()
         self._thread: threading.Thread | None = None
         self._giving_back: threading.Thread | None = None
+        # ONE EVENT PER RUN, and the event IS the run's name. `disconnect`
+        # joins the beat thread with a timeout and carries on regardless —
+        # it has to, the thread may be sitting in a ten-second network read —
+        # so a thread can survive its own disconnection. With a single
+        # shared Event, `connect` then cleared the very flag that survivor
+        # was watching, and two beats ran against one set of state. Now the
+        # survivor holds an Event nobody clears: it finds it set and dies,
+        # and every write it still had in flight is refused by the token
+        # checks in `_round`/`_record` (see there). A fresh `connect` makes
+        # a fresh Event, so the current run is always `self._stop` and a
+        # thread whose captured event is not `self._stop` is history.
         self._stop = threading.Event()
         self._code = ""
         self._label = ""
@@ -128,18 +139,24 @@ class RemoteWatch:
 
         self.disconnect()
         with self._lock:
+            run = self._stop = threading.Event()
             self._code = normalised
             self._reason = ""
-        reason = self._round()
+        reason = self._round(run)
         if reason:
             with self._lock:
-                self._code = ""
+                if self._stop is run:
+                    self._code = ""
             return reason
 
         with self._lock:
-            if self._thread is not None and self._thread.is_alive():
+            if self._stop is not run or run.is_set():
+                # Superseded while the first answer was on the wire: another
+                # connect or disconnect owns the state now. Whatever door is
+                # open is theirs to hold — starting a second beat here would
+                # recreate exactly the two-threads-one-state race this token
+                # exists to close.
                 return ""
-            self._stop.clear()
             self._thread = threading.Thread(target=self._run,
                                             name="panel-remotekey",
                                             daemon=True)
@@ -157,9 +174,17 @@ class RemoteWatch:
         with self._lock:
             thread = self._thread
             self._thread = None
-        self._stop.set()
+            stop = self._stop
+        # Only the CURRENT run's event. A fresh connect swaps `_stop` for a
+        # new Event, so a disconnect can never reach forward and stop a run
+        # it never knew about.
+        stop.set()
         if thread is not None and thread.is_alive() \
                 and thread is not threading.current_thread():
+            # The join may time out — the thread can be deep in a network
+            # read. That is tolerated rather than waited out: the survivor's
+            # event is set, so it exits at its next look, and until then the
+            # token checks keep its late answer from touching the state.
             thread.join(timeout=client.READ_TIMEOUT + 1.0)
         with self._lock:
             code, self._code = self._code, ""
@@ -198,29 +223,53 @@ class RemoteWatch:
         giving_back.start()
 
     def _run(self) -> None:
-        while not self._stop.is_set():
+        with self._lock:
+            if self._thread is not threading.current_thread():
+                return          # superseded before the first beat
+            # Taken under the same lock that still names this thread as the
+            # current one, so it is THIS run's event and no other's.
+            run = self._stop
+        while not run.is_set():
             # Read each time round: the service may hand out a different ttl
             # from one answer to the next, and the wait follows it.
             with self._lock:
                 ttl = self._ttl
-            self._stop.wait(beat_for(ttl))
-            if self._stop.is_set():
+            run.wait(beat_for(ttl))
+            if run.is_set():
                 return
-            reason = self._round()
-            if reason in FATAL or not self.live():
-                # The session is over, either because it was refused or
-                # because the last good answer has run out. Either way there
-                # is nothing left to ask about.
-                with self._lock:
+            reason = self._round(run)
+            with self._lock:
+                if self._stop is not run:
+                    # A disconnect outlived its join and a new session began
+                    # while this round was on the wire. The state is the new
+                    # run's; ending anything from here would end THEIRS.
+                    return
+                over = reason in FATAL or not self.live()
+                if over:
+                    # The session is over, either because it was refused or
+                    # because the last good answer has run out. Either way
+                    # there is nothing left to ask about.
                     self._thread = None
-                self._stop.set()
-                self._lapse(reason)
+                    run.set()
+            if over:
+                self._lapse(reason, run)
                 return
 
     # ── one round ────────────────────────────────────────────────────────
-    def _round(self) -> str:
-        """Ask once. "" if a fresh grant is now in hand, else the reason."""
+    def _round(self, run: threading.Event | None = None) -> str:
+        """Ask once. "" if a fresh grant is now in hand, else the reason.
+
+        `run` is the asking run's stop token. Everything the answer would
+        write is guarded on it: the question travels the network with no
+        lock held, and by the time the answer lands a disconnect — or a
+        whole new session — may own the state. A grant applied then would
+        extend a door the operator watched close. `None` means "the current
+        state, whoever holds it" and is for callers that are not a run at
+        all (`fresh`).
+        """
         with self._lock:
+            if run is not None and (self._stop is not run or run.is_set()):
+                return "closed"
             code = self._code
         if not code:
             return "closed"
@@ -233,16 +282,23 @@ class RemoteWatch:
                 code=code, nonce=nonce, install_id=install, edition=edition,
                 app_version=settings.APP_VERSION)
         except client.ServiceError as exc:
-            self._record(exc.reason)
+            self._record(exc.reason, run)
             return exc.reason
 
         grant, reason = protocol.check(payload, signature, nonce=nonce,
                                        install_id=install, edition=edition)
         if grant is None:
-            self._record(reason)
+            self._record(reason, run)
             return reason
 
         with self._lock:
+            if run is not None and (self._stop is not run or run.is_set()):
+                # Stopped or superseded while the answer was on the wire —
+                # the disconnect happened, whatever this answer says.
+                # Nothing is written and nothing is settled: the "" only
+                # tells the asking loop the service did not refuse, and
+                # that loop's own token check is what retires it.
+                return ""
             self._seen_at = clock.monotonic()
             self._ttl = grant.ttl
             self._expires = self._seen_at + grant.ttl
@@ -256,18 +312,32 @@ class RemoteWatch:
         self._settle()
         return ""
 
-    def _record(self, reason: str) -> None:
+    def _record(self, reason: str, run: threading.Event | None = None) -> None:
         """Note why a round failed. Does not itself end anything — whether
         it has is a question about the deadline, asked by the caller."""
         with self._lock:
+            if run is not None and (self._stop is not run or run.is_set()):
+                return          # a stopped run's news is nobody's news
             self._seen_at = clock.monotonic()
             if self._reason != reason:
                 self._reason = reason
                 self._generation += 1
         self._settle()
 
-    def _lapse(self, reason: str) -> None:
+    def _lapse(self, reason: str,
+               run: threading.Event | None = None,
+               seen_expires: float | None = None) -> None:
         with self._lock:
+            if run is not None and self._stop is not run:
+                return          # a newer session's state is not ours to end
+            if seen_expires is not None and self._expires != seen_expires:
+                # `fresh()` read the deadline OUTSIDE this lock and hands it
+                # back here. A connect landing in that gap holds a LIVE
+                # grant under a new deadline, and the stale reading must not
+                # end it — the same rule the run token enforces for the
+                # beats. A caller ending the session for its own reason (the
+                # service said so) passes nothing and is not second-guessed.
+                return
             self._expires = 0.0
             self._ttl = 0.0
             self._code = ""
@@ -321,7 +391,7 @@ class RemoteWatch:
         with self._lock:
             expires = self._expires
         if expires and expires <= clock.monotonic():
-            self._lapse("expired")
+            self._lapse("expired", seen_expires=expires)
         return self.snapshot()
 
     def reset(self) -> None:

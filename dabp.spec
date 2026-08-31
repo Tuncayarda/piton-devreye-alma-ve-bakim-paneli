@@ -207,18 +207,31 @@ def build_secret():
     try:
         return (path.read_text(encoding="utf-8").strip() or "").encode(
             "utf-8") or None
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers a file that is not UTF-8. An unreadable OPTIONAL
+        # dev file means "no secret", the same answer the panel's own reader
+        # gives (panel/adminkey/secret.py); the failures that must stop the
+        # build are the sealing loads below, not this.
         return None
 
 
 SEAL_KEY = None
-try:
+_S = build_secret()
+if _S:
+    # A BUILD THAT HOLDS THE SECRET IS A BUILD WHOSE SEALING MUST WORK. A
+    # broad except used to sit around these loads and turned every failure —
+    # most plausibly a module-level relative import added to secret.py or
+    # vault.py, which cannot resolve when the file is loaded bare — into one
+    # printed line and a green build with no .sealed files in it. That
+    # package opens admin mode onto a menu with nothing extra in it, in the
+    # field, with the stick in the machine. So nothing is caught here any
+    # more: the loads and the derivation fail the build with their own
+    # traceback. The stdlib-only contract both files keep for `load_bare`
+    # is pinned by tests/test_edition_packaging.py, the same way
+    # tests/test_editions.py pins it for the catalogue.
     _secret = load_bare(("panel", "adminkey", "secret.py"), "dap_key_secret")
     _vault = load_bare(("panel", "adminkey", "vault.py"), "dap_vault")
-    _S = build_secret()
-    SEAL_KEY = _secret.derive(_S) if _S else None
-except Exception as error:
-    print(f"[spec] sealing unavailable: {error}")
+    SEAL_KEY = _secret.derive(_S)
 
 if SEAL_KEY:
     SEAL_DIR = Path(tempfile.mkdtemp(prefix="dabp-sealed-"))

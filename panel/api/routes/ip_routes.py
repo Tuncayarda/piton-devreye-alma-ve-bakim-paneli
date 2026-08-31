@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ... import firmware, i18n, ip_assign, jobs, network, settings
+from ... import firmware, i18n, ip_assign, jobs, network
 from ...inventory import catalog
 from ...inventory.device_map import resolve_template
 from ...system import files
@@ -16,7 +16,7 @@ from ..presenters import (
 )
 from ..response import respond
 from ..tasks import factory_reset_task, ip_assign_task, lcd_manual_task
-from .helpers import first_switch_id, name_list, single
+from .helpers import first_switch_id, name_list, single, submit
 
 _ONLY_INTERCOM = "error.intercomOnly"
 _INTERCOM = "Intercom"
@@ -41,7 +41,7 @@ def _assignment_policy(inventory, groups, plan: dict) -> dict:
     display fields are copied into the plan, never a filesystem path.
     """
     names = [group["name"] for group in groups]
-    lcd_only = names == [_COMPARTMENT_LCD]
+    lcd_only = ip_assign.assignment_kind(names) == "compartment-lcd"
     software_rows = (plan.get("candidateRows", [])
                      if lcd_only else plan.get("rows", []))
     device_ids = [row["deviceId"] for row in software_rows
@@ -57,7 +57,7 @@ def _assignment_policy(inventory, groups, plan: dict) -> dict:
         for device_id, record in selected.items()
     }
     return {
-        "assignmentKind": "compartment-lcd" if lcd_only else "intercom",
+        "assignmentKind": ip_assign.assignment_kind(names),
         "sourceMode": "perDevice" if lcd_only else "shared",
         # Both targets can be put back where they started, but the two mean
         # different things and the screen has to say which. An Intercom goes
@@ -95,14 +95,11 @@ def get_plan(query):
     switch = _physical_switch(inventory, requested_switch_id)
     device_switch_id = ip_assign.device_switch_for(
         inventory, groups, switch.id)
-    lcd_only = [group["name"] for group in groups] == [_COMPARTMENT_LCD]
-    # LCD test wiring is physical: any PoE port can carry any one of the
-    # canonical displays.  The device identity/IP is discovered later from
-    # the server-side candidate map and proved by the selected switch's MAC
-    # table.  Intercom port semantics remain DeviceMap-bound.
-    allowed = (set(range(1, settings.SWITCH_POE_PORTS + 1)) if lcd_only
-               else set(ip_assign.devices_by_port(
-                   inventory, groups, device_switch_id)))
+    # Which ports the run may touch is the RUN's rule, not this handler's:
+    # physical PoE face for the LCD flow, DeviceMap ports otherwise
+    # (ip_assign.run_allowed_ports, where the reasoning lives).
+    allowed = ip_assign.run_allowed_ports(inventory, groups,
+                                          device_switch_id)
     text = single(query, "ports", "")
     if text:
         ports = ip_assign.parse_ports(text, allowed)
@@ -113,7 +110,12 @@ def get_plan(query):
                         if device.switch_id == device_switch_id
                         and str(device.port).isdigit()} & allowed)
     try:
-        target_prefix = ip_assign.parse_prefix(single(query, "mask", ""))
+        # `default=0` = "not stated". Parsing the empty box straight to /24
+        # here materialised an answer before `effective_prefix()` could give
+        # one, so a project that states /16 (Gaziray) never got it: the one
+        # decision point saw 24 and stopped looking.
+        target_prefix = ip_assign.parse_prefix(single(query, "mask", ""),
+                                               default=0)
     except ValueError as exc:
         return respond(400, {"error": str(exc)})
     plan = ip_assign.build_plan(inventory, [g["name"] for g in groups], ports,
@@ -262,8 +264,14 @@ def _addressing_options(body) -> dict:
     A run option rather than a setting: the project is a /24 world, but a
     display commissioned on a bench is sometimes given a /8 so it stays
     reachable while the rest of the train is still being addressed.
+
+    `default=0` = "not stated": the decision then belongs to the runner —
+    the project's own prefix for a project that states one (Gaziray's /16),
+    and otherwise the device keeps the mask it has. Defaulting to 24 HERE
+    made the project branch unreachable.
     """
-    return {"targetPrefix": ip_assign.parse_prefix(body.get("targetMask"))}
+    return {"targetPrefix": ip_assign.parse_prefix(body.get("targetMask"),
+                                                   default=0)}
 
 
 def _search_options(body) -> dict:
@@ -303,10 +311,8 @@ def post_run(body):
     resolved_groups = ip_assign.resolve_groups(groups, inventory)
     device_switch_id = ip_assign.device_switch_for(
         inventory, resolved_groups, switch.id)
-    lcd_only = groups == [_COMPARTMENT_LCD]
-    allowed = (set(range(1, settings.SWITCH_POE_PORTS + 1)) if lcd_only
-               else set(ip_assign.devices_by_port(
-                   inventory, resolved_groups, device_switch_id)))
+    allowed = ip_assign.run_allowed_ports(inventory, resolved_groups,
+                                          device_switch_id)
     ports = ip_assign.parse_ports(str(body.get("ports", "")), allowed)
     protected = _protected_on(inventory, switch, body)
     # Checked here as well as in the queue: the user sees the error the moment
@@ -372,11 +378,8 @@ def post_run(body):
     job = jobs.Job("ip", i18n.lazy("job.ipAssign", switch=switch.name),
                    inventory.set_no,
                    key=f"ip:{inventory.set_no}:{switch.id}")
-    job, is_new = jobs.QUEUE.submit(
-        job, ip_assign_task(inventory, switch.id, ports, protected, groups,
-                            options))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, ip_assign_task(inventory, switch.id, ports,
+                                      protected, groups, options))
 
 
 def _lcd_factory_reset(inventory, switch, body, groups):
@@ -390,7 +393,11 @@ def _lcd_factory_reset(inventory, switch, body, groups):
     way round, so it runs on exactly the same isolated-port, MAC-proved
     machinery instead of a second implementation.
     """
-    allowed = set(range(1, settings.SWITCH_POE_PORTS + 1))
+    # The whole PoE face — the LCD rule, asked of the run's own helper so
+    # the port-count setting has one enforcement point.
+    allowed = ip_assign.run_allowed_ports(
+        inventory, ip_assign.resolve_groups([_COMPARTMENT_LCD], inventory),
+        None)
     ports = ip_assign.parse_ports(str(body.get("ports", "")), allowed)
     protected = _protected_on(inventory, switch, body)
     ip_assign.assert_not_protected(ports, protected)
@@ -398,7 +405,10 @@ def _lcd_factory_reset(inventory, switch, body, groups):
         # `set` is where the displays are NOW; set 1 is where they go.
         source_set = ip_assign.parse_set(body.get("sourceSet"))
         options = {
-            "targetPrefix": ip_assign.parse_prefix(body.get("targetMask")),
+            # 0 = not stated; `lcd_runner` resolves it with
+            # `effective_prefix`, which asks the project first.
+            "targetPrefix": ip_assign.parse_prefix(body.get("targetMask"),
+                                                   default=0),
             "sourceSet": source_set or inventory.set_no,
             "targetSet": 1,
             "extraAddresses": _set_addresses(inventory, source_set),
@@ -410,11 +420,8 @@ def _lcd_factory_reset(inventory, switch, body, groups):
                              ports=ip_assign.format_ports(ports)),
                    inventory.set_no,
                    key=f"ipfactory:{inventory.set_no}:{switch.id}")
-    job, is_new = jobs.QUEUE.submit(
-        job, ip_assign_task(inventory, switch.id, ports, protected, groups,
-                            options))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, ip_assign_task(inventory, switch.id, ports,
+                                      protected, groups, options))
 
 
 def post_factory_reset(body):
@@ -454,10 +461,8 @@ def post_factory_reset(body):
                              ports=ip_assign.format_ports(ports)),
                    inventory.set_no,
                    key=f"ipfactory:{inventory.set_no}:{switch.id}")
-    job, is_new = jobs.QUEUE.submit(
-        job, factory_reset_task(inventory, switch.id, ports, groups, options))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, factory_reset_task(inventory, switch.id, ports,
+                                          groups, options))
 
 
 def post_lcd_assign(body):
@@ -477,7 +482,8 @@ def post_lcd_assign(body):
         or [_COMPARTMENT_LCD], inventory)]
     if groups != [_COMPARTMENT_LCD]:
         return respond(400, {"error": i18n.t("error.lcdManualOnly")})
-    allowed = set(range(1, settings.SWITCH_POE_PORTS + 1))
+    allowed = ip_assign.run_allowed_ports(
+        inventory, ip_assign.resolve_groups(groups, inventory), None)
     ports = ip_assign.parse_ports(str(body.get("port", "")), allowed)
     if len(ports) != 1:
         return respond(400, {"error": i18n.t("error.lcdManualOnePort")})
@@ -489,7 +495,9 @@ def post_lcd_assign(body):
             raise ValueError(i18n.t("error.lcdManualTargetInvalid"))
         options = {
             "targetIp": target_ip,
-            "targetPrefix": ip_assign.parse_prefix(body.get("targetMask")),
+            # 0 = not stated; resolved by `effective_prefix` in the runner.
+            "targetPrefix": ip_assign.parse_prefix(body.get("targetMask"),
+                                                   default=0),
             # The computer needs a route to the address it is about to write,
             # otherwise the verification read cannot reach the display.
             "extraAddresses": [target_ip],
@@ -500,11 +508,8 @@ def post_lcd_assign(body):
                                    ip=target_ip),
                    inventory.set_no,
                    key=f"ip:{inventory.set_no}:{switch.id}")
-    job, is_new = jobs.QUEUE.submit(
-        job, lcd_manual_task(inventory, switch.id, ports[0], protected,
-                             options))
-    return respond(200 if is_new else 202,
-                   {**job.dto(rows=False), "new": is_new})
+    return submit(job, lcd_manual_task(inventory, switch.id, ports[0],
+                                       protected, options))
 
 
 def post_preflash_file(body):

@@ -24,6 +24,8 @@ import base64
 import binascii
 import json
 import os
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -472,6 +474,53 @@ class Client(PanelTest):
                 self.assertEqual(verify.service_url(), verify.SERVICE_URL)
 
 
+class Pooling(unittest.TestCase):
+    """The one requests.Session, built lazily from three threads."""
+
+    def test_two_threads_build_one_session_not_two(self):
+        """The first connect races the first beat into `_session`. The
+        unguarded lazy build let both pass the `is None` test and each make
+        a Session; the loser's won the call already in flight and leaked
+        its connection pool where no later `reset` could reach it."""
+        client.reset()
+        self.addCleanup(client.reset)
+
+        made = []
+        entered, release = threading.Event(), threading.Event()
+
+        class SlowSession:
+            """A Session whose construction takes long enough to race."""
+
+            def __init__(self):
+                made.append(self)
+                self.headers = {}
+                entered.set()
+                release.wait(5)
+
+            def close(self):
+                pass
+
+        got = []
+        with mock.patch.object(client.requests, "Session", SlowSession):
+            first = threading.Thread(
+                target=lambda: got.append(client._session()))
+            first.start()
+            self.assertTrue(entered.wait(5), "the build never began")
+            second = threading.Thread(
+                target=lambda: got.append(client._session()))
+            second.start()
+            # Let the second caller reach the lock — or, unguarded, walk
+            # straight past the `is None` check into a build of its own.
+            time.sleep(0.1)
+            release.set()
+            first.join(5)
+            second.join(5)
+
+        self.assertEqual(len(made), 1, "a second Session was built")
+        self.assertEqual(len(got), 2)
+        self.assertIs(got[0], got[1])
+
+
 class Sessions(PanelTest):
     """Connecting, staying connected, and the door closing on its own."""
 
@@ -645,6 +694,100 @@ class Sessions(PanelTest):
         session.forget()
         self.assertEqual(session.install_id(), first)
         self.assertIn("-", first)               # a uuid4, not a counter
+
+
+class Beats(PanelTest):
+    """The beat thread's lifecycle: a superseded run must really retire.
+
+    `disconnect` joins the thread with a timeout and carries on regardless
+    — it has to, the thread may be deep in a slow network read — so a beat
+    can outlive its own disconnection. These tests park a beat inside such
+    a read (the fake service simply does not answer until told to) and
+    then end or replace the session around it, which is exactly what a
+    timed-out join looks like from the survivor's side.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # A short ttl brings the beat down to a tenth of a second, and the
+        # floor is lowered to let it (the wait is real time — the beat is
+        # deliberately outside the fake clock, see panel/clock.py).
+        self.service = FakeService(ttl=0.3)
+        self.enterContext(trusting(SEED))
+        self.enterContext(serving(self.service))
+        self.enterContext(mock.patch.object(watcher, "BEAT_MIN", 0.01))
+        # ...and the join a disconnect makes gives up quickly, so the test
+        # spends a second where the field spends seven.
+        self.enterContext(mock.patch.object(client, "READ_TIMEOUT", 0.05))
+        self.watch = remotekey.WATCH
+        self.addCleanup(self.watch.reset)
+
+        # The gate: once armed, any post made by a BEAT thread parks until
+        # released. The main thread's own synchronous rounds pass freely.
+        self.blocking = threading.Event()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self.addCleanup(self.release.set)
+        original = self.service.post
+
+        def gated(url, json=None, timeout=None):
+            if (self.blocking.is_set() and
+                    threading.current_thread().name == "panel-remotekey"):
+                self.entered.set()
+                self.release.wait(10)
+            return original(url, json=json, timeout=timeout)
+
+        self.service.post = gated
+
+    @staticmethod
+    def _beats():
+        return [thread for thread in threading.enumerate()
+                if thread.name == "panel-remotekey" and thread.is_alive()]
+
+    def _park_a_beat(self):
+        """Connect, then hold the beat's next question on the wire."""
+        self.assertEqual(self.watch.connect("K7M29QX4"), "")
+        self.blocking.set()
+        self.assertTrue(self.entered.wait(5), "the beat never asked")
+
+    def test_a_second_connect_leaves_exactly_one_live_beat(self):
+        """The race this pins: the old shared stop Event was set by
+        `disconnect`, whose join timed out on the parked thread — and then
+        CLEARED by the next connect. The survivor woke to a clear flag and
+        went on beating beside the new thread, the two racing each other
+        over one ttl, one deadline and one generation."""
+        self._park_a_beat()
+
+        self.assertEqual(self.watch.connect("K7M29QX4"), "")
+        self.release.set()
+
+        deadline = time.time() + 5
+        while len(self._beats()) > 1 and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(len(self._beats()), 1,
+                         "the superseded beat must die, the new one live")
+        # And the session the SECOND connect opened is untouched by
+        # whatever the first run's late answer said.
+        self.assertTrue(self.watch.live())
+        self.assertEqual(self.watch.snapshot()["label"], "Gaziray")
+
+    def test_a_survivors_late_answer_cannot_reopen_a_closed_door(self):
+        """The operator disconnects while the beat is mid-question; the
+        join times out; the answer then lands, signed and valid. It must
+        not settle anything — a door felt to close must stay closed."""
+        self._park_a_beat()
+
+        self.watch.disconnect()
+        self.assertFalse(self.watch.live())
+
+        self.release.set()
+        deadline = time.time() + 5
+        while self._beats() and time.time() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(self._beats(), [], "the beat must have retired")
+        self.assertFalse(self.watch.live(),
+                         "a late grant reopened a closed session")
+        self.assertFalse(self.watch.snapshot()["active"])
 
 
 class Arbitration(PanelTest):

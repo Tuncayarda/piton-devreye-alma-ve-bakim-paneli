@@ -50,8 +50,9 @@ export const local = {
   checkingAutostart: false,
 };
 
+// The poll's TIMER is not here any more: it is a core/poll.js handle owned
+// by index.js, armed when a run starts and stopped by the screen's stop().
 export const live = {
-  timer: null,
   // The last runner generation drawn. The poll compares against this and
   // redraws only on a real change.
   generation: -1,
@@ -105,11 +106,6 @@ export function selectAll(on) {
   local.selected.clear();
   if (!on) return;
   for (const entry of devices()) local.selected.add(entry.ip);
-}
-
-export function stopPolling() {
-  clearTimeout(live.timer);
-  live.timer = null;
 }
 
 export function togglePackage(name) {

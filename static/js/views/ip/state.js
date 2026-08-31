@@ -14,7 +14,7 @@
 
 import { api } from '../../core/api.js';
 import { t } from '../../core/i18n.js';
-import { state, patch } from '../../core/store.js';
+import { state } from '../../core/store.js';
 import { groupsFor } from '../../components/group_bar.js';
 
 // A DeviceMap/API protocol value, assembled so the screen-text catalogue
@@ -42,6 +42,19 @@ export function ipTargets() {
   return groupsFor('ip').map(group => ({
     id: group.name, label: group.label || group.name, groups: [group.name],
   }));
+}
+
+// The screen's own redraw, registered by index.js when it first renders.
+// Sub-modules (the APK picker, the settings card, the bench form) used to
+// force a repaint by republishing `ipState` under a NEW IDENTITY — a spread
+// of itself — which defeated the store's changed-keys contract and rebuilt
+// the whole application shell for a click that concerned one card. A slot
+// rather than an import: index.js imports these modules, so importing it
+// back would be a cycle.
+export const screen = { draw: null };
+
+export function redraw() {
+  if (screen.draw) screen.draw();
 }
 
 export const local = {
@@ -138,20 +151,15 @@ export const STALE_SECONDS = 15;
 // the cable may have moved to another port before the run starts.
 export const PROTECTED_INTERVAL = 30000;
 
+// The timers themselves live in index.js now, as core/poll.js handles owned
+// by the screen's enter()/leave() lifecycle; what stays here is what the
+// OTHER files of this screen read — whether the operator paused the live
+// refresh, and where the panel cards are drawn (panel.js writes the
+// "x s ago" text straight into that node).
 export const live = {
   enabled: true,
-  timer: null,            // the refresh round's timer
-  ticker: null,           // the per-second tick that refreshes "x s ago"
-  protectedTimer: null,   // the protected ports' re-verification round
   stack: null,            // the container of the panel cards
 };
-
-export function stopPanels() {
-  clearTimeout(live.timer);
-  clearTimeout(live.ticker);
-  clearTimeout(live.protectedTimer);
-  live.timer = live.ticker = live.protectedTimer = null;
-}
 
 export function onScreen() {
   return state.view === 'ip' && !!state.meta
@@ -204,13 +212,16 @@ async function findProtected() {
   }
 }
 
-// Runs the search and redraws the screen. `patch` is called with a new object
-// reference so the render fires even when the content did not change.
+// Runs the search; REDRAWING IS THE SCREEN'S JOB. This used to finish with
+// an identity-swap `patch({ ipState: { ...state.ipState } })` — a new object
+// reference whose whole purpose was to force a publish for content that had
+// not changed. That defeated the store's changed-keys contract
+// (core/store.js:117, written so a click on one panel does not rebuild the
+// 42-row device table): every subscriber redrew the entire shell for a
+// finding only this screen shows. The callers in index.js now await this
+// and call the screen's own draw() instead.
 export async function refreshProtected() {
   await findProtected();
-  if (state.view === 'ip' && state.ipState) {
-    patch({ ipState: { ...state.ipState } });
-  }
 }
 
 // Ports on the target switch the run must not touch: [[number, reason], …]

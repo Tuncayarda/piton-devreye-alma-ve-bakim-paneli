@@ -21,7 +21,7 @@ from pathlib import Path
 from .. import editions, script_loader, status
 from ..inventory.device_map import Inventory
 from . import columns as cols
-from .workbook import SHEET_NAME
+from .workbook import SHEET_NAME, resolve_columns
 from .. import i18n
 
 # The template is not re-parsed on every request; it refreshes when the file
@@ -62,9 +62,15 @@ def template_layout(template: Path | None = None,
 
     verify = script_loader.device_verify()
     workbook = openpyxl.load_workbook(template)
-    worksheet = workbook[sheet]
+    # The same up-front validation the export runs: a missing sheet or a
+    # reworded required heading fails HERE, with the translated sentence,
+    # not rows deep in the loop below with a KeyError.
+    worksheet, indexes = resolve_columns(workbook, verify, sheet)
     column_count = worksheet.max_column
     header_row = verify.HEADER_ROW
+    # The device list is keyed by the IP template column; resolved once,
+    # not once per row.
+    key_index = indexes[cols.IP_TEMPLATE]
 
     # ── group headings (one row above the header row) ──
     groups = []
@@ -99,9 +105,7 @@ def template_layout(template: Path | None = None,
             continue
         if not sections:
             continue
-        key_index = next(index for index, column in enumerate(columns)
-                         if column["templateKey"])
-        template_ip = worksheet.cell(row, key_index + 1).value
+        template_ip = worksheet.cell(row, key_index).value
         if not template_ip:
             continue
         cells = []

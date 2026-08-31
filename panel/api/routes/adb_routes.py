@@ -42,6 +42,22 @@ _APK_LOCK = threading.Lock()
 _CHOSEN_APK = ""
 
 
+def reset() -> None:
+    """Forget the chosen APK. Shutdown, and a project switch.
+
+    The one selection that used to SURVIVE a project switch: every
+    comparable choice (firmware selections, config targets, probe results)
+    is dropped there because device ids are positional and a file chosen
+    against one project would be installed on another's hardware
+    (`panel.api.lifecycle.switch_project`). This screen's list is
+    address-typed rather than DeviceMap-bound, but the chosen image is
+    still the OLD project's decision.
+    """
+    global _CHOSEN_APK
+    with _APK_LOCK:
+        _CHOSEN_APK = ""
+
+
 def _body() -> dict:
     return {"devices": pool.load(), "runner": RUNNER.state(),
             "operations": list(apps.OPERATIONS)}

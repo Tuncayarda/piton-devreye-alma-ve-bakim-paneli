@@ -87,6 +87,20 @@ export function preserveScroll(outer, draw) {
   requestAnimationFrame(apply);
 }
 
+// Is focus in a box the operator is working in? Redrawing would rebuild the
+// box mid-word and throw away the caret and the half-typed value (fields
+// save on change, i.e. when focus leaves). app.js asks this before it
+// redraws the open view on a store publish; a view that repaints ITSELF
+// (the adb and ip screens' own draw()) has to ask the same question, or the
+// protection app.js gives its renders would quietly not apply to theirs.
+export function focusHeld(root) {
+  const active = document.activeElement;
+  if (!active || !root || !root.contains(active)) return false;
+  return active.matches(
+    'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]),'
+    + ' textarea, select, [contenteditable="true"]');
+}
+
 // SVG elements live in their own namespace: createElement('svg') does not
 // produce valid SVG and shows nothing. Hence these two helpers rather than
 // el().

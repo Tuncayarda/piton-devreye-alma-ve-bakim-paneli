@@ -2,8 +2,10 @@
 """The IP assignment run and the factory-reset helper."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 from ... import credentials as credential_store
-from ... import ip_assign, jobs
+from ... import ip_assign, jobs, switch
 from ...errors import AuthError
 from ...system import files
 from .network_prepare import prepare_network
@@ -12,6 +14,32 @@ from ... import i18n
 
 def _short_error(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {exc}"[:160]
+
+
+@contextmanager
+def _switch_claimed(inventory, switch_id, job):
+    """Mark the run's switch as OWNED while the run holds its PoE ports.
+
+    The run drives the switch through the field script's own HTTP client,
+    which does not take `switch.CLIENT`'s per-write lock — so the switch
+    screen's write endpoints consult this claim instead and answer 409
+    while it stands (panel/api/routes/switch_routes.py). The queue's single
+    worker already keeps two runs apart; the claim exists for the request
+    threads the queue cannot see.
+    """
+    device = inventory.find(switch_id)
+    ip = device.ip if device is not None else ""
+    if ip and not switch.CLIENT.claim_run(ip, job.key):
+        # With one queue worker a standing claim can only be a leak from a
+        # run that died without its finally; taking it over is safer than
+        # refusing to start.
+        switch.CLIENT.release_run(ip)
+        switch.CLIENT.claim_run(ip, job.key)
+    try:
+        yield
+    finally:
+        if ip:
+            switch.CLIENT.release_run(ip)
 
 
 def _identity_rows(job, audit: dict) -> None:
@@ -169,8 +197,14 @@ def ip_assign_task(inventory, switch_id, ports, protected, groups, options):
             # missing lives on the rows, and its summary goes here.
             job.error = _run_summary_error(job.counts(), code)
 
-    return body
+    def task(job: jobs.Job):
+        # The claim brackets the WHOLE run: PoE is down from the first port
+        # to the final verification, and a screen write anywhere in between
+        # is the collision the claim exists to refuse.
+        with _switch_claimed(inventory, switch_id, job):
+            body(job)
 
+    return task
 
 def lcd_manual_task(inventory, switch_id, port, protected, options):
     """Write one typed address to the display on one switch port.
@@ -221,8 +255,14 @@ def lcd_manual_task(inventory, switch_id, port, protected, options):
         elif code and code != 130:
             job.error = _run_summary_error(job.counts(), code)
 
-    return body
+    def task(job: jobs.Job):
+        # The claim brackets the WHOLE run: PoE is down from the first port
+        # to the final verification, and a screen write anywhere in between
+        # is the collision the claim exists to refuse.
+        with _switch_claimed(inventory, switch_id, job):
+            body(job)
 
+    return task
 
 def factory_reset_task(inventory, switch_id, ports, groups, options):
     """Test flow: put the selected devices back on the factory address.

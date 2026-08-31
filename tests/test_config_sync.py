@@ -613,8 +613,6 @@ class SavedDefaults(PanelTest):
             self.assertEqual(
                 config_sync.targets.device_targets(device.id, set_no=set_no),
                 {})
-        self.assertEqual(
-            config_sync.saved_defaults_summary(1)["unscopedValues"], 0)
 
     def test_resetting_one_set_preserves_the_other(self):
         _inventory, _device = self.build()

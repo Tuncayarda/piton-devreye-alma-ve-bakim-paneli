@@ -18,6 +18,7 @@ CLIENT = SwitchClient()
 def reset() -> None:
     """Drop the scan state on shutdown. Credentials are not ours to clear."""
     CLIENT.stop_scan(wait=0.1)
+    CLIENT.clear_runs()
 
 
 __all__ = [

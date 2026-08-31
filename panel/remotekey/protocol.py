@@ -95,28 +95,6 @@ def normalise(text) -> str | None:
     if any(character not in ALPHABET for character in cleaned):
         return None
     return cleaned
-
-
-def find(text) -> str | None:
-    """The first code in `text`, or None. For what somebody pasted.
-
-    A code copied out of a message rarely arrives alone: a word in front of
-    it, a trailing newline, a colon. The whole string is tried
-    first, then each word in it, and `normalise` decides in both cases, so
-    what counts as a code is still answered in exactly one place.
-    """
-    if not isinstance(text, str):
-        return None
-    direct = normalise(text)
-    if direct is not None:
-        return direct
-    for word in text.split():
-        found = normalise(word)
-        if found is not None:
-            return found
-    return None
-
-
 def display(code: str) -> str:
     """`K7M29QX4` as `K7M2-9QX4`, which is how it is read out."""
     half = CODE_LENGTH // 2

@@ -144,27 +144,51 @@ class AdbRunner:
         if not pairs:
             raise ValueError(i18n.t("error.adbNoDeviceSelected"))
 
-        with self._lock:
-            if self._running:
-                raise RunnerBusy(i18n.t("error.adbRunnerBusy"))
-            self._cancel.clear()
-            self._operation = name
-            self._params = params
-            # Built here, before a single worker starts, so the first poll
-            # already shows every pair the operator selected.
-            self._order = [_key(pair) for pair in pairs]
-            self._rows = {_key(pair): {"ip": pair["ip"],
-                                       "package": pair["package"],
-                                       "state": PENDING, "detail": "",
-                                       "result": None} for pair in pairs}
-            self._targets = {_key(pair): pair for pair in pairs}
-            self._running = True
-            self._started_at = time.time()
-            self._finished_at = 0.0
-            self._generation += 1
-            self._thread = threading.Thread(
-                target=self._run, name="panel-adb-runner", daemon=True)
-            self._thread.start()
+        # The process-wide device claim. A job holding it — a scan, a
+        # firmware run — is exactly the traffic an ADB operation must not
+        # interleave with; the refusal used to run one way only (the
+        # refresh looked at this runner, nothing looked at the queue from
+        # here), and a scan starting mid-install tore the install's
+        # transport. Released by `_run`'s finally once the worker thread
+        # owns it, or right here when starting fails after all.
+        from .. import jobs                                # noqa: PLC0415
+        from ..jobs import access                          # noqa: PLC0415
+        # A SHORT bounded wait rather than an instant refusal: the usual
+        # holder at click time is the panel's own two-second light-refresh
+        # round, and refusing over one's own background poll made Run fail
+        # at random. 2.5 s absorbs a round; a real job holding the claim
+        # still turns into a refusal, with a sentence rather than the claim
+        # token (jobs.busy_error).
+        deadline = time.monotonic() + 2.5
+        if not access.acquire("adb-screen",
+                              cancelled=lambda: time.monotonic() > deadline):
+            raise RunnerBusy(jobs.busy_error())
+        try:
+            with self._lock:
+                if self._running:
+                    raise RunnerBusy(i18n.t("error.adbRunnerBusy"))
+                self._cancel.clear()
+                self._operation = name
+                self._params = params
+                # Built here, before a single worker starts, so the first
+                # poll already shows every pair the operator selected.
+                self._order = [_key(pair) for pair in pairs]
+                self._rows = {_key(pair): {"ip": pair["ip"],
+                                           "package": pair["package"],
+                                           "state": PENDING, "detail": "",
+                                           "result": None} for pair in pairs}
+                self._targets = {_key(pair) : pair for pair in pairs}
+                self._running = True
+                self._started_at = time.time()
+                self._finished_at = 0.0
+                self._generation += 1
+                self._thread = threading.Thread(
+                    target=self._run, name="panel-adb-runner", daemon=True)
+                self._thread.start()
+        except BaseException:
+            # Starting failed — the claim never reached a worker thread.
+            access.release("adb-screen")
+            raise
         return self.state()
 
     def cancel(self) -> dict:
@@ -209,6 +233,10 @@ class AdbRunner:
             if self._should_recover() and self._recover_server():
                 self._sweep(list(self._order))
         finally:
+            # The device claim taken in start() — the run is over, the
+            # queue's worker may have work waiting on it.
+            from ..jobs import access                      # noqa: PLC0415
+            access.release("adb-screen")
             with self._lock:
                 self._running = False
                 self._finished_at = time.time()

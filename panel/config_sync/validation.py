@@ -9,17 +9,12 @@ from __future__ import annotations
 
 import re
 
-from .. import settings
 from .fields import FIELDS, WRITABLE, writable_for_scope
 from .. import i18n
-
-
-def is_ipv4(value: str) -> bool:
-    parts = value.split(".")
-    if len(parts) != 4:
-        return False
-    return all(part.isdigit() and len(part) <= 3 and 0 <= int(part) <= 255
-               for part in parts)
+# Re-exported: this module's callers have always found them here, and the
+# definitions moved to `panel.scoping` only to break the import edge that
+# closed the ip_assign → firmware → config_sync cycle.
+from ..scoping import is_ipv4, scope_key  # noqa: F401
 
 
 def _short(number) -> str:
@@ -82,17 +77,3 @@ def validate(name: str, value, scope: str | None = None) -> str:
         raise ValueError(i18n.t("error.tooLong",
                                 field=i18n.t(field.label)))
     return text[:128]
-
-
-def scope_key(set_no, name: str) -> tuple[int, str]:
-    """Turn a set number and a device/group id into a safe store key."""
-    try:
-        number = int(set_no)
-    except (TypeError, ValueError):
-        raise ValueError(i18n.t("error.invalidSetNumber"))
-    if not (settings.SET_MIN <= number <= settings.SET_MAX):
-        raise ValueError(i18n.t("error.invalidSetNumber"))
-    identifier = str(name or "").strip()
-    if not identifier or len(identifier) > 128:
-        raise ValueError(i18n.t("error.invalidTargetId"))
-    return number, identifier

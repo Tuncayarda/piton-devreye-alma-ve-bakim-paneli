@@ -2,10 +2,12 @@
 """Service start-up and shutdown."""
 from __future__ import annotations
 
+import atexit
 import threading
 
 from .. import (adminkey, authority, config_sync, credentials, editions,
                 firmware, jobs, network, remotekey, switch, telemetry)
+from ..adminkey import sealed as adminkey_sealed
 from ..inventory import device_map
 
 # Starting the application service does not depend on the HTTP server. The
@@ -14,21 +16,52 @@ from ..inventory import device_map
 _START_LOCK = threading.Lock()
 _STARTED = False
 _LOADED_DEFAULTS = 0
+# Set for the whole of reset(). The watcher threads it stops can be MID-BEAT
+# when their bounded join gives up, and the tail of a beat reaches
+# `authority.settle` → `leave_admin` → `switch_project` → `prepare_network`,
+# which would put a fresh alias on the adapter AFTER `release_all` took the
+# addresses off — the one thing reset() exists to make reliable.
+_SHUTTING_DOWN = threading.Event()
+
+
+def _note(step: str, error: BaseException) -> None:
+    """One stderr line per swallowed cleanup/startup failure.
+
+    Best-effort stays best-effort — the panel must open, and must close —
+    but a silently skipped step used to be undetectable: the symptom of a
+    watcher that never armed is "I plugged the stick in and nothing
+    happened", with nothing anywhere saying why.
+    """
+    import sys                                             # noqa: PLC0415
+    try:
+        sys.stderr.write(f"lifecycle: {step}: {type(error).__name__}: "
+                         f"{error}\n")
+    except Exception:
+        # A GUI build can have no stderr at all. The diagnostic must never
+        # become the failure it exists to report.
+        pass
 
 
 def start() -> int:
     """Make the panel state ready. Safe to call repeatedly."""
     global _STARTED, _LOADED_DEFAULTS
     with _START_LOCK:
+        # Cleared only for a service that really is (re)starting — never
+        # for the request that lands DURING reset(): every call funnels
+        # through here (PanelService.call starts on each request), and an
+        # unconditional clear re-opened the very window the flag closes.
+        # `_STARTED` stays True until reset()'s last line, so a mid-reset
+        # caller skips this; the next genuine start() clears it.
         if not _STARTED:
+            _SHUTTING_DOWN.clear()
             _LOADED_DEFAULTS = config_sync.load_saved_defaults()
             # A previous run that was killed could not take its addresses off
             # the adapter. They belong to nobody now, so they go — before this
             # session adds any of its own (see panel.network.aliases).
             try:
                 network.sweep_stale()
-            except Exception:
-                pass
+            except Exception as error:
+                _note("sweep_stale", error)
             # The factory address is needed before the first scan or IP run,
             # not as a side effect of whichever operation happens to start
             # first.  Set 1 is the application's initial inventory; ``ensure``
@@ -43,8 +76,8 @@ def start() -> int:
             try:
                 adminkey.WATCH.observe()
                 adminkey.WATCH.start()
-            except Exception:
-                pass
+            except Exception as error:
+                _note("adminkey watch", error)
             _STARTED = True
         # `reset()` closes the queue. If the service is rebuilt in the same
         # process, make sure the job queue is open again.
@@ -59,10 +92,15 @@ def prepare_network() -> None:
     itself is behind `_STARTED` and runs once per process, while another
     project means different subnets and therefore a different address.
     """
+    if _SHUTTING_DOWN.is_set():
+        # A watcher's last beat can land here via authority.settle →
+        # leave_admin → switch_project while reset() is mid-teardown, and an
+        # alias added now would outlive `release_all`.
+        return
     try:
         network.ensure(device_map.load(1))
-    except Exception:
-        pass
+    except Exception as error:
+        _note("prepare_network", error)
 
 
 def leave_admin() -> None:
@@ -92,6 +130,11 @@ def leave_admin() -> None:
     # `disconnect` reports the source gone without settling, which is what
     # makes this safe to call from inside `authority.settle` — see the note
     # on `RemoteWatch.disconnect`.
+    if _SHUTTING_DOWN.is_set():
+        # A watcher's last beat, arriving mid-reset(): everything this unwind
+        # would touch is being torn down in order right now, and the project
+        # fall-back below would re-prepare the network after release_all.
+        return
     remotekey.WATCH.disconnect()
     stranded = editions.current_is_extra()
     editions.set_admin(False)
@@ -119,6 +162,7 @@ def switch_project(key: str, *, allow_missing: bool = False):
     409 that says which job is in the way.
     """
     from .presenters import clear_telemetry_cache
+    from .routes import adb_routes, switch_routes
 
     project = editions.use_project(key, allow_missing=allow_missing)
     device_map.clear_cache()
@@ -126,6 +170,17 @@ def switch_project(key: str, *, allow_missing: bool = False):
     clear_telemetry_cache()
     config_sync.forget_targets()
     firmware.clear_all()
+    # The switch screen's discovered list and the ADB screen's chosen APK
+    # went unmentioned here for a while — the one comparable state each that
+    # survived a project switch. The list is per-network and the APK is the
+    # OLD project's decision; both go with everything else keyed by it.
+    switch_routes.reset()
+    adb_routes.reset()
+    try:
+        from ..video_config import isapi                   # noqa: PLC0415
+        isapi.reset()
+    except Exception as error:
+        _note("isapi cache", error)
     prepare_network()
     return project
 
@@ -134,29 +189,61 @@ def reset() -> None:
     """Application shutdown: queue, listener and in-memory credentials."""
     global _STARTED, _LOADED_DEFAULTS
     from .presenters import clear_telemetry_cache
-    from .routes import switch_routes
+    from .routes import adb_routes, switch_routes
 
+    # Before anything is stopped: a watcher thread that outlives its bounded
+    # join below must find every later step refusing to act on its behalf
+    # (see `prepare_network` and `leave_admin`).
+    _SHUTTING_DOWN.set()
     try:
         jobs.QUEUE.close()
-    except Exception:
-        pass
+    except Exception as error:
+        _note("queue close", error)
+    # The device claim goes with the workers that could hold it — both are
+    # stopped by this reset, and a claim left standing would refuse the next
+    # service's first scan for nobody.
+    try:
+        jobs.access.reset()
+    except Exception as error:
+        _note("device claim", error)
+    try:
+        # The ADB screen's runner is a device-writing worker the queue does
+        # not know about. It checks its cancel flag BETWEEN devices and never
+        # during one — an APK install cut in half leaves a display with no
+        # working application — so it gets the same courtesy as the queue: a
+        # cancel, then a bounded wait for the row in flight.
+        from ..adb.runner import RUNNER                    # noqa: PLC0415
+        if RUNNER.busy():
+            RUNNER.cancel()
+        RUNNER.reset()
+    except Exception as error:
+        _note("adb runner", error)
     try:
         telemetry.MONITOR.stop()
-    except Exception:
-        pass
+    except Exception as error:
+        _note("telemetry monitor", error)
     try:
         adminkey.WATCH.stop()
-    except Exception:
-        pass
+    except Exception as error:
+        _note("adminkey watch", error)
+    # ONE TRY PER STEP. These three used to share a block, so the first
+    # failure silently skipped the other two — and the first is the one
+    # holding the key that reads a session code back.
     try:
         # The pairing goes first: it holds the one key that could read a
         # session code back, and it has no business outliving the process
         # that asked for it (see panel.remotekey.pairing).
         remotekey.PAIR.reset()
+    except Exception as error:
+        _note("remote pairing", error)
+    try:
         remotekey.WATCH.reset()
+    except Exception as error:
+        _note("remote watch", error)
+    try:
         remotekey.client.reset()
-    except Exception:
-        pass
+    except Exception as error:
+        _note("remote client", error)
     # Nothing is holding admin mode once the watches are down. Said out loud
     # so a service rebuilt in the same process does not start life believing
     # a source from the last one is still there.
@@ -173,18 +260,49 @@ def reset() -> None:
     config_sync.forget_targets()
     firmware.clear_all()
     credentials.forget_all()
+    # The digest handlers the video transport cached were BUILT from those
+    # credentials; they go together (see panel.video_config.isapi.reset).
+    try:
+        from ..video_config import isapi                   # noqa: PLC0415
+        isapi.reset()
+    except Exception as error:
+        _note("isapi cache", error)
     # The scan gate, so a rebuilt service in the same process is not told a
     # scan from the last one is still running, and the switches the last scan
     # found. The client's credentials are not its own to clear — they went
     # with `forget_all()` above.
     try:
         switch.reset()
+    except Exception as error:
+        _note("switch client", error)
+    try:
         switch_routes.reset()
-    except Exception:
-        pass
+    except Exception as error:
+        _note("switch screen", error)
+    try:
+        adb_routes.reset()
+    except Exception as error:
+        _note("adb screen", error)
     # The copies of the project maps that came off the service key go with
-    # the session that made them.
+    # the session that made them — and the unlock memo goes too, so a
+    # service rebuilt in the same process re-opens them honestly.
     adminkey.pack.clear_session()
+    adminkey_sealed.forget()
     with _START_LOCK:
         _STARTED = False
         _LOADED_DEFAULTS = 0
+
+
+# WHAT ENDS ADMIN MODE, handed over rather than imported back: authority can
+# only close the door, and closing it means unwinding the session — the
+# project, the queue's device results, the configuration targets and the
+# remote watch — which only this module knows how to do. Registered at
+# import so the callback exists before any watcher can call settle().
+authority.on_leave(leave_admin)
+
+# THE DECRYPTED MAPS MUST NOT OUTLIVE THE PROCESS. `reset()` already removes
+# them on every orderly path; this is the net under a process that dies on an
+# exception instead. (The desktop app's `os._exit` skips atexit — its own
+# `finally` has already run `reset()` by then — so this mostly covers the
+# browser/CLI modes and the test runner.) Idempotent, so both may run.
+atexit.register(adminkey.pack.clear_session)

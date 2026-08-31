@@ -94,10 +94,9 @@ env:
   # nothing to prove by touching the adapter; the switch that says so is
   # this one (see panel/network/aliases.py).
   PANEL_NETWORK_WRITES: "0"
-  # Expected sha256 of appimagetool. While empty nothing is verified and the
-  # digest of the downloaded file is written to the log; paste it here after
-  # the first run to pin it.
-  APPIMAGETOOL_SHA256: ""
+  # appimagetool's version AND its expected sha256 live together in
+  # packaging/appimage.sh — the two have to be bumped as a pair, and a copy
+  # of the digest here would be the copy that drifts.
 
 jobs:
   build:
@@ -128,6 +127,36 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v6
+
+      # ── the key material gate ───────────────────────────────────────────
+      # A RELEASE without the secret would be a package that can never
+      # recognise a service key: admin mode unreachable on every field
+      # laptop it lands on, and nothing says so until somebody is standing
+      # next to one with a stick in hand. The escape hatch on the
+      # PyInstaller step used to be unconditional, which disabled the
+      # spec's refusal for real releases too; now a run on a tag ref stops
+      # here instead — FIRST, before the suite and the downloads burn four
+      # runners' time saying it later.
+      #
+      # ANY run whose ref is a tag counts as a release, dispatched or
+      # pushed: `github.ref_type` reflects the ref, not the event, and the
+      # rest of this workflow (the version check, the release job) already
+      # draws the line in the same place. A fork without the secret builds
+      # artifact-only trials by dispatching from a BRANCH ref.
+      - name: A tagged build must carry the key secret
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          HAS_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_KEY_SECRET" != "true" ]; then
+            echo "::error::this is a release build and DAP_ADMIN_KEY_SECRET is not configured."
+            echo "Configure the repository secret (see docs/BUILD_RELEASE.md),"
+            echo "or build an artifact-only trial via workflow_dispatch from a branch."
+            exit 1
+          fi
+          echo "Key secret is configured."
 
       # ── who this package is ────────────────────────────────────────────
       # Read from the edition table so the workflow holds no second copy of
@@ -256,20 +285,42 @@ jobs:
       #
       # Unzipped with Python rather than `unzip`: Python is already set up on
       # every runner and `unzip` is not on the Windows one.
+      # PINNED AND VERIFIED, because this download is not a build tool: the
+      # spec copies it INTO every package (dabp.spec, platform-tools), so
+      # "-latest-" here meant the adb every customer receives changed on
+      # Google's schedule, unverified, between two builds of the same tag.
+      # The digests come from Google's own repository manifest
+      # (repository2-3.xml) and were confirmed against the downloaded bytes;
+      # bump the version and all three digests together.
       - name: Fetch the ADB tools
         shell: bash
         working-directory: ${{ env.APP_DIR }}
         run: |
           set -euo pipefail
+          PT_VERSION="r37.0.1"
           case "${{ runner.os }}" in
-            Windows) ARCHIVE=windows ;;
-            Linux)   ARCHIVE=linux ;;
-            macOS)   ARCHIVE=darwin ;;
+            Windows) ARCHIVE=win
+                     SHA256=45f4d63113e895ebde0c90f194099a4676b6ac653bd28d54314a9e022bbc1a99 ;;
+            Linux)   ARCHIVE=linux
+                     SHA256=d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1 ;;
+            macOS)   ARCHIVE=darwin
+                     SHA256=ee39ad5967e95c2a07f04dbcbde96b1a0c916ba376096db5d2f498b7727a5d1d ;;
             *) echo "::error::unknown runner ${{ runner.os }}"; exit 1 ;;
           esac
-          URL="https://dl.google.com/android/repository/platform-tools-latest-$ARCHIVE.zip"
+          URL="https://dl.google.com/android/repository/platform-tools_${PT_VERSION}-${ARCHIVE}.zip"
           echo "downloading $URL"
           curl -fsSL --retry 3 --retry-delay 5 -o platform-tools.zip "$URL"
+          # Hashed with Python rather than shasum/sha256sum: the three
+          # runners do not agree on which of those exists, and Python is
+          # already set up on every one of them.
+          ACTUAL="$(python -c "import hashlib; print(hashlib.sha256(open('platform-tools.zip','rb').read()).hexdigest())")"
+          if [ "$ACTUAL" != "$SHA256" ]; then
+            echo "::error::platform-tools sha256 mismatch"
+            echo "  expected: $SHA256"
+            echo "  actual  : $ACTUAL"
+            exit 1
+          fi
+          echo "sha256 verified: $ACTUAL"
           python -c "import zipfile; zipfile.ZipFile('platform-tools.zip').extractall('.')"
           rm -f platform-tools.zip
           # The executable bit does not survive a ZIP on POSIX. The panel
@@ -293,9 +344,15 @@ jobs:
           # is passed in the environment and never on a command line, so it
           # cannot end up in a process listing or a log.
           DAP_ADMIN_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET }}
-          # A fork has no secrets. It still builds; the package simply cannot
-          # open admin mode, and says so.
-          DAP_ALLOW_NO_ADMIN_KEY: "1"
+          # A fork has no secrets and still builds; the package simply cannot
+          # open admin mode, and says so. But the hatch opens ONLY when there
+          # really is no secret: written as a constant "1", it also silenced
+          # the spec's refusal on real releases, so a release cut while the
+          # secret was missing from the repository configuration built green
+          # and shipped unable to recognise any service key. A run on a tag
+          # ref never gets this far without one — see "A tagged build must
+          # carry the key secret" at the top of the job.
+          DAP_ALLOW_NO_ADMIN_KEY: ${{ secrets.DAP_ADMIN_KEY_SECRET != '' && '0' || '1' }}
           # WHICH PACKAGE IS BEING BUILT. The spec refuses to guess — it
           # stops and names the editions rather than stamping whichever one
           # the source tree happens to hold — so the answer has to be handed
@@ -323,7 +380,9 @@ jobs:
           $exe = "dist/${{ env.APP_NAME }}/${{ env.APP_NAME }}.exe"
           if (-not (Test-Path $exe)) { throw "exe not found: $exe" }
           $fullPath = (Resolve-Path $exe).Path
-          $outFile = Join-Path $env:RUNNER_TEMP "selftest-out.txt"
+          # In the working directory, not RUNNER_TEMP: the cross-platform
+          # "Verify the packaged self-test output" step below reads it back.
+          $outFile = Join-Path (Get-Location) "selftest-output.txt"
           $errFile = Join-Path $env:RUNNER_TEMP "selftest-err.txt"
 
           $proc = Start-Process -FilePath $fullPath -ArgumentList '--self-test' `
@@ -363,11 +422,28 @@ jobs:
           set -euo pipefail
           BIN="dist/${{ env.APP_NAME }}.app/Contents/MacOS/${{ env.APP_NAME }}"
           test -x "$BIN" || { echo "executable not found: $BIN"; exit 1; }
-          "$BIN" --self-test
+          "$BIN" --self-test | tee selftest-output.txt
 
       - name: Self-test (packaged) — Linux
         timeout-minutes: 5
         if: runner.os == 'Linux'
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          "./dist/${{ env.APP_NAME }}/${{ env.APP_NAME }}" --self-test \
+            | tee selftest-output.txt
+
+      # ── what the packaged binary reported, verified on EVERY platform ──
+      # These greps ran on Linux alone for a while, so a wrong stamp or a
+      # leaked secret in the Windows or macOS package would have shipped
+      # unverified — four packages come out of four separate PyInstaller
+      # runs, and the stamping path is exactly the kind of thing that works
+      # on one platform and not another. The patterns are ASCII-only and
+      # unanchored on purpose: the Windows output file arrives
+      # CRLF-terminated, and the em-dash in "Admin key material — digest
+      # only" may not survive the PowerShell redirect encoding.
+      - name: Verify the packaged self-test output
+        shell: bash
         working-directory: ${{ env.APP_DIR }}
         env:
           # WHETHER there is a secret, never the secret. Interpolating the
@@ -377,11 +453,12 @@ jobs:
           HAS_KEY_SECRET: ${{ secrets.DAP_ADMIN_KEY_SECRET != '' }}
         run: |
           set -euo pipefail
-          OUTPUT="$("./dist/${{ env.APP_NAME }}/${{ env.APP_NAME }}" --self-test)"
-          echo "$OUTPUT"
+          test -s selftest-output.txt || {
+            echo "::error::selftest-output.txt is missing or empty"
+            exit 1; }
 
           # THE PACKAGE MUST BE WHAT IT SAYS IT IS.
-          echo "$OUTPUT" | grep -q "edition: $EDITION " || {
+          grep -q "edition: $EDITION " selftest-output.txt || {
             echo "::error::the package does not report itself as '$EDITION'"
             exit 1; }
 
@@ -394,9 +471,25 @@ jobs:
           if [ "$HAS_KEY_SECRET" != "true" ]; then
             echo "No build secret configured; key material check skipped."
           else
-            echo "$OUTPUT" | grep -q "Admin key material — digest only" || {
+            grep -q "Admin key material" selftest-output.txt || {
+              echo "::error::the self-test did not report its key material"
+              exit 1; }
+            grep -q "digest only" selftest-output.txt || {
               echo "::error::a package must carry the digest ONLY"
               exit 1; }
+
+            # AND THE OTHER CUSTOMERS' PROJECTS MUST REALLY BE SEALED IN.
+            # The spec now fails a secret-holding build whose sealing broke
+            # (dabp.spec), and this is the same fact read back off the
+            # artifact: every edition carries the other projects encrypted,
+            # so a package built with the secret and holding no .sealed
+            # files is a broken package, not a lean one.
+            COUNT="$(find dist -name '*.sealed' | wc -l | tr -d ' ')"
+            if [ "$COUNT" -eq 0 ]; then
+              echo "::error::the package holds no .sealed project files"
+              exit 1
+            fi
+            echo "sealed project files in the package: $COUNT"
           fi
           echo "Edition and key material verified on the built package."
 
@@ -423,7 +516,13 @@ jobs:
           $destDir = "packaging/windows/redist"
           New-Item -ItemType Directory -Force -Path $destDir | Out-Null
           $file = Join-Path $destDir "MicrosoftEdgeWebview2Setup.exe"
-          # Microsoft's permanent Evergreen Bootstrapper link
+          # Microsoft's permanent Evergreen Bootstrapper link. DELIBERATELY
+          # NOT PINNED, unlike the adb tools: the link's content changes on
+          # Microsoft's release schedule, so a sha256 here would break the
+          # build on every WebView2 update — and the bootstrapper is a
+          # downloader, not the runtime; what it installs is fetched signed
+          # from Microsoft at install time either way. The size floor below
+          # and the logged digest are the sanity checks that remain.
           Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/p/?LinkId=2124703" `
             -OutFile $file -UseBasicParsing
           $bytes = (Get-Item $file).Length
