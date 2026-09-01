@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-bnygpGv+AEMU404prZVifx+/Yr5vUGanDL9CZE+XoYE=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-whOogkjEbauA1BwyDR1MzEJu7efRn/aaZsEg1hyO1Nc=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -9377,7 +9377,6 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       id: prefix,
       class: "field ip-medium-field",
       value: local.targetMask ?? (emptyMeansDefault ? defaultMask : ""),
-      placeholder: emptyMeansDefault ? "" : t("ip.maskDeviceOwn"),
       autocomplete: "off",
       spellcheck: "false",
       "aria-invalid": String(!!check.maskError),

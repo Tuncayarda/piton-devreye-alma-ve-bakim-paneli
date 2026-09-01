@@ -148,12 +148,10 @@ export function maskField(data, check, showActionState, prefix = 'ip-target-mask
     text: check.maskError, hidden: !check.maskError,
   });
   // The box carries the mask that WILL be written, not a ghost of it: the
-  // plan's default when an empty box resolves to one, and otherwise empty
-  // with the placeholder saying what empty means.
+  // plan's default when an empty box resolves to one, and otherwise empty.
   const input = el('input', {
     id: prefix, class: 'field ip-medium-field',
     value: local.targetMask ?? (emptyMeansDefault ? defaultMask : ''),
-    placeholder: emptyMeansDefault ? '' : t('ip.maskDeviceOwn'),
     autocomplete: 'off', spellcheck: 'false',
     'aria-invalid': String(!!check.maskError),
     'aria-describedby': `${prefix}-error`,

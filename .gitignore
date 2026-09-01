@@ -62,3 +62,8 @@ desktop.ini
 
 # Written by dabp.spec at build time; never committed (see the spec).
 panel/editions/_stamp.py
+
+# Where tools/docshots/capture.py drops the guide figures. Staging only —
+# what belongs in the guides is copied into docs/*-guide-assets/ by hand,
+# after somebody has looked at it.
+tools/docshots/out/
