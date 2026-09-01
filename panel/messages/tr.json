@@ -820,7 +820,6 @@
   "ip.lcdManualSection": "Tek porta elle IP atama",
   "ip.lcdManualStart": "IP'yi yaz",
   "ip.lcdSourceRange": "Kaynak IP aralığı",
-  "ip.maskDeviceOwn": "cihaz kendi maskesini korur",
   "ip.maskInvalid": "Maske 255.255.255.0 ya da 24 biçiminde yazılmalı",
   "ip.maskTooWide": "Bu maske {count} adres kapsıyor; en çok {limit} adres taranabilir. Maskeyi daraltın ya da bir adres aralığı verin.",
   "ip.networkNoAdapter": "Panel, cihazlara giden ağ kartını bilmiyor; bu yüzden gereken adresleri ekleyemez ve koşu her portta “cihaz bulunamadı” der. Ağ ekranından bir arayüz seçin — bir kez yeter.",

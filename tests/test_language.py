@@ -195,6 +195,12 @@ ALLOWED: dict[str, tuple[tuple[str, str], ...]] = {
         ("Devreye Alma ve Bakım Paneli",
          "setup wizard, Start menu and uninstall entry"),
     ),
+    # The demo inventory the screenshot server seeds the ADB screen with
+    # (tools/docshots/README.md). These labels are the ones a train carries;
+    # a guide figure showing English ones would picture a panel nobody runs.
+    "tools/docshots/server.py": (
+        ("Kompartıman", "demo ADB inventory, labelled as a train labels it"),
+    ),
 }
 
 
@@ -208,6 +214,18 @@ WHOLE_FILE_EXEMPT = {
     # types looking for it: this test is about those letters, so exempting
     # them one line at a time would exempt most of the file anyway.
     "tests/js/search_fold_test.js",
+    # Documentation scaffolding, not part of the app — the same status as
+    # tests/support/fakes.py, and `panel` imports nothing from it. It drives
+    # the panel through its own Turkish UI to photograph the Turkish guides:
+    # every selector is a label the running panel shows
+    # (`name="Şimdi tara"`), and every figure is named the way the guides'
+    # asset folders name it. Translating either finds no button and writes
+    # no figure. See tools/docshots/README.md.
+    "tools/docshots/capture.py",
+    # The same work one step later: a table mapping each media part of the
+    # two .docx guides to the figure that belongs in it, keyed by the
+    # Turkish file names the guides actually have.
+    "tools/docshots/embed.py",
 }
 
 

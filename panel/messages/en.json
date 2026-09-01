@@ -820,7 +820,6 @@
   "ip.lcdManualSection": "Assign one address by hand",
   "ip.lcdManualStart": "Write the address",
   "ip.lcdSourceRange": "Source IP range",
-  "ip.maskDeviceOwn": "device keeps its own mask",
   "ip.maskInvalid": "The mask must be written as 255.255.255.0 or 24",
   "ip.maskTooWide": "That netmask covers {count} addresses; at most {limit} can be scanned. Narrow the mask or give an address range.",
   "ip.networkNoAdapter": "The panel does not know which network card reaches the devices, so it cannot add the addresses it needs and the run will say “device not found” on every port. Pick an interface on the Network screen — once is enough.",
