@@ -123,10 +123,14 @@ def post_import(body):
         if not chosen:
             return respond(200, {"cancelled": True})
     entries, skipped = pool.read_import(chosen)
-    devices, added = pool.merge(entries)
-    return respond(200, {"devices": devices, "imported": added,
+    # The file becomes the list (`pool.adopt`), so "imported" is what is now
+    # there rather than what was appended. `duplicates` is what the file
+    # asked for and did not get: an address written twice in it, and
+    # anything past MAX_DEVICES.
+    devices = pool.adopt(entries)
+    return respond(200, {"devices": devices, "imported": len(devices),
                          "skipped": skipped,
-                         "duplicates": len(entries) - added,
+                         "duplicates": len(entries) - len(devices),
                          "file": Path(chosen).name})
 
 

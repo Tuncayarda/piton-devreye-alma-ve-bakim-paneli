@@ -367,22 +367,20 @@ def read_import(path) -> tuple[list[dict], int]:
     return entries, skipped
 
 
-def merge(entries) -> tuple[list[dict], int]:
-    """Add these to the list, keeping what is already there.
+def adopt(entries) -> list[dict]:
+    """The imported file BECOMES the list. Returns it as stored.
 
-    Returns (devices, how many were new). An import ADDS; it does not
-    replace. Someone importing a colleague's twelve addresses has their own
-    four on the bench in front of them, and losing those to a convenience
-    button is not a trade anybody offered them.
+    AN IMPORT REPLACES; it does not add. It added once, and the reasoning
+    was that somebody importing a colleague's twelve addresses has their own
+    four on the bench in front of them. In use it reads the other way round:
+    the file IS the bench a moment from now — a train handed over, a list
+    sent for a job — and the addresses left from the last one had to be
+    picked out of the table a row at a time, which is the chore the button
+    was there to save.
+
+    Nothing goes silently: what the panel holds can be written out first
+    (`write_export`), the screen asks before it replaces a list that has
+    anything in it, and the count is said out loud afterwards.
     """
     with _LOCK:
-        devices = load()
-        known = {entry["ip"] for entry in devices}
-        added = 0
-        for entry in entries:
-            if entry["ip"] in known:
-                continue
-            known.add(entry["ip"])
-            devices.append(entry)
-            added += 1
-        return replace_all(devices), added
+        return replace_all(entries)

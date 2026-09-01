@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-whOogkjEbauA1BwyDR1MzEJu7efRn/aaZsEg1hyO1Nc=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-yw5WzwGP9mYQBi9k/gH9om37Dy+adPSoFuHoEewRjUE=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -10926,7 +10926,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           class: "btn btn-small",
           text: local2.importing ? t("adb.importing") : t("adb.importList"),
           disabled: local2.importing,
-          onclick: () => actions3.importList()
+          onclick: () => importList(list, actions3)
         }),
         // Beside the import and disabled on an empty list: a button that
         // writes a file with nothing in it is a button that has to be
@@ -10947,6 +10947,18 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           text: local2.exporting ? t("adb.exporting") : t("adb.exportList"),
           disabled: local2.exporting || !list.length,
           onclick: () => actions3.exportList()
+        }),
+        // Emptying the list one row at a time is the twelve rounds of
+        // type-tab-type-Enter that `add_many` exists to avoid, run backwards:
+        // a bench that has moved on to another train has a whole list to
+        // throw away, not four addresses. Disabled while an operation runs,
+        // like the row's own Remove — the run's targets are these addresses.
+        el("button", {
+          type: "button",
+          class: "btn btn-small",
+          text: t("adb.clearList"),
+          disabled: running() || !list.length,
+          onclick: () => clearList(list, actions3)
         })
       ]),
       dataTable({
@@ -11064,6 +11076,38 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       ],
       confirmLabel: t("adb.remove"),
       run: () => actions3.removeDevice(entry.ip)
+    });
+  }
+  function clearList(list, actions3) {
+    confirmWrite({
+      title: t("adb.clearListTitle"),
+      lead: t("adb.clearListLead", {
+        count: list.length
+      }),
+      items: list.map((entry) => ({
+        name: entry.ip,
+        detail: entry.label || ""
+      })),
+      confirmLabel: t("adb.clearList"),
+      run: () => actions3.clearList()
+    });
+  }
+  function importList(list, actions3) {
+    if (!list.length) {
+      actions3.importList();
+      return;
+    }
+    confirmWrite({
+      title: t("adb.importReplaceTitle"),
+      lead: t("adb.importReplaceLead", {
+        count: list.length
+      }),
+      items: list.map((entry) => ({
+        name: entry.ip,
+        detail: entry.label || ""
+      })),
+      confirmLabel: t("adb.importList"),
+      run: () => actions3.importList()
     });
   }
   function addForm(actions3) {
@@ -11810,6 +11854,16 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       patchDevices(await api.adbDevices({
         action: "remove",
         ip
+      }));
+    },
+    // The list is gone, so the selection built on it is too. Cleared HERE
+    // rather than left to pruneSelection: the ticks are what the operations
+    // card runs on, and a set that is emptied on the next draw is a set that
+    // was briefly full of addresses in no list.
+    async clearList() {
+      local2.selected.clear();
+      patchDevices(await api.adbDevices({
+        action: "clear"
       }));
     },
     async importList() {

@@ -167,16 +167,27 @@ const actions = {
     patchDevices(await api.adbDevices({ action: 'remove', ip }));
   },
 
+  // The list is gone, so the selection built on it is too. Cleared HERE
+  // rather than left to pruneSelection: the ticks are what the operations
+  // card runs on, and a set that is emptied on the next draw is a set that
+  // was briefly full of addresses in no list.
+  async clearList() {
+    local.selected.clear();
+    patchDevices(await api.adbDevices({ action: 'clear' }));
+  },
+
   async importList() {
     local.importing = true;
     draw();
     try {
       const body = await api.adbImport();
       if (body.cancelled) return;
+      // The file has REPLACED the list (panel/adb/pool.adopt), and
+      // patchDevices drops the ticks that came off with the old addresses.
       patchDevices(body);
       // Both numbers, always. A file with three good addresses and nine
-      // typos imports three, and an operator told only "3 imported" spends
-      // the afternoon looking for the other nine.
+      // typos leaves three on the screen, and an operator told only "3"
+      // spends the afternoon looking for the other nine.
       showSuccess(t('adb.imported', {
         count: body.imported || 0, skipped: body.skipped || 0,
       }));

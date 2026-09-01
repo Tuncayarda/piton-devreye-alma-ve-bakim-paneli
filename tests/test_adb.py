@@ -301,6 +301,18 @@ class Pool(AdbTest):
         self.assertEqual(pool.remove("10.1.1.40"),
                          [{"ip": "10.1.1.41", "label": ""}])
 
+    def test_clearing_takes_the_whole_list_out_at_once(self):
+        """A bench that has moved on to another train throws the list away.
+
+        Read back through `load()` rather than trusting what `clear()`
+        returned: an empty list is also what an unreadable file looks like
+        (see `_read`), and the two must not be told apart by luck.
+        """
+        pool.add_many("10.1.1.40-43", "cabin")
+        self.assertEqual(len(pool.load()), 4)
+        self.assertEqual(pool.clear(), [])
+        self.assertEqual(pool.load(), [])
+
     def test_adding_the_same_address_twice_corrects_the_label(self):
         """Not an error: re-adding is how a label typo is fixed."""
         pool.add("10.1.1.40", "bench 1")
@@ -377,8 +389,7 @@ class Pool(AdbTest):
 
         entries, skipped = pool.read_import(path)
         self.assertEqual(skipped, 2)
-        devices, added = pool.merge(entries)
-        self.assertEqual(added, 2)
+        devices = pool.adopt(entries)
         self.assertEqual([entry["ip"] for entry in devices],
                          ["10.1.1.40", "10.1.1.41"])
 
@@ -391,18 +402,41 @@ class Pool(AdbTest):
         entries, skipped = pool.read_import(path)
         self.assertEqual((len(entries), skipped), (2, 0))
 
-    def test_importing_adds_and_never_replaces(self):
-        """Somebody importing a colleague's list has their own four devices
-        on the bench in front of them."""
+    def test_importing_replaces_the_list_rather_than_adding_to_it(self):
+        """The file IS the bench a moment from now.
+
+        It used to add, and the addresses left over from the last train then
+        had to be picked out of the table a row at a time — the chore the
+        button exists to save. The screen asks first when the list has
+        anything in it (views/adb/pool.js importList).
+        """
         pool.add("10.1.1.40", "mine")
+        pool.add("10.1.1.99", "last train")
         path = settings.data_dir() / "theirs.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(["10.1.1.41", "10.1.1.40"]),
                         encoding="utf-8")
         entries, _ = pool.read_import(path)
-        devices, added = pool.merge(entries)
-        self.assertEqual(added, 1)
-        self.assertEqual(devices[0], {"ip": "10.1.1.40", "label": "mine"})
+        devices = pool.adopt(entries)
+        # The file's order and the file's labels, and nothing of what was
+        # there before: ".40" comes back with an empty label, not "mine".
+        self.assertEqual(devices, [{"ip": "10.1.1.41", "label": ""},
+                                   {"ip": "10.1.1.40", "label": ""}])
+        self.assertEqual(pool.load(), devices)
+
+    def test_an_import_of_nothing_still_empties_the_list(self):
+        """A file with no readable row is still the list the operator chose.
+
+        The alternative — leaving the old list when the new one is empty —
+        is a screen that says "0 addresses" over four addresses it kept.
+        """
+        pool.add("10.1.1.40", "mine")
+        path = settings.data_dir() / "empty.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"devices": []}), encoding="utf-8")
+        entries, skipped = pool.read_import(path)
+        self.assertEqual((entries, skipped), ([], 0))
+        self.assertEqual(pool.adopt(entries), [])
 
 
     def test_one_box_takes_a_list_and_a_range(self):
@@ -473,10 +507,9 @@ class Pool(AdbTest):
         pool.clear()
         entries, skipped = pool.read_import(path)
         self.assertEqual(skipped, 0)
-        devices, added = pool.merge(entries)
-        self.assertEqual(added, 2)
-        self.assertEqual(devices, [{"ip": "10.1.1.40", "label": "bench 2"},
-                                   {"ip": "10.1.1.41", "label": ""}])
+        self.assertEqual(pool.adopt(entries),
+                         [{"ip": "10.1.1.40", "label": "bench 2"},
+                          {"ip": "10.1.1.41", "label": ""}])
 
     def test_exporting_an_empty_list_writes_an_empty_list(self):
         """Not an error. The button is disabled on an empty list, but the

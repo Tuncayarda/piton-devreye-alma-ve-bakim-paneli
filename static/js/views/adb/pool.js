@@ -47,7 +47,7 @@ export function poolCard(actions) {
         type: 'button', class: 'btn btn-small',
         text: local.importing ? t('adb.importing') : t('adb.importList'),
         disabled: local.importing,
-        onclick: () => actions.importList(),
+        onclick: () => importList(list, actions),
       }),
       // Beside the import and disabled on an empty list: a button that
       // writes a file with nothing in it is a button that has to be
@@ -64,6 +64,17 @@ export function poolCard(actions) {
         text: local.exporting ? t('adb.exporting') : t('adb.exportList'),
         disabled: local.exporting || !list.length,
         onclick: () => actions.exportList(),
+      }),
+      // Emptying the list one row at a time is the twelve rounds of
+      // type-tab-type-Enter that `add_many` exists to avoid, run backwards:
+      // a bench that has moved on to another train has a whole list to
+      // throw away, not four addresses. Disabled while an operation runs,
+      // like the row's own Remove — the run's targets are these addresses.
+      el('button', {
+        type: 'button', class: 'btn btn-small',
+        text: t('adb.clearList'),
+        disabled: running() || !list.length,
+        onclick: () => clearList(list, actions),
       }),
     ]),
     dataTable({
@@ -143,6 +154,39 @@ function removeDevice(entry, actions) {
     items: [{ name: entry.ip, detail: entry.label || '' }],
     confirmLabel: t('adb.remove'),
     run: () => actions.removeDevice(entry.ip),
+  });
+}
+
+// The whole list at once. It asks for the same reason removing one address
+// does — nothing reaches a device either way, and the list was typed in by
+// hand — and it names every address it is about to drop, because "12
+// addresses" is the number the operator is being asked to take on trust.
+function clearList(list, actions) {
+  confirmWrite({
+    title: t('adb.clearListTitle'),
+    lead: t('adb.clearListLead', { count: list.length }),
+    items: list.map(entry => ({ name: entry.ip, detail: entry.label || '' })),
+    confirmLabel: t('adb.clearList'),
+    run: () => actions.clearList(),
+  });
+}
+
+// An import REPLACES the list (panel/adb/pool.adopt), so it asks the same
+// question clearing it does — and for the same reason, since the outcome for
+// the addresses already there is the same. Only when there are any: an
+// empty list has nothing to lose, and a dialog in front of the ordinary
+// first import would be a click asking permission to do nothing.
+function importList(list, actions) {
+  if (!list.length) {
+    actions.importList();
+    return;
+  }
+  confirmWrite({
+    title: t('adb.importReplaceTitle'),
+    lead: t('adb.importReplaceLead', { count: list.length }),
+    items: list.map(entry => ({ name: entry.ip, detail: entry.label || '' })),
+    confirmLabel: t('adb.importList'),
+    run: () => actions.importList(),
   });
 }
 
