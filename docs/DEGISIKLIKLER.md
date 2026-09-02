@@ -5,6 +5,16 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.1.1 — 2 Eylül 2026
+
+"İncelenmeli" durumuna iki ince ayar. Yayının "ayakta" dediği ama kendi
+protokolünden hiç okunamayan cihaz (zaman aşımı, bağlantı reddi) artık yeşil
+kalmak yerine "İncelenmeli"ye düşüyor; yayından bilinen sürüm ve çalışma
+süresi satırda kalıyor, sebep detayda yazıyor. Cevap verip de içeriği
+doğrulanamayan cihaz ise yeşil kalmaya devam ediyor. Ayrıca "İncelenmeli"
+satırlar canlı yenilemeye dahil edildi: cihaz yeniden cevap vermeye
+başladığı anda satır, tam tarama beklemeden kendiliğinden düzeliyor.
+
 ## v1.1.0 — 2 Eylül 2026
 
 Cihaz durumu artık her projede önce PISCU'nun yayınından okunuyor, cihazın
