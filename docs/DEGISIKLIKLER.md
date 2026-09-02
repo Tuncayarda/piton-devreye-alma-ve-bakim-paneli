@@ -5,6 +5,44 @@ değişikliklerini kaydeder. İndirme ve kurulum bilgileri
 [GitHub sürüm metninde](RELEASE_NOTES.md), teknik ayrıntılar ise
 [mimari belgede](MIMARI.md) yer alır.
 
+## v1.1.0 — 2 Eylül 2026
+
+Cihaz durumu artık her projede önce PISCU'nun yayınından okunuyor, cihazın
+kendisi yalnız ayrıntıları tamamlıyor; yeni bir turuncu durum "İncelenmeli"
+ping'e cevap veren ama bilgi vermeyen cihazı ölü cihazdan ayırıyor.
+Windows'ta işlem sırasında beliren siyah konsol pencereleri kapatıldı.
+
+### Broker'dan okuma, cihazdan tamamlama
+
+Tarama önce PISCU'nun `ALFA/DeviceMap` yayınına bakıyor: kim ayakta, sürüm,
+seri numarası ve çalışma süresi oradan geliyor. Yayının "ayakta" dediği
+cihaza bir kez de kendi protokolünden gidilip yayının bilmediği alanlar —
+anons cihazının ses ve SIP ayarları, ekranın saat dilimi, kameranın zaman
+denetimi — üstüne yazılıyor. Yayın yoksa (fuar standı, tezgâh) ya da cihazı
+listelemiyorsa eskisi gibi doğrudan okunuyor; hiçbir şey broker'a muhtaç
+değil. Excel üretimi de dosyayı doldurmadan önce bu ayrıntı okumasını bir
+kez daha yapıyor, kuyrukta satır satır görünüyor.
+
+### "İncelenmeli" durumu
+
+Kırmızı iki farklı öğleden sonrayı aynı anda anlatıyordu: kapalı cihaz ile
+ayakta olup protokolünden susan cihaz aynı görünüyordu. Okuması başarısız
+olan cihaza artık bir ping atılıyor; cevap gelmezse satır kırmızı kalıyor
+(git, gücüne bak), cevap gelirse turuncu "İncelenmeli"ye düşüyor ve
+ayrıntıda asıl sebep yazıyor. Genel bakış şeridi, filtreler, sıralama ve
+Excel'deki aktif/inaktif sınıfı bu beşinci durumu tanıyor.
+
+### Windows düzeltmeleri
+
+- ADB işlemleri (kurulum, yeniden başlatma, otomatik başlatma) sırasında
+  her komutta açılan siyah konsol pencereleri kapatıldı; yeniden başlatma
+  sonrası ekranda beliren `adb.exe` pencereleri de aynı düzeltmenin
+  parçasıydı — onlar doğrulama yoklamasıydı, artık görünmez.
+- Dosya seçici PowerShell penceresi açmıyor, diyalog panelin arkasında
+  kalmıyor ve Türkçe karakterli klasörlerdeki (ör. OneDrive Masaüstü)
+  dosyalar artık "okunamadı" hatası vermiyor.
+- Not Defteri'nin BOM ile kaydettiği JSON adres listeleri içe aktarılıyor.
+
 ## v1.0.6 — 30 Ağustos 2026
 
 Admin moda artık uzaktan da girilebiliyor: telefonla okutulan bir QR ya da
