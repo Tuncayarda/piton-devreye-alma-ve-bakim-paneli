@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .. import settings
 from .. import i18n
+from .spawn import NO_CONSOLE as _NO_CONSOLE
 
 
 def log_path(name: str) -> Path:
@@ -61,7 +62,7 @@ def open_path(path: Path | str, reveal: bool = False) -> None:
         # means nothing here, so it is not checked.
         subprocess.run(_open_command(target, reveal), check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                       timeout=10)
+                       timeout=10, **_NO_CONSOLE)
     except FileNotFoundError as exc:      # no opener command (some Linux)
         raise RuntimeError(i18n.t("error.noAppForFile")) from exc
     except subprocess.SubprocessError as exc:
@@ -87,13 +88,24 @@ set chosen to choose file with prompt "{title}"{types}
 POSIX path of chosen
 '''
 
+# Two lines here are load-bearing on Windows. `[Console]::OutputEncoding`:
+# a redirected PowerShell writes in the OEM code page (cp857 on a Turkish
+# machine) while Python reads back in the ANSI one (cp1254) — any Turkish
+# character in the chosen path (OneDrive's localised Desktop folder is the
+# common carrier) comes back mangled and the file is then "unreadable". The
+# TopMost owner form: an unowned dialog
+# opened by a windowless helper process may come up BEHIND the panel window,
+# which reads as "the button does nothing".
 _WINDOWS_SCRIPT = '''
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
 $d = New-Object System.Windows.Forms.OpenFileDialog
 $d.Title = "{title}"
 $d.Filter = "{filter}"
 $d.Multiselect = $false
-if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
+if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{
     [Console]::Out.WriteLine($d.FileName)
 }}
 '''
@@ -264,8 +276,14 @@ def pick_file(title: str = "",
         return chosen
     command = as_console_user(_picker_command(title, extensions))
     try:
-        result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=PICKER_TIMEOUT, check=False)
+        # UTF-8 on purpose, not the locale default: the Windows script above
+        # switches its output to UTF-8, and macOS/Linux pickers already write
+        # it. `errors="replace"` because a mangled error line must not become
+        # a second exception on top of the first.
+        result = subprocess.run(command, capture_output=True,
+                                encoding="utf-8", errors="replace",
+                                timeout=PICKER_TIMEOUT, check=False,
+                                **_NO_CONSOLE)
     except FileNotFoundError as exc:
         raise RuntimeError(i18n.t("error.pickerNotOpened")) from exc
     except subprocess.TimeoutExpired:
@@ -301,14 +319,19 @@ set chosen to choose file name with prompt "{title}" default name "{name}"
 POSIX path of chosen
 '''
 
+# The same UTF-8 and TopMost lines as `_WINDOWS_SCRIPT`, for the same two
+# Windows faults.
 _WINDOWS_SAVE_SCRIPT = '''
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
 $d = New-Object System.Windows.Forms.SaveFileDialog
 $d.Title = "{title}"
 $d.Filter = "{filter}"
 $d.FileName = "{name}"
 $d.OverwritePrompt = $true
-if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
+if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {{
     [Console]::Out.WriteLine($d.FileName)
 }}
 '''
@@ -381,8 +404,11 @@ def pick_save_path(title: str = "", name: str = "",
     if chosen is _NO_WINDOW:
         command = as_console_user(_save_command(title, name, extensions))
         try:
-            result = subprocess.run(command, capture_output=True, text=True,
-                                    timeout=PICKER_TIMEOUT, check=False)
+            # UTF-8 for the same reason as `pick_file` above.
+            result = subprocess.run(command, capture_output=True,
+                                    encoding="utf-8", errors="replace",
+                                    timeout=PICKER_TIMEOUT, check=False,
+                                    **_NO_CONSOLE)
         except FileNotFoundError as exc:
             raise RuntimeError(i18n.t("error.pickerNotOpened")) from exc
         except subprocess.TimeoutExpired:

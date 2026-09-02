@@ -37,6 +37,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..system.spawn import NO_CONSOLE
+
 # FAT32 volume labels are 11 characters, upper case. The operator's own note
 # for the key does NOT go here — it goes inside the key file, where it has
 # room (see keyfile.write). This name is fixed so a prepared stick is
@@ -102,7 +104,7 @@ def _run(command: list[str], timeout: float = TIMEOUT) -> str:
     """Run a disk tool with an argument list — never through a shell."""
     try:
         done = subprocess.run(command, capture_output=True, text=True,
-                              timeout=timeout, check=False)
+                              timeout=timeout, check=False, **NO_CONSOLE)
     except FileNotFoundError as exc:
         raise MediaError(f"missing tool: {command[0]}") from exc
     except subprocess.TimeoutExpired as exc:

@@ -42,6 +42,7 @@ from contextlib import contextmanager
 from .. import clock, settings
 from ..errors import NotApplicableError, UnreachableError, VerificationError
 from .. import i18n
+from ..system.spawn import NO_CONSOLE
 from .binary import adb_path
 
 # How many times a reconnect is attempted, and how long between attempts.
@@ -64,12 +65,18 @@ class AdbTimeout(UnreachableError):
 
 
 def run(*args: str, timeout: float | None = None):
-    """Run ADB without ever relying on its implicit current device."""
+    """Run ADB without ever relying on its implicit current device.
+
+    `NO_CONSOLE` because this is the panel's hottest spawn point: a run over
+    thirty displays is hundreds of adb calls, and on the console-less Windows
+    build every one of them opened its own terminal window over the screen
+    (`panel.system.spawn` tells the story).
+    """
     try:
         return subprocess.run(
             [adb_path(), *args], capture_output=True, text=True,
             timeout=(settings.ADB_TIMEOUT if timeout is None else timeout),
-            check=False)
+            check=False, **NO_CONSOLE)
     except FileNotFoundError as exc:
         raise AdbUnavailable(i18n.t("error.adbMissing")) from exc
     except subprocess.TimeoutExpired as exc:

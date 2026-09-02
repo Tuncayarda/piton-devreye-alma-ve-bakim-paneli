@@ -192,6 +192,24 @@ class Binary(AdbTest):
                 adb_client.run("devices")
         self.assertIn("adb", str(caught.exception).lower())
 
+    def test_no_console_window_opens_on_windows(self):
+        """The panel's hottest spawn point, on the console-less build.
+
+        A run over thirty displays is hundreds of adb calls, and each one
+        opened its own terminal window over the panel — and the reboot's
+        come-back polling kept them coming after the run looked finished.
+        The flag is patched in the way `tests/test_switch.py` proves it for
+        `interfaces.run_command`: this suite runs on every platform, and off
+        Windows the real constant is empty.
+        """
+        with mock.patch.object(adb_client, "NO_CONSOLE",
+                               {"creationflags": 0x08000000}), \
+                mock.patch.object(adb_client.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="", stderr="")
+            adb_client.run("devices")
+        self.assertEqual(run.call_args.kwargs.get("creationflags"),
+                         0x08000000)
+
 
 # ───────────────────────────────────────────────────── the device list ──
     def test_every_adb_call_in_the_tree_goes_through_the_resolver(self):
@@ -392,6 +410,17 @@ class Pool(AdbTest):
         devices = pool.adopt(entries)
         self.assertEqual([entry["ip"] for entry in devices],
                          ["10.1.1.40", "10.1.1.41"])
+
+    def test_a_file_saved_by_windows_notepad_still_imports(self):
+        """Notepad writes JSON with a UTF-8 BOM. One invisible byte must not
+        turn a colleague's list into "this is not JSON" (it did, on the
+        machine the list was most likely written on)."""
+        path = settings.data_dir() / "notepad.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\xef\xbb\xbf"
+                         + json.dumps(["10.1.1.40"]).encode("utf-8"))
+        entries, skipped = pool.read_import(path)
+        self.assertEqual((len(entries), skipped), (1, 0))
 
     def test_a_bare_array_of_addresses_is_accepted(self):
         """The common case: a column pasted out of a spreadsheet."""

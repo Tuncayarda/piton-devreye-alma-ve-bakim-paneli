@@ -30,6 +30,8 @@ import socket
 import subprocess
 import sys
 
+from .spawn import NO_CONSOLE
+
 # Both 00:11:22:33:44:55 and 00-11-22-33-44-55 (Windows).
 _MAC_PATTERN = re.compile(r"\b(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}\b")
 _IPV4_PATTERN = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
@@ -51,9 +53,10 @@ COMMAND_TIMEOUT = 4.0
 _CODE_PAGE = "oem" if sys.platform == "win32" else "utf-8"
 
 # On a windowed (console-less) Windows build every command flashes a console
-# window; CREATE_NO_WINDOW suppresses it.
-_NO_WINDOW = ({"creationflags": 0x08000000}
-              if sys.platform == "win32" else {})
+# window; CREATE_NO_WINDOW suppresses it. The one rule lives in
+# `panel.system.spawn`; the local name is kept because the switch tests
+# patch it to prove the flag reaches `subprocess.run`.
+_NO_WINDOW = NO_CONSOLE
 
 
 def decode(raw: bytes) -> str:

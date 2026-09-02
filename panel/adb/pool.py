@@ -346,7 +346,10 @@ def read_import(path) -> tuple[list[dict], int]:
     if size > MAX_IMPORT_BYTES:
         raise PoolError(i18n.t("error.adbImportTooLarge"))
     try:
-        body = json.loads(file_path.read_text(encoding="utf-8"))
+        # utf-8-sig, not utf-8: Windows Notepad saves JSON with a BOM, and a
+        # strict read turns that one invisible byte into "this is not JSON".
+        # A file without the BOM reads identically.
+        body = json.loads(file_path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise PoolError(i18n.t("error.adbImportNotJson")) from exc
 
