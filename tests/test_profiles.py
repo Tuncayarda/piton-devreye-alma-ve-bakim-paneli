@@ -183,5 +183,179 @@ class OneProjectCanDiffer(unittest.TestCase):
         self.assertEqual(fields.writable_for_scope("Announcement"), ())
 
 
+class StatusFromTheBroker(unittest.TestCase):
+    """GDM listens to ALFA/DeviceMap for status; nothing else moved.
+
+    GDM's PISCU publishes the live state of the whole train on the one
+    topic, so its profile sets `probe="mqtt"` on every direct-read rule.
+    `read` stays what it was on every rule of every project, because it also
+    answers which protocol configuration and firmware travel over — the
+    split is exactly STATUS and nothing else.
+    """
+
+    def test_every_project_probes_the_broker_and_configures_directly(self):
+        """Fleet-wide, the shared profile included: a map delivered on a
+        service key must read the same way as a shipped one."""
+        for key, profile in {**profiles.BY_KEY,
+                             "(shared)": profiles.SHARED}.items():
+            for kind, subtype, read in (("Switch", None, "kyland"),
+                                        ("Announcement", "Intercom", "http"),
+                                        ("Camera", "Corridor", "isapi"),
+                                        ("LCD", "Compartment", "adb")):
+                if profile.rule_for(kind, subtype) is None:
+                    continue              # a project without that equipment
+                with self.subTest(project=key, kind=kind):
+                    self.assertEqual(profile.probe_method(kind, subtype),
+                                     "mqtt")
+                    self.assertEqual(profile.read_method(kind, subtype),
+                                     read)
+
+    def test_the_broker_fed_control_units_probe_the_way_they_read(self):
+        """PISCU and HMI were always read off the broker; no second visit."""
+        for key, profile in profiles.BY_KEY.items():
+            with self.subTest(project=key):
+                self.assertEqual(profile.probe_method("PISCU", None),
+                                 profile.read_method("PISCU", None))
+
+    @staticmethod
+    def _gdm_switch():
+        from pathlib import Path
+        import json as json_module
+        import tempfile
+
+        topology = {"Switches": [{
+            "Name": "GDM_SW_1", "IP": "127.0.0.1", "IsActive": True,
+            "Manufacturer": "KYLAND", "TrainSet": 1,
+            "Status": {"NoError": True, "Uptime": 10},
+            "Devices": [],
+        }]}
+        path = Path(tempfile.mkdtemp(prefix="panel-test-")) / \
+            "DeviceMap_gdm.json"
+        path.write_text(json_module.dumps(topology), encoding="utf-8")
+        return device_map.load(1, path, cache=False).devices[0]
+
+    class _Telemetry:
+        error = None
+
+        @staticmethod
+        def record(ip):
+            return {"SerialNumber": "GDM-1",
+                    "Status": {"NoError": True, "Uptime": 42,
+                               "Version": "9.9"}} \
+                if ip == "127.0.0.1" else None
+
+    def test_a_gdm_device_is_topped_up_from_its_own_protocol(self):
+        """The hybrid, end to end: the broker record decides who is up and
+        carries the base fields; the device the record calls alive is read
+        once over its own protocol, and the two answers land as one row —
+        the field script's shape (field_scripts/device_verify.py)."""
+        from panel.probe import reader as probe_reader
+        from panel.probe import result as probe_result
+        from panel import status as status_module
+
+        switch_device = self._gdm_switch()
+        self.assertEqual(switch_device.probe_method, "mqtt")
+        self.assertEqual(switch_device.read_method, "kyland")
+        rich = probe_result.success({"version": "10.0", "model": "SICOM",
+                                     "uptime": ""}, "kyland")
+        with mock.patch.object(probe_reader, "_read_switch",
+                               return_value=rich):
+            outcome = probe_reader.read_device(switch_device,
+                                               telemetry=self._Telemetry())
+        self.assertEqual(outcome.state, status_module.OK)
+        # The device's own answer wins; the record fills what it lacked.
+        self.assertEqual(outcome.fields.get("version"), "10.0")
+        self.assertEqual(outcome.fields.get("model"), "SICOM")
+        self.assertEqual(outcome.fields.get("uptime"), "00:00:42")
+
+    def test_a_silent_top_up_does_not_unsay_the_broker(self):
+        """The record proved the device alive; a protocol that gives
+        nothing on top empties no cell and turns nothing red."""
+        from panel.errors import UnreachableError
+        from panel.probe import reader as probe_reader
+        from panel import status as status_module
+
+        switch_device = self._gdm_switch()
+        with mock.patch.object(probe_reader, "_read_switch",
+                               side_effect=UnreachableError("no answer")):
+            outcome = probe_reader.read_device(switch_device,
+                                               telemetry=self._Telemetry())
+        self.assertEqual(outcome.state, status_module.OK)
+        self.assertEqual(outcome.read_method, "mqtt")
+        self.assertEqual(outcome.fields.get("version"), "9.9")
+        self.assertIn("no answer", outcome.detail)
+
+    def test_a_top_up_that_wants_a_password_goes_amber(self):
+        """The credential store is memory-only, so amber is the only road
+        to the extra fields ever filling — and the base fields ride along
+        so the row still shows what the broker knows."""
+        from panel.errors import AuthError
+        from panel.probe import reader as probe_reader
+        from panel import status as status_module
+
+        switch_device = self._gdm_switch()
+        with mock.patch.object(probe_reader, "_read_switch",
+                               side_effect=AuthError("who are you")):
+            outcome = probe_reader.read_device(switch_device,
+                                               telemetry=self._Telemetry())
+        self.assertEqual(outcome.state, status_module.AUTH)
+        self.assertEqual(outcome.fields.get("version"), "9.9")
+
+    def test_no_broker_means_the_direct_read_every_project_had(self):
+        """The broker is never a precondition. No telemetry at all — a
+        stand, a bench — and the device is simply asked itself."""
+        from panel.probe import reader as probe_reader
+        from panel.probe import result as probe_result
+
+        switch_device = self._gdm_switch()
+        direct_answer = probe_result.success({"version": "10.0"}, "kyland")
+        with mock.patch.object(probe_reader, "_read_switch",
+                               return_value=direct_answer) as direct, \
+                mock.patch.object(probe_reader, "_read_mqtt") as broker:
+            outcome = probe_reader.read_device(switch_device, telemetry=None)
+        direct.assert_called_once()
+        broker.assert_not_called()
+        self.assertIs(outcome, direct_answer)
+
+    def test_a_device_the_record_does_not_list_is_asked_directly(self):
+        """Absence of a record is not evidence of absence of the device."""
+        from panel.probe import reader as probe_reader
+        from panel.probe import result as probe_result
+
+        switch_device = self._gdm_switch()
+
+        class Empty:
+            error = None
+
+            @staticmethod
+            def record(_ip):
+                return None
+
+        direct_answer = probe_result.success({"version": "10.0"}, "kyland")
+        with mock.patch.object(probe_reader, "_read_switch",
+                               return_value=direct_answer) as direct:
+            outcome = probe_reader.read_device(switch_device,
+                                               telemetry=Empty())
+        direct.assert_called_once()
+        self.assertIs(outcome, direct_answer)
+
+    def test_a_named_method_is_exactly_that_one_answer(self):
+        """The checklist export names the method; naming one skips the
+        top-up — whoever asks for the direct read wants only it."""
+        from panel.probe import reader as probe_reader
+        from panel.probe import result as probe_result
+
+        switch_device = self._gdm_switch()
+        rich = probe_result.success({"version": "10.0"}, "kyland")
+        with mock.patch.object(probe_reader, "_read_switch",
+                               return_value=rich) as direct, \
+                mock.patch.object(probe_reader, "_read_mqtt") as broker:
+            outcome = probe_reader.read_device(switch_device,
+                                               method="kyland")
+        direct.assert_called_once()
+        broker.assert_not_called()
+        self.assertIs(outcome, rich)
+
+
 if __name__ == "__main__":
     unittest.main()

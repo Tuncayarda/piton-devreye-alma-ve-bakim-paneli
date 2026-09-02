@@ -87,8 +87,12 @@ def _refresh_locked(inventory, body):
     snapshot = None
     # kyland and adb are in the list too: a switch cannot always report its
     # own uptime, nor an Android panel its SIP extension, and both are
-    # completed from telemetry (see probe.reader).
-    if any(device.read_method in ("mqtt", "app", "kyland", "adb")
+    # completed from telemetry (see probe.reader). The PROBE method is what
+    # the refresh is about to dispatch on, so it is what is asked — and it
+    # is "mqtt" on every direct rule now, so the snapshot is the base of
+    # every broker-first read in the round.
+    if any((device.probe_method or device.read_method)
+           in ("mqtt", "app", "kyland", "adb")
            for device in targets):
         snapshot = cached_telemetry(inventory.set_no)
         if snapshot is None:
@@ -152,9 +156,16 @@ def post_credentials(body):
     group = reader.credential_group(device)
 
     generation = jobs.next_generation()
+    # The DEVICE's own protocol, named explicitly: this flow exists to prove
+    # a password against the thing that asked for it. On a broker-probed
+    # (GDM) device the default dispatch would go to the DeviceMap record,
+    # which knows no passwords and — with no telemetry in this route — would
+    # answer grey, so no credential could ever be verified. Naming the
+    # method is a no-op everywhere else: probe and read agree there.
     result = reader.read_device(
         device, credentials=(username, password), telemetry=None,
-        timeout=settings.AUTH_TIMEOUT, **probe_context(inventory))
+        timeout=settings.AUTH_TIMEOUT, method=device.read_method,
+        **probe_context(inventory))
     result.generation = generation
     view = jobs.view_for(inventory.set_no)
 

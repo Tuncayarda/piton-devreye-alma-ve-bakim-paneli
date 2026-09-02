@@ -11,10 +11,10 @@ in the form but not in the scan" cannot happen.
 """
 from __future__ import annotations
 
-from .. import settings
+from .. import settings, status
 from ..inventory.catalog import READ_METHODS
 from ..inventory.device_map import Device
-from . import android, announcement, camera, mqtt_source, result, switch
+from . import android, announcement, camera, mqtt_source, ping, result, switch
 from .. import i18n
 
 
@@ -22,29 +22,151 @@ def credential_group(device: Device) -> str | None:
     return READ_METHODS.get(device.read_method, {}).get("group")
 
 
+# The methods that reach a device DIRECTLY — the only ones worth a second,
+# richer visit after a broker answer (below).
+DIRECT_METHODS = ("kyland", "http", "isapi", "adb")
+
+
 def read_device(device: Device, credentials=None, telemetry=None,
                 timeout: float | None = None,
                 expected_ntp: str | None = None,
                 pbx_ip: str | None = None,
-                project_span: str = "") -> result.ProbeResult:
-    """Read one device and return a coloured result. Never raises."""
-    method = device.read_method
+                project_span: str = "",
+                method: str | None = None) -> result.ProbeResult:
+    """Read one device and return a coloured result. Never raises.
+
+    THE BROKER ANSWERS FIRST, THE DEVICE TOPS IT UP. On a broker-probed
+    device (GDM: `probe_method` "mqtt" while `read_method` names the real
+    protocol) the DeviceMap record decides who is up and carries the base
+    fields — version, serial, uptime — and a device the record calls alive
+    is then read once over its own protocol for the fields the broker does
+    not publish: an Intercom's volumes and SIP numbers, a display's time
+    zone, a camera's time check. The same shape as the field script this
+    panel grew out of (`field_scripts/device_verify.py`): the map is the
+    backbone, the protocol reads only top up, and a top-up that fails does
+    not un-say what the broker said.
+
+    AND THE BROKER IS NEVER A PRECONDITION. Where there is no record to
+    read — no broker on the stand, a collection that failed, a device the
+    published map does not list — the device is simply asked directly, the
+    read every project had before the broker-first arrangement. A record
+    that testifies "down", on the other hand, stands (softened only by the
+    ping below): the PISCU watches the device continuously and outranks a
+    fresh handshake.
+
+    `method` overrides the dispatch entirely — the checklist export's door
+    to a direct re-read — and an override also skips the top-up: whoever
+    names a method wants exactly that one answer.
+    """
+    # The PROBE method, not the read method, decides how status is asked
+    # for — "mqtt" on every direct rule, fleet-wide — while `read_method`
+    # keeps carrying what it always carried: which protocol configuration
+    # and firmware travel over (see inventory/profiles).
+    # `getattr` because the ADB screen's stand-in devices predate the field.
+    chosen = (method or getattr(device, "probe_method", "")
+              or device.read_method)
+    hybrid = (method is None and chosen != device.read_method
+              and device.read_method in DIRECT_METHODS)
+    if hybrid and not _broker_can_answer(device, telemetry):
+        chosen, hybrid = device.read_method, False
     try:
-        if method == "kyland":
-            return _read_switch(device, credentials, telemetry, timeout)
-        if method == "isapi":
-            return _read_camera(device, credentials, timeout, expected_ntp,
-                                project_span)
-        if method == "http":
-            return _read_announcement(device, credentials, timeout)
-        if method == "adb":
-            return _read_android(device, telemetry, pbx_ip, timeout)
-        if method in ("mqtt", "app"):
-            return _read_mqtt(device, telemetry, method)
-        return result.not_applicable(
-            method, i18n.t("error.noReadMethod"))
+        outcome = _dispatch(chosen, device, credentials, telemetry, timeout,
+                            expected_ntp, pbx_ip, project_span)
     except Exception as exc:
-        return result.from_error(exc, method)
+        return _second_opinion(device, result.from_error(exc, chosen))
+    if hybrid and outcome.state == status.OK:
+        return _topped_up(device, outcome, credentials, telemetry, timeout,
+                          expected_ntp, pbx_ip, project_span)
+    return outcome
+
+
+def _broker_can_answer(device: Device, telemetry) -> bool:
+    """Is there a broker record for this device at all?
+
+    False sends the read to the device itself. Absence of a record is NOT
+    evidence of absence of the device — a stand has no PISCU, a bench has
+    no broker, and a map that does not list a camera says nothing about
+    the camera — so nothing here is allowed to colour a row; it only picks
+    which road the read takes.
+    """
+    return bool(telemetry is not None
+                and not getattr(telemetry, "error", None)
+                and telemetry.record(device.ip))
+
+
+def _dispatch(method, device, credentials, telemetry, timeout,
+              expected_ntp, pbx_ip, project_span) -> result.ProbeResult:
+    """One read over one named method. Raises what the readers raise."""
+    if method == "kyland":
+        return _read_switch(device, credentials, telemetry, timeout)
+    if method == "isapi":
+        return _read_camera(device, credentials, timeout, expected_ntp,
+                            project_span)
+    if method == "http":
+        return _read_announcement(device, credentials, timeout)
+    if method == "adb":
+        return _read_android(device, telemetry, pbx_ip, timeout)
+    if method in ("mqtt", "app"):
+        return _read_mqtt(device, telemetry, method)
+    return result.not_applicable(
+        method, i18n.t("error.noReadMethod"))
+
+
+def _topped_up(device: Device, base: result.ProbeResult, credentials,
+               telemetry, timeout, expected_ntp, pbx_ip,
+               project_span) -> result.ProbeResult:
+    """The device's own answer, laid over the broker record.
+
+    Three outcomes, in the order they are checked:
+
+    * The device answered — the rich result wins, carrying forward any base
+      field its protocol does not produce (ISAPI has no uptime; the record
+      does). Green, with everything filled.
+    * The device wants a password — AMBER, with the base fields kept. The
+      credential store is memory-only, so this is the only road to the
+      extra fields ever being readable: a row that stayed green would never
+      ask, and nobody would ever be told why the volumes are empty.
+    * Anything else — the broker's word stands. It proved the device alive
+      a moment ago; a protocol that gave nothing on top of that empties no
+      cell and turns nothing red, it is only named in the detail.
+    """
+    try:
+        rich = _dispatch(device.read_method, device, credentials, telemetry,
+                         timeout, expected_ntp, pbx_ip, project_span)
+    except Exception as exc:
+        rich = result.from_error(exc, device.read_method)
+    if rich.state == status.OK:
+        fields = dict(base.fields)
+        fields.update({key: value for key, value in rich.fields.items()
+                       if value not in (None, "")})
+        rich.fields = fields
+        return rich
+    if result.needs_auth(rich):
+        rich.fields = dict(base.fields)
+        return rich
+    base.detail = i18n.t("probe.extrasUnread",
+                         reason=rich.detail or rich.read_method)
+    return base
+
+
+def _second_opinion(device: Device, outcome: result.ProbeResult):
+    """A failed read is followed by one ping before it is called red.
+
+    Only FAILED is refined. Amber already means "alive, wants a password"
+    and grey means "not asked", so neither needs the echo; and a read that
+    threw without the device being at fault (no telemetry) never gets here —
+    it went grey in `_read_mqtt`.
+
+    The original error stays in the detail: "needs inspection" without the
+    reason is an errand with no starting point.
+    """
+    if outcome.state != status.FAILED or not device.ip:
+        return outcome
+    if not ping.reachable(device.ip):
+        return outcome
+    outcome.state = status.REVIEW
+    outcome.detail = i18n.t("probe.aliveButSilent", reason=outcome.detail)
+    return outcome
 
 
 def _read_switch(device, credentials, telemetry, timeout):

@@ -338,6 +338,7 @@ button.stat:focus-visible { outline-offset: -2px; }
    read — which is exactly the row somebody needs to read. */
 [data-state="ok"] { --state-colour: var(--ok); --state-text: var(--ok-text); }
 [data-state="auth"] { --state-colour: var(--auth); --state-text: var(--auth-text); }
+[data-state="review"] { --state-colour: var(--review); --state-text: var(--review-text); }
 [data-state="failed"] { --state-colour: var(--failed); --state-text: var(--failed-text); }
 [data-state="unknown"] { --state-colour: var(--unknown); --state-text: var(--unknown-text); }
 /* A running job: green means "finished" and queued grey reads as dormant.

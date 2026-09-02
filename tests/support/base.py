@@ -21,6 +21,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 # Defined by the package module along with the environment (see above);
 # re-exported because half the suite reads checkout files relative to it.
@@ -76,6 +77,15 @@ class PanelTest(unittest.TestCase):
         # the seconds were pure cost. A test whose subject IS the timing
         # calls `self.clock.uninstall()` to get the real one back.
         self.clock = fake_clock.install(self)
+        # No test pings a real network. The probe follows a failed read with
+        # one echo (panel/probe/ping.py), and on a developer's network a
+        # test-fixture address may genuinely answer — every "unreachable"
+        # assertion in the suite would then flap with the office topology.
+        # Tests about the softening itself patch this back on.
+        self._ping = mock.patch("panel.probe.ping.reachable",
+                                return_value=False)
+        self._ping.start()
+        self.addCleanup(self._ping.stop)
         self._old_device_map = settings.DEVICE_MAP
         self._old_kyland = settings.KYLAND_PORT
         self._old_video = settings.VIDEO_PORT

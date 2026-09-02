@@ -97,6 +97,7 @@ def export(inventory: Inventory, results: dict, output: Path | None = None,
                 if value not in (None, ""):
                     values[column] = value
         elif result is not None and result.state in (status.FAILED,
+                                                     status.REVIEW,
                                                      status.AUTH):
             values[cols.STATUS_DESCRIPTION] = cols.STATUS_INACTIVE
 

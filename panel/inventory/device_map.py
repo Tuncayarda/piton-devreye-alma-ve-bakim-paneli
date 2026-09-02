@@ -72,6 +72,11 @@ class Device:
     # because both are the PROJECT's answer (see inventory/profiles) and the
     # device is the only thing that travels afterwards.
     config_scope: str
+    # How STATUS is read when that differs from `read_method` — GDM's
+    # broker-published DeviceMap, today (see `profiles._rules.Rule.probe`).
+    # Defaulted so the many tests that build a Device by hand keep working;
+    # the probe falls back to `read_method` on an empty value.
+    probe_method: str = ""
     pbx_extension: str | None = None
     # SIP registration password from DeviceMap. The device's SIP endpoint
     # requires it when writing configuration. Absent from `dto()`: it never
@@ -297,6 +302,7 @@ def load(set_no: int, path: Path | None = None,
             active=bool(sw.get("IsActive", True)),
             category=category_for("Switch"),
             read_method=profile.read_method("Switch", None),
+            probe_method=profile.probe_method("Switch", None),
             config_scope=profile.config_scope("Switch", None),
             extra=_without_secrets(sw),
         ))
@@ -313,6 +319,7 @@ def load(set_no: int, path: Path | None = None,
                 active=bool(dv.get("IsActive", True)),
                 category=category_for(device_type),
                 read_method=profile.read_method(device_type, subtype),
+                probe_method=profile.probe_method(device_type, subtype),
                 config_scope=profile.config_scope(device_type, subtype),
                 pbx_extension=dv.get("PBXExtension") or None,
                 pbx_password=dv.get("PBXPassword") or None,

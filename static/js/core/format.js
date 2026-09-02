@@ -17,6 +17,7 @@ export function value(v) {
 export const STATE_LABEL = {
   ok: 'state.ok',
   auth: 'state.auth',
+  review: 'state.review',
   failed: 'state.failed',
   unknown: 'state.unknown',
 };

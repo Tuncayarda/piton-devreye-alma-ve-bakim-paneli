@@ -34,6 +34,12 @@ class Rule:
     `scope_by` names what decides the field set. "subtype" for announcement
     equipment, where the SubType IS the interface; "type" for video, where it
     is not.
+
+    `probe` is how STATUS is asked for when that differs from `read`:
+    "mqtt" on every direct rule below, fleet-wide — the broker-first note
+    above the rules tells the story. `read` keeps carrying which protocol
+    configuration and firmware travel over (it also keys the firmware
+    extension table and the config appliers).
     """
 
     name: str
@@ -41,6 +47,11 @@ class Rule:
     subtypes: tuple[str, ...] | None
     read: str
     scope_by: str = "subtype"
+    probe: str = ""
+
+    @property
+    def probe_method(self) -> str:
+        return self.probe or self.read
 
     def covers(self, device_type: str, subtype: str | None) -> bool:
         return (device_type in self.types
@@ -50,20 +61,37 @@ class Rule:
         return device_type if self.scope_by == "type" else (subtype or "")
 
 
+# EVERY DIRECT RULE PROBES THE BROKER FIRST (probe="mqtt"), fleet-wide. The
+# PISCU watches the whole train and publishes each device's state on
+# ALFA/DeviceMap, so status, version, serial and uptime come off that one
+# topic, and a device the record calls alive is then read over its own
+# protocol for the fields the broker does not publish (the top-up:
+# `panel.probe.reader`). It began as GDM's arrangement; the field script
+# (`field_scripts/device_verify.py`) had always worked this way for every
+# project, and the panel now reads the way the script does. The fallback
+# when there is NO broker to ask — a stand with no PISCU, a bench, a record
+# that does not list the device — is the direct read below, so nothing here
+# depends on the broker being alive.
+#
+# `read` is untouched by all of this: configuration, firmware and the
+# credential check still travel over the device's own protocol.
+
 # The managed switch. One reader, no SubTypes — a switch is a switch.
-SWITCH_KYLAND = Rule("switch/kyland", ("Switch",), None, "kyland")
+SWITCH_KYLAND = Rule("switch/kyland", ("Switch",), None, "kyland",
+                     probe="mqtt")
 
 # Piton's announcement controllers. Every one of them answers the same HTTP
 # surface; what differs between them is WHICH fields that surface carries,
 # which is why the scope is the SubType.
 ANNOUNCEMENT_HTTP = Rule(
     "announcement/http", ("Announcement",),
-    ("Amplifier", "Handset", "Intercom", "Swanneck", "UIC"), "http")
+    ("Amplifier", "Handset", "Intercom", "Swanneck", "UIC"), "http",
+    probe="mqtt")
 
 # Hikvision cameras and recorders, over ISAPI. Scoped by TYPE: a camera's
 # SubType is where the customer wrote what the camera is pointed at.
 VIDEO_ISAPI = Rule("video/isapi", ("Camera", "NVR"), None, "isapi",
-                   scope_by="type")
+                   scope_by="type", probe="mqtt")
 
 # The control units. Read from what they publish over MQTT rather than asked
 # directly — there is no settings surface on either.
@@ -78,7 +106,8 @@ CONTROL_APP = Rule("control/app", ("PISCU", "HMI"), None, "app")
 # nobody has declared should fall through to "described by DeviceMap, asked
 # nothing" rather than have adb tried on it.
 ANDROID_DISPLAY = Rule(
-    "display/adb", ("LCD",), ("Compartment", "Twin", "LINE", "PIS"), "adb")
+    "display/adb", ("LCD",), ("Compartment", "Twin", "LINE", "PIS"), "adb",
+    probe="mqtt")
 
 # The reader for everything no rule claims: described by DeviceMap, asked
 # nothing directly. Not a rule a project lists — it is what is left.

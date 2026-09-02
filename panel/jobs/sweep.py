@@ -13,6 +13,10 @@ from .. import i18n
 _ROW_STATE = {
     status.OK: ROW_DONE,
     status.AUTH: ROW_AUTH,
+    # A review read still failed to bring information back, and the queue
+    # log records what the READ did; the softer word lives on the device
+    # row, where the state means the device rather than the attempt.
+    status.REVIEW: ROW_FAILED,
     status.FAILED: ROW_FAILED,
     status.UNKNOWN: ROW_SKIPPED,
 }

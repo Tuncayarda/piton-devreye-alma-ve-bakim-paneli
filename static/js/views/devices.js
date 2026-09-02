@@ -41,7 +41,7 @@ const SORTS = [
 
 // Worst first when sorting by state: the reason to sort by it at all is to
 // bring what needs attention to the top.
-const STATE_ORDER = ['failed', 'auth', 'unknown', 'ok'];
+const STATE_ORDER = ['failed', 'review', 'auth', 'unknown', 'ok'];
 
 function ipOrder(text) {
   return String(text || '').split('.')
@@ -137,7 +137,7 @@ function openRowMenu(device, event, root) {
 // overview's four figures link straight in here, so a bucket that holds two
 // of them means the number that was clicked and the number of rows that
 // arrive are different. Four states, four filters, four counts, and they are
-// the same four the overview's strip is drawn from.
+// the same five the overview's strip is drawn from.
 //
 // Keys, not text — see action_tabs.js: the module loads before the catalogue
 // arrives.
@@ -145,6 +145,7 @@ const FILTERS = [
   { id: 'all', labelKey: 'group.all' },
   { id: 'ok', labelKey: 'state.ok' },
   { id: 'auth', labelKey: 'state.auth' },
+  { id: 'review', labelKey: 'state.review' },
   { id: 'failed', labelKey: 'state.failed' },
   { id: 'unknown', labelKey: 'state.unknown' },
 ];
@@ -227,7 +228,7 @@ export function render(root) {
       go: () => patch({ category: entry.id, subtype: null }),
     }))));
 
-  // The same four states the overview's strip is drawn from, with the same
+  // The same five states the overview's strip is drawn from, with the same
   // counts, so the figure that was clicked over there and the number of rows
   // that arrive here are one number.
   const spread = stateSpread();

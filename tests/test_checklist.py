@@ -357,5 +357,109 @@ class EveryMappedDeviceHasAChecklistRow(unittest.TestCase):
                          "scan results to land in")
 
 
+class RichReadForTheWorkbook(unittest.TestCase):
+    """The export re-reads broker-probed devices for the workbook.
+
+    On GDM the scan listens to ALFA/DeviceMap, which knows nothing of an
+    Intercom's volumes or a camera's time check — columns the workbook has.
+    The export therefore reads such devices over their own protocol once,
+    lays the answer over the broker record, and falls back to the record
+    when the device does not answer (panel/api/tasks/checklist_task.py).
+    """
+
+    def _gdm_inventory(self):
+        import json as json_module
+        import tempfile
+        from pathlib import Path
+
+        topology = {"Switches": [{
+            "Name": "GDM_SW_1", "IP": "192.168.201.2", "IsActive": True,
+            "Manufacturer": "KYLAND", "TrainSet": 1,
+            "Status": {"NoError": True},
+            "Devices": [{
+                "Name": "Intercom_1", "IP": "192.168.201.11",
+                "IsActive": True, "Type": "Announcement",
+                "SubType": "Intercom", "Port": "3", "Status": {},
+            }],
+        }]}
+        path = Path(tempfile.mkdtemp(prefix="panel-test-")) / \
+            "DeviceMap_gdm.json"
+        path.write_text(json_module.dumps(topology), encoding="utf-8")
+        return device_map.load(1, path, cache=False)
+
+    @staticmethod
+    def _job():
+        import threading
+        from unittest import mock
+
+        job = mock.Mock()
+        job.cancel = threading.Event()
+        return job
+
+    def test_the_rich_answer_lands_on_top_of_the_broker_record(self):
+        from unittest import mock
+
+        from panel.api.tasks import checklist_task
+
+        inventory = self._gdm_inventory()
+        intercom = next(d for d in inventory.devices
+                        if d.subtype == "Intercom")
+        results = {intercom.id: probe_result.success(
+            {"version": "1.0", "serial": "ABC", "uptime": "00:10:00"},
+            "mqtt")}
+        rich = probe_result.success(
+            {"version": "1.1", "speakerVolume": "7", "uptime": ""}, "http")
+        job = self._job()
+        with mock.patch.object(checklist_task.reader, "read_device",
+                               return_value=rich) as read:
+            checklist_task._enrich(job, inventory, results)
+        # Read over its OWN protocol, not the broker.
+        self.assertEqual(read.call_args.kwargs.get("method"), "http")
+        merged = results[intercom.id]
+        # The rich value wins, the broker's fills what the protocol lacks.
+        self.assertEqual(merged.fields["speakerVolume"], "7")
+        self.assertEqual(merged.fields["version"], "1.1")
+        self.assertEqual(merged.fields["uptime"], "00:10:00")
+        # The switch was enriched too (kyland is a direct protocol) — one
+        # row per re-read device went to the queue.
+        self.assertEqual(job.add_row.call_count, 2)
+
+    def test_a_silent_device_falls_back_to_the_broker_record(self):
+        from unittest import mock
+
+        from panel.api.tasks import checklist_task
+        from panel.probe.result import ProbeResult
+
+        inventory = self._gdm_inventory()
+        intercom = next(d for d in inventory.devices
+                        if d.subtype == "Intercom")
+        stored = probe_result.success({"version": "1.0"}, "mqtt")
+        results = {intercom.id: stored}
+        with mock.patch.object(
+                checklist_task.reader, "read_device",
+                return_value=ProbeResult(state=status.FAILED, detail="x")):
+            checklist_task._enrich(self._job(), inventory, results)
+        # The workbook keeps what the broker knew; nothing was lost.
+        self.assertIs(results[intercom.id], stored)
+
+    def test_only_broker_probed_devices_are_reread(self):
+        """The re-read exists for devices whose scan went to the broker —
+        which is every direct rule now, fleet-wide. What never gets a
+        second visit is what never had a first one of its own: the PISCU
+        and the passive gear are broker records and nothing else."""
+        from panel.api.tasks import checklist_task
+
+        inventory = device_map.load(1, YATAKLI_MAP, cache=False)
+        by_method = {}
+        for device in inventory.devices:
+            by_method.setdefault(device.read_method, set()).add(
+                checklist_task._needs_rich_read(device))
+        for direct in ("kyland", "http", "isapi", "adb"):
+            self.assertEqual(by_method.get(direct, {True}), {True}, direct)
+        for broker_only in ("app", "mqtt"):
+            self.assertEqual(by_method.get(broker_only, {False}), {False},
+                             broker_only)
+
+
 if __name__ == "__main__":
     unittest.main()

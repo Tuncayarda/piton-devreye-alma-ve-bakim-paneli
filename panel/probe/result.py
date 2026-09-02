@@ -76,13 +76,14 @@ def needs_auth(result: ProbeResult) -> bool:
 
 def tally(results) -> dict:
     """State distribution across a scan snapshot."""
-    counts = {status.OK: 0, status.AUTH: 0, status.FAILED: 0,
-              status.UNKNOWN: 0}
+    counts = {status.OK: 0, status.AUTH: 0, status.REVIEW: 0,
+              status.FAILED: 0, status.UNKNOWN: 0}
     for result in results:
         counts[result.state] = counts.get(result.state, 0) + 1
     return {
         "ok": counts[status.OK],
         "auth": counts[status.AUTH],
+        "review": counts[status.REVIEW],
         "failed": counts[status.FAILED],
         "unknown": counts[status.UNKNOWN],
     }

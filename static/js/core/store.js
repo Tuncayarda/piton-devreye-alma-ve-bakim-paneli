@@ -40,7 +40,7 @@ export const state = {
   subtype: null,
   filter: 'all',
   devices: [],
-  counts: { ok: 0, auth: 0, failed: 0, unknown: 0 },
+  counts: { ok: 0, auth: 0, review: 0, failed: 0, unknown: 0 },
   locked: [],
   jobs: [],
   openJob: null,
@@ -225,7 +225,7 @@ export function visibleDevices() {
   });
 }
 
-const STATE_FILTERS = new Set(['ok', 'auth', 'failed', 'unknown']);
+const STATE_FILTERS = new Set(['ok', 'auth', 'review', 'failed', 'unknown']);
 
 // The projects THIS PACKAGE was built for — what the top bar's project name
 // switches between. The ones admin mode adds (`origin: 'extra'`, another
@@ -241,18 +241,19 @@ export function ownProjects(from = state) {
   return (from.projects || []).filter(project => project.origin !== 'extra');
 }
 
-// The four states, always summing to the device list.
+// The five states, always summing to the device list.
 //
 // `unknown` is worked out rather than read off the snapshot: a device the
-// scan has not reached yet has no result to be tallied, so the server's four
+// scan has not reached yet has no result to be tallied, so the server's
 // numbers can come to less than the list. The overview's strip and the
-// devices screen's filters both need the four to add up, and they must not
+// devices screen's filters both need the sum to add up, and they must not
 // each do this sum their own way.
 export function stateSpread() {
   const counts = state.counts;
-  const settled = counts.ok + counts.auth + counts.failed;
+  const review = counts.review || 0;
+  const settled = counts.ok + counts.auth + review + counts.failed;
   return {
-    ok: counts.ok, auth: counts.auth, failed: counts.failed,
+    ok: counts.ok, auth: counts.auth, review, failed: counts.failed,
     unknown: Math.max(0, state.devices.length - settled),
   };
 }

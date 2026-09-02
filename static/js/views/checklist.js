@@ -471,7 +471,8 @@ function confirmExport() {
         stale ? 'var(--auth-text)' : 'var(--ok-text)'),
       line(t('devices.reachable'), `${counts.ok ?? 0}`, 'var(--ok-text)'),
       line(t('state.auth'), `${counts.auth ?? 0}`, 'var(--auth-text)'),
-      line(t('devices.needsReview'), `${counts.failed ?? 0}`,
+      line(t('state.review'), `${counts.review ?? 0}`, 'var(--review-text)'),
+      line(t('state.failed'), `${counts.failed ?? 0}`,
         'var(--failed-text)'),
     ]),
   ]);

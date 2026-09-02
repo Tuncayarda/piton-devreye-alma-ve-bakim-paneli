@@ -132,6 +132,51 @@ class DataPresentation(PanelTest):
         self.assertEqual(result.state, status.FAILED)
         self.assertEqual(result.fields, {})
 
+    def test_a_caller_can_ask_for_the_other_of_the_two_answers(self):
+        """`method=` overrides the probe dispatch — the checklist export's
+        door to the rich read on a broker-probed device. With no telemetry
+        the default lands on the same direct read (the fallback), so both
+        calls here reach the switch reader and neither asks the broker."""
+        device = mock.Mock(probe_method="mqtt", read_method="kyland",
+                           ip="127.0.0.1")
+        with mock.patch.object(reader, "_read_mqtt") as broker, \
+                mock.patch.object(reader, "_read_switch") as direct:
+            reader.read_device(device)
+            reader.read_device(device, method="kyland")
+        self.assertEqual(direct.call_count, 2)
+        broker.assert_not_called()
+
+    def test_a_device_that_answers_ping_is_review_not_red(self):
+        """Red carried two different afternoons (panel/status.py).
+
+        The same silent switch as the test above, but this time the address
+        answers an echo: the row must say "needs inspection", keep the
+        original reason in the detail, and not pretend anything was read.
+        """
+        topology = fakes.device_map([], switch_ip="127.0.0.1")
+        inventory = self.build_map(topology)
+        with fakes.silent() as silent, \
+                mock.patch("panel.probe.ping.reachable", return_value=True):
+            self.switch_port(silent.port)
+            result = reader.read_device(inventory.switches()[0],
+                                        credentials=("a", "b"), timeout=1.0)
+        self.assertEqual(result.state, status.REVIEW)
+        self.assertEqual(result.fields, {})
+        self.assertIn("inspection", result.detail)
+
+    def test_ping_does_not_soften_auth_or_grey(self):
+        """The echo refines RED alone. Amber already means "alive, wants a
+        password" and grey means "not asked" — softening either would hide
+        the actual next step behind a vaguer one."""
+        from panel.probe.result import ProbeResult
+
+        device = mock.Mock(ip="127.0.0.1")
+        with mock.patch("panel.probe.ping.reachable", return_value=True):
+            for state in (status.AUTH, status.UNKNOWN, status.OK):
+                outcome = reader._second_opinion(
+                    device, ProbeResult(state=state, detail="x"))
+                self.assertEqual(outcome.state, state)
+
     def test_without_mqtt_a_device_stays_grey_not_failed(self):
         """With no broker an MQTT device is 'not read', not 'failed'."""
         topology = fakes.device_map([{
@@ -150,11 +195,12 @@ class DataPresentation(PanelTest):
             probe_result.success({}, "http"),
             probe_result.success({}, "http"),
             probe_result.ProbeResult(state=status.AUTH),
+            probe_result.ProbeResult(state=status.REVIEW),
             probe_result.ProbeResult(state=status.FAILED),
             probe_result.not_read("mqtt"),
         ])
-        self.assertEqual(counts, {"ok": 2, "auth": 1, "failed": 1,
-                                  "unknown": 1})
+        self.assertEqual(counts, {"ok": 2, "auth": 1, "review": 1,
+                                  "failed": 1, "unknown": 1})
 
     def test_uptime_text(self):
         self.assertEqual(probe_result.uptime_text(3661), "01:01:01")

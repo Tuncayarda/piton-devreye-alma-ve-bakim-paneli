@@ -43,6 +43,9 @@
      the two must not be swapped. */
   --ok: #3fb950;
   --auth: #d29922;
+  /* Between amber and red on purpose: the device answers ping but its
+     protocol gave nothing — alive, and still an errand (panel/status.py). */
+  --review: #e0662e;
   --failed: #da3633;
   --unknown: #3d4c5a;
   /* Darker than "unknown", and not a state at all: the ground of a cell that
@@ -54,6 +57,7 @@
      the fill value and stay one colour; red and grey do not. */
   --ok-text: var(--ok);
   --auth-text: var(--auth);
+  --review-text: #e8834f;
   --failed-text: #e05c59;
   --unknown-text: var(--text-dim);
   /* The softer red of error sentences and invalid-field warnings — a whole

@@ -29,13 +29,14 @@ import {
 import { t } from '../core/i18n.js';
 import { emptyState } from '../components/placeholder.js';
 
-// THE FOUR STATES, IN THE ORDER THEY ARE DRAWN — and it is one order, used
+// THE FIVE STATES, IN THE ORDER THEY ARE DRAWN — and it is one order, used
 // by the strip and by the figures under it, so a colour in the bar and a
 // number below it are found in the same place.
 //
 // Reachable leads because it is the share being watched; "not read" trails
-// because it is the part still to come.
-const SWEEP = ['ok', 'auth', 'failed', 'unknown'];
+// because it is the part still to come. "Needs inspection" sits between
+// amber and red, which is what it is: alive, and still an errand.
+const SWEEP = ['ok', 'auth', 'review', 'failed', 'unknown'];
 
 // THE SWEEP STRIP — the whole device list as one bar.
 // ──────────────────────────────────────────────────
@@ -53,7 +54,7 @@ function sweepStrip(counts, total) {
   return el('div', {
     class: 'sweep', role: 'img',
     'aria-label': t('overview.sweepBreakdown', {
-      ok: counts.ok, auth: counts.auth,
+      ok: counts.ok, auth: counts.auth, review: counts.review || 0,
       failed: counts.failed, unknown: counts.unknown,
     }),
   }, SWEEP.map(name => (counts[name] > 0 ? el('i', {
@@ -94,7 +95,7 @@ export function render(root, refreshNow) {
   const counts = state.counts;
   // How many devices have answered so far. A scan that is still running has
   // already settled some of them, and those answers are real.
-  const read = counts.ok + counts.auth + counts.failed;
+  const read = counts.ok + counts.auth + (counts.review || 0) + counts.failed;
   // "Read" is therefore not "the sweep finished": it used to be, and for the
   // whole first scan of a session — the minute the operator watches hardest
   // — every tile on this page read "—" while devices were turning green one
@@ -153,7 +154,12 @@ export function render(root, refreshNow) {
       () => goToList('ok')),
     figure(t('state.auth'), 'auth', scanned ? counts.auth : NONE,
       () => patch({ lockedOpen: true, queueOpen: false })),
-    figure(t('devices.needsReview'), 'failed', scanned ? counts.failed : NONE,
+    // Alive on the network but silent on its protocol — a different errand
+    // from red, which now purely means "not there at all".
+    figure(t('state.review'), 'review',
+      scanned ? (counts.review || 0) : NONE,
+      () => goToList('review')),
+    figure(t('state.failed'), 'failed', scanned ? counts.failed : NONE,
       () => goToList('failed')),
     // The one figure that is a real number before the first scan: "we have
     // not asked yet" is a count, and it is the whole list.
@@ -248,6 +254,11 @@ export function render(root, refreshNow) {
         t('overview.needCredentials', { count: counts.auth }),
         t('overview.enterCredentials'),
         () => patch({ lockedOpen: true, queueOpen: false })));
+    }
+    if (counts.review) {
+      steps.push(stepRow('review',
+        t('overview.needsInspection', { count: counts.review }),
+        t('overview.openTheList'), () => goToList('review')));
     }
     if (counts.failed) {
       steps.push(stepRow('failed',

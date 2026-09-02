@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="dap-transport" content="bridge">
 <meta name="dap-capability" content="__DAP_CAPABILITY__">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-yw5WzwGP9mYQBi9k/gH9om37Dy+adPSoFuHoEewRjUE=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/dl0NnuD2Qp691GZHubif44Pfiln3sDyr0uKjVZr9TE=' 'sha256-ybuWWSsqadOUAAgqNiBBEXZfHEdEjh+0bw23S7wBqZU=' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <script>
 (() => {
   const meta = document.querySelector('meta[name="dap-capability"]');
@@ -74,6 +74,9 @@
      the two must not be swapped. */
   --ok: #3fb950;
   --auth: #d29922;
+  /* Between amber and red on purpose: the device answers ping but its
+     protocol gave nothing — alive, and still an errand (panel/status.py). */
+  --review: #e0662e;
   --failed: #da3633;
   --unknown: #3d4c5a;
   /* Darker than "unknown", and not a state at all: the ground of a cell that
@@ -85,6 +88,7 @@
      the fill value and stay one colour; red and grey do not. */
   --ok-text: var(--ok);
   --auth-text: var(--auth);
+  --review-text: #e8834f;
   --failed-text: #e05c59;
   --unknown-text: var(--text-dim);
   /* The softer red of error sentences and invalid-field warnings — a whole
@@ -789,6 +793,7 @@ button.stat:focus-visible { outline-offset: -2px; }
    read — which is exactly the row somebody needs to read. */
 [data-state="ok"] { --state-colour: var(--ok); --state-text: var(--ok-text); }
 [data-state="auth"] { --state-colour: var(--auth); --state-text: var(--auth-text); }
+[data-state="review"] { --state-colour: var(--review); --state-text: var(--review-text); }
 [data-state="failed"] { --state-colour: var(--failed); --state-text: var(--failed-text); }
 [data-state="unknown"] { --state-colour: var(--unknown); --state-text: var(--unknown-text); }
 /* A running job: green means "finished" and queued grey reads as dormant.
@@ -5011,6 +5016,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     counts: {
       ok: 0,
       auth: 0,
+      review: 0,
       failed: 0,
       unknown: 0
     },
@@ -5157,6 +5163,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var STATE_FILTERS = /* @__PURE__ */ new Set([
     "ok",
     "auth",
+    "review",
     "failed",
     "unknown"
   ]);
@@ -5165,10 +5172,12 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   }
   function stateSpread() {
     const counts = state.counts;
-    const settled = counts.ok + counts.auth + counts.failed;
+    const review = counts.review || 0;
+    const settled = counts.ok + counts.auth + review + counts.failed;
     return {
       ok: counts.ok,
       auth: counts.auth,
+      review,
       failed: counts.failed,
       unknown: Math.max(0, state.devices.length - settled)
     };
@@ -5611,6 +5620,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var STATE_LABEL = {
     ok: "state.ok",
     auth: "state.auth",
+    review: "state.review",
     failed: "state.failed",
     unknown: "state.unknown"
   };
@@ -6946,6 +6956,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   var SWEEP = [
     "ok",
     "auth",
+    "review",
     "failed",
     "unknown"
   ];
@@ -6956,6 +6967,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
       "aria-label": t("overview.sweepBreakdown", {
         ok: counts.ok,
         auth: counts.auth,
+        review: counts.review || 0,
         failed: counts.failed,
         unknown: counts.unknown
       })
@@ -7002,7 +7014,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     const devices2 = state.devices;
     const total = devices2.length;
     const counts = state.counts;
-    const read = counts.ok + counts.auth + counts.failed;
+    const read = counts.ok + counts.auth + (counts.review || 0) + counts.failed;
     const scanned = !!state.lastScan || read > 0;
     const withVersion = devices2.filter((d) => d.result.fields && d.result.fields.version).length;
     const spread = stateSpread();
@@ -7054,7 +7066,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         lockedOpen: true,
         queueOpen: false
       })),
-      figure(t("devices.needsReview"), "failed", scanned ? counts.failed : NONE, () => goToList("failed")),
+      // Alive on the network but silent on its protocol — a different errand
+      // from red, which now purely means "not there at all".
+      figure(t("state.review"), "review", scanned ? counts.review || 0 : NONE, () => goToList("review")),
+      figure(t("state.failed"), "failed", scanned ? counts.failed : NONE, () => goToList("failed")),
       // The one figure that is a real number before the first scan: "we have
       // not asked yet" is a count, and it is the whole list.
       figure(t("state.unknown"), "unknown", spread.unknown, () => goToList("unknown"))
@@ -7159,6 +7174,11 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
           lockedOpen: true,
           queueOpen: false
         })));
+      }
+      if (counts.review) {
+        steps.push(stepRow("review", t("overview.needsInspection", {
+          count: counts.review
+        }), t("overview.openTheList"), () => goToList("review")));
       }
       if (counts.failed) {
         steps.push(stepRow("failed", t("overview.checkUnfinished", {
@@ -7493,6 +7513,7 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
   ];
   var STATE_ORDER = [
     "failed",
+    "review",
     "auth",
     "unknown",
     "ok"
@@ -7581,6 +7602,10 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
     {
       id: "auth",
       labelKey: "state.auth"
+    },
+    {
+      id: "review",
+      labelKey: "state.review"
     },
     {
       id: "failed",
@@ -14802,7 +14827,8 @@ select.poe.off { border-color: var(--failed-line); color: var(--failed-text); }
         }) : NONE, stale ? "var(--auth-text)" : "var(--ok-text)"),
         line(t("devices.reachable"), `${counts.ok ?? 0}`, "var(--ok-text)"),
         line(t("state.auth"), `${counts.auth ?? 0}`, "var(--auth-text)"),
-        line(t("devices.needsReview"), `${counts.failed ?? 0}`, "var(--failed-text)")
+        line(t("state.review"), `${counts.review ?? 0}`, "var(--review-text)"),
+        line(t("state.failed"), `${counts.failed ?? 0}`, "var(--failed-text)")
       ])
     ]);
     const produce = async () => {

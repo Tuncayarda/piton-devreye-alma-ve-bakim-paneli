@@ -56,6 +56,14 @@ class Profile:
         rule = self.rule_for(device_type, subtype)
         return rule.read if rule else PASSIVE
 
+    def probe_method(self, device_type: str, subtype: str | None) -> str:
+        """How this device's STATUS is read, when that differs from `read`.
+
+        The same value as `read_method` everywhere but GDM — see `Rule.probe`.
+        """
+        rule = self.rule_for(device_type, subtype)
+        return rule.probe_method if rule else PASSIVE
+
     def config_scope(self, device_type: str, subtype: str | None) -> str:
         """What decides this device's configuration field set.
 
