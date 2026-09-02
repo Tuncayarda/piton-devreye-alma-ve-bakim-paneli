@@ -189,6 +189,22 @@ class Queue(ServiceTest):
                               {"set": 1, "devices": [camera.id]})[1]
             self.assertEqual(asked["refreshed"], [])
 
+            # A "needs inspection" row IS refreshed: somebody proved that
+            # device alive, and it should heal the moment its protocol
+            # answers again rather than sit orange until the next scan.
+            from panel.probe.result import ProbeResult
+            jobs.view_for(1).write(camera.id, ProbeResult(
+                state=status.REVIEW, generation=jobs.next_generation()))
+            again = self.call(base, "/api/refresh",
+                              {"set": 1, "devices": [camera.id]})[1]
+            self.assertEqual(again["refreshed"], [camera.id])
+            code, state = self.call(base, "/api/state?set=1")
+            states = {d["id"]: d["result"]["state"]
+                      for d in state["devices"]}
+            # The port is still closed and nothing answers ping here, so
+            # the re-read settles the row honestly back to red.
+            self.assertEqual(states[camera.id], status.FAILED)
+
     def test_the_light_refresh_is_rejected_during_a_full_scan(self):
         self.build_map(_topology(12))
         with fakes.silent() as silent:

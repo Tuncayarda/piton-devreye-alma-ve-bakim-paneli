@@ -77,8 +77,15 @@ def _refresh_locked(inventory, body):
     targets = []
     for device in inventory.devices:
         result = view.get(device.id)
-        if result is None or result.state != status.OK:
-            continue                      # verified devices only
+        # Green rows, and the "needs inspection" ones. A review row is a
+        # device somebody proved ALIVE a moment ago (the broker, or a ping)
+        # whose own protocol gave nothing — exactly the row that should
+        # heal on its own the moment the protocol answers again, and
+        # without this it sat orange until the next full scan. Red and
+        # amber stay out as they always did: dead hardware is not polled,
+        # and a password does not appear by asking again.
+        if result is None or result.state not in (status.OK, status.REVIEW):
+            continue
         if requested and device.id not in requested:
             continue
         targets.append(device)

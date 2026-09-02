@@ -12,6 +12,7 @@ in the form but not in the scan" cannot happen.
 from __future__ import annotations
 
 from .. import settings, status
+from ..errors import UnreachableError, classify
 from ..inventory.catalog import READ_METHODS
 from ..inventory.device_map import Device
 from . import android, announcement, camera, mqtt_source, ping, result, switch
@@ -117,7 +118,7 @@ def _topped_up(device: Device, base: result.ProbeResult, credentials,
                project_span) -> result.ProbeResult:
     """The device's own answer, laid over the broker record.
 
-    Three outcomes, in the order they are checked:
+    The outcomes, in the order they are checked:
 
     * The device answered — the rich result wins, carrying forward any base
       field its protocol does not produce (ISAPI has no uptime; the record
@@ -126,26 +127,48 @@ def _topped_up(device: Device, base: result.ProbeResult, credentials,
       credential store is memory-only, so this is the only road to the
       extra fields ever being readable: a row that stayed green would never
       ask, and nobody would ever be told why the volumes are empty.
-    * Anything else — the broker's word stands. It proved the device alive
-      a moment ago; a protocol that gave nothing on top of that empties no
-      cell and turns nothing red, it is only named in the detail.
+    * The device COULD NOT BE READ AT ALL — timeout, refused, no route —
+      while the broker calls it alive: "needs inspection". A device whose
+      own protocol is gone is an errand even when the PISCU can still see
+      it, and a green row would hide that errand behind the record.
+    * Anything else — a reply that merely failed verification, a host
+      without adb — the broker's word stands: named in the detail, no cell
+      emptied, nothing turned red.
     """
     try:
         rich = _dispatch(device.read_method, device, credentials, telemetry,
                          timeout, expected_ntp, pbx_ip, project_span)
     except Exception as exc:
-        rich = result.from_error(exc, device.read_method)
+        return _extras_verdict(base, device.read_method, exc)
     if rich.state == status.OK:
         fields = dict(base.fields)
         fields.update({key: value for key, value in rich.fields.items()
                        if value not in (None, "")})
         rich.fields = fields
         return rich
+    # The readers raise their failures; what RETURNS non-OK is the pair of
+    # grey shapes (not applicable / not read), and grey on top of a live
+    # record is only a note.
+    base.detail = i18n.t("probe.extrasUnread",
+                         reason=rich.detail or rich.read_method)
+    return base
+
+
+def _extras_verdict(base: result.ProbeResult, method: str,
+                    exc: BaseException) -> result.ProbeResult:
+    """What a raised top-up means for the row — see `_topped_up`."""
+    rich = result.from_error(exc, method)
     if result.needs_auth(rich):
         rich.fields = dict(base.fields)
         return rich
+    if isinstance(classify(exc), UnreachableError):
+        base.state = status.REVIEW
+        base.verification = status.UNVERIFIED
+        base.detail = i18n.t("probe.aliveButUnreadable",
+                             reason=rich.detail or method)
+        return base
     base.detail = i18n.t("probe.extrasUnread",
-                         reason=rich.detail or rich.read_method)
+                         reason=rich.detail or method)
     return base
 
 

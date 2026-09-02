@@ -268,9 +268,11 @@ class StatusFromTheBroker(unittest.TestCase):
         self.assertEqual(outcome.fields.get("model"), "SICOM")
         self.assertEqual(outcome.fields.get("uptime"), "00:00:42")
 
-    def test_a_silent_top_up_does_not_unsay_the_broker(self):
-        """The record proved the device alive; a protocol that gives
-        nothing on top empties no cell and turns nothing red."""
+    def test_an_unreadable_device_goes_to_needs_inspection(self):
+        """The broker calls it alive, its own protocol gives NOTHING —
+        timeout, refused, no route. That is an errand, and a green row
+        would hide it behind the record: the row says "needs inspection"
+        and keeps the broker's fields so it still shows what is known."""
         from panel.errors import UnreachableError
         from panel.probe import reader as probe_reader
         from panel import status as status_module
@@ -280,10 +282,27 @@ class StatusFromTheBroker(unittest.TestCase):
                                side_effect=UnreachableError("no answer")):
             outcome = probe_reader.read_device(switch_device,
                                                telemetry=self._Telemetry())
+        self.assertEqual(outcome.state, status_module.REVIEW)
+        self.assertEqual(outcome.fields.get("version"), "9.9")
+        self.assertIn("no answer", outcome.detail)
+
+    def test_a_failed_verification_does_not_unsay_the_broker(self):
+        """A reply that arrived but did not verify — a wrong NTP, an odd
+        answer — is content, not silence: the broker's word stands, the
+        reason is named in the detail, and no cell is emptied."""
+        from panel.errors import VerificationError
+        from panel.probe import reader as probe_reader
+        from panel import status as status_module
+
+        switch_device = self._gdm_switch()
+        with mock.patch.object(probe_reader, "_read_switch",
+                               side_effect=VerificationError("odd reply")):
+            outcome = probe_reader.read_device(switch_device,
+                                               telemetry=self._Telemetry())
         self.assertEqual(outcome.state, status_module.OK)
         self.assertEqual(outcome.read_method, "mqtt")
         self.assertEqual(outcome.fields.get("version"), "9.9")
-        self.assertIn("no answer", outcome.detail)
+        self.assertIn("odd reply", outcome.detail)
 
     def test_a_top_up_that_wants_a_password_goes_amber(self):
         """The credential store is memory-only, so amber is the only road

@@ -1152,6 +1152,7 @@
   "probe.adbRead": "{package} {version} okundu",
   "probe.adbReadNoApp": "Ekran yanıt verdi ({serial}) — üzerinde panel uygulaması yok",
   "probe.aliveButSilent": "Cihaz ping yanıtı veriyor ama bilgi vermedi; incelenmesi gerekiyor. ({reason})",
+  "probe.aliveButUnreadable": "PISCU cihazı ayakta bildiriyor ama cihazın kendisi okunamadı; incelenmesi gerekiyor. ({reason})",
   "probe.deviceLog": "cihaz günlüğü",
   "probe.extrasUnread": "Durum DeviceMap'ten; ayrıntı alanları cihazın kendisinden okunamadı ({reason})",
   "probe.mqttLiveNote": "Canlı DeviceMap (retained)",

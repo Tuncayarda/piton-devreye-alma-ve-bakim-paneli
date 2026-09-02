@@ -1152,6 +1152,7 @@
   "probe.adbRead": "{package} {version} read",
   "probe.adbReadNoApp": "Display answered ({serial}) — no panel application on it",
   "probe.aliveButSilent": "The device answers ping but gave no information; it needs inspection. ({reason})",
+  "probe.aliveButUnreadable": "The PISCU reports the device up but the device itself could not be read; it needs inspection. ({reason})",
   "probe.deviceLog": "device log",
   "probe.extrasUnread": "Status from the DeviceMap; the detail fields could not be read from the device itself ({reason})",
   "probe.mqttLiveNote": "Live DeviceMap (retained)",
